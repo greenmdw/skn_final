@@ -20,9 +20,11 @@ from .schemas import SellerRegister, BuyerRequest
 from .store import store
 from .negotiate import run_negotiation
 from .report import write_report, summarizer
+from .integrations.odoo.router import router as odoo_router
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="Deal Ledger MMVP")
+app.include_router(odoo_router)
 
 # 데모 목적: 로컬에서 파일로 연 목업 HTML(origin: null)도 호출 가능하도록 전체 허용
 app.add_middleware(

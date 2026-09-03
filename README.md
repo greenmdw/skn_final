@@ -79,7 +79,31 @@ uvicorn app.main:app --reload --port 8000
 
 **왜 `.env`로 바꿨는지**: `export`는 macOS/Linux(bash) 문법이라 **Windows PowerShell에서는 안 먹혀요** (`$env:OPENAI_API_KEY=...`를 따로 써야 함). `.env` 파일은 OS·셸 종류와 무관하게 코드가 알아서 읽어오기 때문에, 이 문제 자체가 없어집니다. 다시 `rule` 모드로 돌아가려면 `.env`의 `NEGOTIATOR_MODE=rule`로 바꾸거나 그 줄을 지우면 됩니다(기본값이 `rule`이라).
 
-**주의**: `.env` 파일은 실제 API 키가 들어있으니 **절대 git에 커밋하지 마세요** (`.gitignore`에 `.env` 추가 권장, `.env.example`만 커밋).
+**주의**: `.env` 파일은 실제 API 키가 들어있으니 **절대 git에 커밋하지 마세요** (`.gitignore`에 `.env` 추가 권장, `env.example`만 커밋).
+
+## Odoo 19 JSON-2 연결 확인
+
+현재 Odoo 연동 스켈레톤은 읽기 전용 연결 확인만 수행합니다. `/web/version`으로 Odoo 19 여부를 확인한 뒤 `res.users/context_get`을 JSON-2로 호출해 API 키, 데이터베이스 라우팅과 bot 사용자 context를 검증합니다.
+
+1. `env.example`을 `.env`로 복사합니다.
+2. 다음 값을 실제 Odoo 서버 정보로 변경합니다.
+
+```dotenv
+ODOO_BASE_URL=https://odoo.example.com
+ODOO_DATABASE=your-odoo-database
+ODOO_API_KEY=your-dedicated-bot-api-key
+```
+
+3. API 서버를 실행한 뒤 연결 확인 endpoint를 호출합니다.
+
+```bash
+curl http://127.0.0.1:8000/api/integrations/odoo/health
+```
+
+성공하면 `status: "OK"`, Odoo 19 버전, bot 사용자 ID와 허용 company ID가 반환됩니다. 설정이 없거나 잘못되면 서버 시작은 유지되며 endpoint가 `NOT_CONFIGURED`, `VERSION_MISMATCH`, `AUTH_FAILED`, `FORBIDDEN` 또는 `UNREACHABLE` 상태와 안전한 오류 메시지를 반환합니다. API 키와 Odoo traceback은 응답에 포함하지 않습니다.
+
+로컬 HTTP Odoo를 테스트해야 할 때만 `ODOO_ALLOW_INSECURE_HTTP=true`를 사용합니다. 운영에서는 HTTPS와 `ODOO_VERIFY_TLS=true`를 유지합니다.
+
 
 ### 추가된 파일
 - `agents.py` — `RuleBasedSellerAgent`/`RuleBasedBuyerAgent` (기존 로직을 클래스로 감쌈)
