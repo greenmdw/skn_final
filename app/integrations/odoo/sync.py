@@ -158,23 +158,28 @@ class PurchaseInbox:
         if not rows:
             return None
         po = rows[0]
+        # 제품 라인 + "메모 추가"로 붙인 노트 라인(product_id 없음)까지 전부 읽는다.
+        # Odoo GUI에서 메모는 제품 라인과 별개의 라인(line_note)으로 들어가기 때문.
         lines = self.rpc.search_read(
             "purchase.order.line",
             [["order_id", "=", po["id"]]],
             ["product_id", "product_qty", "price_unit", "name"],
-            limit=1,
+            limit=20, order="id asc",
         )
         if not lines:
             return None
-        ln = lines[0]
-        prod = ln.get("product_id")
+        product_line = next((ln for ln in lines if ln.get("product_id")), None)
+        if not product_line:
+            return None
+        prod = product_line.get("product_id")
         item = prod[1] if isinstance(prod, (list, tuple)) and len(prod) > 1 else str(prod)
-        spec, priority = _parse_notes(ln.get("name") or "")
+        combined_text = " | ".join(str(ln.get("name") or "") for ln in lines)
+        spec, priority = _parse_notes(combined_text)
         return {
             "po_id": po["id"],
             "item": item,
-            "qty": int(ln.get("product_qty") or 0),
-            "cap_price": int(ln.get("price_unit") or 0),
+            "qty": int(product_line.get("product_qty") or 0),
+            "cap_price": int(product_line.get("price_unit") or 0),
             "spec": spec,
             "priority": priority,
         }
