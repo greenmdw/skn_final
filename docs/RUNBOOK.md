@@ -205,6 +205,18 @@ docker compose -f docker-compose.broker.yml up -d --build
 
 ## 6. 통신 테스트 (분산 협상)
 
+### 6-0. .env 값 수정 시 필요 사항
+
+다음 명령을 실행한다.
+
+```bash
+docker compose up -d --force-recreate app
+```
+
+**다음 명령으로는 컨테이너 내부에 변경이 반영되지 않는다.**
+
+`docker restart [컨테이너 이름 또는 ID]`
+
 ### 6-1. Broker → Seller 네트워크 — **broker EC2 안에서**
 
 ```bash
