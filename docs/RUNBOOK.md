@@ -67,10 +67,10 @@ EC2 → 보안 그룹 → **보안 그룹 생성**. 이름 `SG-nego`, VPC = 인�
 
 | | 퍼블릭 IP | 프라이빗 IP |
 |---|---|---|
-| buyer | | |
-| seller1 | | |
-| seller2 | | |
-| broker | | |
+| buyer |54.180.152.110 |172.31.38.44|
+| seller1 |43.201.109.72 |172.31.46.240 |
+| seller2 |15.164.104.185 |172.31.34.28 |
+| broker |15.164.212.106  |172.31.47.56 |
 
 (프라이빗 IP는 인스턴스 안에서 `hostname -I | awk '{print $1}'` 로도 확인)
 
@@ -300,11 +300,22 @@ ssh -i 키.pem -L 8069:localhost:8069 ubuntu@<인스턴스_퍼블릭IP>
 - Database Name: `odoo`
 - 이메일 / 비밀번호 / 국가 입력 → **Create database** (1~2분)
 
-### 7-3. API 키 발급
+### 7-3. 앱 설치 — Purchase(buyer) / Sales(seller1·seller2)
+
+DB를 새로 만들면 Odoo 기본 모델만 있고 `product.product`·`purchase.order`·`sale.order`는 없다 (해당 앱을 설치해야 딸려 들어옴). 왼쪽 위 **Apps** → 검색창에 앱 이름 입력 → **Install**:
+
+| 인스턴스 | 설치할 앱 |
+|---|---|
+| buyer | `Purchase` |
+| seller1, seller2 | `Sales` |
+
+설치 후 페이지가 리로드되고 상단 메뉴에 "구매"/"판매"가 나타난다. **8번(A방식) 진행 전 필수** — 안 하면 `/api/dev/seed-odoo`에서 `the model 'product.product' does not exist` 에러가 난다.
+
+### 7-4. API 키 발급
 
 Odoo 로그인(방금 만든 계정) → 우측 상단 아바타 → **My Profile** → **Account Security** 탭 → **New API Key** → 이름 입력, 로그인 비밀번호 확인 → **표시되는 키를 즉시 복사** (재확인 불가).
 
-### 7-4. `.env` 반영 후 재기동 (해당 인스턴스 SSH)
+### 7-5. `.env` 반영 후 재기동 (해당 인스턴스 SSH)
 
 ```bash
 cd ~/demo
@@ -317,20 +328,86 @@ docker compose up -d
 curl -s localhost:8000/api/integrations/odoo/health ; echo
 ```
 
-### 7-5. 결과 해석
+### 7-6. 결과 해석
 
 | status | 의미 | 조치 |
 |---|---|---|
 | `OK` (`"ok":true`) | 성공 — 버전·인증·유저 컨텍스트 확인됨 | — |
-| `NOT_CONFIGURED` | `ODOO_DATABASE`/`ODOO_API_KEY` 비어있음 | 7-4 다시 |
+| `NOT_CONFIGURED` | `ODOO_DATABASE`/`ODOO_API_KEY` 비어있음 | 7-5 다시 |
 | `VERSION_MISMATCH` | Odoo 이미지가 19가 아님 | `.env` 에 `ODOO_EXPECTED_MAJOR_VERSION=<실제버전>` 추가 후 재기동 |
-| `AUTH_FAILED` | API 키 오타/만료 | 7-3 재발급 |
+| `AUTH_FAILED` | API 키 오타/만료 | 7-4 재발급 |
 | `INVALID_RESPONSE` | Odoo 아직 부팅 중 | 1분 뒤 재시도 |
 | `UNREACHABLE` | `ODOO_BASE_URL` 오타 / odoo 컨테이너 다운 | `docker compose ps`, `ODOO_BASE_URL=http://odoo:8069` 확인 |
 
 ---
 
-## 8. 트러블슈팅
+## 8. Odoo 협상 미러 테스트 (A 방식)
+
+7번(연결 확인: `health` = `OK`)까지 통과했다는 전제. buyer·seller1·seller2 각각에 `.env`의 `ODOO_DATABASE`·`ODOO_API_KEY`가 채워져 있어야 한다. **Broker는 Odoo가 없으므로 이 섹션에서 제외.**
+
+구조: buyer가 Odoo **구매(Purchase)**에 발주서 초안을 쓰면 buyer_service가 감지해서 협상을 돌리고, 결과를 그 발주서의 로그(chatter)에 되돌려 쓴다. 각 seller_service는 offer 요청을 받을 때마다 자기 Odoo **판매(Sales)**에 견적요청 미러를 만들고 라운드·낙찰 결과를 chatter에 남긴다.
+
+### 8-1. `ODOO_SYNC` 켜기 — buyer, seller1, seller2 (각각)
+
+```
+ODOO_SYNC=on
+ODOO_POLL_SECONDS=15
+```
+
+`ODOO_POLL_SECONDS=0`이면 자동 폴링 없이 수동 트리거(8-4)만 동작한다.
+
+```bash
+docker compose up -d --force-recreate app
+```
+
+### 8-2. 카탈로그 시드 — buyer, seller1, seller2 각각 1회
+
+```bash
+curl -s localhost:8000/api/dev/seed-odoo -X POST; echo
+```
+
+기대: `{"ok":true,"role":"…","bot_partner_id":N,"products":{"NVIDIA L40S":M,…}}`
+
+이게 에러 나면 Odoo JSON-2 호출 바디 형태가 그 Odoo 버전과 안 맞는 것 — `app/integrations/odoo/rpc.py` 한 파일만 에러 메시지 보고 조정하면 된다 (부록 참고).
+
+### 8-3. buyer Odoo에서 RFQ(발주서 초안) 작성
+
+buyer 퍼블릭 IP로 Odoo 접속(7-1과 동일) → **구매 → 발주서 새로 만들기**:
+
+| 필드 | 값 |
+|---|---|
+| 공급업체 | `협상 브로커` (8-2 시드로 자동 생성됨) |
+| 제품(라인 추가) | `NVIDIA L40S` — **8-2 시드 제품 목록에 있는 이름과 정확히 일치해야 함** |
+| 수량 | `10` |
+| 단가 | `12000000` (바이어가 낼 수 있는 상한가로 사용됨) |
+| **그 제품 라인의 설명(Description)** | 제품명 아래 편집 가능한 설명 칸에 이어서: `spec: GDDR6 48GB ECC \| priority: price_min` |
+
+> ⚠️ "기타 정보(Other Info) 탭 → 메모(Notes)"가 아니라 **제품 라인 자체의 설명 칸**입니다. `purchase.order`의 상단 메모 필드는 Odoo 버전마다 이름이 달라 조회에 안 씁니다 — 라인 설명(`purchase.order.line.name`)은 모든 버전에 항상 있는 표준 필드라 이걸 씁니다.
+
+**확정(Confirm)하지 말고 초안 상태로 저장**한다 — 초안만 폴링 대상이다.
+
+### 8-4. 협상 트리거
+
+자동 폴러가 돌고 있으면 최대 `ODOO_POLL_SECONDS` 후 처리된다. 즉시 확인하려면 buyer EC2에서:
+
+```bash
+curl -s localhost:8000/api/odoo/pull -X POST; echo
+```
+
+기대: `{"po_id":N,"rfq":{…},"result":{"status":"SETTLED","seller_id":"오퍼렛","price":…}}`
+
+### 8-5. 양쪽 GUI에서 확인
+
+- **buyer Odoo** → 방금 그 발주서 열기 → 하단 로그(chatter): "분산 협상 시작 (txid …)" → 라운드별 제안 → `✅ 낙찰: 오퍼렛 · 확정 단가 …`
+- **seller1 / seller2 Odoo** → 판매 → 견적 → 고객 참조가 `NEGO:<txid>`인 견적 열기 → chatter에 라운드별 제안 메시지 + 낙찰(`✅`)/탈락(`❌`) 노트
+
+### 8-6. 재실행
+
+같은 발주서는 한 번 처리되면 "공급업체 참조"(`partner_ref`)가 채워져 다시 안 잡힌다 — 반복 테스트하려면 8-3처럼 새 발주서를 또 만든다.
+
+---
+
+## 9. 트러블슈팅
 
 | 증상 | 원인 / 해결 |
 |---|---|
@@ -339,12 +416,18 @@ curl -s localhost:8000/api/integrations/odoo/health ; echo
 | odoo health 500 | `ODOO_API_KEY` 에 한글 예시문구 남음 → 비우고 `docker compose up -d` |
 | Odoo 컨테이너가 계속 재시작 | 메모리 부족(t3.micro). t3.small 로 변경 + 스왑(3장) |
 | `table … has no column …` | 스키마 변경 후 옛 DB 잔존 → `docker compose down -v && docker compose up -d` |
+| `/api/dev/seed-odoo` → `the model 'product.product' does not exist` | Purchase(buyer)/Sales(seller) 앱 미설치 → 7-3 진행 |
+| `/api/dev/seed-odoo` 기타 에러 | `app/integrations/odoo/rpc.py` 의 `search_read`/`create` 바디 형태가 이 Odoo 버전과 안 맞음. 에러 메시지의 필드명 보고 그 파일만 조정 |
+| `/api/odoo/pull` → 502 `Invalid field 'notes' on 'purchase.order'` | 이미 고쳐짐(라인 설명 필드로 전환) — `git pull && docker compose up -d --build` 로 최신 코드 반영 |
+| `/api/odoo/pull` → `"새 RFQ 없음"` | PO가 초안 상태가 아니거나 이미 처리돼 `partner_ref`가 채워짐 → 8-3처럼 새 발주서로 재시도 |
+| `/api/odoo/pull` → 422 품목명 불일치 | 발주서 라인의 제품명이 GPU 카탈로그 값과 정확히 안 맞음 — 8-2 시드 제품을 그대로 선택했는지 확인 |
+| chatter에 기록이 안 남음 | 해당 인스턴스 `.env`에 `ODOO_SYNC=on` 확인 후 `docker compose logs app \| grep -i "odoo sync"` 로 원인 확인 (best-effort라 실패해도 협상 자체는 계속됨) |
 | 로그 확인 | `docker compose logs app --tail=80` / `docker compose logs odoo --tail=80` |
 | 코드 갱신 | `git pull && docker compose up -d --build` |
 
 ---
 
-## 9. 정리 (Teardown)
+## 10. 정리 (Teardown)
 
 각 인스턴스:
 
@@ -362,10 +445,20 @@ AWS: 인스턴스 종료 → 필요 시 AMI/스냅샷 삭제 → `SG-nego` 삭�
 
 | 서비스 | 포트 | 주요 엔드포인트 |
 |---|---|---|
-| Buyer | 8000 | `POST /api/request` (분산), `POST /api/buyers/request` (로컬 단일), 목업 `GET /` |
-| Seller | 8000 | `POST /api/offer`, `GET /health`, `POST /api/seller/config` |
-| Broker | 9000 | `POST /api/negotiate/start`, `GET /api/negotiate/{txid}/log`, `GET /health` |
+| Buyer | 8000 | `POST /api/request` (분산) · `POST /api/buyers/request` (로컬 단일) · `POST /api/odoo/pull` (A방식 트리거) · `POST /api/dev/seed-odoo` · 목업 `GET /` |
+| Seller | 8000 | `POST /api/offer` · `POST /api/settle` (브로커→셀러, 낙찰통지) · `GET /health` · `POST /api/seller/config` · `POST /api/dev/seed-odoo` |
+| Broker | 9000 | `POST /api/negotiate/start` · `GET /api/negotiate/{txid}/log` · `GET /health` |
 | Buyer/Seller | 8000 | `GET /api/integrations/odoo/health` (Broker 제외) |
 
 `POST /api/offer` 요청 바디: `{txid, item, qty, spec, max_lead_time_days, round_no, last_reject_price, max_rounds?, seller_trust_min?}`
 응답 바디: `{price, message, available, spec_score, trust_score, seller_id, payment_terms, delivery_terms}` — **`floor_price` 절대 미포함**
+
+### A 방식(Odoo 미러) 관련 파일
+
+| 파일 | 내용 |
+|---|---|
+| `app/integrations/odoo/rpc.py` | JSON-2 ORM 호출 헬퍼 (`search_read`/`create`/`write`/`post_note`) — Odoo 버전 차이는 이 파일에서만 조정 |
+| `app/integrations/odoo/sync.py` | `SalesMirror`(seller) · `PurchaseInbox`(buyer) · `seed()` · `sync_enabled()` |
+| `.env` | `ODOO_SYNC=on\|off`, `ODOO_POLL_SECONDS`(0=수동만) |
+
+레코드 식별은 커스텀 필드 없이 표준 필드를 재사용한다: `sale.order.client_order_ref` / `purchase.order.partner_ref` = `NEGO:<txid>`. `ODOO_SYNC=off`(기본값)면 전부 no-op — 협상 자체는 Odoo 상태와 무관하게 항상 동작한다.

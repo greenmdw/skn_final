@@ -25,6 +25,7 @@ from pydantic import BaseModel
 
 from .main import app  # 목업 + Odoo + 로컬 엔드포인트 재사용
 from .integrations.odoo import sync as odoo_sync
+from .integrations.odoo.errors import OdooError
 from .net import HttpCallError, get_json, post_json
 from .schemas import BuyerRequest, Item
 
@@ -87,7 +88,10 @@ def odoo_pull() -> dict:
     if not odoo_sync.sync_enabled():
         raise HTTPException(409, "ODOO_SYNC off 또는 Odoo 미설정")
     inbox = odoo_sync.PurchaseInbox()
-    rfq = inbox.next_new_rfq()
+    try:
+        rfq = inbox.next_new_rfq()
+    except OdooError as exc:
+        raise HTTPException(502, f"Odoo 조회 실패: {exc}")
     if not rfq:
         return {"message": "새 RFQ 없음"}
     if rfq["item"] not in _ITEM_VALUES:
@@ -99,9 +103,13 @@ def odoo_pull() -> dict:
         "seller_trust_min": 0, "seller_endpoints": SELLER_ENDPOINTS,
     })
     txid = result.get("txid", "")
-    inbox.claim(rfq["po_id"], txid)
-    _replay_log_to_po(inbox, rfq["po_id"], txid)
-    inbox.outcome(rfq["po_id"], result.get("status", ""), result.get("seller_id", ""), int(result.get("price") or 0))
+    # 협상 자체는 이미 끝났다 — 이 아래 Odoo 되쓰기가 실패해도 결과는 그대로 반환한다.
+    try:
+        inbox.claim(rfq["po_id"], txid)
+        _replay_log_to_po(inbox, rfq["po_id"], txid)
+        inbox.outcome(rfq["po_id"], result.get("status", ""), result.get("seller_id", ""), int(result.get("price") or 0))
+    except OdooError as exc:
+        result = {**result, "odoo_writeback_error": str(exc)}
     return {"po_id": rfq["po_id"], "rfq": rfq, "result": result}
 
 

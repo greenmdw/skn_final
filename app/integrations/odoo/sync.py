@@ -146,10 +146,13 @@ class PurchaseInbox:
         self.rpc = _rpc()
 
     def next_new_rfq(self) -> dict | None:
+        # "notes" 필드는 Odoo 버전에 따라 없을 수 있어(purchase.order 스키마 차이) 안 쓴다.
+        # 대신 라인 설명(purchase.order.line.name)은 모든 버전에 항상 존재하는 표준 필드라
+        # spec/priority 를 거기 적어서 넘긴다.
         rows = self.rpc.search_read(
             self.model,
             [["state", "=", "draft"], ["partner_ref", "in", [False, ""]]],
-            ["id", "order_line", "notes"],
+            ["id", "order_line"],
             limit=1, order="id desc",
         )
         if not rows:
@@ -158,7 +161,7 @@ class PurchaseInbox:
         lines = self.rpc.search_read(
             "purchase.order.line",
             [["order_id", "=", po["id"]]],
-            ["product_id", "product_qty", "price_unit"],
+            ["product_id", "product_qty", "price_unit", "name"],
             limit=1,
         )
         if not lines:
@@ -166,7 +169,7 @@ class PurchaseInbox:
         ln = lines[0]
         prod = ln.get("product_id")
         item = prod[1] if isinstance(prod, (list, tuple)) and len(prod) > 1 else str(prod)
-        spec, priority = _parse_notes(po.get("notes") or "")
+        spec, priority = _parse_notes(ln.get("name") or "")
         return {
             "po_id": po["id"],
             "item": item,
