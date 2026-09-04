@@ -77,6 +77,8 @@ services:
       ODOO_API_KEY: ${ODOO_API_KEY:-}
       ODOO_ALLOW_INSECURE_HTTP: "true"
       ODOO_EXPECTED_MAJOR_VERSION: ${ODOO_EXPECTED_MAJOR_VERSION:-19}
+      ODOO_SYNC: ${ODOO_SYNC:-off}
+      ODOO_POLL_SECONDS: ${ODOO_POLL_SECONDS:-0}
     volumes:
       - app-data:/app/data
       - app-reports:/app/reports

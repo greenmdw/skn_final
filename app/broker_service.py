@@ -69,6 +69,16 @@ def _log(txid: str, frm: str, to: str, mtype: MsgType, payload: dict) -> None:
         f.write(env.model_dump_json(by_alias=True) + "\n")
 
 
+def _notify_settle(endpoints: list[str], txid: str, status: str, winner_ep: str | None, price: int) -> None:
+    """협상 종료를 참여 셀러에 통지 (Odoo 미러 낙찰/탈락 표시용). best-effort."""
+    for ep in endpoints:
+        body = {"txid": txid, "status": status, "won": ep == winner_ep, "price": price}
+        try:
+            post_json(f"{ep.rstrip('/')}/api/settle", body, timeout=5.0)
+        except HttpCallError:
+            pass
+
+
 @app.get("/health")
 def health() -> dict:
     return {"ok": True, "service": "broker", "default_sellers": _DEFAULT_ENDPOINTS, "max_rounds": MAX_ROUNDS}
@@ -173,6 +183,8 @@ def negotiate_start(req: NegotiateStartRequest) -> dict:
         if all(s["status"] != "active" for s in state.values()):
             break
 
+    participated = [ep for ep, s in state.items() if s["info"]]
+
     # 결과 판정
     if not any_offer:
         result = {"txid": txid, "status": "FAILED", "fail_type": "NO_MATCH",
@@ -183,6 +195,7 @@ def negotiate_start(req: NegotiateStartRequest) -> dict:
         result = {"txid": txid, "status": "FAILED", "fail_type": "NO_DEAL",
                   "reason": "셀러 제안은 있었으나 라운드 상한 내 가격 합의 실패."}
         _log(txid, "broker", "*", MsgType.SETTLED, {"status": "NO_DEAL"})
+        _notify_settle(participated, txid, "NO_DEAL", None, 0)
         return result
 
     if req.priority == "spec_max":
@@ -190,6 +203,7 @@ def negotiate_start(req: NegotiateStartRequest) -> dict:
     else:
         win = min(accepted, key=lambda a: (a["price"], -a["spec_score"]))
 
+    _notify_settle(participated, txid, "SETTLED", win["endpoint"], win["price"])
     _log(txid, "broker", "*", MsgType.SETTLED, {
         "status": "SETTLED", "seller_id": win["seller_id"], "endpoint": win["endpoint"],
         "price": win["price"], "priority": req.priority, "spec_score": win["spec_score"],

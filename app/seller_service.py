@@ -20,11 +20,12 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI
+from fastapi import BackgroundTasks, FastAPI
 from pydantic import BaseModel
 
 from .agents import RuleBasedSellerAgent
 from .audit import audit_seller_offer
+from .integrations.odoo import sync as odoo_sync
 from .integrations.odoo.router import router as odoo_router
 from .pricing import SPEC_MATCH_MIN, apply_bulk_discount
 from .schemas import Envelope, Item, MsgType, SellerRegister
@@ -93,6 +94,32 @@ def _seller_log(txid: str, env: Envelope) -> None:
         f.write(env.model_dump_json(by_alias=True) + "\n")
 
 
+# ── Odoo 미러 (A 방식) — 전부 best-effort, 협상 경로엔 영향 없음 ──
+
+def _mirror_offer(req: "OfferRequest", price: int, message: str, disc: dict | None) -> None:
+    try:
+        m = odoo_sync.SalesMirror()
+        m.ensure_quote(req.txid, req.item, req.qty, req.spec)
+        tail = f" (대량할인 {int(disc['rate'] * 100)}%)" if disc else ""
+        m.note(req.txid, f"라운드 {req.round_no}: {price:,}원 제안 — {message}{tail}")
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _mirror_settle(txid: str, won: bool, price: int) -> None:
+    try:
+        odoo_sync.SalesMirror().outcome(txid, won, price)
+    except Exception:  # noqa: BLE001
+        pass
+
+
+class SettleNotice(BaseModel):
+    txid: str
+    status: str = "SETTLED"
+    won: bool = False
+    price: int = 0
+
+
 def create_app(profile: SellerRegister | None = None) -> FastAPI:
     """판매사 프로필 하나를 대표하는 Seller 서비스 앱. uvicorn 은 모듈 전역 `app` 을 쓴다."""
     prof = profile or _seller_from_env()
@@ -114,8 +141,19 @@ def create_app(profile: SellerRegister | None = None) -> FastAPI:
         state["profile"] = new_profile.model_copy(update={"spec_tags": tags})
         return {"ok": True, "seller_id": state["profile"].seller_id}
 
+    @svc.post("/api/dev/seed-odoo")
+    def seed_odoo() -> dict:
+        return odoo_sync.seed("seller")
+
+    @svc.post("/api/settle")
+    def settle(notice: SettleNotice, background: BackgroundTasks) -> dict:
+        """브로커가 협상 종료 시 각 셀러에 통지 → Odoo 견적에 낙찰/탈락 기록."""
+        if odoo_sync.sync_enabled():
+            background.add_task(_mirror_settle, notice.txid, notice.won, notice.price)
+        return {"ok": True}
+
     @svc.post("/api/offer", response_model=OfferResponse)
-    def make_offer(req: OfferRequest) -> OfferResponse:
+    def make_offer(req: OfferRequest, background: BackgroundTasks) -> OfferResponse:
         s: SellerRegister = state["profile"]
 
         # 1. 자기 스크리닝 (품목·재고·납기·MOQ·신뢰도·사양) — floor 는 안 씀
@@ -163,6 +201,9 @@ def create_app(profile: SellerRegister | None = None) -> FastAPI:
                 "bulk_discount": disc, "spec_score": spec_score,
             },
         }))
+
+        if odoo_sync.sync_enabled():
+            background.add_task(_mirror_offer, req, final_price, msg, disc)
 
         return OfferResponse(
             price=final_price,
