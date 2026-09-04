@@ -1,0 +1,88 @@
+# EC2 #1~#3 (Buyer / Seller1 / Seller2) 용 스택 — 각 EC2에서 이 파일 하나.
+#   app   : 이 저장소의 FastAPI. 어떤 서비스로 뜰지는 APP_MODULE 로 정한다:
+#             Buyer  EC2 → APP_MODULE=app.buyer_service:app
+#             Seller EC2 → APP_MODULE=app.seller_service:app
+#             (미지정 시 app.main:app — 단일 프로세스 데모)
+#   odoo  : Odoo 19 (JSON-2 API 대상)
+#   db    : Odoo 전용 PostgreSQL
+#
+# 브로커(EC2 #4)는 Odoo가 없으므로 docker-compose.broker.yml 을 따로 쓴다.
+#
+# 서버간 통신:
+#   Buyer  EC2: .env 에 BROKER_URL=http://<Broker_사설IP>:9000
+#   Seller EC2: .env 에 SELLER_ID / SELLER_ITEM / SELLER_OFFER_PRICE / SELLER_FLOOR_PRICE ...
+# 보안그룹(SG-nego): VPC 내부 8000·8069·9000 상호허용. 5432(db)는 열지 않는다.
+
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "odoo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  odoo:
+    image: odoo:19          # 없으면 odoo:18 로 바꾸고 app 의 ODOO_EXPECTED_MAJOR_VERSION=18
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8069:8069"
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: odoo
+    volumes:
+      - odoo-data:/var/lib/odoo
+
+  app:
+    build: .
+    command: uvicorn ${APP_MODULE:-app.main:app} --host 0.0.0.0 --port 8000
+    depends_on:
+      - odoo
+    ports:
+      - "8000:8000"
+    environment:
+      APP_MODULE: ${APP_MODULE:-app.main:app}
+      NEGOTIATOR_MODE: ${NEGOTIATOR_MODE:-rule}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # Buyer 서비스용
+      BROKER_URL: ${BROKER_URL:-http://localhost:9000}
+      # Seller 서비스용 (이 EC2가 대표하는 판매사)
+      SELLER_ID: ${SELLER_ID:-셀러}
+      SELLER_ITEM: ${SELLER_ITEM:-NVIDIA L40S}
+      SELLER_QTY: ${SELLER_QTY:-50}
+      SELLER_OFFER_PRICE: ${SELLER_OFFER_PRICE:-11500000}
+      SELLER_FLOOR_PRICE: ${SELLER_FLOOR_PRICE:-9900000}
+      SELLER_DESCRIPTION: ${SELLER_DESCRIPTION:-}
+      SELLER_LEAD_TIME_DAYS: ${SELLER_LEAD_TIME_DAYS:-30}
+      SELLER_MOQ: ${SELLER_MOQ:-1}
+      SELLER_TRUST_SCORE: ${SELLER_TRUST_SCORE:-100}
+      SELLER_BUYER_TRUST_REQUIRED: ${SELLER_BUYER_TRUST_REQUIRED:-0}
+      SELLER_BULK_DISCOUNT_RATE: ${SELLER_BULK_DISCOUNT_RATE:-0}
+      SELLER_BULK_DISCOUNT_MIN_QTY: ${SELLER_BULK_DISCOUNT_MIN_QTY:-0}
+      SELLER_PAYMENT_TERMS: ${SELLER_PAYMENT_TERMS:-}
+      SELLER_DELIVERY_TERMS: ${SELLER_DELIVERY_TERMS:-}
+      # Odoo 연동
+      ODOO_BASE_URL: ${ODOO_BASE_URL:-http://odoo:8069}
+      ODOO_DATABASE: ${ODOO_DATABASE:-odoo}
+      ODOO_API_KEY: ${ODOO_API_KEY:-}
+      ODOO_ALLOW_INSECURE_HTTP: "true"
+      ODOO_EXPECTED_MAJOR_VERSION: ${ODOO_EXPECTED_MAJOR_VERSION:-19}
+    volumes:
+      - app-data:/app/data
+      - app-reports:/app/reports
+
+volumes:
+  db-data:
+  odoo-data:
+  app-data:
+  app-reports:

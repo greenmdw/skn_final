@@ -57,7 +57,12 @@ BUYER_SCHEMA = {
 
 class OpenAISellerAgent:
     def decide(
-        self, offer: SellerRegister, round_no: int, buyer_cap_price: int, last_reject_price: int | None
+        self,
+        offer: SellerRegister,
+        round_no: int,
+        buyer_cap_price: int,
+        last_reject_price: int | None,
+        max_rounds: int,
     ) -> tuple[int, str]:
         history = ""
         if last_reject_price is not None:
@@ -66,9 +71,10 @@ class OpenAISellerAgent:
         prompt = (
             f"당신은 B2B 거래에서 {offer.item.value}를 판매하는 협상 에이전트입니다.\n"
             f"품목: {offer.item.value} / 수량: {offer.qty}\n"
+            f"상품 설명: {offer.description or '(설명 없음)'}\n"
             f"당신의 원래 제시가: {offer.offer_price}원\n"
             f"당신의 최저 수용가(이 밑으로는 절대 팔면 안 됨): {offer.floor_price}원\n"
-            f"현재 라운드: {round_no}\n"
+            f"현재 라운드: {round_no} / 최대 {max_rounds}라운드 (마감이 가까울수록 더 양보 가능)\n"
             f"{history}"
             f"바이어의 예산 상한: {buyer_cap_price}원\n\n"
             "바이어가 수락할 만한 가격을 제안하되, 최저 수용가 밑으로는 절대 내려가지 마세요.\n"

@@ -20,9 +20,13 @@ from .schemas import SellerRegister, BuyerRequest
 from .store import store
 from .negotiate import run_negotiation
 from .report import write_report, summarizer
+from .rfq_parse import parse_buyer_text
+from .seed_catalog import seed as seed_catalog
+from .integrations.odoo.router import router as odoo_router
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="Deal Ledger MMVP")
+app.include_router(odoo_router)
 
 # 데모 목적: 로컬에서 파일로 연 목업 HTML(origin: null)도 호출 가능하도록 전체 허용
 app.add_middleware(
@@ -59,6 +63,30 @@ def buyer_request(request: BuyerRequest):
     """규칙 기반이라 즉시(동기) 협상까지 끝내고 결과를 바로 반환한다."""
     summary = run_negotiation(store, request)
     return summary
+
+
+@app.post("/api/buyers/parse")
+def buyer_parse(body: dict):
+    """자연어 P.list → 구조화 RFQ 필드. 화면에서 확인·수정 후 request로 보낸다 (§2-2)."""
+    return parse_buyer_text(body.get("text", ""))
+
+
+@app.post("/api/buyers/request_text")
+def buyer_request_text(body: dict):
+    """자연어 요청을 파싱해서 바로 협상까지 실행. 파싱 결과와 협상 결과를 함께 반환."""
+    parsed = parse_buyer_text(body.get("text", ""))
+    if parsed.get("_missing"):
+        raise HTTPException(422, f"필수 항목을 해석하지 못했습니다: {', '.join(parsed['_missing'])}")
+    req = BuyerRequest(**{k: v for k, v in parsed.items() if not k.startswith("_")})
+    summary = run_negotiation(store, req)
+    return {"rfq": parsed, "result": summary}
+
+
+@app.post("/api/dev/seed")
+def dev_seed(per_model: int = 3):
+    """CSV 정가 기반으로 셀러 카탈로그를 재시드 (데모 준비용)."""
+    n = seed_catalog(reset=True, per_model=per_model)
+    return {"ok": True, "seeded": n, "sellers": store.list_sellers()}
 
 
 @app.get("/api/deals/{txid}")

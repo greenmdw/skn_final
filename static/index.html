@@ -80,10 +80,11 @@ h1{font-family:var(--disp);font-size:26px;font-weight:600;letter-spacing:-.01em;
 .ledger-field{display:grid;grid-template-columns:150px 1fr;align-items:end;gap:16px;padding:14px 0;border-bottom:1px solid var(--line)}
 .ledger-field label{font-size:12px;color:var(--ink-2);font-weight:600;padding-bottom:9px}
 .ledger-field .hint{grid-column:2;font-size:11px;color:var(--ink-3);margin-top:6px}
-select, input[type=number]{
+select, input[type=number], input[type=text], textarea{
   width:100%;border:none;border-bottom:1.5px solid transparent;background:transparent;
   font:inherit;font-family:var(--mono);font-size:15px;color:var(--ink);padding:0 0 8px;
 }
+textarea{font-family:var(--body);font-size:13.5px;line-height:1.5;resize:vertical;border-bottom:1.5px solid var(--line)}
 select{font-family:var(--body);font-size:14px}
 select:focus, input:focus{outline:none;border-bottom-color:var(--brass)}
 
@@ -174,28 +175,66 @@ select:focus, input:focus{outline:none;border-bottom-color:var(--brass)}
       </div>
       <div class="ledger-field">
         <label>품목ID</label>
-        <select id="s-item"><option>A4용지</option><option>토너</option><option>볼트</option></select>
+        <select id="s-item">
+          <option>NVIDIA RTX PRO 6000 Blackwell</option>
+          <option>NVIDIA L40S</option>
+          <option>NVIDIA H100 NVL</option>
+          <option>NVIDIA RTX 6000 Ada Generation</option>
+          <option>NVIDIA A100 80GB PCIe</option>
+        </select>
       </div>
       <div class="ledger-field">
         <label>수량</label>
-        <input type="number" id="s-qty" value="600">
+        <input type="number" id="s-qty" value="8">
       </div>
       <div class="ledger-field">
         <label>제시가 (단가)</label>
-        <input type="number" id="s-offer" value="45">
+        <input type="number" id="s-offer" value="11500000">
       </div>
       <div class="ledger-field">
         <label>최저 수용가</label>
-        <input type="number" id="s-floor" value="38">
+        <input type="number" id="s-floor" value="9900000">
         <div class="hint">이 값 이하로는 REJECT — 바이어에게는 노출되지 않음</div>
       </div>
       <div class="ledger-field">
-        <label>사양</label>
-        <input type="text" id="s-spec" value="80g/2500매">
+        <label>상품 상세설명</label>
+        <input type="text" id="s-spec" value="Ada Lovelace 아키텍처; GDDR6 48GB ECC; PCIe 4.0 x16; 최대 소비전력 350W">
+        <div class="hint">LLM + RAG 매칭 대상 (벡터화되어 요구 사양과 유사도 비교)</div>
       </div>
       <div class="ledger-field">
         <label>납기일수</label>
-        <input type="number" id="s-lead" value="3">
+        <input type="number" id="s-lead" value="30">
+      </div>
+      <div class="ledger-field">
+        <label>최소주문수량(MOQ)</label>
+        <input type="number" id="s-moq" value="1">
+      </div>
+      <div class="ledger-field">
+        <label>요구 바이어 신뢰도</label>
+        <input type="number" id="s-btr" value="0">
+        <div class="hint">바이어 신뢰도가 이 값 미만이면 매칭 제외 (0~100)</div>
+      </div>
+      <div class="ledger-field">
+        <label>셀러 신뢰도 점수</label>
+        <input type="number" id="s-trust" value="100">
+      </div>
+      <div class="ledger-field">
+        <label>대량구매할인률</label>
+        <input type="number" id="s-bdr" value="0" step="0.01">
+        <div class="hint">0~1 (예: 0.05 = 5%). 아래 최소수량 이상 주문 시 합의가에서 차감</div>
+      </div>
+      <div class="ledger-field">
+        <label>대량할인 최소수량</label>
+        <input type="number" id="s-bdq" value="0">
+        <div class="hint">0이면 대량구매할인 비활성</div>
+      </div>
+      <div class="ledger-field">
+        <label>대금결제조건</label>
+        <input type="text" id="s-pay" value="" placeholder="예: 선급 30% / 납품 후 70%">
+      </div>
+      <div class="ledger-field">
+        <label>인도조건</label>
+        <input type="text" id="s-deliv" value="" placeholder="예: DDP 매수인 창고, FOB 부산">
       </div>
 
       <div class="btnrow">
@@ -211,16 +250,32 @@ select:focus, input:focus{outline:none;border-bottom-color:var(--brass)}
       <div class="sub">바잉 에이전트가 이 조건으로 등록된 셀러들에게 REQUEST를 전송합니다.</div>
 
       <div class="ledger-field">
+        <label>자연어 요청 (P.list)</label>
+        <textarea id="b-text" rows="3" placeholder="예: H100 5대, 예산 대당 4천만원, 납기 30일 이내, HBM3 94GB NVLink 필요, 가격 우선"></textarea>
+        <div class="hint">LLM(또는 규칙)으로 아래 구조화 필드를 채웁니다 — 채운 뒤 확인·수정하고 요청 등록</div>
+      </div>
+      <div class="btnrow" style="margin-top:12px">
+        <button class="btn outline" onclick="parseText()">자연어 → 필드 채우기</button>
+        <span class="btn-note" id="b-parse"></span>
+      </div>
+
+      <div class="ledger-field">
         <label>품목ID</label>
-        <select id="b-item"><option>A4용지</option><option>토너</option><option>볼트</option></select>
+        <select id="b-item">
+          <option>NVIDIA RTX PRO 6000 Blackwell</option>
+          <option>NVIDIA L40S</option>
+          <option>NVIDIA H100 NVL</option>
+          <option>NVIDIA RTX 6000 Ada Generation</option>
+          <option>NVIDIA A100 80GB PCIe</option>
+        </select>
       </div>
       <div class="ledger-field">
         <label>수량</label>
-        <input type="number" id="b-qty" value="500">
+        <input type="number" id="b-qty" value="5">
       </div>
       <div class="ledger-field">
         <label>상한가 (단가)</label>
-        <input type="number" id="b-cap" value="42">
+        <input type="number" id="b-cap" value="10500000">
       </div>
       <div class="ledger-field">
         <label>요구 사양</label>
@@ -228,7 +283,23 @@ select:focus, input:focus{outline:none;border-bottom-color:var(--brass)}
       </div>
       <div class="ledger-field">
         <label>허용 최대 납기(일)</label>
-        <input type="number" id="b-lead" value="999">
+        <input type="number" id="b-lead" value="45">
+      </div>
+      <div class="ledger-field">
+        <label>요구 셀러 신뢰도</label>
+        <input type="number" id="b-stm" value="0">
+        <div class="hint">셀러 신뢰도 점수가 이 값 미만이면 매칭 제외 (0~100)</div>
+      </div>
+      <div class="ledger-field">
+        <label>바이어 신뢰도 점수</label>
+        <input type="number" id="b-trust" value="100">
+      </div>
+      <div class="ledger-field">
+        <label>협상 우선순위</label>
+        <select id="b-prio">
+          <option value="price_min">가격 우선 (price_min)</option>
+          <option value="spec_max">사양 우선 (spec_max)</option>
+        </select>
       </div>
 
       <div class="btnrow">
@@ -251,6 +322,11 @@ select:focus, input:focus{outline:none;border-bottom-color:var(--brass)}
         <div class="kv" id="d-kv">
           <div class="k">상태</div><div class="v">아직 진행된 협상이 없습니다</div>
         </div>
+      </div>
+
+      <div class="tape" id="d-specwrap" style="display:none">
+        <h3>사양 유사도 · RAG 대체 (LLM 추출 + 룰 채점)</h3>
+        <div id="d-spec"></div>
       </div>
 
       <div class="nlsum">
@@ -290,8 +366,15 @@ select:focus, input:focus{outline:none;border-bottom-color:var(--brass)}
       qty: Number(document.getElementById('s-qty').value),
       offer_price: Number(document.getElementById('s-offer').value),
       floor_price: Number(document.getElementById('s-floor').value),
-      spec: document.getElementById('s-spec').value,
+      description: document.getElementById('s-spec').value,
       lead_time_days: Number(document.getElementById('s-lead').value),
+      moq: Number(document.getElementById('s-moq').value),
+      buyer_trust_required: Number(document.getElementById('s-btr').value),
+      trust_score: Number(document.getElementById('s-trust').value),
+      bulk_discount_rate: Number(document.getElementById('s-bdr').value),
+      bulk_discount_min_qty: Number(document.getElementById('s-bdq').value),
+      payment_terms: document.getElementById('s-pay').value,
+      delivery_terms: document.getElementById('s-deliv').value,
     };
     const res = await fetch(`${API}/sellers/register`, {
       method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body)
@@ -301,6 +384,27 @@ select:focus, input:focus{outline:none;border-bottom-color:var(--brass)}
       : "→ 등록 실패, 서버 로그 확인 필요";
   }
 
+  async function parseText(){
+    const text = document.getElementById('b-text').value;
+    const note = document.getElementById('b-parse');
+    note.textContent = "파싱 중…";
+    const res = await fetch(`${API}/buyers/parse`, {
+      method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({text})
+    });
+    if(!res.ok){ note.textContent = "→ 파싱 실패"; return; }
+    const p = await res.json();
+    if(p.item) document.getElementById('b-item').value = p.item;
+    if(p.qty != null) document.getElementById('b-qty').value = p.qty;
+    if(p.cap_price != null) document.getElementById('b-cap').value = p.cap_price;
+    if(p.spec != null) document.getElementById('b-spec').value = p.spec;
+    if(p.max_lead_time_days != null) document.getElementById('b-lead').value = p.max_lead_time_days;
+    if(p.seller_trust_min != null) document.getElementById('b-stm').value = p.seller_trust_min;
+    if(p.priority) document.getElementById('b-prio').value = p.priority;
+    note.textContent = (p._missing && p._missing.length)
+      ? `→ 채움. 못 뽑은 필수 항목: ${p._missing.join(', ')} — 직접 입력하세요`
+      : "→ 채움. 값 확인 후 요청 등록";
+  }
+
   async function sendRequest(){
     const body = {
       item: document.getElementById('b-item').value,
@@ -308,6 +412,9 @@ select:focus, input:focus{outline:none;border-bottom-color:var(--brass)}
       cap_price: Number(document.getElementById('b-cap').value),
       spec: document.getElementById('b-spec').value,
       max_lead_time_days: Number(document.getElementById('b-lead').value),
+      seller_trust_min: Number(document.getElementById('b-stm').value),
+      trust_score: Number(document.getElementById('b-trust').value),
+      priority: document.getElementById('b-prio').value,
     };
     const res = await fetch(`${API}/buyers/request`, {
       method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(body)
@@ -332,12 +439,20 @@ select:focus, input:focus{outline:none;border-bottom-color:var(--brass)}
     document.getElementById('d-summary').textContent = data.summary;
 
     const kv = document.getElementById('d-kv');
+    const settledEv = (data.log || []).find(e => e.type === 'SETTLED');
     if(d.status === "SETTLED"){
+      const sp = (settledEv && settledEv.payload) || {};
+      const sc = sp.spec_score;
+      const acceptEv = (data.log || []).find(e => e.type === 'ACCEPT' && e.payload && e.payload.bulk_discount);
+      const bd = acceptEv && acceptEv.payload.bulk_discount;
       kv.innerHTML = `
         <div class="k">셀러</div><div class="v">${d.seller_id}</div>
         <div class="k">품목</div><div class="v">${d.item}</div>
         <div class="k">수량</div><div class="v">${d.qty}건</div>
-        <div class="k">확정 단가</div><div class="v">${d.price}원</div>
+        <div class="k">확정 단가</div><div class="v">${d.price}원${bd ? ` <span style="color:var(--ink-3);font-weight:400">(대량할인 ${Math.round(bd.rate*100)}% 적용, 이전 ${bd.before}원)</span>` : ''}</div>
+        <div class="k">사양 유사도</div><div class="v">${sc != null ? Math.round(sc*100)+'%' : '—'}${sp.priority ? ' · 우선순위 '+sp.priority : ''}</div>
+        <div class="k">결제조건</div><div class="v">${sp.payment_terms || '—'}</div>
+        <div class="k">인도조건</div><div class="v">${sp.delivery_terms || '—'}</div>
         <div class="k">상태</div><div class="v settle">SETTLED · 승인 ${d.approval === 'PENDING' ? '대기' : d.approval}</div>
       `;
       document.getElementById('d-stamp').style.display = "flex";
@@ -355,6 +470,46 @@ select:focus, input:focus{outline:none;border-bottom-color:var(--brass)}
         <span class="type ${e.type}">${e.type}</span>
         <span class="msg">${e.from} → ${e.to} · ${JSON.stringify(e.payload)}</span>
       </div>`).join("");
+
+    // 셀러별 사양 유사도 (스크리닝 REJECT + 협상 OFFER 의 spec_score 취합)
+    const specRows = {};
+    (data.log || []).forEach(e => {
+      const p = e.payload || {};
+      if(p.spec_score == null) return;
+      let sid = null;
+      if(e.type === 'REJECT' && p.stage === 'screening') sid = e.to;
+      else if(e.type === 'OFFER') sid = e.from;
+      if(!sid) return;
+      const prev = specRows[sid];
+      specRows[sid] = {
+        score: p.spec_score,
+        detail: p.spec_detail || (prev && prev.detail),
+        screened_out: e.type === 'REJECT' || (prev && prev.screened_out && e.type !== 'OFFER'),
+      };
+      if(e.type === 'OFFER') specRows[sid].screened_out = false;
+    });
+    const specWrap = document.getElementById('d-specwrap');
+    const sids = Object.keys(specRows);
+    if(sids.length){
+      specWrap.style.display = 'block';
+      document.getElementById('d-spec').innerHTML = sids.map(sid => {
+        const r = specRows[sid];
+        let attrs = '';
+        if(r.detail && r.detail.note){
+          attrs = `<span style="font-size:11px;color:var(--ink-3)">${r.detail.note}</span>`;
+        } else if(r.detail){
+          attrs = Object.entries(r.detail).map(([k,v]) =>
+            `<span style="font-family:var(--mono);font-size:11px;margin-right:10px">${k} ${Math.round((v.score||0)*100)}%</span>`).join('');
+        }
+        return `<div class="tape-item">
+          <span class="t">${Math.round(r.score*100)}%</span>
+          <span class="type">${r.screened_out ? '제외' : '통과'}</span>
+          <span class="msg"><b>${sid}</b> &nbsp;${attrs}</span>
+        </div>`;
+      }).join('');
+    } else {
+      specWrap.style.display = 'none';
+    }
   }
 
   async function decide(action){

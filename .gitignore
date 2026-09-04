@@ -1,7 +1,27 @@
-# ── 환경변수 / 비밀키 (절대 커밋 금지) ──
+# ── 환경변수 (절대 커밋 금지) ──
 .env
 *.env
 !.env.example
+!env.example
+
+# ── 비밀키 / 인증서 (절대 커밋 금지) ──
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+
+# ── 도구 / 빌드 작업 폴더 ──
+.artifact-work/
+.claude/
+incoming/
+
+# ── 아카이브 (배포용 임시) ──
+*.zip
+*.tgz
+*.tar
+*.tar.gz
 
 # ── 런타임에 생성되는 데이터 (소스코드 아님, 커밋 대상 아님) ──
 data/

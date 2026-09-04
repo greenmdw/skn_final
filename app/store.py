@@ -15,10 +15,11 @@ L1 — 중앙 서버 + 로그 append
 from __future__ import annotations
 import json
 from pathlib import Path
-from sqlalchemy import create_engine, Column, String, Integer, Text
+from sqlalchemy import create_engine, Column, String, Integer, Text, Float
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from .schemas import Envelope, SellerRegister, Item
+from .spec_match import extract_spec_tags
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 LOG_DIR = DATA_DIR / "logs"
@@ -40,8 +41,16 @@ class SellerCatalogRow(Base):
     qty = Column(Integer, nullable=False)
     offer_price = Column(Integer, nullable=False)
     floor_price = Column(Integer, nullable=False)
-    spec = Column(String, nullable=False, default="")
+    description = Column(String, nullable=False, default="")            # §2-1 상품 상세설명
+    spec_tags = Column(Text, nullable=False, default="{}")  # extract_spec_tags 결과(JSON) — RAG 인덱스 자리
     lead_time_days = Column(Integer, nullable=False, default=0)
+    moq = Column(Integer, nullable=False, default=1)                    # §2-1 최소주문수량
+    buyer_trust_required = Column(Integer, nullable=False, default=0)   # §2-1 요구 바이어 신뢰도
+    trust_score = Column(Integer, nullable=False, default=100)          # 이 셀러의 신뢰도 점수
+    payment_terms = Column(String, nullable=False, default="")         # 대금결제조건
+    delivery_terms = Column(String, nullable=False, default="")        # 인도조건
+    bulk_discount_rate = Column(Float, nullable=False, default=0.0)    # 대량구매할인률 0~1
+    bulk_discount_min_qty = Column(Integer, nullable=False, default=0) # 대량할인 최소 주문수량
 
 
 class DealRow(Base):
@@ -70,14 +79,23 @@ class CentralStore:
     # ── 셀러 등록 (화면 1) ──
     def register_seller(self, offer: SellerRegister) -> None:
         with SessionLocal() as session:
+            tags = offer.spec_tags or extract_spec_tags(offer.description)
             row = SellerCatalogRow(
                 seller_id=offer.seller_id,
                 item=offer.item.value,
                 qty=offer.qty,
                 offer_price=offer.offer_price,
                 floor_price=offer.floor_price,
-                spec=offer.spec,
+                description=offer.description,
+                spec_tags=json.dumps(tags, ensure_ascii=False),
                 lead_time_days=offer.lead_time_days,
+                moq=offer.moq,
+                buyer_trust_required=offer.buyer_trust_required,
+                trust_score=offer.trust_score,
+                payment_terms=offer.payment_terms,
+                delivery_terms=offer.delivery_terms,
+                bulk_discount_rate=offer.bulk_discount_rate,
+                bulk_discount_min_qty=offer.bulk_discount_min_qty,
             )
             session.add(row)
             session.commit()
@@ -89,10 +107,23 @@ class CentralStore:
                 SellerRegister(
                     seller_id=r.seller_id, item=Item(r.item), qty=r.qty,
                     offer_price=r.offer_price, floor_price=r.floor_price,
-                    spec=r.spec, lead_time_days=r.lead_time_days,
+                    description=r.description, spec_tags=json.loads(r.spec_tags or "{}"),
+                    lead_time_days=r.lead_time_days,
+                    moq=r.moq, buyer_trust_required=r.buyer_trust_required,
+                    trust_score=r.trust_score,
+                    payment_terms=r.payment_terms, delivery_terms=r.delivery_terms,
+                    bulk_discount_rate=r.bulk_discount_rate,
+                    bulk_discount_min_qty=r.bulk_discount_min_qty,
                 )
                 for r in rows
             ]
+
+    def clear_catalog(self) -> int:
+        """카탈로그 전체 삭제 (시드 스크립트 재실행용). 반환: 삭제 행 수."""
+        with SessionLocal() as session:
+            n = session.query(SellerCatalogRow).delete()
+            session.commit()
+            return n
 
     def list_sellers(self) -> list[SellerRegister]:
         """등록된 셀러 전체 조회 (조회/디버깅용, 화면 API가 사용)."""
@@ -102,7 +133,13 @@ class CentralStore:
                 SellerRegister(
                     seller_id=r.seller_id, item=Item(r.item), qty=r.qty,
                     offer_price=r.offer_price, floor_price=r.floor_price,
-                    spec=r.spec, lead_time_days=r.lead_time_days,
+                    description=r.description, spec_tags=json.loads(r.spec_tags or "{}"),
+                    lead_time_days=r.lead_time_days,
+                    moq=r.moq, buyer_trust_required=r.buyer_trust_required,
+                    trust_score=r.trust_score,
+                    payment_terms=r.payment_terms, delivery_terms=r.delivery_terms,
+                    bulk_discount_rate=r.bulk_discount_rate,
+                    bulk_discount_min_qty=r.bulk_discount_min_qty,
                 )
                 for r in rows
             ]
