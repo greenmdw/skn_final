@@ -110,7 +110,7 @@ sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapf
 코드 가져오기:
 
 ```bash
-git clone <저장소URL> demo && cd demo && cp env.example .env
+git clone -b develop https://github.com/greenmdw/skn_final.git demo && cd demo && cp env.example .env
 ```
 
 여기까지 4대 동일. 다음 단계부터 역할별로 갈린다.
