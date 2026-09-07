@@ -118,7 +118,8 @@ python scripts/nexar_snapshot.py --mpn-file scripts/mpns.txt --out data/nexar_sn
 | `docs/decisions/0003-…` | 왜 인가 유통사만 후보로 두는가 |
 | `docs/decisions/0004-…` | 작업지시서 범위 밖에서 고친 두 파일 — **병합 담당자가 읽어야 합니다** |
 | `docs/decisions/0005-…` | 왜 Odoo·제조업을 걷어냈고 무엇을 남겼는가 |
-| `docs/wiki_대조_20260907.md` | 9/5~9/6 회의가 뒤집은 것과 아직 안 갈린 쟁점 4개 |
+| `docs/decisions/0006-…` | 왜 협상 에이전트에게는 도구를 주지 않는가 — **도구를 추가하기 전에 읽어야 합니다** |
+| `docs/wiki_대조_20260907.md` | 9/5~9/6 회의가 뒤집은 것과 아직 안 갈린 쟁점 3개 |
 | `docs/해커톤_요건_대조.md` | 제출 요건 대비 상태 — Strands 진행도가 여기 있습니다 |
 
 ## 실행 방법
