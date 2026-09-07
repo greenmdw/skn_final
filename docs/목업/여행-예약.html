@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html{color-scheme:light dark}
+    body{margin:0}
+    img{max-width:100%}
+    [hidden]{display:none!important}
+  </style>
+<title>약속 대조 여행 예약</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Karla:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F1F0EC; --surface:#FFFFFF; --surface-2:#E8E7E1; --surface-3:#DEDCD4;
+  --ink:#1A1917; --ink-2:#575249; --ink-3:#8B857A;
+  --line:#DEDBD3; --line-2:#C5C1B5;
+  --accent:#1A5A96; --accent-ink:#144A7C; --accent-soft:#E1EAF3;
+  --ok:#0E7C4A; --ok-soft:#E1F2E9;
+  --warn:#B26A00; --warn-soft:#FAEEDB;
+  --bad:#C0362F; --bad-soft:#FAE7E5;
+  --none:#726C61; --none-soft:#EAE8E2;
+  --r:4px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#131311; --surface:#1C1C19; --surface-2:#252520; --surface-3:#31302A;
+    --ink:#F0EEE8; --ink-2:#B0AA9E; --ink-3:#847E72;
+    --line:#2E2D28; --line-2:#403E37;
+    --accent:#6FAEE0; --accent-ink:#8CC0EA; --accent-soft:#16283A;
+    --ok:#4FC489; --ok-soft:#12281E;
+    --warn:#E0A33C; --warn-soft:#2D2312;
+    --bad:#F0817A; --bad-soft:#321A18;
+    --none:#8F887C; --none-soft:#252520;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131311; --surface:#1C1C19; --surface-2:#252520; --surface-3:#31302A;
+  --ink:#F0EEE8; --ink-2:#B0AA9E; --ink-3:#847E72;
+  --line:#2E2D28; --line-2:#403E37;
+  --accent:#6FAEE0; --accent-ink:#8CC0EA; --accent-soft:#16283A;
+  --ok:#4FC489; --ok-soft:#12281E;
+  --warn:#E0A33C; --warn-soft:#2D2312;
+  --bad:#F0817A; --bad-soft:#321A18;
+  --none:#8F887C; --none-soft:#252520;
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"Karla","Helvetica Neue",system-ui,sans-serif;
+  font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased;
+}
+.kr{font-family:"Gowun Batang","Apple SD Gothic Neo","Batang",serif}
+.mono{font-family:"IBM Plex Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+h1,h2,h3{margin:0;text-wrap:balance;font-weight:600;letter-spacing:-.005em}
+p{margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+.wrap{max-width:1160px;margin:0 auto;padding:0 20px 72px}
+
+.topbar{border-bottom:1px solid var(--line-2);background:var(--surface);padding:20px 0 18px;margin-bottom:28px}
+.topbar .wrap{padding-bottom:0}
+.brandrow{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;justify-content:space-between}
+.brand h1{font-family:"Gowun Batang",serif;font-size:25px;font-weight:700;letter-spacing:-.01em}
+.brand .ver{font-size:11.5px;color:var(--ink-3);letter-spacing:.09em;text-transform:uppercase;margin-top:5px;display:block}
+.tagline{margin-top:10px;color:var(--ink-2);font-size:14.5px;max-width:64ch}
+.tagline b{color:var(--ink);font-weight:600}
+.flag{display:inline-flex;align-items:center;gap:7px;flex:none;border:1px solid var(--warn);
+  color:var(--warn);background:var(--warn-soft);border-radius:2px;padding:5px 11px;font-size:11.5px;
+  font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+.flag::before{content:"";width:6px;height:6px;background:var(--warn);flex:none}
+
+.layout{display:grid;grid-template-columns:212px 1fr;gap:30px;align-items:start}
+@media (max-width:880px){.layout{grid-template-columns:1fr;gap:18px}}
+
+.spine{position:sticky;top:16px;display:flex;flex-direction:column;gap:1px}
+@media (max-width:880px){.spine{position:static;flex-direction:row;overflow-x:auto;gap:6px;padding-bottom:6px}}
+.spine-label{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);font-weight:700;padding:0 0 10px 1px}
+@media (max-width:880px){.spine-label{display:none}}
+.step{display:flex;gap:11px;align-items:flex-start;text-align:left;width:100%;background:none;border:0;
+  border-left:2px solid transparent;padding:8px 10px;cursor:pointer;color:var(--ink-2);font:inherit;
+  font-size:13.5px;line-height:1.35;transition:border-color .12s,color .12s,background .12s}
+@media (max-width:880px){.step{width:auto;flex:none;white-space:nowrap;align-items:center;border-left:0;border-bottom:2px solid transparent}}
+.step:hover{background:var(--surface-2)}
+.step .num{flex:none;font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;color:var(--ink-3);padding-top:2px}
+.step[aria-current="true"]{border-color:var(--accent);color:var(--accent-ink);font-weight:600;background:var(--accent-soft)}
+.step[aria-current="true"] .num{color:var(--accent-ink)}
+.step .sub{display:block;font-size:11.5px;color:var(--ink-3);font-weight:400;margin-top:2px}
+@media (max-width:880px){.step .sub{display:none}}
+.spine .rule{height:1px;background:var(--line-2);margin:10px 1px}
+@media (max-width:880px){.spine .rule{display:none}}
+
+.panel{display:flex;flex-direction:column;gap:18px}
+.eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.11em;color:var(--accent-ink);font-weight:600;text-transform:uppercase}
+.panel > header h2{font-family:"Gowun Batang",serif;font-size:27px;font-weight:700;margin-top:7px}
+.panel > header p{color:var(--ink-2);font-size:14.5px;margin-top:8px;max-width:66ch}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px}
+.card > h3{font-size:12px;color:var(--ink-3);font-weight:700;letter-spacing:.09em;text-transform:uppercase;margin-bottom:15px}
+
+.query{background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r);padding:17px 19px}
+.query .lbl{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);font-weight:700}
+.query .val{font-size:17px;margin-top:9px;line-height:1.5}
+.caret{display:inline-block;width:2px;height:18px;background:var(--accent);vertical-align:-3px;margin-left:2px;animation:blink 1.1s steps(1,end) infinite}
+@keyframes blink{50%{opacity:0}}
+.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:15px}
+.chip{display:inline-flex;align-items:baseline;gap:7px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:2px;padding:4px 10px;font-size:12.5px;color:var(--ink-2)}
+.chip b{color:var(--ink);font-weight:600}
+.chip .k{font-size:10.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.07em}
+
+.items{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px}
+.item{border:1px solid var(--line);border-radius:2px;padding:9px 11px;background:var(--surface);
+  display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px}
+.item .st{font-size:10.5px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing:.05em}
+
+.asks{display:grid;grid-template-columns:repeat(auto-fit,minmax(238px,1fr));gap:12px}
+.ask{border:1px solid var(--line);border-radius:var(--r);padding:14px 15px;background:var(--surface)}
+.ask .q{font-size:13.5px;font-weight:600;margin-bottom:11px}
+.opts{display:flex;gap:6px;flex-wrap:wrap}
+.opt{border:1px solid var(--line-2);border-radius:2px;padding:5px 10px;font-size:12.5px;background:var(--surface);color:var(--ink-2)}
+.opt.sel{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+
+.fact{border:1px solid var(--accent);border-left-width:3px;border-radius:var(--r);background:var(--accent-soft);padding:16px 19px}
+.fact .src{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--accent-ink);letter-spacing:.06em;font-weight:600;text-transform:uppercase}
+.fact .line{font-size:16px;margin-top:10px;color:var(--ink);line-height:1.5}
+.fact .line b{font-weight:700}
+.fact ul{margin:11px 0 0;padding-left:18px;color:var(--ink-2);font-size:13.5px;line-height:1.7}
+.fact .meta{font-size:11.5px;color:var(--ink-2);margin-top:12px;font-family:"IBM Plex Mono",monospace}
+
+.tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:580px;font-size:13.5px}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:700;background:var(--surface-2);white-space:nowrap}
+tbody tr:last-child td{border-bottom:0}
+td.num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+.v{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;white-space:nowrap;
+   border-radius:2px;padding:3px 9px;border:1px solid;letter-spacing:.03em;text-transform:uppercase}
+.v .g{font-family:"IBM Plex Mono",monospace;font-size:11px;line-height:1}
+.v-ok{color:var(--ok);background:var(--ok-soft);border-color:var(--ok)}
+.v-part{color:var(--warn);background:var(--warn-soft);border-color:var(--warn)}
+.v-bad{color:var(--bad);background:var(--bad-soft);border-color:var(--bad)}
+.v-none{color:var(--none);background:var(--none-soft);border-color:var(--line-2)}
+
+/* --- the heart: promise vs what Korean reviewers said --- */
+.checks{display:flex;flex-direction:column;gap:12px}
+.check{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.check.refuted{border-left:3px solid var(--bad)}
+.check.confirmed{border-left:3px solid var(--ok)}
+.check.partial{border-left:3px solid var(--warn)}
+.check.noevi{border-left:3px solid var(--line-2)}
+.ck-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:13px 16px;
+  border-bottom:1px solid var(--line);background:var(--surface-2);flex-wrap:wrap}
+.ck-head .who{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);font-weight:700}
+.ck-head .promise{font-size:15px;font-weight:600;margin-top:4px}
+.ck-head .promise::before{content:"“";color:var(--ink-3)}
+.ck-head .promise::after{content:"”";color:var(--ink-3)}
+.ck-body{display:grid;grid-template-columns:1fr 210px;gap:0}
+@media (max-width:720px){.ck-body{grid-template-columns:1fr}}
+.ck-quote{padding:14px 16px}
+.ck-quote .ko{font-family:"Gowun Batang",serif;font-size:15.5px;line-height:1.75;color:var(--ink);
+  border-left:2px solid var(--line-2);padding-left:13px}
+.ck-quote .en{font-size:13px;color:var(--ink-2);margin-top:9px;padding-left:15px;font-style:italic}
+.ck-stat{padding:14px 16px;border-left:1px solid var(--line);display:flex;flex-direction:column;gap:6px;justify-content:center}
+@media (max-width:720px){.ck-stat{border-left:0;border-top:1px solid var(--line)}}
+.ck-stat .big{font-family:"IBM Plex Mono",monospace;font-size:19px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.2}
+.ck-stat .lil{font-size:12px;color:var(--ink-2);line-height:1.45}
+
+.funnel .frow{display:grid;grid-template-columns:150px 1fr 62px;gap:12px;align-items:center;font-size:13px;padding:3px 0}
+.funnel .lb{color:var(--ink-2)}
+.funnel .qt{text-align:right;font-family:"IBM Plex Mono",monospace;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.fbar{height:9px;background:var(--accent);border-radius:0 2px 2px 0}
+.fbar.cut{background:var(--surface-3)}
+
+.brow{display:grid;grid-template-columns:132px 1fr 92px 52px;gap:12px;align-items:center;font-size:13px;padding:5px 0}
+@media (max-width:640px){.brow{grid-template-columns:104px 1fr 84px}.brow .pct{display:none}}
+.btrack{height:10px;background:var(--surface-3);border-radius:2px;overflow:hidden}
+.bfill{height:100%;background:var(--accent);border-radius:2px}
+.brow .won,.brow .pct{font-family:"IBM Plex Mono",monospace;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.brow.swap .nm{color:var(--accent-ink);font-weight:600}
+
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media (max-width:760px){.tiles{grid-template-columns:1fr}}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 17px;display:flex;flex-direction:column;gap:9px}
+.tile .t{font-size:11px;color:var(--ink-3);font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+.tile .n{font-family:"IBM Plex Mono",monospace;font-size:27px;font-weight:600;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums}
+.tile .n small{font-size:14px;color:var(--ink-3);font-weight:400}
+.meter{height:6px;background:var(--surface-3);border-radius:3px;overflow:hidden;display:flex;gap:2px}
+.meter i{display:block;height:100%;border-radius:3px}
+.tile .foot{font-size:12px;color:var(--ink-3);line-height:1.45}
+
+.readbar{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;background:var(--accent-soft);
+  border:1px solid var(--accent);border-radius:var(--r);padding:14px 18px}
+.readbar .n{font-family:"IBM Plex Mono",monospace;font-size:26px;font-weight:600;color:var(--accent-ink);font-variant-numeric:tabular-nums}
+.readbar .t{font-size:14.5px;color:var(--ink)}
+
+.dist{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;align-items:end;height:92px;margin-top:4px}
+.db{display:flex;flex-direction:column;justify-content:flex-end;gap:6px;height:100%}
+.db i{display:block;border-radius:2px;background:var(--accent)}
+.db.mid i{background:var(--warn)}
+.db.hi i{background:var(--bad)}
+.dlabels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:7px;font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3);text-align:center}
+.dcount{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-2);text-align:center;font-variant-numeric:tabular-nums}
+
+.reasons{display:flex;flex-direction:column;gap:11px}
+.reason{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start;font-size:14px;line-height:1.6}
+.reason .bul{font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;color:var(--ink-3);padding-top:3px}
+.reason em{font-style:normal;background:var(--accent-soft);color:var(--accent-ink);padding:1px 5px;font-weight:600}
+
+.shift{display:grid;grid-template-columns:132px 1fr auto;gap:12px;align-items:center;font-size:13px;padding:5px 0}
+.stack{height:10px;background:var(--surface-3);border-radius:2px;position:relative;overflow:hidden}
+.stack .was{position:absolute;inset:0 auto 0 0;background:var(--line-2)}
+.stack .now{position:absolute;inset:0 auto 0 0;background:var(--accent)}
+.shift .d{font-family:"IBM Plex Mono",monospace;font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.d.up{color:var(--ok)} .d.dn{color:var(--bad)}
+
+.disc{display:grid;grid-template-columns:184px 1fr;gap:0}
+@media (max-width:640px){.disc{grid-template-columns:1fr}}
+.disc dt{padding:11px 0;border-bottom:1px solid var(--line);font-size:11px;color:var(--ink-3);font-weight:700;letter-spacing:.07em;text-transform:uppercase}
+.disc dd{padding:11px 0;border-bottom:1px solid var(--line);margin:0;font-size:13.5px;color:var(--ink)}
+@media (max-width:640px){.disc dt{border-bottom:0;padding-bottom:2px}}
+
+.note{font-size:12.5px;color:var(--ink-2);background:var(--surface-2);border-left:2px solid var(--line-2);
+  padding:10px 14px;line-height:1.6}
+.note b{color:var(--ink)}
+.note .tag{font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--ink-3);display:block;margin-bottom:4px;font-weight:600}
+
+.nav{display:flex;justify-content:space-between;gap:12px;margin-top:8px}
+.nav button{font:inherit;font-size:13.5px;font-weight:600;border:1px solid var(--line-2);background:var(--surface);
+  color:var(--ink);border-radius:2px;padding:9px 16px;cursor:pointer;transition:border-color .12s,background .12s,color .12s}
+.nav button:hover:not(:disabled){border-color:var(--accent);color:var(--accent-ink)}
+.nav button:disabled{opacity:.4;cursor:default}
+.nav .next{background:var(--accent);border-color:var(--accent);color:#fff}
+.nav .next:hover{background:var(--accent-ink);color:#fff}
+
+footer.pagefoot{margin-top:34px;padding-top:18px;border-top:1px solid var(--line-2);font-size:12px;color:var(--ink-3);line-height:1.75}
+footer.pagefoot code{font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brandrow">
+      <div>
+        <h1 class="brand">약속 대조 여행 예약</h1>
+        <span class="ver">Jeonju · booking verifier · engine v0 · 6 stages</span>
+        <p class="tagline">Your itinerary is already set. We book what's left — and we <b>read the Korean reviews to check whether each listing kept its promise</b>, because you can't.</p>
+      </div>
+      <span class="flag">Mockup · sample data</span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+<div class="layout">
+
+  <nav class="spine" aria-label="Engine stages">
+    <div class="spine-label">Engine</div>
+    <button class="step" data-go="1" aria-current="true"><span class="num">01</span><span>Checklist<span class="sub">keywords · items · follow-ups</span></span></button>
+    <button class="step" data-go="2"><span class="num">02</span><span>Requirements<span class="sub">external facts</span></span></button>
+    <button class="step" data-go="3"><span class="num">03</span><span>Risk check<span class="sub">promise ↔ Korean reviews</span></span></button>
+    <button class="step" data-go="4"><span class="num">04</span><span>Optimise<span class="sub">budget weights</span></span></button>
+    <button class="step" data-go="5"><span class="num">05</span><span>Final list<span class="sub">reasons + indicators</span></span></button>
+    <button class="step" data-go="6"><span class="num">06</span><span>Profile update<span class="sub">W-values</span></span></button>
+    <div class="rule"></div>
+    <button class="step" data-go="7"><span class="num">＊</span><span>How we use reviews<span class="sub">disclosure</span></span></button>
+  </nav>
+
+  <main>
+
+  <!-- 1 -->
+  <section class="panel" data-panel="1">
+    <header>
+      <div class="eyebrow">Stage 01</div>
+      <h2>Checklist</h2>
+      <p>Pull keywords out of one sentence, list what still needs booking, and <b>ask before recommending</b> when something is missing.</p>
+    </header>
+
+    <div class="query">
+      <div class="lbl">Traveller input</div>
+      <div class="val">First trip to Korea. Jeonju, 18–20 Oct, two adults, no car. One of us is vegetarian. Itinerary is already planned — I just need to know what to book<span class="caret"></span></div>
+      <div class="chips">
+        <span class="chip"><span class="k">City</span><b>Jeonju</b></span>
+        <span class="chip"><span class="k">Dates</span><b class="mono">18–20 Oct</b> · 2 nights</span>
+        <span class="chip"><span class="k">Party</span><b>2 adults</b></span>
+        <span class="chip"><span class="k">Mobility</span><b>walking + bus</b></span>
+        <span class="chip"><span class="k">Diet</span><b>1 vegetarian</b></span>
+        <span class="chip"><span class="k">Itinerary</span><b>already set</b></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Still to book — 6 items</h3>
+      <div class="items">
+        <div class="item">Hanbok rental<span class="st">new</span></div>
+        <div class="item">Craft workshop<span class="st">new</span></div>
+        <div class="item">Dinner ×2<span class="st">new</span></div>
+        <div class="item">Half-day tour<span class="st">new</span></div>
+        <div class="item">Airport transfer<span class="st">new</span></div>
+        <div class="item">Luggage storage<span class="st">new</span></div>
+      </div>
+      <p class="note" style="margin-top:15px"><span class="tag">설계 의도</span>17시 회의에서 정한 대로 <b>여행지 선정과 일정은 다루지 않는다.</b> 그건 다른 앱이 이미 했다고 가정하고, 그 뒤에 남는 <b>예약·구매 6종</b>만 맡는다 — 동선·교통까지 들어가면 범위가 커진다는 지적을 그대로 반영한 것이다.</p>
+    </div>
+
+    <div class="card">
+      <h3>Missing information — 2 of 3 answered</h3>
+      <div class="asks">
+        <div class="ask">
+          <div class="q">How far will you walk between stops?</div>
+          <div class="opts"><span class="opt">5 min</span><span class="opt sel">15 min</span><span class="opt">30 min</span><span class="opt">No limit</span></div>
+        </div>
+        <div class="ask">
+          <div class="q">How strict is the vegetarian requirement?</div>
+          <div class="opts"><span class="opt">No meat</span><span class="opt sel">No meat or fish</span><span class="opt">Fully vegan</span><span class="opt">Flexible</span></div>
+        </div>
+        <div class="ask">
+          <div class="q">Budget per person for bookings?</div>
+          <div class="opts"><span class="opt">Under ₩150,000</span><span class="opt">₩150–300,000</span><span class="opt">Over ₩300,000</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="panel" data-panel="2" hidden>
+    <header>
+      <div class="eyebrow">Stage 02</div>
+      <h2>Requirements</h2>
+      <p>Turn keywords into bookable specs using domain knowledge and <b>external facts</b>. Facts come from a source, not from the model.</p>
+    </header>
+
+    <div class="fact">
+      <div class="src">External fact · regional tourism open data</div>
+      <div class="line">A city food festival runs <b>17–20 October</b>. Your dates overlap it.</div>
+      <ul>
+        <li>Craft workshops in the hanok quarter book out <b>2–3 weeks ahead</b> during the festival</li>
+        <li>October night lows average <b>8&thinsp;°C</b> — evening outdoor programmes need a layer</li>
+      </ul>
+      <div class="meta">Sources checked 2026-09-07 · festival calendar (regional open data) · 30-year climate normals</div>
+    </div>
+
+    <div class="card">
+      <h3>Derived requirements</h3>
+      <div class="tblwrap">
+        <table>
+          <thead><tr><th>Requirement</th><th>Value</th><th>Where it came from</th><th>Type</th></tr></thead>
+          <tbody>
+            <tr><td>Booking lead time</td><td class="num">≥ 14 days</td><td>Festival overlap</td><td><span class="v v-bad"><span class="g">!</span>Hard</span></td></tr>
+            <tr><td>Walking radius</td><td class="num">≤ 15 min</td><td>Follow-up answer</td><td><span class="v v-bad"><span class="g">!</span>Hard</span></td></tr>
+            <tr><td>Menu</td><td class="num">No meat or fish</td><td>Follow-up answer</td><td><span class="v v-bad"><span class="g">!</span>Hard</span></td></tr>
+            <tr><td>Evening programme</td><td class="num">Indoor or layered</td><td>8&thinsp;°C night low</td><td><span class="v v-part"><span class="g">~</span>Advisory</span></td></tr>
+            <tr><td>Per-person budget</td><td class="num">—</td><td>Not answered</td><td><span class="v v-none"><span class="g">·</span>Not applied</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note" style="margin-top:15px"><span class="tag">데모 30초</span>사용자는 축제를 묻지 않았다. 시스템이 <b>먼저 꺼낸다</b> — PC 안에서 "권장 사양이 상향됐습니다"가 하던 자리를 여기서는 "이 주간에 축제가 있어 체험이 2~3주 전에 마감된다"가 맡는다.</p>
+    </div>
+  </section>
+
+  <!-- 3 -->
+  <section class="panel" data-panel="3" hidden>
+    <header>
+      <div class="eyebrow">Stage 03 · the heart</div>
+      <h2>Did the listing keep its promise?</h2>
+      <p>Every listing makes claims in its description. We check each one against what Korean reviewers actually wrote — <b>the original is always shown next to the translation</b>.</p>
+    </header>
+
+    <div class="card">
+      <h3>Hard constraints — 96 candidates → 23</h3>
+      <div class="funnel">
+        <div class="frow"><span class="lb">All candidates</span><span class="fbar" style="width:100%"></span><span class="qt">96</span></div>
+        <div class="frow"><span class="lb">Beyond 15-min walk</span><span class="fbar cut" style="width:35.4%"></span><span class="qt">−34</span></div>
+        <div class="frow"><span class="lb">No meat-free option</span><span class="fbar cut" style="width:20.8%"></span><span class="qt">−20</span></div>
+        <div class="frow"><span class="lb">Sold out on dates</span><span class="fbar cut" style="width:19.8%"></span><span class="qt">−19</span></div>
+        <div class="frow"><span class="lb">Passed</span><span class="fbar" style="width:24.0%"></span><span class="qt">23</span></div>
+      </div>
+    </div>
+
+    <div class="checks">
+
+      <div class="check refuted">
+        <div class="ck-head">
+          <div><div class="who">Hanbok rental · Shop A</div><div class="promise">5-minute walk from the bus terminal</div></div>
+          <span class="v v-bad"><span class="g">✕</span>Refuted</span>
+        </div>
+        <div class="ck-body">
+          <div class="ck-quote">
+            <p class="ko">터미널에서 걸어서 20분 넘게 걸렸어요. 지도만 보고 가면 헤맵니다.</p>
+            <p class="en">“Took well over 20 minutes on foot from the terminal. You'll get lost with just a map.”</p>
+          </div>
+          <div class="ck-stat">
+            <span class="big">41 / 312</span>
+            <span class="lil">reviews report more than 15 minutes on foot. None report 5.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="check refuted">
+        <div class="ck-head">
+          <div><div class="who">Craft workshop · Studio B</div><div class="promise">English guidance available</div></div>
+          <span class="v v-bad"><span class="g">✕</span>Refuted</span>
+        </div>
+        <div class="ck-body">
+          <div class="ck-quote">
+            <p class="ko">영어 안내는 없었고 번역기로 겨우 소통했어요.</p>
+            <p class="en">“There was no English guidance — we got by with a translation app.”</p>
+          </div>
+          <div class="ck-stat">
+            <span class="big">2 / 3</span>
+            <span class="lil">of the reviews that mention English say it wasn't available. Small sample — flagged, not hidden.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="check confirmed">
+        <div class="ck-head">
+          <div><div class="who">Dinner · Restaurant C</div><div class="promise">Vegetarian option available</div></div>
+          <span class="v v-ok"><span class="g">●</span>Confirmed</span>
+        </div>
+        <div class="ck-body">
+          <div class="ck-quote">
+            <p class="ko">비건 메뉴가 따로 있어서 좋았어요. 미리 말하면 육수도 빼줍니다.</p>
+            <p class="en">“They have a separate vegan menu, and they'll leave the meat broth out if you ask ahead.”</p>
+          </div>
+          <div class="ck-stat">
+            <span class="big">12 / 204</span>
+            <span class="lil">confirm it directly. No review contradicts the claim.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="check partial">
+        <div class="ck-head">
+          <div><div class="who">Half-day tour · Operator D</div><div class="promise">Full refund if cancelled for rain</div></div>
+          <span class="v v-part"><span class="g">◐</span>Partly confirmed</span>
+        </div>
+        <div class="ck-body">
+          <div class="ck-quote">
+            <p class="ko">우천 취소는 됐는데 환불이 3주 걸렸어요.</p>
+            <p class="en">“The rain cancellation went through, but the refund took three weeks.”</p>
+          </div>
+          <div class="ck-stat">
+            <span class="big">9 / 156</span>
+            <span class="lil">report delays. The refund happens — the timing is the problem.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="check confirmed">
+        <div class="ck-head">
+          <div><div class="who">Airport transfer · Operator E</div><div class="promise">Fixed fare, no surcharge</div></div>
+          <span class="v v-ok"><span class="g">●</span>Confirmed</span>
+        </div>
+        <div class="ck-body">
+          <div class="ck-quote">
+            <p class="ko">밤늦게 탔는데 할증 없이 처음 안내받은 금액 그대로 냈습니다.</p>
+            <p class="en">“Took it late at night and paid exactly the quoted fare, no surcharge.”</p>
+          </div>
+          <div class="ck-stat">
+            <span class="big">18 / 74</span>
+            <span class="lil">confirm the fare held, including late-night rides.</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="check noevi">
+        <div class="ck-head">
+          <div><div class="who">Luggage storage · Point F</div><div class="promise">Open 24 hours</div></div>
+          <span class="v v-none"><span class="g">·</span>No evidence</span>
+        </div>
+        <div class="ck-body">
+          <div class="ck-quote">
+            <p class="ko" style="color:var(--ink-3)">— 운영 시간을 언급한 리뷰가 2건뿐입니다.</p>
+            <p class="en">Only 2 reviews mention opening hours at all.</p>
+          </div>
+          <div class="ck-stat">
+            <span class="big">2 / 31</span>
+            <span class="lil">Not enough to judge. We do not say this was verified.</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="card">
+      <h3>Manipulation probability across the 865 reviews we read</h3>
+      <div class="dist">
+        <div class="db"><span class="dcount">771</span><i style="height:78px"></i></div>
+        <div class="db"><span class="dcount">54</span><i style="height:19px"></i></div>
+        <div class="db mid"><span class="dcount">24</span><i style="height:12px"></i></div>
+        <div class="db mid"><span class="dcount">11</span><i style="height:8px"></i></div>
+        <div class="db hi"><span class="dcount">5</span><i style="height:6px"></i></div>
+      </div>
+      <div class="dlabels"><span>0–20%</span><span>20–40%</span><span>40–60%</span><span>60–80%</span><span>80–100%</span></div>
+      <p class="note" style="margin-top:15px"><span class="tag">엘리베이터 논쟁에 대한 답</span>"조작 리뷰다 / 아니다"로 <b>단정하지 않는다.</b> 확률로 표시하고 임계값(20%)을 화면에 밝힌다 — 판별 정확도를 100%로 만들려는 대신, 판단 재료를 그대로 넘긴다.</p>
+    </div>
+  </section>
+
+  <!-- 4 -->
+  <section class="panel" data-panel="4" hidden>
+    <header>
+      <div class="eyebrow">Stage 04</div>
+      <h2>Budget</h2>
+      <p>Spread the budget across categories by weight. Rules, not a model — and the swap from stage 03 lands here.</p>
+    </header>
+    <div class="card">
+      <h3>Per person — <span class="mono">₩256,000</span> of <span class="mono">₩260,000</span></h3>
+      <div class="brow"><span class="nm">Half-day tour</span><span class="btrack"><i class="bfill" style="width:100%"></i></span><span class="won">₩78,000</span><span class="pct">30.5%</span></div>
+      <div class="brow"><span class="nm">Craft workshop</span><span class="btrack"><i class="bfill" style="width:70.5%"></i></span><span class="won">₩55,000</span><span class="pct">21.5%</span></div>
+      <div class="brow"><span class="nm">Dinner ×2</span><span class="btrack"><i class="bfill" style="width:61.5%"></i></span><span class="won">₩48,000</span><span class="pct">18.8%</span></div>
+      <div class="brow swap"><span class="nm">Hanbok rental</span><span class="btrack"><i class="bfill" style="width:44.9%"></i></span><span class="won">₩35,000</span><span class="pct">13.7%</span></div>
+      <div class="brow"><span class="nm">Airport transfer</span><span class="btrack"><i class="bfill" style="width:41.0%"></i></span><span class="won">₩32,000</span><span class="pct">12.5%</span></div>
+      <div class="brow"><span class="nm">Luggage storage</span><span class="btrack"><i class="bfill" style="width:10.3%"></i></span><span class="won">₩8,000</span><span class="pct">3.1%</span></div>
+      <p class="note" style="margin-top:16px"><span class="tag">검증이 목록을 바꾼다</span>한복 대여는 <b>Shop A가 아니라 다른 가게</b>다. "터미널에서 도보 5분" 약속이 단계 03에서 반증돼, 리뷰 27건이 도보 6분을 확인한 곳으로 교체했다. 가격은 ₩3,000 비싸다. <b>검증이 설명용 장식이 아니라 목록에 관여했다는 증거</b>다.</p>
+    </div>
+  </section>
+
+  <!-- 5 -->
+  <section class="panel" data-panel="5" hidden>
+    <header>
+      <div class="eyebrow">Stage 05</div>
+      <h2>Your bookings, and why</h2>
+      <p>Three indicators, kept separate. Combining them into one score would need weights we cannot justify.</p>
+    </header>
+
+    <div class="readbar">
+      <span class="n">865</span>
+      <span class="t">Korean reviews read on your behalf — across 6 listings, 24 months</span>
+    </div>
+
+    <div class="tiles">
+      <div class="tile">
+        <span class="t">Requirements met</span>
+        <span class="n">5<small> / 6</small></span>
+        <span class="meter"><i style="width:83.3%;background:var(--ok)"></i></span>
+        <span class="foot">Budget per person was never answered, so it was not evaluated</span>
+      </div>
+      <div class="tile">
+        <span class="t">Promises verified</span>
+        <span class="n">2<small> / 6 confirmed</small></span>
+        <span class="meter">
+          <i style="width:33.3%;background:var(--ok)"></i>
+          <i style="width:16.7%;background:var(--warn)"></i>
+          <i style="width:33.3%;background:var(--bad)"></i>
+          <i style="width:16.7%;background:var(--none)"></i>
+        </span>
+        <span class="foot">2 confirmed · 1 partly · <b style="color:var(--bad)">2 refuted</b> · 1 no evidence</span>
+      </div>
+      <div class="tile">
+        <span class="t">Review reliability</span>
+        <span class="n">89.1<small>%</small></span>
+        <span class="meter"><i style="width:89.1%;background:var(--accent)"></i></span>
+        <span class="foot">771 of 865 below 20% manipulation probability. Threshold is adjustable</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Why this list</h3>
+      <div class="reasons">
+        <div class="reason"><span class="bul">01</span><span>A city festival overlaps your dates, so everything here is booked <em>at least 14 days ahead</em>.</span></div>
+        <div class="reason"><span class="bul">02</span><span>The hanbok shop you'd find first claims a 5-minute walk. <em>41 of 312 reviews say over 15</em>. We swapped it for a shop 27 reviews put at 6 minutes.</span></div>
+        <div class="reason"><span class="bul">03</span><span>The workshop's "English guidance" claim <em>did not hold</em>, but it's the only meat-free-friendly slot left on your dates. Kept, with a printed Korean phrase card.</span></div>
+        <div class="reason"><span class="bul">04</span><span>The tour does refund for rain — <em>but 9 reviews report three-week delays</em>. Book it, don't count on a fast refund.</span></div>
+        <div class="reason"><span class="bul">05</span><span>Luggage storage hours are <em>unverified</em>. Two reviews mention them. We are not telling you it's open 24 hours.</span></div>
+      </div>
+      <p class="note" style="margin-top:16px"><span class="tag">근거의 근거</span>다섯 문장 전부가 단계 03의 판정과 <b>일대일로 연결</b>된다. 설명이 스스로 지어낸 문장이 아니라는 것이 이 화면의 요지다 — 근거 문장을 생성하는 것과 그 문장을 믿을 수 있게 만드는 것은 다른 일이다.</p>
+    </div>
+  </section>
+
+  <!-- 6 -->
+  <section class="panel" data-panel="6" hidden>
+    <header>
+      <div class="eyebrow">Stage 06</div>
+      <h2>Profile update — not training</h2>
+      <p>Nothing is retrained. Your feedback moves the <b>category weights in stage 04</b> and the requirement profile in stage 02.</p>
+    </header>
+    <div class="card">
+      <h3>Feedback: “too much on tours, I'd rather eat well”</h3>
+      <div class="shift"><span class="nm">Half-day tour</span><span class="stack"><i class="was" style="width:100%"></i><i class="now" style="width:73.8%"></i></span><span class="d dn">30.5% → 22.5%</span></div>
+      <div class="shift"><span class="nm">Dinner ×2</span><span class="stack"><i class="was" style="width:61.5%"></i><i class="now" style="width:88.5%"></i></span><span class="d up">18.8% → 27.0%</span></div>
+      <div class="shift"><span class="nm">Craft workshop</span><span class="stack"><i class="was" style="width:70.5%"></i><i class="now" style="width:72.1%"></i></span><span class="d up">21.5% → 22.0%</span></div>
+      <div class="shift"><span class="nm">Hanbok rental</span><span class="stack"><i class="was" style="width:44.9%"></i><i class="now" style="width:45.9%"></i></span><span class="d up">13.7% → 14.0%</span></div>
+      <p class="note" style="margin-top:16px"><span class="tag">RL 기각을 피하는 방법</span>강화학습이 아니다. 학습을 하지 않으므로 <b>W값 갱신</b>이라 부른다 — 룰로 계산되고, 값이 얼마나 움직였는지 화면에 그대로 보인다.</p>
+    </div>
+  </section>
+
+  <!-- 7 -->
+  <section class="panel" data-panel="7" hidden>
+    <header>
+      <div class="eyebrow">Disclosure</div>
+      <h2>How we use reviews</h2>
+      <p>If reviews are filtered or used to rank, the basis has to be published. <b>We make the obligation a screen.</b></p>
+    </header>
+    <div class="card">
+      <dl class="disc">
+        <dt>Who may write</dt><dd>Only travellers with a confirmed booking. Anything else is used as evidence, never published as a review</dd>
+        <dt>What we read</dt><dd>Listing reviews · listing Q&amp;A · public community posts with no advertising</dd>
+        <dt>When</dt><dd class="mono">Collected up to 2026-09-07 · last 24 months</dd>
+        <dt>Filtering</dt><dd>Reviews at or above <b class="mono">20%</b> manipulation probability are excluded from the evidence sample. They are not deleted</dd>
+        <dt>Grading</dt><dd>We assign no star grade to a review. The only value a review produces is a verdict on a stated promise — confirmed, partly, refuted, or no evidence</dd>
+        <dt>Effect of a verdict</dt><dd>A verdict never removes a listing. Refuted items stay on the list with the warning attached</dd>
+        <dt>Ranking</dt><dd><b>Reviews never rank listings.</b> They are used only to test whether a stated promise held</dd>
+        <dt>Excluded</dt><dd class="mono">94 of 865 (10.9%) — full distribution shown in stage 03</dd>
+        <dt>Translation</dt><dd>Machine-assisted. <b>The Korean original is always shown beside it</b> so you can check or ask someone</dd>
+        <dt>Retention</dt><dd>24 months from collection, then aggregates only</dd>
+        <dt>Deletion</dt><dd>On author request, or when the source post is removed. Past verdicts survive as counts only</dd>
+        <dt>Appeals</dt><dd>An operator can submit evidence to have a "refuted" verdict re-examined</dd>
+      </dl>
+      <p class="note" style="margin-top:16px"><span class="tag">확인 완료</span>공정거래위원회 <b>사용후기 수집·처리 정보공개 의무</b> 대응 화면. 전자상거래법 개정으로 <b>2026-07-21 시행</b>됐고, 3개월 계도기간이 끝나는 <b>2026-10-22부터 본격 적용</b>된다. 공정위가 공개하라고 정한 항목(작성 권한자 범위 · 게시기간 · 등급평가 기준과 효과 · 삭제 기준 · 이의제기 절차)이 위 표와 그대로 겹친다.</p>
+    </div>
+  </section>
+
+  <div class="nav">
+    <button class="prev" type="button">← Previous</button>
+    <button class="next" type="button">Next stage →</button>
+  </div>
+
+  <footer class="pagefoot">
+    <p><b>목업입니다.</b> 업체·리뷰·건수는 화면 구성을 보이기 위한 예시값이며 실제 업체나 실제 리뷰가 아닙니다. 한국어 리뷰 문장도 예시로 작성한 것입니다.</p>
+    <p>UI를 영어로 둔 것은 <b>대상 사용자가 외국인 관광객</b>이기 때문이고, 회색 주석은 팀 검토용 한국어 설명입니다. 엔진 6단계는 PC 목업과 <b>같은 구조</b>이며, 도메인 의존 세 칸(품목 사전 · 외부 사실 · 리뷰 소스)만 바뀌었습니다.</p>
+    <p>기획 근거: <code>docs/기획안_4안_초안_20260907.md</code> · 여행안 범위 한정은 2026-09-07 17시 회의.</p>
+  </footer>
+
+  </main>
+</div>
+</div>
+
+<script>
+(function(){
+  var LAST = 7, cur = 1, panels = {}, steps = {};
+  document.querySelectorAll('[data-panel]').forEach(function(p){ panels[p.dataset.panel] = p; });
+  document.querySelectorAll('.step').forEach(function(s){ steps[s.dataset.go] = s; });
+  function show(n){
+    n = Math.max(1, Math.min(LAST, n)); cur = n;
+    for (var k in panels) panels[k].hidden = (k !== String(n));
+    for (var j in steps) steps[j].setAttribute('aria-current', j === String(n) ? 'true' : 'false');
+    document.querySelector('.nav .prev').disabled = (n === 1);
+    document.querySelector('.nav .next').disabled = (n === LAST);
+    var m = document.querySelector('main');
+    if (m && window.scrollY > m.offsetTop) m.scrollIntoView({behavior:'smooth', block:'start'});
+  }
+  document.querySelectorAll('.step').forEach(function(s){
+    s.addEventListener('click', function(){ show(parseInt(s.dataset.go, 10)); });
+  });
+  document.querySelector('.nav .prev').addEventListener('click', function(){ show(cur - 1); });
+  document.querySelector('.nav .next').addEventListener('click', function(){ show(cur + 1); });
+  document.addEventListener('keydown', function(e){
+    if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowRight') show(cur + 1);
+    if (e.key === 'ArrowLeft') show(cur - 1);
+  });
+  show(1);
+})();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    html{color-scheme:light dark}
+    body{margin:0}
+    img{max-width:100%}
+    [hidden]{display:none!important}
+  </style>
+<title>스펙 대조 견적기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F4F5F8; --surface:#FFFFFF; --surface-2:#EDEFF4; --surface-3:#E4E7EE;
+  --ink:#141721; --ink-2:#4B5263; --ink-3:#7C8494;
+  --line:#DDE1EA; --line-2:#C3C9D6;
+  --accent:#3B44D6; --accent-ink:#2A31A8; --accent-soft:#E8E9FB;
+  --ok:#0E7C4A; --ok-soft:#E1F2E9;
+  --warn:#B26A00; --warn-soft:#FBEEDA;
+  --bad:#C0362F; --bad-soft:#FBE7E5;
+  --none:#6A7285; --none-soft:#EBEDF2;
+  --shadow:0 1px 2px rgba(20,23,33,.06), 0 8px 24px -16px rgba(20,23,33,.28);
+  --r:10px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0D0F14; --surface:#161A21; --surface-2:#1E232C; --surface-3:#272D38;
+    --ink:#ECEFF5; --ink-2:#A6AEBE; --ink-3:#78808F;
+    --line:#282E38; --line-2:#3A424F;
+    --accent:#8A90F5; --accent-ink:#A6ABF8; --accent-soft:#1E2140;
+    --ok:#4FC489; --ok-soft:#13291F;
+    --warn:#E0A33C; --warn-soft:#2E2413;
+    --bad:#F0817A; --bad-soft:#331A19;
+    --none:#8B93A3; --none-soft:#20252E;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0D0F14; --surface:#161A21; --surface-2:#1E232C; --surface-3:#272D38;
+  --ink:#ECEFF5; --ink-2:#A6AEBE; --ink-3:#78808F;
+  --line:#282E38; --line-2:#3A424F;
+  --accent:#8A90F5; --accent-ink:#A6ABF8; --accent-soft:#1E2140;
+  --ok:#4FC489; --ok-soft:#13291F;
+  --warn:#E0A33C; --warn-soft:#2E2413;
+  --bad:#F0817A; --bad-soft:#331A19;
+  --none:#8B93A3; --none-soft:#20252E;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+}
+
+*{box-sizing:border-box}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased;
+}
+.mono{font-family:"IBM Plex Mono","SFMono-Regular",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+h1,h2,h3{margin:0;text-wrap:balance;font-weight:600;letter-spacing:-.01em}
+p{margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+/* ---------- shell ---------- */
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px 72px}
+
+.topbar{
+  border-bottom:1px solid var(--line); background:var(--surface);
+  padding:18px 0 16px; margin-bottom:26px;
+}
+.topbar .wrap{padding-bottom:0}
+.brandrow{display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap;justify-content:space-between}
+.brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.brand h1{font-size:21px;font-weight:700}
+.brand .ver{font-size:12px;color:var(--ink-3);letter-spacing:.04em}
+.tagline{margin-top:8px;color:var(--ink-2);font-size:14px;max-width:62ch}
+.tagline b{color:var(--ink);font-weight:600}
+
+.flag{
+  display:inline-flex;align-items:center;gap:7px;flex:none;
+  border:1px solid var(--warn);color:var(--warn);background:var(--warn-soft);
+  border-radius:999px;padding:5px 12px;font-size:12px;font-weight:600;letter-spacing:.02em;
+}
+.flag::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--warn);flex:none}
+
+/* ---------- spine ---------- */
+.layout{display:grid;grid-template-columns:216px 1fr;gap:28px;align-items:start}
+@media (max-width:880px){.layout{grid-template-columns:1fr;gap:18px}}
+
+.spine{position:sticky;top:16px;display:flex;flex-direction:column;gap:2px}
+@media (max-width:880px){
+  .spine{position:static;flex-direction:row;overflow-x:auto;gap:8px;padding-bottom:6px}
+}
+.spine-label{
+  font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);
+  font-weight:600;padding:0 0 8px 2px;
+}
+@media (max-width:880px){.spine-label{display:none}}
+.step{
+  display:flex;gap:11px;align-items:flex-start;text-align:left;width:100%;
+  background:none;border:0;padding:9px 10px;border-radius:8px;cursor:pointer;
+  color:var(--ink-2);font:inherit;font-size:13.5px;line-height:1.35;
+  transition:background .12s ease,color .12s ease;
+}
+@media (max-width:880px){.step{width:auto;flex:none;white-space:nowrap;align-items:center}}
+.step:hover{background:var(--surface-2)}
+.step .num{
+  flex:none;width:21px;height:21px;border-radius:5px;display:grid;place-items:center;
+  font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;
+  background:var(--surface-3);color:var(--ink-2);
+}
+.step[aria-current="true"]{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+.step[aria-current="true"] .num{background:var(--accent);color:#fff}
+.step .sub{display:block;font-size:11.5px;color:var(--ink-3);font-weight:400;margin-top:2px}
+@media (max-width:880px){.step .sub{display:none}}
+.step[aria-current="true"] .sub{color:var(--accent-ink);opacity:.8}
+.spine .rule{height:1px;background:var(--line);margin:10px 2px}
+@media (max-width:880px){.spine .rule{display:none}}
+
+/* ---------- panels ---------- */
+.panel{display:flex;flex-direction:column;gap:18px}
+.eyebrow{
+  font-family:"IBM Plex Mono",monospace;font-size:11.5px;letter-spacing:.08em;
+  color:var(--accent-ink);font-weight:600;text-transform:uppercase;
+}
+.panel > header h2{font-size:24px;margin-top:5px}
+.panel > header p{color:var(--ink-2);font-size:14px;margin-top:7px;max-width:66ch}
+
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:18px 20px}
+.card > h3{font-size:14px;color:var(--ink-2);font-weight:600;margin-bottom:14px;letter-spacing:.01em}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:720px){.grid2{grid-template-columns:1fr}}
+
+/* input replica */
+.query{
+  background:var(--surface);border:1px solid var(--line-2);border-radius:var(--r);
+  padding:16px 18px;box-shadow:var(--shadow);
+}
+.query .lbl{font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.query .val{font-size:17px;margin-top:8px;line-height:1.5}
+.caret{display:inline-block;width:2px;height:18px;background:var(--accent);vertical-align:-3px;margin-left:2px;animation:blink 1.1s steps(1,end) infinite}
+@keyframes blink{50%{opacity:0}}
+
+.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:14px}
+.chip{
+  display:inline-flex;align-items:center;gap:7px;background:var(--surface-2);
+  border:1px solid var(--line);border-radius:999px;padding:4px 11px;font-size:12.5px;color:var(--ink-2);
+}
+.chip b{color:var(--ink);font-weight:600}
+.chip .k{font-size:11px;color:var(--ink-3)}
+
+/* checklist */
+.items{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.item{
+  border:1px solid var(--line);border-radius:8px;padding:9px 11px;background:var(--surface);
+  display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;
+}
+.item .st{font-size:11px;color:var(--ink-3);font-family:"IBM Plex Mono",monospace}
+.item.reuse{background:var(--surface-2);color:var(--ink-2)}
+
+/* ask cards */
+.asks{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.ask{border:1px solid var(--line);border-radius:var(--r);padding:14px 15px;background:var(--surface)}
+.ask .q{font-size:13.5px;font-weight:600;margin-bottom:11px}
+.opts{display:flex;gap:7px;flex-wrap:wrap}
+.opt{
+  border:1px solid var(--line-2);border-radius:7px;padding:6px 11px;font-size:12.5px;
+  background:var(--surface);color:var(--ink-2);cursor:default;
+}
+.opt.sel{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+
+/* fact box — the demo moment */
+.fact{
+  border:1px solid var(--accent);border-left-width:3px;border-radius:var(--r);
+  background:var(--accent-soft);padding:16px 18px;
+}
+.fact .src{
+  font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--accent-ink);
+  letter-spacing:.03em;font-weight:600;
+}
+.fact .line{font-size:15px;margin-top:9px;color:var(--ink)}
+.fact .line b{font-weight:600}
+.fact .meta{font-size:12px;color:var(--ink-2);margin-top:10px;font-family:"IBM Plex Mono",monospace}
+.delta{
+  display:inline-flex;align-items:center;gap:6px;background:var(--surface);
+  border:1px solid var(--line-2);border-radius:6px;padding:2px 8px;font-size:12.5px;
+  font-family:"IBM Plex Mono",monospace;
+}
+.delta s{color:var(--ink-3);text-decoration-thickness:1px}
+.delta .to{color:var(--accent-ink);font-weight:600}
+
+/* tables */
+.tblwrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:600px;font-size:13.5px}
+th,td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{
+  font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);
+  font-weight:600;background:var(--surface-2);white-space:nowrap;
+}
+tbody tr:last-child td{border-bottom:0}
+td.num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+.claim{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--ink)}
+.evi{font-size:12.5px;color:var(--ink-2);margin-top:3px}
+
+/* verdicts — colour is never alone: glyph + label */
+.v{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;white-space:nowrap;
+   border-radius:6px;padding:3px 9px;border:1px solid}
+.v .g{font-family:"IBM Plex Mono",monospace;font-size:12px;line-height:1}
+.v-ok{color:var(--ok);background:var(--ok-soft);border-color:var(--ok)}
+.v-part{color:var(--warn);background:var(--warn-soft);border-color:var(--warn)}
+.v-bad{color:var(--bad);background:var(--bad-soft);border-color:var(--bad)}
+.v-none{color:var(--none);background:var(--none-soft);border-color:var(--line-2)}
+
+/* funnel */
+.funnel{display:flex;flex-direction:column;gap:7px}
+.fr{display:grid;grid-template-columns:1fr auto;gap:12px;align-items:center;font-size:13px}
+.fbar{height:9px;border-radius:0 4px 4px 0;background:var(--accent);opacity:.9}
+.fbar.cut{background:var(--surface-3)}
+.frow{display:grid;grid-template-columns:130px 1fr 68px;gap:12px;align-items:center;font-size:13px}
+.frow .lb{color:var(--ink-2)}
+.frow .qt{text-align:right;font-family:"IBM Plex Mono",monospace;color:var(--ink-2);font-variant-numeric:tabular-nums}
+
+/* budget bars — single hue, magnitude */
+.brow{display:grid;grid-template-columns:96px 1fr 96px 52px;gap:12px;align-items:center;font-size:13px;padding:5px 0}
+@media (max-width:640px){.brow{grid-template-columns:80px 1fr 84px;}.brow .pct{display:none}}
+.btrack{height:10px;background:var(--surface-3);border-radius:5px;overflow:hidden}
+.bfill{height:100%;background:var(--accent);border-radius:5px}
+.brow .won,.brow .pct{font-family:"IBM Plex Mono",monospace;text-align:right;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.brow .nm{color:var(--ink)}
+.brow.reuse .nm,.brow.reuse .won{color:var(--ink-3)}
+
+/* stat tiles */
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+@media (max-width:760px){.tiles{grid-template-columns:1fr}}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px 17px;display:flex;flex-direction:column;gap:9px}
+.tile .t{font-size:12.5px;color:var(--ink-2);font-weight:600}
+.tile .n{font-family:"IBM Plex Mono",monospace;font-size:27px;font-weight:600;letter-spacing:-.02em;line-height:1.1;font-variant-numeric:tabular-nums}
+.tile .n small{font-size:15px;color:var(--ink-3);font-weight:400}
+.meter{height:6px;background:var(--surface-3);border-radius:3px;overflow:hidden;display:flex;gap:2px}
+.meter i{display:block;height:100%;border-radius:3px}
+.tile .foot{font-size:12px;color:var(--ink-3);line-height:1.45}
+
+/* distribution */
+.dist{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;align-items:end;height:96px;margin-top:4px}
+.db{display:flex;flex-direction:column;justify-content:flex-end;gap:6px;height:100%}
+.db i{display:block;border-radius:4px 4px 2px 2px;background:var(--accent)}
+.db.hi i{background:var(--bad)}
+.db.mid i{background:var(--warn)}
+.dlabels{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin-top:7px;
+  font-family:"IBM Plex Mono",monospace;font-size:10.5px;color:var(--ink-3);text-align:center}
+.dcount{font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--ink-2);text-align:center;font-variant-numeric:tabular-nums}
+
+/* reason list */
+.reasons{display:flex;flex-direction:column;gap:11px}
+.reason{display:grid;grid-template-columns:auto 1fr;gap:11px;align-items:start;font-size:13.5px;line-height:1.55}
+.reason .bul{width:20px;height:20px;border-radius:5px;display:grid;place-items:center;flex:none;
+  font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;background:var(--surface-3);color:var(--ink-2)}
+.reason em{font-style:normal;background:var(--accent-soft);color:var(--accent-ink);padding:1px 5px;border-radius:4px;font-weight:600}
+
+/* w-value shift */
+.shift{display:grid;grid-template-columns:96px 1fr auto;gap:12px;align-items:center;font-size:13px;padding:5px 0}
+.stack{height:10px;background:var(--surface-3);border-radius:5px;position:relative;overflow:hidden}
+.stack .was{position:absolute;inset:0 auto 0 0;background:var(--line-2);border-radius:5px}
+.stack .now{position:absolute;inset:0 auto 0 0;background:var(--accent);border-radius:5px;opacity:.95}
+.shift .d{font-family:"IBM Plex Mono",monospace;font-size:12.5px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.d.up{color:var(--ok)} .d.dn{color:var(--bad)}
+
+/* disclosure */
+.disc{display:grid;grid-template-columns:170px 1fr;gap:0}
+@media (max-width:640px){.disc{grid-template-columns:1fr}}
+.disc dt{padding:11px 0;border-bottom:1px solid var(--line);font-size:12.5px;color:var(--ink-3);font-weight:600}
+.disc dd{padding:11px 0;border-bottom:1px solid var(--line);margin:0;font-size:13.5px;color:var(--ink)}
+@media (max-width:640px){.disc dt{border-bottom:0;padding-bottom:2px}}
+
+.note{
+  font-size:12.5px;color:var(--ink-2);background:var(--surface-2);
+  border-left:2px solid var(--line-2);padding:10px 14px;border-radius:0 6px 6px 0;line-height:1.55;
+}
+.note b{color:var(--ink)}
+
+/* nav */
+.nav{display:flex;justify-content:space-between;gap:12px;margin-top:8px}
+.nav button{
+  font:inherit;font-size:13.5px;font-weight:600;border:1px solid var(--line-2);background:var(--surface);
+  color:var(--ink);border-radius:8px;padding:9px 16px;cursor:pointer;transition:border-color .12s,background .12s;
+}
+.nav button:hover:not(:disabled){border-color:var(--accent);color:var(--accent-ink)}
+.nav button:disabled{opacity:.4;cursor:default}
+.nav .next{background:var(--accent);border-color:var(--accent);color:#fff}
+.nav .next:hover{background:var(--accent-ink);color:#fff}
+
+footer.pagefoot{margin-top:34px;padding-top:18px;border-top:1px solid var(--line);
+  font-size:12px;color:var(--ink-3);line-height:1.7}
+footer.pagefoot code{font-family:"IBM Plex Mono",monospace;font-size:11.5px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="wrap">
+    <div class="brandrow">
+      <div>
+        <div class="brand">
+          <h1>스펙 대조 견적기</h1>
+          <span class="ver mono">ENGINE v0 · 6단계</span>
+        </div>
+        <p class="tagline">게임과 예산 한 줄이면 부품 세트를 짜 주되, <b>제조사가 스펙에 적은 주장을 리뷰로 대조해</b> 걸러내고 그 판단 근거를 공개한다.</p>
+      </div>
+      <span class="flag">목업 · 예시 데이터</span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+<div class="layout">
+
+  <nav class="spine" aria-label="추천 엔진 단계">
+    <div class="spine-label">추천 엔진</div>
+    <button class="step" data-go="1" aria-current="true"><span class="num">1</span><span>체크리스트<span class="sub">키워드·품목·되묻기</span></span></button>
+    <button class="step" data-go="2"><span class="num">2</span><span>요구사항 확인<span class="sub">외부 사실 주입</span></span></button>
+    <button class="step" data-go="3"><span class="num">3</span><span>리스크 조정<span class="sub">스펙 ↔ 리뷰 대조</span></span></button>
+    <button class="step" data-go="4"><span class="num">4</span><span>최적화<span class="sub">예산 가중치 배분</span></span></button>
+    <button class="step" data-go="5"><span class="num">5</span><span>최종 리스트<span class="sub">근거 + 신뢰 지표</span></span></button>
+    <button class="step" data-go="6"><span class="num">6</span><span>사후 갱신<span class="sub">W값 프로필</span></span></button>
+    <div class="rule"></div>
+    <button class="step" data-go="7"><span class="num">＊</span><span>리뷰 처리 기준<span class="sub">공개 화면</span></span></button>
+  </nav>
+
+  <main>
+
+  <!-- ============ 1 ============ -->
+  <section class="panel" data-panel="1">
+    <header>
+      <div class="eyebrow">단계 1</div>
+      <h2>체크리스트 작성</h2>
+      <p>입력에서 키워드를 뽑아 필요 품목을 세운다. 답이 없으면 추천을 미루고 <b>먼저 되묻는다</b> — 무엇을 모르는지 아는 것이 1단계의 일이다.</p>
+    </header>
+
+    <div class="query">
+      <div class="lbl">사용자 입력</div>
+      <div class="val">〈오르카 프로토콜〉 QHD 상옵으로 돌리고 싶어요. 예산 120만 원이고 3년 된 본체 쓰고 있습니다<span class="caret"></span></div>
+      <div class="chips">
+        <span class="chip"><span class="k">게임</span><b>오르카 프로토콜</b></span>
+        <span class="chip"><span class="k">해상도</span><b>QHD 2560×1440</b></span>
+        <span class="chip"><span class="k">옵션</span><b>상</b></span>
+        <span class="chip"><span class="k">예산</span><b class="mono">1,200,000원</b></span>
+        <span class="chip"><span class="k">기존 본체</span><b>보유 · 3년</b></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>필요 품목 8종</h3>
+      <div class="items">
+        <div class="item">CPU<span class="st">신규</span></div>
+        <div class="item">메인보드<span class="st">신규</span></div>
+        <div class="item">그래픽카드<span class="st">신규</span></div>
+        <div class="item">메모리<span class="st">신규</span></div>
+        <div class="item">SSD<span class="st">신규</span></div>
+        <div class="item">파워<span class="st">신규</span></div>
+        <div class="item">쿨러<span class="st">신규</span></div>
+        <div class="item reuse">케이스<span class="st">재사용</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>빠진 정보 되묻기 — 3개 중 2개 응답</h3>
+      <div class="asks">
+        <div class="ask">
+          <div class="q">모니터 주사율이 어떻게 되나요?</div>
+          <div class="opts"><span class="opt">60Hz</span><span class="opt sel">144Hz</span><span class="opt">240Hz</span><span class="opt">모름</span></div>
+        </div>
+        <div class="ask">
+          <div class="q">쓰던 케이스와 파워를 재사용할까요?</div>
+          <div class="opts"><span class="opt sel">케이스만</span><span class="opt">둘 다</span><span class="opt">둘 다 교체</span></div>
+        </div>
+        <div class="ask">
+          <div class="q">소음과 성능 중 어느 쪽이 우선인가요?</div>
+          <div class="opts"><span class="opt">소음</span><span class="opt">성능</span><span class="opt">상관없음</span></div>
+        </div>
+      </div>
+      <p class="note" style="margin-top:14px">되묻기는 <b>룰베이스 빈칸 채우기</b>다. 상위 카테고리가 정해지면 하위 질문이 따라 나온다 — 모델이 질문을 지어내지 않는다.</p>
+    </div>
+  </section>
+
+  <!-- ============ 2 ============ -->
+  <section class="panel" data-panel="2" hidden>
+    <header>
+      <div class="eyebrow">단계 2</div>
+      <h2>요구사항 확인</h2>
+      <p>키워드를 도메인 지식과 <b>외부 사실</b>에 붙여 스펙으로 바꾼다. 사실은 모델이 아니라 출처에서 온다.</p>
+    </header>
+
+    <div class="fact">
+      <div class="src">외부 사실 · 게임사 공개 권장 사양</div>
+      <div class="line">이 게임의 권장 사양은 <b>2026-07-18에 한 차례 상향</b>됐습니다.</div>
+      <div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:11px">
+        <span class="delta">VRAM <s>8GB</s> → <span class="to">12GB</span></span>
+        <span class="delta">기준 해상도 <s>FHD</s> → <span class="to">QHD</span></span>
+      </div>
+      <div class="meta">출처 확인 2026-09-07 18:40 · 사양 기준일 2026-07-18 (52일 경과)</div>
+    </div>
+
+    <div class="card">
+      <h3>도출된 스펙 — 하드 제약으로 승격된 항목 포함</h3>
+      <div class="tblwrap">
+        <table>
+          <thead><tr><th>항목</th><th>값</th><th>근거</th><th>성격</th></tr></thead>
+          <tbody>
+            <tr><td>VRAM</td><td class="num">12GB 이상</td><td>권장 사양 상향(2026-07-18)</td><td><span class="v v-bad"><span class="g">!</span>하드 제약</span></td></tr>
+            <tr><td>목표 프레임</td><td class="num">QHD 상옵 · 100fps+</td><td>주사율 144Hz 응답</td><td><span class="v v-part"><span class="g">~</span>적합도</span></td></tr>
+            <tr><td>파워 정격</td><td class="num">600W 이상</td><td>권장 사양 + 계통 여유 20%</td><td><span class="v v-bad"><span class="g">!</span>하드 제약</span></td></tr>
+            <tr><td>케이스 길이</td><td class="num">330mm 이하</td><td>재사용 케이스 실측</td><td><span class="v v-bad"><span class="g">!</span>하드 제약</span></td></tr>
+            <tr><td>소음</td><td class="num">—</td><td>사용자 무응답</td><td><span class="v v-none"><span class="g">·</span>미적용</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note" style="margin-top:14px">사양 기준일이 <b>52일 전</b>이다. 이 시차는 숨기지 않고 단계 5의 신뢰 지표에 그대로 올라간다.</p>
+    </div>
+  </section>
+
+  <!-- ============ 3 ============ -->
+  <section class="panel" data-panel="3" hidden>
+    <header>
+      <div class="eyebrow">단계 3 · 엔진의 심장</div>
+      <h2>하드 제약 · 적합도 · 리스크 조정</h2>
+      <p>조건 미달을 걸러내고 순위를 매긴 뒤, <b>제조사가 스펙에 적은 주장을 리뷰와 대조</b>한다. 순위를 매기는 것이 아니라 거짓말을 잡는 단계다.</p>
+    </header>
+
+    <div class="card">
+      <h3>① 하드 제약 — 후보 148 → 41</h3>
+      <div class="funnel">
+        <div class="frow"><span class="lb">전체 후보</span><span class="fbar" style="width:100%"></span><span class="qt">148</span></div>
+        <div class="frow"><span class="lb">소켓 불일치</span><span class="fbar cut" style="width:41.9%"></span><span class="qt">−62</span></div>
+        <div class="frow"><span class="lb">파워 정격 부족</span><span class="fbar cut" style="width:14.2%"></span><span class="qt">−21</span></div>
+        <div class="frow"><span class="lb">케이스 길이 초과</span><span class="fbar cut" style="width:9.5%"></span><span class="qt">−14</span></div>
+        <div class="frow"><span class="lb">VRAM 12GB 미만</span><span class="fbar cut" style="width:6.8%"></span><span class="qt">−10</span></div>
+        <div class="frow"><span class="lb">통과</span><span class="fbar" style="width:27.7%"></span><span class="qt">41</span></div>
+      </div>
+      <p class="note" style="margin-top:14px">여기는 AI가 아니라 <b>룰</b>이다. 소켓이 안 맞으면 물건이 안 돈다 — 그럴듯한 필터가 아니라 판정이다.</p>
+    </div>
+
+    <div class="card">
+      <h3>③ 리스크 조정 — 스펙 주장 ↔ 리뷰 대조</h3>
+      <div class="tblwrap">
+        <table>
+          <thead><tr><th>부품</th><th>제조사가 적은 주장</th><th>대조 표본</th><th>판정</th></tr></thead>
+          <tbody>
+            <tr>
+              <td>그래픽카드<br><span class="evi">B사 · 12GB</span></td>
+              <td><span class="claim">"게이밍 부하 시 68°C"</span><div class="evi">214건 중 47건이 80°C 이상을 언급</div></td>
+              <td class="num">리뷰 214<br>Q&amp;A 31</td>
+              <td><span class="v v-bad"><span class="g">✕</span>반증</span></td>
+            </tr>
+            <tr>
+              <td>그래픽카드</td>
+              <td><span class="claim">"보조전원 8핀 1개"</span><div class="evi">반증 사례 없음</div></td>
+              <td class="num">리뷰 214</td>
+              <td><span class="v v-ok"><span class="g">●</span>확인</span></td>
+            </tr>
+            <tr>
+              <td>CPU<br><span class="evi">A사 · 6C12T</span></td>
+              <td><span class="claim">"기본 쿨러로 정격 유지"</span><div class="evi">178건 중 63건이 서멀 스로틀링 언급 → <b>쿨러를 세트에 편성</b></div></td>
+              <td class="num">리뷰 178</td>
+              <td><span class="v v-bad"><span class="g">✕</span>반증</span></td>
+            </tr>
+            <tr>
+              <td>파워<br><span class="evi">650W 80+ Gold</span></td>
+              <td><span class="claim">"풀로드 소음 24dB"</span><div class="evi">96건 중 11건이 코일 소음 언급</div></td>
+              <td class="num">리뷰 96</td>
+              <td><span class="v v-part"><span class="g">◐</span>부분 확인</span></td>
+            </tr>
+            <tr>
+              <td>SSD<br><span class="evi">1TB NVMe Gen4</span></td>
+              <td><span class="claim">"연속 쓰기 5,000MB/s"</span><div class="evi">실측을 언급한 리뷰가 3건뿐 — 표본 부족</div></td>
+              <td class="num">리뷰 142</td>
+              <td><span class="v v-none"><span class="g">·</span>근거 없음</span></td>
+            </tr>
+            <tr>
+              <td>메모리<br><span class="evi">16GB DDR5-6000</span></td>
+              <td><span class="claim">"XMP 6000 안정"</span><div class="evi">Q&amp;A 19건 포함, 반증 없음</div></td>
+              <td class="num">리뷰 88<br>Q&amp;A 19</td>
+              <td><span class="v v-ok"><span class="g">●</span>확인</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note" style="margin-top:14px"><b>검증이 세트를 바꾼다.</b> CPU 기본 쿨러 주장이 반증되면서 쿨러 34,000원이 세트에 들어갔다 — 검증이 설명용 장식이 아니라 구성에 관여한다는 증거다.</p>
+    </div>
+
+    <div class="card">
+      <h3>대조에 쓴 리뷰의 조작 확률 분포 — 733건</h3>
+      <div class="dist">
+        <div class="db"><span class="dcount">671</span><i style="height:82px"></i></div>
+        <div class="db"><span class="dcount">38</span><i style="height:20px"></i></div>
+        <div class="db mid"><span class="dcount">14</span><i style="height:12px"></i></div>
+        <div class="db mid"><span class="dcount">7</span><i style="height:8px"></i></div>
+        <div class="db hi"><span class="dcount">3</span><i style="height:6px"></i></div>
+      </div>
+      <div class="dlabels"><span>0–20%</span><span>20–40%</span><span>40–60%</span><span>60–80%</span><span>80–100%</span></div>
+      <p class="note" style="margin-top:14px">"AI가 썼다 / 아니다"로 <b>단정하지 않는다.</b> 실제 데이터에서 경계가 흐리다는 것을 확인했으므로, 확률로 표시하고 임계값(20%)을 화면에 밝힌다.</p>
+    </div>
+  </section>
+
+  <!-- ============ 4 ============ -->
+  <section class="panel" data-panel="4" hidden>
+    <header>
+      <div class="eyebrow">단계 4</div>
+      <h2>예산 최적화</h2>
+      <p>통과한 후보 안에서 예산을 항목별 가중치(W값)로 배분한다. 룰이다 — 모델이 가격을 정하지 않는다.</p>
+    </header>
+
+    <div class="card">
+      <h3>배분 결과 — 합계 <span class="mono">1,187,000원</span> / 예산 <span class="mono">1,200,000원</span></h3>
+      <div class="brow"><span class="nm">그래픽카드</span><span class="btrack"><i class="bfill" style="width:100%"></i></span><span class="won">437,000</span><span class="pct">36.8%</span></div>
+      <div class="brow"><span class="nm">CPU</span><span class="btrack"><i class="bfill" style="width:66.1%"></i></span><span class="won">289,000</span><span class="pct">24.3%</span></div>
+      <div class="brow"><span class="nm">메인보드</span><span class="btrack"><i class="bfill" style="width:33.9%"></i></span><span class="won">148,000</span><span class="pct">12.5%</span></div>
+      <div class="brow"><span class="nm">SSD</span><span class="btrack"><i class="bfill" style="width:22.4%"></i></span><span class="won">98,000</span><span class="pct">8.3%</span></div>
+      <div class="brow"><span class="nm">메모리</span><span class="btrack"><i class="bfill" style="width:21.1%"></i></span><span class="won">92,000</span><span class="pct">7.8%</span></div>
+      <div class="brow"><span class="nm">파워</span><span class="btrack"><i class="bfill" style="width:20.4%"></i></span><span class="won">89,000</span><span class="pct">7.5%</span></div>
+      <div class="brow"><span class="nm">쿨러</span><span class="btrack"><i class="bfill" style="width:7.8%"></i></span><span class="won">34,000</span><span class="pct">2.9%</span></div>
+      <div class="brow reuse"><span class="nm">케이스</span><span class="btrack"></span><span class="won">재사용</span><span class="pct">—</span></div>
+      <p class="note" style="margin-top:16px">잔액 <b class="mono">13,000원</b>. 쿨러 34,000원은 단계 3에서 <b>CPU 기본 쿨러 주장이 반증되며 편성된 항목</b>이다.</p>
+    </div>
+  </section>
+
+  <!-- ============ 5 ============ -->
+  <section class="panel" data-panel="5" hidden>
+    <header>
+      <div class="eyebrow">단계 5</div>
+      <h2>최종 리스트와 근거</h2>
+      <p>왜 이 세트인지 설명을 만들고, <b>그 설명을 믿어도 되는지</b>를 세 지표로 함께 낸다. 하나로 합치지 않는다 — 합치면 가중치를 정당화할 수 없다.</p>
+    </header>
+
+    <div class="tiles">
+      <div class="tile">
+        <span class="t">조건 충족도</span>
+        <span class="n">5<small> / 6</small></span>
+        <span class="meter"><i style="width:83.3%;background:var(--ok)"></i></span>
+        <span class="foot">미충족 1건 — 144Hz 기준 평균 프레임은 실측 표본이 부족해 판정하지 않았다</span>
+      </div>
+      <div class="tile">
+        <span class="t">스펙 주장 검증률</span>
+        <span class="n">4<small> / 6 확인</small></span>
+        <span class="meter">
+          <i style="width:50%;background:var(--ok)"></i>
+          <i style="width:16.6%;background:var(--warn)"></i>
+          <i style="width:33.4%;background:var(--bad)"></i>
+        </span>
+        <span class="foot">확인 3 · 부분 확인 1 · <b style="color:var(--bad)">반증 2</b> — 반증 항목은 세트 구성에 반영됐다</span>
+      </div>
+      <div class="tile">
+        <span class="t">리뷰 신뢰도</span>
+        <span class="n">91.5<small>%</small></span>
+        <span class="meter"><i style="width:91.5%;background:var(--accent)"></i></span>
+        <span class="foot">대조한 733건 중 671건이 조작 확률 20% 미만. 임계값은 조정할 수 있다</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>왜 이 세트인가</h3>
+      <div class="reasons">
+        <div class="reason"><span class="bul">1</span><span>권장 사양이 <em>2026-07-18에 VRAM 12GB로 상향</em>돼, 8GB 카드는 값이 싸도 후보에서 뺐습니다.</span></div>
+        <div class="reason"><span class="bul">2</span><span>CPU 기본 쿨러가 정격을 유지한다는 <em>제조사 주장은 반증</em>됐습니다(리뷰 178건 중 63건 스로틀링). 쿨러 34,000원을 세트에 넣었습니다.</span></div>
+        <div class="reason"><span class="bul">3</span><span>그래픽카드 온도 주장도 반증됐지만, <em>같은 가격대에서 VRAM 12GB를 만족하는 대안이 없어</em> 유지하고 경고만 답니다.</span></div>
+        <div class="reason"><span class="bul">4</span><span>SSD 연속 쓰기 속도는 <em>실측 리뷰가 3건뿐</em>이라 판정하지 않았습니다. 확인했다고 말하지 않습니다.</span></div>
+        <div class="reason"><span class="bul">5</span><span>케이스를 재사용해 남은 <em>13,000원</em>은 배분하지 않고 남겨 뒀습니다.</span></div>
+      </div>
+      <p class="note" style="margin-top:16px">근거 문장의 각 주장은 단계 3의 판정과 <b>일대일로 연결</b>된다. 설명이 스스로 지어낸 문장이 아니라는 것이 이 화면의 요지다.</p>
+    </div>
+  </section>
+
+  <!-- ============ 6 ============ -->
+  <section class="panel" data-panel="6" hidden>
+    <header>
+      <div class="eyebrow">단계 6</div>
+      <h2>사후 갱신 — 학습이 아니라 프로필</h2>
+      <p>모델을 다시 학습시키지 않는다. 사용자의 피드백이 <b>단계 4의 W값과 단계 2의 요구사항 프로필</b>을 갱신한다.</p>
+    </header>
+
+    <div class="card">
+      <h3>피드백: "그래픽카드에 예산을 너무 썼어요"</h3>
+      <div class="shift"><span class="nm">그래픽카드</span><span class="stack"><i class="was" style="width:100%"></i><i class="now" style="width:84.2%"></i></span><span class="d dn">36.8% → 31.0%</span></div>
+      <div class="shift"><span class="nm">CPU</span><span class="stack"><i class="was" style="width:66.1%"></i><i class="now" style="width:72.0%"></i></span><span class="d up">24.3% → 26.5%</span></div>
+      <div class="shift"><span class="nm">SSD</span><span class="stack"><i class="was" style="width:22.4%"></i><i class="now" style="width:28.5%"></i></span><span class="d up">8.3% → 10.5%</span></div>
+      <div class="shift"><span class="nm">메모리</span><span class="stack"><i class="was" style="width:21.1%"></i><i class="now" style="width:25.6%"></i></span><span class="d up">7.8% → 9.4%</span></div>
+      <p class="note" style="margin-top:16px">강화학습이 아니다. 학습을 하지 않으므로 <b>W값 갱신</b>이라 부른다 — 룰로 계산되고, 값이 얼마나 움직였는지 화면에 그대로 보인다.</p>
+    </div>
+  </section>
+
+  <!-- ============ 7 ============ -->
+  <section class="panel" data-panel="7" hidden>
+    <header>
+      <div class="eyebrow">공개 화면</div>
+      <h2>리뷰를 어떻게 다뤘는가</h2>
+      <p>리뷰를 걸러내거나 순위에 반영하면 그 기준을 공개해야 한다. <b>다른 서비스에게 의무인 것을 화면으로 만든다.</b></p>
+    </header>
+
+    <div class="card">
+      <dl class="disc">
+        <dt>작성 권한자</dt><dd>구매가 확인된 이용자만 작성할 수 있다. 구매 확인이 안 되는 출처의 글은 대조 표본으로만 쓰고 리뷰로 게시하지 않는다</dd>
+        <dt>수집 범위</dt><dd>상품 페이지 리뷰 · 상품 Q&amp;A · 광고가 없는 공개 커뮤니티 게시글</dd>
+        <dt>수집 시점</dt><dd class="mono">2026-09-07 18:40 기준 · 최근 24개월</dd>
+        <dt>필터링 기준</dt><dd>조작 확률 <b class="mono">20%</b> 이상인 리뷰는 대조 표본에서 제외. 삭제하지 않고 별도 보관한다</dd>
+        <dt>등급평가 기준</dt><dd>리뷰에 별점 등급을 매기지 않는다. 리뷰가 만드는 값은 <b>스펙 주장의 판정</b>(확인·부분·반증·근거 없음) 하나뿐이다</dd>
+        <dt>등급의 효과</dt><dd>판정은 후보를 제외하지 않는다. 반증된 항목도 목록에 남고 경고만 붙는다</dd>
+        <dt>순위 반영</dt><dd>리뷰는 <b>순위에 직접 반영하지 않는다.</b> 스펙 주장의 진위 판정에만 쓴다</dd>
+        <dt>제외된 건수</dt><dd class="mono">733건 중 62건 (8.5%) — 구간별 분포는 단계 3에 공개</dd>
+        <dt>보관 기간</dt><dd>수집일로부터 24개월. 이후 통계값만 남기고 원문은 파기</dd>
+        <dt>삭제 기준</dt><dd>작성자 요청 · 원문 삭제 확인 시 즉시. 판정에 쓰인 이력은 집계값으로만 남는다</dd>
+        <dt>이의 제기</dt><dd>판매자는 반증 판정에 대해 근거 자료를 제출해 재판정을 요청할 수 있다</dd>
+      </dl>
+      <p class="note" style="margin-top:16px">공정거래위원회 <b>사용후기 수집·처리 정보공개 의무</b> 대응 화면. 전자상거래법 개정으로 <b>2026-07-21 시행</b>됐고, 3개월 계도기간이 끝나는 <b>2026-10-22부터 본격 적용</b>된다. 공정위가 공개하라고 정한 항목(작성 권한자 범위 · 게시기간 · 등급평가 기준과 효과 · 삭제 기준 · 이의제기 절차)이 위 표와 그대로 겹친다.</p>
+    </div>
+  </section>
+
+  <div class="nav">
+    <button class="prev" type="button">← 이전 단계</button>
+    <button class="next" type="button">다음 단계 →</button>
+  </div>
+
+  <footer class="pagefoot">
+    <p><b>목업입니다.</b> 부품·제조사·게임 이름과 리뷰 건수는 화면 구성을 보이기 위한 예시값이며 실제 제품이나 실제 리뷰가 아닙니다.</p>
+    <p>기획 근거: <code>docs/기획안_4안_초안_20260907.md</code> · 엔진 6단계는 2026-09-07 16시 회의에서 확정, 도메인은 PC 부품.</p>
+  </footer>
+
+  </main>
+</div>
+</div>
+
+<script>
+(function(){
+  var LAST = 7;
+  var cur = 1;
+  var panels = {}, steps = {};
+  document.querySelectorAll('[data-panel]').forEach(function(p){ panels[p.dataset.panel] = p; });
+  document.querySelectorAll('.step').forEach(function(s){ steps[s.dataset.go] = s; });
+
+  function show(n){
+    n = Math.max(1, Math.min(LAST, n));
+    cur = n;
+    for (var k in panels) panels[k].hidden = (k !== String(n));
+    for (var j in steps) steps[j].setAttribute('aria-current', j === String(n) ? 'true' : 'false');
+    document.querySelector('.nav .prev').disabled = (n === 1);
+    document.querySelector('.nav .next').disabled = (n === LAST);
+    var m = document.querySelector('main');
+    if (m && window.scrollY > m.offsetTop) m.scrollIntoView({behavior:'smooth', block:'start'});
+  }
+
+  document.querySelectorAll('.step').forEach(function(s){
+    s.addEventListener('click', function(){ show(parseInt(s.dataset.go, 10)); });
+  });
+  document.querySelector('.nav .prev').addEventListener('click', function(){ show(cur - 1); });
+  document.querySelector('.nav .next').addEventListener('click', function(){ show(cur + 1); });
+  document.addEventListener('keydown', function(e){
+    if (e.target && /INPUT|TEXTAREA/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowRight') show(cur + 1);
+    if (e.key === 'ArrowLeft') show(cur - 1);
+  });
+  show(1);
+})();
+</script>
+
+</body>
+</html>
