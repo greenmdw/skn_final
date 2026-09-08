@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Protocol
 
 from pydantic import BaseModel, Field
@@ -43,7 +44,14 @@ MATCH_MODE = os.environ.get("MATCH_MODE", "label").lower()
 MATCH_MAX_REVIEWS = int(os.getenv("MATCH_MAX_REVIEWS", "200"))
 
 # 한 번의 호출에 넣는 리뷰 수.
-MATCH_BATCH = int(os.getenv("MATCH_BATCH", "20"))
+#
+# 20 에서 10 으로 내렸다. 채점(`scripts/eval_matcher.py`)에서 재현율이 0.42~0.81 로
+# 낮게 나왔는데 정밀도는 1.00 이었다 — 틀리게 판정한 게 아니라 **답을 아예 안 준**
+# 것이다. 20건을 보내면 모델이 12~15건만 답하고 끝낸다. 묶음이 작을수록 덜 빠진다.
+MATCH_BATCH = int(os.getenv("MATCH_BATCH", "10"))
+
+# 답이 안 온 리뷰를 다시 묻는 횟수. 그래도 안 오면 "닿지 않음"으로 둔다.
+MATCH_RETRIES = int(os.getenv("MATCH_RETRIES", "1"))
 
 
 class Matcher(Protocol):
@@ -114,6 +122,7 @@ class LLMMatcher:
 
     name = "llm"
     max_reviews = MATCH_MAX_REVIEWS
+    unanswered = 0          # 마지막 대조에서 끝내 답이 없던 건수
 
     def match(self, claim: Claim, reviews: list[Review]) -> list[ReviewJudgment]:
         from strands import Agent
@@ -123,16 +132,29 @@ class LLMMatcher:
         by_id = {r.review_id: r for r in reviews}
         got: dict[str, ReviewJudgment] = {}
 
-        for i in range(0, len(reviews), MATCH_BATCH):
-            batch = reviews[i:i + MATCH_BATCH]
-            agent = Agent(model=_model(), system_prompt=MATCH_SYSTEM)
-            try:
-                result = agent.structured_output(_Batch, _prompt(claim, batch))
-            except Exception as e:  # noqa: BLE001 — 한 묶음이 실패해도 나머지는 판정한다
-                log.warning("대조 묶음 실패(%d건), 닿지 않음으로 둡니다: %s", len(batch), e)
-                continue
+        pending = list(reviews)
+        for attempt in range(MATCH_RETRIES + 1):
+            if not pending:
+                break
+            size = max(1, MATCH_BATCH // (attempt + 1))
+            for i in range(0, len(pending), size):
+                batch = pending[i:i + size]
+                agent = Agent(model=_model(), system_prompt=MATCH_SYSTEM)
+                try:
+                    result = agent.structured_output(_Batch, _prompt(claim, batch))
+                except Exception as e:  # noqa: BLE001 — 한 묶음이 실패해도 나머지는 판정한다
+                    log.warning("대조 묶음 실패(%d건): %s", len(batch), e)
+                    continue
+                got.update(accept(result.judgments, by_id, claim))
+            pending = [r for r in pending if r.review_id not in got]
+            if pending:
+                log.info("답이 안 온 리뷰 %d건을 다시 묻습니다(%d차)", len(pending), attempt + 2)
 
-            got.update(accept(result.judgments, by_id))
+        # 끝내 답이 없으면 **닿지 않음**으로 둔다. 빠뜨린 것을 "어긋남"으로 세면
+        # 표본이 조용히 부풀고 임계값이 그 위에서 돈다.
+        self.unanswered = len(pending)
+        if pending:
+            log.warning("리뷰 %d건은 판정을 받지 못했습니다 — 닿지 않음으로 둡니다", len(pending))
 
         return [got.get(r.review_id,
                         ReviewJudgment(review_id=r.review_id, bears_on=False,
@@ -140,14 +162,31 @@ class LLMMatcher:
                 for r in reviews]
 
 
-def accept(judgments: list[ReviewJudgment],
-           by_id: dict[str, Review]) -> dict[str, ReviewJudgment]:
+_NUMERIC = re.compile(r"\d")
+
+
+def accept(judgments: list[ReviewJudgment], by_id: dict[str, Review],
+           claim: Claim | None = None) -> dict[str, ReviewJudgment]:
     """
     모델이 낸 판정에서 **믿을 수 있는 것만** 남긴다.
 
     모델을 부르지 않고도 검사할 수 있게 순수 함수로 뽑아 뒀다 — 여기서 막는
-    셋이 전부 조용히 틀리는 종류라 검사가 없으면 새는지도 모른다.
+    넷이 전부 조용히 틀리는 종류라 검사가 없으면 새는지도 모른다.
+
+    [넷째: 수치 주장에는 수치가 있는 인용을 요구한다]
+    채점에서 나온 것이다. SSD *"연속 쓰기 5,000MB/s"* 에 대해 모델이 40건 중
+    12건을 "닿는다"고 했는데 정답은 3건이었다. 늘어난 것들은 *"쓰기 속도는 공식
+    스펙만 보고 샀습니다"* 처럼 **화제는 같지만 실측을 말하지 않는** 문장이다.
+
+    이게 왜 비싼가: 그 주장은 표본이 얇아 `NO_EVIDENCE` 로 끝나야 하는 자리인데,
+    닿는 표본이 12건으로 부풀면 임계값을 넘어 `PARTLY` 가 된다. **"모르는 것을
+    모른다고 말한다"가 깨지는 지점이 하필 그 원칙이 사는 유일한 자리다.**
+
+    그래서 주장에 수치가 있으면 근거 인용에도 수치를 요구한다. 인용을 아예 안
+    준 판정은 건드리지 않는다 — 못 재는 것을 틀렸다고 할 수는 없다.
     """
+    numeric = bool(claim and _NUMERIC.search(claim.text))
+
     out: dict[str, ReviewJudgment] = {}
     for j in judgments:
         r = by_id.get(j.review_id)
@@ -157,6 +196,9 @@ def accept(judgments: list[ReviewJudgment],
         if j.quote and j.quote not in r.text:
             log.warning("원문에 없는 인용을 지웁니다: %s", j.review_id)
             j.quote = ""
+        if numeric and j.bears_on and j.quote and not _NUMERIC.search(j.quote):
+            log.info("수치 주장인데 인용에 수치가 없어 닿지 않음으로 둡니다: %s", j.review_id)
+            j.bears_on = False
         if not j.bears_on:
             j.contradicts = False
         out[j.review_id] = j

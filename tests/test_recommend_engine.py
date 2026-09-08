@@ -29,7 +29,7 @@ from app.engine import pipeline                               # noqa: E402
 from app.engine.packs.pc import pack                          # noqa: E402
 from app.engine.run import recommend                          # noqa: E402
 from app.engine.schemas import (  # noqa: E402
-    Evidence, Indicators, Review, ReviewJudgment, Verdict,
+    Claim, Evidence, Indicators, Review, ReviewJudgment, Verdict,
 )
 from app.engine.verify import verdict_from                    # noqa: E402
 
@@ -289,7 +289,24 @@ def check_matcher_guardrails() -> None:
 
     kept2 = accept([ReviewJudgment(review_id="R1", bears_on=False, contradicts=True)], by_id)
     assert kept2["R1"].contradicts is False, "닿지 않는데 어긋난다고 셌다"
-    print("  ✓ 지어낸 id · 지어낸 인용 · 모순된 판정을 버린다")
+
+    # 수치 주장에는 수치가 있는 인용을 요구한다. 채점에서 잡힌 것이고, 이게
+    # 없으면 얇은 표본이 부풀어 "근거 없음"이 "부분 확인"으로 뒤집힌다.
+    spec = Claim(claim_id="c", subject="SSD", text="연속 쓰기 5,000MB/s")
+    vague = Review(review_id="R2", part_code="X",
+                   text="쓰기 속도는 공식 스펙만 보고 샀습니다.")
+    kept3 = accept([ReviewJudgment(review_id="R2", bears_on=True, contradicts=False,
+                                   quote="쓰기 속도는 공식 스펙만 보고 샀습니다.")],
+                   {"R2": vague}, spec)
+    assert kept3["R2"].bears_on is False, "수치 없는 인용이 수치 주장에 닿는다고 통과했다"
+
+    measured = Review(review_id="R3", part_code="X",
+                      text="실측해 보니 3,200MB/s 나옵니다.")
+    kept4 = accept([ReviewJudgment(review_id="R3", bears_on=True, contradicts=True,
+                                   quote="실측해 보니 3,200MB/s 나옵니다.")],
+                   {"R3": measured}, spec)
+    assert kept4["R3"].bears_on is True, "수치가 있는 인용까지 막았다"
+    print("  ✓ 지어낸 id · 지어낸 인용 · 모순된 판정 · 수치 없는 근거를 버린다")
 
 
 def main() -> int:

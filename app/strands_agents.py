@@ -61,6 +61,14 @@ def _model(model_id: str | None = None):
 
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
+        # `main.py` 는 기동할 때 .env 를 읽지만 스크립트·검사는 안 읽는다.
+        # 키가 필요한 지점이 여기 하나뿐이라, 없을 때만 한 번 더 찾는다 —
+        # 키를 .env 에 넣어 두고도 "키가 없습니다"를 보는 일이 없게.
+        from dotenv import load_dotenv
+
+        load_dotenv()
+        api_key = os.environ.get("OPENAI_API_KEY")
+    if not api_key:
         raise RuntimeError(
             "OPENAI_API_KEY 환경변수가 설정되어 있지 않습니다. "
             "Strands 를 쓰려면(협상·리포트·어시스턴트) 이 키가 필요합니다."

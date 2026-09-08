@@ -29,13 +29,32 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from dotenv import load_dotenv  # noqa: E402
+
+load_dotenv(ROOT / ".env")      # 키는 .env 에 있다. main.py 밖에서는 직접 읽어야 한다
+
 from app.engine.match import LabelMatcher, gather  # noqa: E402
 from app.engine.packs.pc import pack               # noqa: E402
 from app.engine.verify import verdict_from         # noqa: E402
 
 
+class _Fixed:
+    """이미 받아 둔 판정을 그대로 돌려주는 대조기. 모델을 다시 부르지 않는다."""
+
+    name = "fixed"
+    max_reviews = None
+
+    def __init__(self, judgments):
+        self._j = judgments
+
+    def match(self, claim, reviews):
+        return self._j
+
+
 def prf(tp: int, fp: int, fn: int) -> tuple[float, float, float]:
-    p = tp / (tp + fp) if tp + fp else 1.0
+    # 예측이 하나도 없으면 정밀도는 정의되지 않는다. 1.00 으로 두면
+    # "완벽하다"로 읽히는데 실제로는 아무것도 못 찾은 것이다.
+    p = tp / (tp + fp) if tp + fp else (1.0 if not fn else 0.0)
     r = tp / (tp + fn) if tp + fn else 1.0
     f = 2 * p * r / (p + r) if p + r else 0.0
     return p, r, f
@@ -108,8 +127,11 @@ def main() -> int:
                 for i in range(3):
                     totals[k][i] += s[k][i]
 
-            ev_t = gather(claim, kept, truth_matcher, threshold)
-            ev_g = gather(claim, kept, candidate, threshold)
+            # 판정은 **위에서 받은 그 결과로** 만든다. 예전에는 여기서
+            # gather() 가 match() 를 다시 불러 모델을 두 번 돌렸다 — 비용이
+            # 두 배였고, 리포트의 두 숫자가 서로 다른 실행에서 나와 어긋났다.
+            ev_t = gather(claim, kept, _Fixed(truth), threshold)
+            ev_g = gather(claim, kept, _Fixed(got), threshold)
             vt, vg = verdict_from(ev_t), verdict_from(ev_g)
             same = "" if vt is vg else "  ← 판정이 바뀐다"
             if vt is not vg:
@@ -123,7 +145,9 @@ def main() -> int:
             print(f"  어긋남 P {cp:.2f} R {cr:.2f} F {cf:.2f}   "
                   f"(어긋난다 판정 {ev_g.hits} / 정답 {ev_t.hits})")
             print(f"  판정   {vt.value} → {vg.value}{same}")
-            print(f"  인용   {s['quoted']}/{s['n']}건에 원문 인용이 붙었다\n")
+            miss = getattr(candidate, "unanswered", 0)
+            tail = f" · 끝내 답이 없던 리뷰 {miss}건" if miss else ""
+            print(f"  인용   {s['quoted']}/{s['n']}건에 원문 인용이 붙었다{tail}\n")
 
     bp, br, bf = prf(*totals["bears"])
     cp, cr, cf = prf(*totals["contra"])
