@@ -219,15 +219,29 @@ def _prompt(claim: Claim, reviews: list[Review]) -> str:
 
 # ── 근거 만들기 ──────────────────────────────────────────────────────────────
 def gather(claim: Claim, reviews: list[Review], matcher: Matcher,
-           risk_threshold: float) -> Evidence:
+           risk_threshold: float, scorer=None) -> Evidence:
     """
     리뷰 묶음 하나에서 주장 하나의 근거를 만든다.
 
     **조작 확률이 임계 이상인 리뷰는 대조에 넣지 않는다.** 목업 공개 화면의
     약속이다 — *"조작 확률 20% 이상인 리뷰는 대조 표본에서 제외. 삭제하지 않고
     별도 보관한다."* 지우지 않고 세어서 `excluded_high_risk` 로 내보낸다.
+
+    [점수가 없는 리뷰]
+    실 리뷰에는 조작 확률이 붙어 있지 않다. `scorer` 가 매기지만 모드가 `none`
+    이거나 모델이 실패하면 그대로 남는다. 그런 리뷰는 **대조에는 쓰되 따로
+    센다**(`unscored_risk`).
+
+    빼지 않는 이유: 점수가 없다고 버리면 채점기가 없는 환경에서 표본이 통째로
+    0이 된다. 세는 이유: 0 이 아니면 *"20% 이상을 걸렀다"* 고 말할 수 없기
+    때문이다 — 거르지 못한 것이 섞여 있다. **못 잰 것을 깨끗하다로도 조작이라고도
+    처리하지 않는다.**
     """
-    kept = [r for r in reviews if r.risk < risk_threshold]
+    if scorer is not None:
+        scorer.score(reviews)
+
+    kept = [r for r in reviews if r.risk is None or r.risk < risk_threshold]
+    unscored = sum(1 for r in kept if r.risk is None)
     excluded = len(reviews) - len(kept)
 
     truncated = 0
@@ -254,13 +268,14 @@ def gather(claim: Claim, reviews: list[Review], matcher: Matcher,
         samples=samples,
         relevant=len(relevant),
         hits=len(hits),
-        note=_note(len(relevant), len(hits), truncated),
+        note=_note(len(relevant), len(hits), truncated, unscored),
         quotes=quotes,
         excluded_high_risk=excluded,
+        unscored_risk=unscored,
     )
 
 
-def _note(relevant: int, hits: int, truncated: int) -> str:
+def _note(relevant: int, hits: int, truncated: int, unscored: int = 0) -> str:
     """
     근거 한 줄. **숫자에서만 만든다** — 손으로 쓴 문구를 두지 않는다.
 
@@ -268,10 +283,13 @@ def _note(relevant: int, hits: int, truncated: int) -> str:
     읽기는 좋지만 대조가 실제로 낸 숫자와 어긋나도 아무도 모른다. 구체적인
     내용은 이제 `Evidence.quotes` 의 실제 인용이 맡는다.
     """
+    tail = ""
     if truncated:
-        tail = f" (상한을 넘은 {truncated}건은 대조하지 않았습니다)"
-    else:
-        tail = ""
+        tail += f" (상한을 넘은 {truncated}건은 대조하지 않았습니다)"
+    if unscored:
+        # 이 문장이 화면에 그대로 나가야 한다 — 필터가 돌지 않은 표본이라는 사실을
+        # 숫자만으로는 아무도 안 읽는다.
+        tail += f" (조작 확률을 재지 못한 {unscored}건이 표본에 섞여 있습니다)"
     if hits:
         return f"{relevant}건이 이 주장에 닿고 그중 {hits}건이 어긋납니다{tail}."
     if relevant:

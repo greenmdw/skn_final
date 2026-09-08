@@ -102,6 +102,9 @@ class Evidence(BaseModel):
     quotes: list[str] = Field(default_factory=list)
     # 조작 확률이 임계 이상이라 대조 표본에서 뺀 건수(목업 공개 화면의 약속).
     excluded_high_risk: int = 0
+    # 조작 확률을 **재지 못한** 건수. 0 이 아니면 "20% 이상을 걸렀다"고 말할 수
+    # 없다 — 거르지 못한 것이 섞여 있다. 화면은 이 값을 보고 고지를 바꿔야 한다.
+    unscored_risk: int = 0
 
     @property
     def total(self) -> int:
@@ -129,7 +132,10 @@ class Review(BaseModel):
     part_code: str
     kind: str = "리뷰"                 # "리뷰" / "QA"
     text: str
-    risk: float = 0.0                 # 조작 확률 0.0~1.0
+    # 조작 확률 0.0~1.0. **`None` 은 "아직 안 쟀다"이지 "깨끗하다"가 아니다.**
+    # 기본값을 0.0 으로 두면 실 리뷰가 전부 임계값 아래로 떨어져 20% 필터가
+    # 한 건도 안 거르는데 에러는 안 난다 — 공개 화면의 약속이 조용히 무력해진다.
+    risk: float | None = None
 
     # 합성 데이터만 갖는 정답 라벨. 실데이터에는 없다(그래서 기본값이 비어 있다).
     # 이 라벨의 값은 두 가지다 — LabelMatcher 가 키 없이 도는 것, 그리고

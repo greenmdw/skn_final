@@ -59,7 +59,7 @@ def verdict_from(evidence: Evidence) -> Verdict:
 
 
 def verify_claims(claims_by_part: dict[str, list[Claim]], source,
-                  matcher=None) -> list[ClaimVerdict]:
+                  matcher=None, scorer=None) -> list[ClaimVerdict]:
     """
     품목별 주장을 리뷰와 대조한다. 목업 3단계 표 한 장이 나온다.
 
@@ -70,9 +70,11 @@ def verify_claims(claims_by_part: dict[str, list[Claim]], source,
     판정은 여전히 이 파일의 룰이 한다. 대조기는 *리뷰 한 건이 닿는지·어긋나는지*
     까지만 정한다.
     """
+    from ..reviews.risk import build_scorer
     from .match import build_matcher, gather
 
     matcher = matcher or build_matcher()
+    scorer = scorer or build_scorer()
     threshold = getattr(source, "threshold", 0.20)
 
     out: list[ClaimVerdict] = []
@@ -81,7 +83,7 @@ def verify_claims(claims_by_part: dict[str, list[Claim]], source,
             continue
         reviews = source.fetch(part_code)
         for claim in claims:
-            evidence = gather(claim, reviews, matcher, threshold)
+            evidence = gather(claim, reviews, matcher, threshold, scorer)
             out.append(ClaimVerdict(claim=claim, evidence=evidence,
                                     verdict=verdict_from(evidence)))
     return out

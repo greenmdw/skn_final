@@ -124,6 +124,8 @@ class SyntheticReviews:
         out = {b: 0 for b in BUCKETS}
         for reviews in self._cache.values():
             for r in reviews:
+                if r.risk is None:      # 못 잰 것은 분포에 넣지 않는다
+                    continue
                 out[BUCKETS[min(int(r.risk * 5), 4)]] += 1
         return out
 

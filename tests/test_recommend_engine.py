@@ -309,6 +309,34 @@ def check_matcher_guardrails() -> None:
     print("  ✓ 지어낸 id · 지어낸 인용 · 모순된 판정 · 수치 없는 근거를 버린다")
 
 
+def check_unscored_risk_is_never_clean() -> None:
+    """
+    조작 확률을 **못 잰 리뷰**를 "깨끗함"으로 처리하면 안 된다.
+
+    예전에는 `Review.risk` 기본값이 0.0 이었다. 실 리뷰에는 확률이 안 붙어
+    있으므로 전부 0.0 이 되고, 20% 필터가 **한 건도 안 거르는데 에러는 안 난다.**
+    공개 화면의 약속("20% 이상은 대조 표본에서 제외")이 조용히 무력해지는 자리다.
+
+    이제 `None` 은 "안 쟀다"이고, 대조에는 쓰되 따로 세어 근거 문장에 적는다.
+    """
+    from app.engine.match import LabelMatcher, gather
+    from app.reviews.risk import NoRiskScorer
+
+    claim = Claim(claim_id="c", subject="파워", text="조용합니다")
+    reviews = [
+        Review(review_id="a", part_code="P", text="조용해요.", bears_on=["c"]),          # 미채점
+        Review(review_id="b", part_code="P", text="조용해요.", risk=0.05, bears_on=["c"]),
+        Review(review_id="c2", part_code="P", text="최고예요!", risk=0.90, bears_on=["c"]),
+    ]
+    assert reviews[0].risk is None, "미채점 기본값이 None 이 아니다 — 0.0 이면 깨끗함으로 샌다"
+
+    ev = gather(claim, reviews, LabelMatcher(), 0.20, NoRiskScorer())
+    assert ev.excluded_high_risk == 1, f"임계 이상을 안 걸렀다: {ev.excluded_high_risk}"
+    assert ev.unscored_risk == 1, f"미채점을 안 셌다: {ev.unscored_risk}"
+    assert "재지 못한" in ev.note, f"근거 문장이 그 사실을 말하지 않는다: {ev.note}"
+    print("  ✓ 조작 확률을 못 잰 표본을 세고 근거 문장에 적는다")
+
+
 def check_tools_never_take_user_text() -> None:
     """
     **도구 인자에 사용자 문장이 없어야 한다.**
@@ -360,6 +388,7 @@ def main() -> int:
         check_quotes_are_real,
         check_matcher_guardrails,
         check_tools_never_take_user_text,
+        check_unscored_risk_is_never_clean,
     ]
     failed = 0
     print("추천 엔진 검증")
