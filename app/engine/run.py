@@ -68,12 +68,47 @@ def _notices(requirements, budget: int, spent: int, verdicts) -> list[str]:
     return out
 
 
+# 2026-09-08 16시에 확정된 세 카테고리(`cmtsggxue0079aikad0t0qvgf`). 팀원 셋이
+# 하나씩 맡는다. **이름이 회의마다 조금씩 다르다** — 16시는 "레시피", 17시 화면
+# 설계는 "식재료"라 불렀다. 결정 회의(16시) 쪽을 쓴다.
+#
+# 팩이 없는 도메인을 목록에서 빼지 않는다. 빼면 화면이 카테고리 선택지를 못 그리고,
+# 무엇이 남았는지도 안 보인다 — **없다는 것을 말하는 편이 낫다.**
+DOMAINS: dict[str, str] = {
+    "pc": "컴퓨터 조립",
+    "recipe": "레시피 (실버세대 건강·영양제 연계)",
+    "babycare": "육아용품",
+}
+
+
+def available_domains() -> list[dict]:
+    """화면의 카테고리 선택지. 팩이 있는지(`ready`)를 함께 낸다."""
+    out = []
+    for key, label in DOMAINS.items():
+        try:
+            _pack(key)
+            ready = True
+        except ValueError:
+            ready = False
+        out.append({"domain": key, "label": label, "ready": ready})
+    return out
+
+
 def _pack(domain: str):
     if domain == "pc":
         from .packs.pc import pack
 
         return pack
-    raise ValueError(f"모르는 도메인입니다: {domain!r}")
+    if domain in DOMAINS:
+        raise ValueError(
+            f"{DOMAINS[domain]}({domain}) 팩이 아직 없습니다. "
+            f"app/engine/packs/{domain}.py 에 DomainPack 을 구현하고 이 함수에 "
+            f"등록하세요 — 채워야 하는 칸은 품목 사전 · 외부 사실 · 하드 제약 · "
+            f"리뷰 소스입니다(app/engine/pack.py)."
+        )
+    raise ValueError(
+        f"모르는 도메인입니다: {domain!r}. 쓸 수 있는 것: {', '.join(DOMAINS)}"
+    )
 
 
 def recommend(query: str, domain: str = "pc", answers: dict | None = None,

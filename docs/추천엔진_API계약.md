@@ -4,12 +4,26 @@
 > **화면 구성은 이 문서가 정하지 않는다.** 여기 있는 것은 응답에 무엇이 들어
 > 있는지뿐이고, 어떻게 보일지는 화면 담당자의 몫이다.
 
-엔드포인트 하나다. 스키마 원본은 `app/engine/schemas.py` 의 `Recommendation`.
+엔드포인트 둘이다. 스키마 원본은 `app/engine/schemas.py` 의 `Recommendation`.
 
 ```
+GET  /api/domains                                    ← 카테고리 선택지
 POST /api/recommend
 { "query": "...", "domain": "pc", "answers": {} }
 ```
+
+`GET /api/domains` 는 화면 흐름의 두 번째 단계(카테고리 선택)를 위한 것이다.
+
+```json
+[{"domain": "pc", "label": "컴퓨터 조립", "ready": true},
+ {"domain": "recipe", "label": "레시피 (실버세대 건강·영양제 연계)", "ready": false},
+ {"domain": "babycare", "label": "육아용품", "ready": false}]
+```
+
+**`ready: false` 를 목록에서 빼지 말 것.** 2026-09-08 16시에 카테고리가 셋으로
+확정됐고 팩은 PC 하나뿐이다 — 고를 수 없게 하되 없는 것처럼 굴지는 않는다.
+`ready: false` 인 도메인으로 `/api/recommend` 를 부르면 400 과 함께 **무엇을
+구현해야 하는지**가 온다.
 
 키 없이 돈다. 모드가 셋이고 전부 기본값이 키를 안 쓴다.
 

@@ -102,6 +102,20 @@ def ask_assistant(req: AssistantQuestion):
         raise HTTPException(502, f"어시스턴트를 쓸 수 없습니다: {e}")
 
 
+@app.get("/api/domains")
+def list_domains():
+    """
+    카테고리 선택지. 화면 흐름의 두 번째 단계(카테고리 선택)가 여기서 온다.
+
+    `ready: false` 인 것은 **팩이 아직 없는 도메인**이다. 목록에서 빼지 않는 이유는
+    화면이 무엇이 남았는지 보여줄 수 있어야 하기 때문이다 — 고를 수 없게 하되
+    없는 것처럼 굴지는 않는다.
+    """
+    from .engine.run import available_domains
+
+    return available_domains()
+
+
 class RecommendRequest(BaseModel):
     """추천 요청. `answers` 는 되묻기(1단계)에 사용자가 답한 것이다."""
 

@@ -417,6 +417,37 @@ def check_unscored_risk_is_never_clean() -> None:
     print("  ✓ 조작 확률을 못 잰 표본을 세고 근거 문장에 적는다")
 
 
+def check_domains_are_listed_even_when_missing() -> None:
+    """
+    팩이 없는 도메인도 **목록에는 남아야 한다.**
+
+    2026-09-08 16시에 카테고리가 셋으로 확정됐는데(컴퓨터 조립·레시피·육아용품)
+    팩은 PC 하나뿐이다. 목록에서 빼면 화면이 카테고리 선택지를 못 그리고 무엇이
+    남았는지도 안 보인다 — **고를 수 없게 하되 없는 것처럼 굴지는 않는다.**
+
+    그리고 없을 때의 에러가 **무엇을 써야 하는지 말해야 한다.** "모르는 도메인"만
+    나오면 다음 사람이 소스를 뒤져야 한다.
+    """
+    from app.engine.run import DOMAINS, available_domains, recommend
+
+    listed = {d["domain"]: d for d in available_domains()}
+    assert set(listed) == set(DOMAINS), f"목록이 확정된 카테고리와 다르다: {list(listed)}"
+    assert listed["pc"]["ready"] is True, "PC 팩이 준비 안 됨으로 나온다"
+    assert any(not d["ready"] for d in listed.values()), (
+        "전부 ready 다 — 팩이 다 생겼다면 이 검사를 지울 것"
+    )
+
+    try:
+        recommend("아무거나", domain="recipe")
+    except ValueError as e:
+        assert "packs/recipe.py" in str(e), f"무엇을 써야 하는지 안 말한다: {e}"
+        assert "품목 사전" in str(e), f"채울 칸을 안 말한다: {e}"
+    else:
+        raise AssertionError("팩이 없는데 추천이 나왔다")
+
+    print(f"  ✓ 카테고리 {len(listed)}종이 목록에 있고, 없는 팩은 무엇을 쓸지 말한다")
+
+
 def check_excerpts_can_be_withheld() -> None:
     """
     **검증과 노출은 다른 일이다.**
@@ -509,6 +540,7 @@ def main() -> int:
         check_unscored_risk_is_never_clean,
         check_engine_knows_no_domain,
         check_excerpts_can_be_withheld,
+        check_domains_are_listed_even_when_missing,
         check_screening_reports_zero,
         check_silent_failures_are_spoken,
     ]
