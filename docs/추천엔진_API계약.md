@@ -11,7 +11,18 @@ POST /api/recommend
 { "query": "...", "domain": "pc", "answers": {} }
 ```
 
-키 없이 돈다(`RECOMMEND_MODE=rule` 기본값, 리뷰 소스도 합성이 기본값).
+키 없이 돈다. 모드가 셋이고 전부 기본값이 키를 안 쓴다.
+
+| 환경변수 | 기본값 | 다른 값 |
+|---|---|---|
+| `RECOMMEND_MODE` | `rule` — 1~5단계를 순서대로 부른다 | `strands` — 에이전트가 순서를 정한다 |
+| `MATCH_MODE` | `label` — 합성 라벨을 읽는다 | `llm` — 모델이 리뷰 문장을 실제로 읽는다 |
+| `REVIEW_SOURCE` | 합성 | (실데이터 소스가 생기면) |
+
+**`MATCH_MODE=label` 은 의미 대조가 아니다.** 합성 데이터에 붙은 정답 라벨을 읽는
+것이고 실데이터에는 그 라벨이 없다. 응답 형이 같아서 화면 쪽에서 달라지는 것은
+없지만, 데모에서 *"AI 가 리뷰를 읽습니다"* 라고 말하려면 `MATCH_MODE=llm` 으로
+돌린 화면이어야 한다. 대조 정확도는 `scripts/eval_matcher.py` 가 잰다.
 
 ## 왕복이 두 번이다
 
@@ -48,9 +59,20 @@ POST /api/recommend
 { "claim":   { "claim_id": "gpu-temp", "subject": "그래픽카드 B사·12GB",
                "text": "게이밍 부하 시 68°C", "source": "제조사 스펙" },
   "evidence":{ "samples": {"리뷰": 214, "QA": 31}, "relevant": 214, "hits": 47,
-               "note": "214건 중 47건이 80°C 이상을 언급" },
+               "note": "214건이 이 주장에 닿고 그중 47건이 어긋납니다.",
+               "quotes": ["풀로드 돌리면 82도까지 올라갑니다. …"],
+               "excluded_high_risk": 22 },
   "verdict": "refuted" }
 ```
+
+`note` 는 **숫자에서 만들어진 문장**이고 구체적인 내용은 `quotes` 의 실제 리뷰
+원문에 있다. 목업의 `"214건 중 47건이 80°C 이상을 언급"` 자리에는 `note` 와
+`quotes[0]` 을 같이 쓰면 된다 — 인용이 붙어야 그 숫자를 지어내지 않았다는 것이
+보인다. **인용은 반드시 원문 그대로다**(모델이 바꿔 쓰면 백엔드가 지운다).
+
+`excluded_high_risk` 는 **조작 확률 20% 이상이라 대조에서 뺀 건수**다. 공개
+화면이 그렇게 약속했으므로 화면 어딘가에 이 수가 보여야 한다 — 지우지 않고
+뺀다는 것이 약속의 절반이다.
 
 `verdict` 는 넷이다 — `confirmed` · `partly` · `refuted` · `no_evidence`.
 **글리프와 색은 응답에 없다.** 목업이 쓴 ● ◐ ✕ · 를 백엔드가 강제하지 않으려는
@@ -80,9 +102,14 @@ POST /api/recommend
 ```json
 { "conditions_met": 3, "conditions_total": 4, "conditions_unmet": ["refresh_hz: ..."],
   "verdicts": {"refuted": 2, "confirmed": 2, "partly": 1, "no_evidence": 1},
-  "samples_compared": 982,
-  "review_risk_buckets": {"0-20%": 891, "20-40%": 36, ...} }
+  "samples_compared": 768,
+  "review_risk_buckets": {"0-20%": 768, "20-40%": 43, "40-60%": 13, ...} }
 ```
+
+`samples_compared` 는 **주장별 `samples` 의 합이 아니다.** 한 품목에 주장이 둘이면
+같은 리뷰 묶음을 두 주장이 나눠 쓰므로 합계는 그만큼 겹쳐 센다(그래픽카드가 그렇다).
+이 값은 겹치지 않게 센 **실제로 읽은 리뷰 수**이고, 그래서 `review_risk_buckets`
+의 합보다 작다 — 차이가 조작 확률 때문에 대조에서 뺀 건수다.
 
 **하나로 합치지 말 것.** 종합 점수 필드가 없는 것이 실수가 아니라 설계다 —
 합치면 가중치를 정당화해야 하는데 근거가 없고, 멘토가 물어본 것이 정확히 그

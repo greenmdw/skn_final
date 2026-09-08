@@ -1,14 +1,13 @@
 """
 3단계 ③ — 스펙 주장 ↔ 리뷰 대조. **이 기획의 심장**(기획안 §3).
 
-[오늘 들어간 것과 안 들어간 것]
-이 파일에는 **판정 규칙**만 있다. 근거(표본·닿는 수·어긋난 수)를 받아
-`Verdict` 를 내는 부분이고, 전부 룰이다.
+[이 파일에는 판정 규칙만 있다]
+근거(표본·닿는 수·어긋난 수)를 받아 `Verdict` 를 내는 부분이고 전부 룰이다.
+근거를 모으는 쪽 — *"이 리뷰 문장이 이 주장에 닿는가, 어긋나는가"* 를 정하는
+의미 대조 — 는 `match.py` 에 있다(기획안 §9가 AI 자리라고 표시한 지점).
 
-들어가지 **않은** 것은 근거를 모으는 쪽, 즉 *"이 리뷰 문장이 이 주장에 닿는가,
-어긋나는가"* 를 판정하는 의미 대조다. 그건 AI 몫이고(기획안 §9), 일정상 9/10
-자리다. 지금은 `ReviewSource` 가 라벨을 들고 있어서 파이프라인 전체가 키 없이
-끝까지 돈다 — 실데이터 소스가 붙을 때 라벨 자리에 의미 대조가 들어간다.
+**모델이 "반증입니다"라고 말할 자리는 없다.** 모델은 리뷰 한 건씩만 판정하고,
+표본이 몇 건이어야 판정하는지와 어긋난 비율 얼마부터 반증인지는 아래 두 상수다.
 
 [임계값은 지어내지 않았다]
 아래 두 상수는 `docs/목업/pc-부품.html` 3단계 표의 여섯 행을 전부 재현하도록
@@ -59,12 +58,30 @@ def verdict_from(evidence: Evidence) -> Verdict:
     return Verdict.PARTLY
 
 
-def verify_claims(claims: list[Claim], source) -> list[ClaimVerdict]:
-    """주장 목록을 리뷰 소스와 대조한다. 목업 3단계 표 한 장이 나온다."""
+def verify_claims(claims_by_part: dict[str, list[Claim]], source,
+                  matcher=None) -> list[ClaimVerdict]:
+    """
+    품목별 주장을 리뷰와 대조한다. 목업 3단계 표 한 장이 나온다.
+
+    **리뷰는 품목 단위로 한 번만 읽는다.** 한 품목에 주장이 둘이면 같은 묶음을
+    두 주장이 나눠 쓴다 — 목업에서 그래픽카드의 두 주장이 똑같이 "리뷰 214"를
+    대조 표본으로 적은 이유이고, 모델 대조에서는 이게 곧 비용이다.
+
+    판정은 여전히 이 파일의 룰이 한다. 대조기는 *리뷰 한 건이 닿는지·어긋나는지*
+    까지만 정한다.
+    """
+    from .match import build_matcher, gather
+
+    matcher = matcher or build_matcher()
+    threshold = getattr(source, "threshold", 0.20)
+
     out: list[ClaimVerdict] = []
-    for claim in claims:
-        evidence = source.evidence_for(claim)
-        out.append(
-            ClaimVerdict(claim=claim, evidence=evidence, verdict=verdict_from(evidence))
-        )
+    for part_code, claims in claims_by_part.items():
+        if not claims:
+            continue
+        reviews = source.fetch(part_code)
+        for claim in claims:
+            evidence = gather(claim, reviews, matcher, threshold)
+            out.append(ClaimVerdict(claim=claim, evidence=evidence,
+                                    verdict=verdict_from(evidence)))
     return out

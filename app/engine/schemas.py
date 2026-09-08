@@ -97,11 +97,54 @@ class Evidence(BaseModel):
     relevant: int = 0
     hits: int = 0
     note: str = ""
+    # 대조에 쓴 근거 구절 몇 개. 판정이 어느 문장에서 나왔는지 화면이 보일 수
+    # 있어야 한다 — 숫자만 보이면 그 숫자를 지어낸 것과 구분되지 않는다.
+    quotes: list[str] = Field(default_factory=list)
+    # 조작 확률이 임계 이상이라 대조 표본에서 뺀 건수(목업 공개 화면의 약속).
+    excluded_high_risk: int = 0
 
     @property
     def total(self) -> int:
         """읽은 표본 전체. 목업의 "대조 표본" 칸이 이 값이다."""
         return sum(self.samples.values())
+
+
+class Review(BaseModel):
+    """
+    리뷰 한 건. **3단계가 실제로 읽는 대상이다.**
+
+    이전에는 소스가 집계 숫자(`Evidence`)를 바로 돌려줬다. 그러면 "이 문장이 이
+    주장에 닿는가"를 판정하는 일 자체가 코드에 없다 — 3단계의 심장이 데이터에
+    미리 들어 있는 셈이라, 파이프라인이 도는 것을 보고 됐다고 착각하게 된다
+    ([`decisions/0008`](../../docs/decisions/0008-리뷰-소스-기본값을-합성으로-둔다.md)
+    이 가장 큰 함정으로 적어 둔 것이 이것이다). 그래서 소스는 **문장**을 주고,
+    닿는지 어긋나는지는 `match.py` 가 정한다.
+
+    **리뷰는 주장이 아니라 품목에 달린다.** 한 품목에 주장이 여럿이면 같은 리뷰
+    묶음을 여러 주장이 나눠 쓴다 — 목업에서 그래픽카드의 두 주장이 똑같이 "리뷰
+    214"를 대조 표본으로 적은 이유다.
+    """
+
+    review_id: str
+    part_code: str
+    kind: str = "리뷰"                 # "리뷰" / "QA"
+    text: str
+    risk: float = 0.0                 # 조작 확률 0.0~1.0
+
+    # 합성 데이터만 갖는 정답 라벨. 실데이터에는 없다(그래서 기본값이 비어 있다).
+    # 이 라벨의 값은 두 가지다 — LabelMatcher 가 키 없이 도는 것, 그리고
+    # LLMMatcher 를 **채점할 수 있는 것**.
+    bears_on: list[str] = Field(default_factory=list)
+    contradicts: list[str] = Field(default_factory=list)
+
+
+class ReviewJudgment(BaseModel):
+    """대조 한 건의 결과. 모델이 채우는 것도 이 모양이다."""
+
+    review_id: str
+    bears_on: bool = Field(description="이 리뷰가 그 주장을 언급하거나 다루는가")
+    contradicts: bool = Field(description="언급한다면, 주장과 어긋나는가")
+    quote: str = Field(default="", description="근거가 된 리뷰 안의 짧은 구절")
 
 
 class ClaimVerdict(BaseModel):

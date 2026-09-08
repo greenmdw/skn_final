@@ -168,12 +168,20 @@ def _repair(pack, parts: list[dict], hard: dict[str, Requirement],
 
 
 # ── 3단계 ③: 스펙 주장 ↔ 리뷰 대조 ──────────────────────────────────────────
-def step3_verify(pack, chosen: list[dict], source=None) -> list[ClaimVerdict]:
-    """고른 품목들이 하는 주장을 전부 모아 리뷰와 대조한다."""
-    claims: list[Claim] = []
+def step3_verify(pack, chosen: list[dict], source=None,
+                 matcher=None) -> list[ClaimVerdict]:
+    """
+    고른 품목들이 하는 주장을 리뷰와 대조한다.
+
+    **품목별로 묶어서 넘긴다.** 리뷰는 주장이 아니라 품목에 달려 있어서, 한
+    품목에 주장이 둘이면 같은 묶음을 한 번만 읽으면 된다.
+    """
+    claims_by_part: dict[str, list[Claim]] = {}
     for part in chosen:
-        claims.extend(pack.claims_for(part["code"]))
-    return verify_claims(claims, source or pack.review_source())
+        claims = pack.claims_for(part["code"])
+        if claims:
+            claims_by_part[part["code"]] = claims
+    return verify_claims(claims_by_part, source or pack.review_source(), matcher)
 
 
 # ── 4단계: 최적화 — 판정이 되돌아오는 자리 ──────────────────────────────────
@@ -387,13 +395,22 @@ def indicators(pack, requirements: list[Requirement], lines: list[SetLine],
     for cv in verdicts:
         counts[cv.verdict.value] = counts.get(cv.verdict.value, 0) + 1
 
+    # 대조에 쓴 리뷰 수는 주장별 표본의 **합이 아니다.** 한 품목에 주장이 둘이면
+    # 같은 리뷰 묶음을 두 주장이 나눠 쓰므로 합계는 그만큼 겹쳐 센다. 분포는
+    # 리뷰 단위라 겹치지 않으니 거기서 읽는다 — 임계값 아래 구간이 곧 대조에
+    # 쓴 것이다.
+    buckets = source.risk_distribution()
+    threshold = getattr(source, "threshold", 0.20) * 100
+    compared = sum(n for label, n in buckets.items()
+                   if float(label.split("-")[1].rstrip("%")) <= threshold)
+
     return Indicators(
         conditions_met=met,
         conditions_total=total,
         conditions_unmet=unmet,
         verdicts=counts,
-        samples_compared=sum(cv.evidence.total for cv in verdicts),
-        review_risk_buckets=source.risk_distribution(),
+        samples_compared=compared,
+        review_risk_buckets=buckets,
     )
 
 

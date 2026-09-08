@@ -28,7 +28,9 @@ sys.path.insert(0, str(ROOT))
 from app.engine import pipeline                               # noqa: E402
 from app.engine.packs.pc import pack                          # noqa: E402
 from app.engine.run import recommend                          # noqa: E402
-from app.engine.schemas import Evidence, Indicators, Verdict  # noqa: E402
+from app.engine.schemas import (  # noqa: E402
+    Evidence, Indicators, Review, ReviewJudgment, Verdict,
+)
 from app.engine.verify import verdict_from                    # noqa: E402
 
 ANSWERS = {"refresh_hz": "144Hz", "reuse": "케이스만", "priority": "상관없음"}
@@ -105,15 +107,17 @@ def check_reviews_do_not_rank() -> None:
     reqs = pipeline.step2_requirements(pack, known)
     base = [p["code"] for p in pipeline.rank(pack, reqs, 1_200_000, known)]
 
-    # 라벨을 전부 뒤집는다 — 모든 주장이 반증되는 세계.
-    from app.engine.packs.pc import REVIEW_LABELS
-    from app.reviews.synthetic import SyntheticReviews
+    # 모든 리뷰가 모든 주장을 반증하는 세계를 만든다.
+    class AllContradict:
+        name = "all-contradict"
 
-    flipped = SyntheticReviews({cid: {**label, "hits": label["relevant"]}
-                                for cid, label in REVIEW_LABELS.items()})
+        def match(self, claim, reviews):
+            return [ReviewJudgment(review_id=r.review_id, bears_on=True,
+                                   contradicts=True) for r in reviews]
+
     chosen = pipeline.rank(pack, reqs, 1_200_000, known)
-    verdicts = pipeline.step3_verify(pack, chosen, flipped)
-    assert all(cv.verdict is not Verdict.CONFIRMED for cv in verdicts), "라벨이 안 뒤집혔다"
+    verdicts = pipeline.step3_verify(pack, chosen, matcher=AllContradict())
+    assert all(cv.verdict is not Verdict.CONFIRMED for cv in verdicts), "대조기가 안 먹혔다"
 
     after = [p["code"] for p in pipeline.rank(pack, reqs, 1_200_000, known)]
     assert base == after, f"리뷰가 순위를 바꿨다: {base} → {after}"
@@ -186,6 +190,108 @@ def check_indicators_cannot_be_merged() -> None:
     print("  ✓ 세 지표가 따로 나오고 합칠 필드가 없다")
 
 
+def check_semantic_matching_is_a_step() -> None:
+    """
+    대조가 **코드에 있는 일**이어야 한다 — 데이터에 미리 들어 있으면 안 된다.
+
+    소스는 문장만 주고, 닿는지·어긋나는지는 대조기가 정한다. 대조기를 갈아
+    끼우면 판정이 바뀌는 것이 그 증거다(`check_reviews_do_not_rank` 가 쓰는
+    AllContradict 가 같은 자리를 반대편에서 짚는다).
+    """
+    reviews = pack.review_source().fetch("SSD-1T")
+    assert reviews, "리뷰 묶음이 비어 있다"
+    assert all(r.text for r in reviews), "본문 없는 리뷰가 있다 — 대조할 것이 없다"
+
+    # 142건 중 실측을 언급한 것은 3건뿐이다. 대조가 표본을 골라내는 일이라는 것.
+    bearing = [r for r in reviews if "ssd-write" in r.bears_on]
+    assert len(bearing) == 3, f"닿는 리뷰가 3건이어야 한다: {len(bearing)}"
+    assert len(reviews) > 100, "골라낼 것이 없으면 대조가 시험되지 않는다"
+    print(f"  ✓ 리뷰 {len(reviews)}건에서 닿는 3건을 골라낸다")
+
+
+def check_reviews_belong_to_the_part() -> None:
+    """
+    한 품목의 주장 둘이 **같은 리뷰 묶음**을 쓴다.
+
+    목업에서 그래픽카드의 두 주장이 똑같이 "리뷰 214"를 대조 표본으로 적은 것이
+    이 사실이다. 주장마다 따로 읽으면 모델 호출이 두 배가 된다.
+    """
+    r = recommend(QUERY, answers=ANSWERS)
+    gpu = [cv for cv in r.claims if cv.claim.claim_id.startswith("gpu-")]
+    assert len(gpu) == 2, "그래픽카드 주장이 둘이어야 한다"
+    assert gpu[0].evidence.samples == gpu[1].evidence.samples, (
+        f"같은 품목인데 표본이 다르다: {gpu[0].evidence.samples} vs {gpu[1].evidence.samples}"
+    )
+    print("  ✓ 같은 품목의 두 주장이 같은 리뷰 묶음을 쓴다")
+
+
+def check_high_risk_reviews_are_excluded() -> None:
+    """
+    조작 확률이 임계 이상인 리뷰는 **대조 표본에서 빠진다.**
+
+    목업 공개 화면의 약속이다 — *"조작 확률 20% 이상인 리뷰는 대조 표본에서
+    제외. 삭제하지 않고 별도 보관한다."* 지우지 않으므로 몇 건을 뺐는지 셀 수
+    있어야 하고, 그 수가 화면에 나간다.
+    """
+    r = recommend(QUERY, answers=ANSWERS)
+    assert all(cv.evidence.excluded_high_risk > 0 for cv in r.claims), (
+        "제외된 건수가 0이다 — 필터가 안 걸렸거나 셀 수 없다"
+    )
+
+    source = pack.review_source()
+    reviews = source.fetch("PSU-650")
+    kept = [x for x in reviews if x.risk < source.threshold]
+    psu = next(cv for cv in r.claims if cv.claim.claim_id == "psu-noise")
+    assert psu.evidence.total == len(kept), (
+        f"표본이 필터를 통과한 수와 다르다: {psu.evidence.total} vs {len(kept)}"
+    )
+    assert psu.evidence.excluded_high_risk == len(reviews) - len(kept), "제외 건수가 안 맞는다"
+    print(f"  ✓ 조작 확률 {source.threshold:.0%} 이상을 대조에서 빼고 그 수를 남긴다")
+
+
+def check_quotes_are_real() -> None:
+    """인용이 실제 리뷰 원문에서 와야 한다 — 지어낸 인용은 근거가 아니다."""
+    source = pack.review_source()
+    r = recommend(QUERY, answers=ANSWERS)
+    for cv in r.claims:
+        if not cv.evidence.quotes:
+            continue
+        code = next((p["code"] for p in pack.catalog()
+                     if any(c.claim_id == cv.claim.claim_id
+                            for c in pack.claims_for(p["code"]))), None)
+        texts = [x.text for x in source.fetch(code)]
+        for q in cv.evidence.quotes:
+            assert any(q in t for t in texts), f"원문에 없는 인용: {q[:30]}"
+    print("  ✓ 근거 인용이 전부 실제 리뷰 원문에 있다")
+
+
+def check_matcher_guardrails() -> None:
+    """
+    모델이 낸 판정에서 조용히 틀리는 셋을 막는다.
+
+    셋 다 에러를 내지 않고 숫자만 바꾸는 종류다 — 검사가 없으면 새는지도 모른다.
+    """
+    from app.engine.match import accept
+
+    review = Review(review_id="R1", part_code="X", text="온도가 82도까지 올라갑니다.")
+    by_id = {"R1": review}
+
+    kept = accept([
+        ReviewJudgment(review_id="R1", bears_on=True, contradicts=True,
+                       quote="온도가 82도까지"),
+        ReviewJudgment(review_id="없는-id", bears_on=True, contradicts=True),
+        ReviewJudgment(review_id="R1", bears_on=True, contradicts=True,
+                       quote="이 리뷰에 없는 문장입니다"),
+    ], by_id)
+
+    assert "없는-id" not in kept, "보내지 않은 review_id 가 통과했다"
+    assert kept["R1"].quote == "", "원문에 없는 인용이 남았다"
+
+    kept2 = accept([ReviewJudgment(review_id="R1", bears_on=False, contradicts=True)], by_id)
+    assert kept2["R1"].contradicts is False, "닿지 않는데 어긋난다고 셌다"
+    print("  ✓ 지어낸 id · 지어낸 인용 · 모순된 판정을 버린다")
+
+
 def main() -> int:
     checks = [
         check_mockup_verdicts,
@@ -197,6 +303,11 @@ def main() -> int:
         check_reasons_link_to_verdicts,
         check_asks_before_recommending,
         check_indicators_cannot_be_merged,
+        check_semantic_matching_is_a_step,
+        check_reviews_belong_to_the_part,
+        check_high_risk_reviews_are_excluded,
+        check_quotes_are_real,
+        check_matcher_guardrails,
     ]
     failed = 0
     print("추천 엔진 검증")
