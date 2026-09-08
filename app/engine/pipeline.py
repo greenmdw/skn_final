@@ -28,6 +28,7 @@ from .schemas import (
     Claim, ClaimVerdict, Indicators, NeedsInput, Reason, Requirement,
     SetLine, Verdict,
 )
+from ..reviews import build_source
 from .verify import verify_claims
 
 
@@ -156,7 +157,7 @@ def step3_verify(pack, chosen: list[dict], source=None,
         claims = pack.claims_for(part["code"])
         if claims:
             claims_by_part[part["code"]] = claims
-    return verify_claims(claims_by_part, source or pack.review_source(), matcher)
+    return verify_claims(claims_by_part, source or build_source(pack), matcher)
 
 
 # ── 4단계: 최적화 — 판정이 되돌아오는 자리 ──────────────────────────────────

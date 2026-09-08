@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 
+from ..reviews import build_source
 from . import pipeline
 from .schemas import Recommendation
 
@@ -67,7 +68,7 @@ def _run_rule(pack, query: str, answers: dict | None, domain: str) -> Recommenda
     requirements = pipeline.step2_requirements(pack, known)
     chosen = pipeline.rank(pack, requirements, budget, known)
 
-    source = pack.review_source()
+    source = build_source(pack)
     verdicts = pipeline.step3_verify(pack, chosen, source)
     lines, verdicts = pipeline.step4_optimize(
         pack, chosen, verdicts, budget, requirements, source)
@@ -117,6 +118,6 @@ def _run_strands(pack, query: str, answers: dict | None, domain: str) -> Recomme
         budget=budget, spent=sum(ln.price for ln in lines),
         reasons=pipeline.step5_reasons(requirements, verdicts, lines),
         indicators=pipeline.indicators(pack, requirements, lines, verdicts,
-                                       pack.review_source()),
+                                       build_source(pack)),
         tools_used=used, mode="strands",
     )

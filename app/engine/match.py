@@ -43,6 +43,14 @@ MATCH_MODE = os.environ.get("MATCH_MODE", "label").lower()
 # 대조기에 걸면 표본만 잃고 얻는 게 없다(`LabelMatcher.max_reviews = None`).
 MATCH_MAX_REVIEWS = int(os.getenv("MATCH_MAX_REVIEWS", "200"))
 
+# 대조 전용 모델. 지정하지 않으면 나머지와 같은 모델을 쓴다.
+#
+# **여기만 따로 고를 수 있어야 하는 이유가 있다.** 대조는 호출량이 압도적이다 —
+# 리뷰 1,013건에 100회 안팎으로, 협상·설명·도구 오케스트레이션을 전부 합친 것보다
+# 많다. 대조에 싼 모델을 쓰고 설명 생성에 좋은 모델을 쓰는 것이 정석인데 전역
+# `OPENAI_MODEL` 하나로는 못 나눈다. `assistant.py` 의 `ASSISTANT_MODEL` 과 같은 배치다.
+MATCH_MODEL = os.environ.get("MATCH_MODEL") or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
 # 한 번의 호출에 넣는 리뷰 수.
 #
 # 20 에서 10 으로 내렸다. 채점(`scripts/eval_matcher.py`)에서 재현율이 0.42~0.81 로
@@ -139,7 +147,7 @@ class LLMMatcher:
             size = max(1, MATCH_BATCH // (attempt + 1))
             for i in range(0, len(pending), size):
                 batch = pending[i:i + size]
-                agent = Agent(model=_model(), system_prompt=MATCH_SYSTEM)
+                agent = Agent(model=_model(MATCH_MODEL), system_prompt=MATCH_SYSTEM)
                 try:
                     result = agent.structured_output(_Batch, _prompt(claim, batch))
                 except Exception as e:  # noqa: BLE001 — 한 묶음이 실패해도 나머지는 판정한다

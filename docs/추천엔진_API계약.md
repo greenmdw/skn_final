@@ -17,7 +17,21 @@ POST /api/recommend
 |---|---|---|
 | `RECOMMEND_MODE` | `rule` — 1~5단계를 순서대로 부른다 | `strands` — 에이전트가 순서를 정한다 |
 | `MATCH_MODE` | `label` — 합성 라벨을 읽는다 | `llm` — 모델이 리뷰 문장을 실제로 읽는다 |
-| `REVIEW_SOURCE` | 합성 | (실데이터 소스가 생기면) |
+| `RISK_MODE` | `none` — 이미 붙은 점수만 쓴다 | `llm` — 모델이 조작 확률을 매긴다 |
+| `REVIEW_SOURCE` | `synthetic` | 새 소스는 `app/reviews/__init__.py` 에 등록 |
+
+모델은 자리별로 고를 수 있다. 지정하지 않으면 전부 `OPENAI_MODEL`(기본 `gpt-4o-mini`)
+을 쓴다.
+
+| | 어디 |
+|---|---|
+| `MATCH_MODEL` | 의미 대조. **호출량이 압도적이라 여기만 싼 모델을 쓰는 게 정석이다** |
+| `RISK_MODEL` | 조작 확률 |
+| `ASSISTANT_MODEL` | 조달 어시스턴트(협상 쪽) |
+| `OPENAI_MODEL` | 나머지 전부 |
+
+Bedrock 으로 옮길 때는 `app/strands_agents.py` 의 `_model()` 한 곳만 고치면 된다 —
+LLM 호출 지점 여섯 중 다섯이 이 함수를 지난다.
 
 **`MATCH_MODE=label` 은 의미 대조가 아니다.** 합성 데이터에 붙은 정답 라벨을 읽는
 것이고 실데이터에는 그 라벨이 없다. 응답 형이 같아서 화면 쪽에서 달라지는 것은
@@ -73,6 +87,10 @@ POST /api/recommend
 `excluded_high_risk` 는 **조작 확률 20% 이상이라 대조에서 뺀 건수**다. 공개
 화면이 그렇게 약속했으므로 화면 어딘가에 이 수가 보여야 한다 — 지우지 않고
 뺀다는 것이 약속의 절반이다.
+
+`unscored_risk` 가 **0이 아니면 "20% 이상을 걸렀다"고 말하면 안 된다.** 조작
+확률을 재지 못한 리뷰가 표본에 섞여 있다는 뜻이다(실 리뷰에는 확률이 안 붙어
+있고, `RISK_MODE=none` 이면 매기지 않는다). `note` 에도 그 문장이 들어간다.
 
 `verdict` 는 넷이다 — `confirmed` · `partly` · `refuted` · `no_evidence`.
 **글리프와 색은 응답에 없다.** 목업이 쓴 ● ◐ ✕ · 를 백엔드가 강제하지 않으려는
