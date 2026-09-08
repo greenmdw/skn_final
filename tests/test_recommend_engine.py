@@ -309,6 +309,49 @@ def check_matcher_guardrails() -> None:
     print("  ✓ 지어낸 id · 지어낸 인용 · 모순된 판정 · 수치 없는 근거를 버린다")
 
 
+def check_screening_reports_zero() -> None:
+    """
+    제약이 **아무것도 안 걸러도** 깔때기에 행이 남아야 한다.
+
+    외부 사실(게임 권장 사양)을 주입해도 예산이 넉넉하면 결과가 같을 수 있다 —
+    요구는 바닥이지 목표가 아니기 때문이다. 그때 화면에 *"권장 사양을 주입했다"*
+    만 뜨고 무엇이 달라졌는지 안 보이면, 심사위원의 *"8GB였으면 뭐가 달라집니까"*
+    에 답할 것이 없다. **0을 0이라고 말하는 것**이 답이다.
+    """
+    twelve = recommend("〈오르카 프로토콜〉 QHD 예산 120만 원", answers=ANSWERS)
+    eight = recommend("〈실버레인〉 QHD 예산 120만 원", answers=ANSWERS)
+
+    assert twelve.screening and eight.screening, "깔때기 데이터가 없다"
+    a = next(x for x in twelve.screening if x.key == "vram")
+    b = next(x for x in eight.screening if x.key == "vram")
+    assert a.excluded > 0, "12GB 제약이 아무것도 안 걸렀다"
+    assert b.excluded == 0, "8GB 제약이 무언가를 걸렀다 — 데이터가 바뀐 것 같다"
+    assert a.origin and b.origin, "제약이 어디서 왔는지가 없다"
+    print(f"  ✓ 깔때기가 제약별 효과를 낸다 (12GB −{a.excluded} · 8GB −{b.excluded})")
+
+
+def check_silent_failures_are_spoken() -> None:
+    """
+    조용히 지나가던 것 둘을 말하게 한다.
+
+    8개 시나리오를 돌려 보고서야 보였다. 둘 다 결과는 그럴듯하게 나오고 어디에도
+    사실이 안 적혔다.
+
+    1. 모르는 게임 → 하드 제약이 하나도 없는 채로 자신 있는 세트를 냈다
+    2. 예산 50만 원 → 113만 원짜리를 내면서 초과를 말하지 않았다
+    """
+    unknown = recommend("〈없는게임〉 QHD 예산 120만 원", answers=ANSWERS)
+    assert not [r for r in unknown.requirements if r.hard], "모르는 게임인데 제약이 생겼다"
+    assert unknown.notices, "하드 제약이 없는데 아무 말도 안 한다"
+    assert any("보증하지 않" in n for n in unknown.notices), unknown.notices
+
+    poor = recommend("〈오르카 프로토콜〉 QHD 예산 50만 원", answers=ANSWERS)
+    assert poor.spent > poor.budget, "이 시나리오는 예산을 넘겨야 한다"
+    assert poor.budget_met is False, "예산을 넘겼는데 충족으로 표시된다"
+    assert any("초과" in n for n in poor.notices), poor.notices
+    print("  ✓ 외부 사실 없음 · 예산 초과를 응답이 말한다")
+
+
 def check_engine_knows_no_domain() -> None:
     """
     엔진 코드 어디에도 도메인이 박혀 있으면 안 된다. `run.py` 의 레지스트리만 예외다.
@@ -427,6 +470,8 @@ def main() -> int:
         check_tools_never_take_user_text,
         check_unscored_risk_is_never_clean,
         check_engine_knows_no_domain,
+        check_screening_reports_zero,
+        check_silent_failures_are_spoken,
     ]
     failed = 0
     print("추천 엔진 검증")

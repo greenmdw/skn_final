@@ -183,6 +183,26 @@ class Requirement(BaseModel):
     unjudged_reason: str = ""
 
 
+class Screening(BaseModel):
+    """
+    3단계 ① — 제약 하나가 후보를 몇 개 걸러냈는가.
+
+    목업의 깔때기(*"전체 후보 148 → 소켓 불일치 −62 → … → 통과 41"*)가 이
+    자리인데 엔진이 이 데이터를 아예 안 만들고 있었다.
+
+    **없으면 외부 사실이 한 일이 안 보인다.** VRAM 12GB 를 하드 제약으로 걸어도
+    예산이 넉넉하면 결과가 같을 수 있는데(요구는 바닥이지 목표가 아니다), 그때
+    화면에는 *"권장 사양을 주입했습니다"* 만 뜨고 무엇이 달라졌는지는 안 보인다.
+    `excluded` 가 0 이면 **0 이라고 말하는 것**이 정직하다.
+    """
+
+    key: str
+    label: str
+    origin: str = ""
+    excluded: int = 0          # 이 제약이 후보에서 걸러낸 품목 수
+    remaining: int = 0         # 걸러낸 뒤 남은 후보 수
+
+
 class SetLine(BaseModel):
     """4단계 산출 — 세트에 들어간 품목 한 줄."""
 
@@ -255,5 +275,11 @@ class Recommendation(BaseModel):
     spent: int = 0
     reasons: list[Reason] = Field(default_factory=list)
     indicators: Indicators | None = None
+    screening: list[Screening] = Field(default_factory=list)
+    # 예산 안에 들어왔는가. False 면 `spent` 가 `budget` 을 넘는다 — 화면이
+    # 그냥 합계만 보여주면 사용자가 예산을 지킨 줄 안다.
+    budget_met: bool = True
+    # 엔진이 화면·사용자에게 반드시 알려야 하는 것. 비어 있는 것이 정상이다.
+    notices: list[str] = Field(default_factory=list)
     tools_used: list[dict] = Field(default_factory=list)
     mode: str = "rule"

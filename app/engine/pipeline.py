@@ -26,7 +26,7 @@ import re
 
 from .schemas import (
     Claim, ClaimVerdict, Indicators, NeedsInput, Reason, Requirement,
-    SetLine, Verdict,
+    Screening, SetLine, Verdict,
 )
 from ..reviews import build_source
 from .verify import verify_claims
@@ -141,6 +141,30 @@ def _repair(pack, parts: list[dict], hard: dict[str, Requirement],
         if not swapped:
             break
     return parts
+
+
+def screen(pack, requirements: list[Requirement], known: dict | None = None) -> list[Screening]:
+    """
+    하드 제약이 후보를 몇 개씩 걸러냈는지 센다. 목업의 깔때기가 이 값이다.
+
+    **제약을 하나씩만 걸어 본다.** 누적으로 세면 순서에 따라 숫자가 달라지고
+    "이 제약이 한 일"이 아니라 "앞의 제약이 남긴 것 중 이 제약이 한 일"이 된다.
+
+    `excluded` 가 0 이어도 행을 지우지 않는다. **아무것도 안 걸렀다는 사실이
+    정보다** — 외부 사실을 주입했는데 결과가 같았다면 그렇게 말해야 한다.
+    """
+    cats = set(pack.required_categories(known or {}))
+    pool = [p for p in pack.catalog() if p["category"] in cats]
+
+    out: list[Screening] = []
+    for req in requirements:
+        if not req.hard:
+            continue
+        passed = [p for p in pool if pack.meets(p, {req.key: req})]
+        out.append(Screening(key=req.key, label=f"{req.key.upper()} {req.value}",
+                             origin=req.origin, excluded=len(pool) - len(passed),
+                             remaining=len(passed)))
+    return out
 
 
 # ── 3단계 ③: 스펙 주장 ↔ 리뷰 대조 ──────────────────────────────────────────

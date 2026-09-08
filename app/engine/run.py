@@ -37,6 +37,37 @@ SYSTEM = (
 )
 
 
+def _notices(requirements, budget: int, spent: int, verdicts) -> list[str]:
+    """
+    엔진이 화면·사용자에게 **반드시** 알려야 하는 것. 비어 있는 것이 정상이다.
+
+    셋 다 예전에는 조용히 지나갔다 — 결과는 그럴듯하게 나오고 어디에도 사실이
+    적히지 않았다. 8개 시나리오를 돌려 보고서야 보였다.
+    """
+    out: list[str] = []
+
+    if not [r for r in requirements if r.hard]:
+        out.append(
+            "외부 사실을 찾지 못해 하드 제약 없이 추천했습니다. "
+            "조건을 걸지 않았으므로 이 세트는 요구사항을 만족한다고 보증하지 않습니다."
+        )
+
+    if budget and spent > budget:
+        out.append(
+            f"예산 {budget:,}원 안에 들어오는 조합을 찾지 못했습니다. "
+            f"이 세트는 {spent - budget:,}원 초과입니다."
+        )
+
+    unscored = sum(cv.evidence.unscored_risk for cv in verdicts)
+    if unscored:
+        out.append(
+            f"조작 확률을 재지 못한 리뷰 {unscored}건이 대조 표본에 섞여 있습니다. "
+            "이 결과에는 '조작 확률 20% 이상을 걸렀다'가 성립하지 않습니다."
+        )
+
+    return out
+
+
 def _pack(domain: str):
     if domain == "pc":
         from .packs.pc import pack
@@ -74,10 +105,14 @@ def _run_rule(pack, query: str, answers: dict | None, domain: str) -> Recommenda
         pack, chosen, verdicts, budget, requirements, source)
     reasons = pipeline.step5_reasons(requirements, verdicts, lines)
 
+    spent = sum(ln.price for ln in lines)
     return Recommendation(
         domain=domain, requirements=requirements, claims=verdicts, set=lines,
-        budget=budget, spent=sum(ln.price for ln in lines), reasons=reasons,
+        budget=budget, spent=spent, reasons=reasons,
         indicators=pipeline.indicators(pack, requirements, lines, verdicts, source),
+        screening=pipeline.screen(pack, requirements, known),
+        budget_met=not (budget and spent > budget),
+        notices=_notices(requirements, budget, spent, verdicts),
         mode="rule",
     )
 
@@ -113,11 +148,15 @@ def _run_strands(pack, query: str, answers: dict | None, domain: str) -> Recomme
     requirements = st.get("requirements", [])
     verdicts = st.get("verdicts", [])
     lines = st["set"]
+    spent = sum(ln.price for ln in lines)
     return Recommendation(
         domain=domain, requirements=requirements, claims=verdicts, set=lines,
-        budget=budget, spent=sum(ln.price for ln in lines),
+        budget=budget, spent=spent,
         reasons=pipeline.step5_reasons(requirements, verdicts, lines),
         indicators=pipeline.indicators(pack, requirements, lines, verdicts,
                                        build_source(pack)),
+        screening=pipeline.screen(pack, requirements, known),
+        budget_met=not (budget and spent > budget),
+        notices=_notices(requirements, budget, spent, verdicts),
         tools_used=used, mode="strands",
     )
