@@ -6,6 +6,10 @@
                               POST /api/deals/{txid}/approve
                               POST /api/deals/{txid}/reject
   화면 4 (조달 어시스턴트)   -> POST /api/assistant   (Strands 도구 호출)
+
+추천 엔진(4안)은 화면 대응이 없다 — 화면 구성이 별도 담당이라 백엔드는 계약만
+낸다. `POST /api/recommend` 하나이고 응답 스키마는 `app/engine/schemas.py` 의
+`Recommendation` 이다.
 """
 
 from __future__ import annotations
@@ -96,6 +100,36 @@ def ask_assistant(req: AssistantQuestion):
         return assistant.ask(req.question)
     except Exception as e:  # noqa: BLE001 — 사유가 화면에 보여야 한다
         raise HTTPException(502, f"어시스턴트를 쓸 수 없습니다: {e}")
+
+
+class RecommendRequest(BaseModel):
+    """추천 요청. `answers` 는 되묻기(1단계)에 사용자가 답한 것이다."""
+
+    query: str
+    domain: str = "pc"
+    answers: dict = {}
+
+
+@app.post("/api/recommend")
+def recommend(req: RecommendRequest):
+    """
+    6단계 추천 엔진. 응답은 `Recommendation`(`app/engine/schemas.py`).
+
+    **되묻기가 남으면 추천이 비어 있고 `needs_input` 만 온다.** 화면은 그 질문을
+    사용자에게 보이고 답을 `answers` 에 담아 다시 부른다. 모르는 채로 세트를
+    짜지 않는 것이 1단계의 일이라 이 왕복이 정상 동작이다.
+
+    기본 모드는 `rule` 이라 API 키 없이 돈다. `RECOMMEND_MODE=strands` 면
+    에이전트가 도구를 골라 부르고 `tools_used` 에 그 내역이 실린다.
+    """
+    from .engine.run import recommend as run_recommend
+
+    try:
+        return run_recommend(req.query, req.domain, req.answers)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001 — 사유가 화면에 보여야 한다
+        raise HTTPException(502, f"추천을 만들 수 없습니다: {e}")
 
 
 class FeasibilityRequest(BaseModel):

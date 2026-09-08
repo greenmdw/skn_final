@@ -1,0 +1,115 @@
+# 추천 엔진 API 계약 (화면 담당자용)
+
+> 2026-09-07 확정 도메인(PC 부품) · 브랜치 `feat/recommend-engine` · 백엔드만.
+> **화면 구성은 이 문서가 정하지 않는다.** 여기 있는 것은 응답에 무엇이 들어
+> 있는지뿐이고, 어떻게 보일지는 화면 담당자의 몫이다.
+
+엔드포인트 하나다. 스키마 원본은 `app/engine/schemas.py` 의 `Recommendation`.
+
+```
+POST /api/recommend
+{ "query": "...", "domain": "pc", "answers": {} }
+```
+
+키 없이 돈다(`RECOMMEND_MODE=rule` 기본값, 리뷰 소스도 합성이 기본값).
+
+## 왕복이 두 번이다
+
+1단계가 하는 일이 *"무엇을 모르는지 아는 것"* 이라, **모르는 게 남으면 추천을
+만들지 않는다.**
+
+```
+1차 → { needs_input: [...], set: [], budget: 1200000 }     ← 질문만 온다
+2차 → { needs_input: [], set: [...], claims: [...], ... }   ← answers 를 채워 다시
+```
+
+`needs_input[]` 은 `{key, question, options[]}` 다. **화면 형태를 정해 두지
+않았다** — 기획안은 카드형 팝업이라 적었지만 그건 화면 몫이라 백엔드는 무엇을
+묻는지와 고를 수 있는 것만 준다. 답은 `answers` 에 `{key: 고른 값}` 으로 담아
+같은 엔드포인트를 다시 부른다.
+
+## 응답 필드
+
+| 필드 | 무엇 |
+|---|---|
+| `needs_input[]` | 되묻기. 비어 있지 않으면 나머지는 비어 있다 |
+| `requirements[]` | 2단계. `origin`(출처)과 `as_of`(기준 시점)가 붙는다 |
+| `claims[]` | **3단계 — 핵심.** 주장 · 근거 · 판정 |
+| `set[]` | 4단계. 세트 한 줄씩 |
+| `budget` / `spent` | 예산과 합계 (잔액은 뺄셈) |
+| `reasons[]` | 5단계 근거 문장. `claim_id` 로 판정과 연결된다 |
+| `indicators` | §7 세 지표 |
+| `tools_used[]` | `RECOMMEND_MODE=strands` 일 때 도구 호출 내역 |
+| `mode` | `rule` / `strands` |
+
+### `claims[]` — 3단계
+
+```json
+{ "claim":   { "claim_id": "gpu-temp", "subject": "그래픽카드 B사·12GB",
+               "text": "게이밍 부하 시 68°C", "source": "제조사 스펙" },
+  "evidence":{ "samples": {"리뷰": 214, "QA": 31}, "relevant": 214, "hits": 47,
+               "note": "214건 중 47건이 80°C 이상을 언급" },
+  "verdict": "refuted" }
+```
+
+`verdict` 는 넷이다 — `confirmed` · `partly` · `refuted` · `no_evidence`.
+**글리프와 색은 응답에 없다.** 목업이 쓴 ● ◐ ✕ · 를 백엔드가 강제하지 않으려는
+것이고, 화면에서 정하면 된다. 다만 목업이 적어 둔 이유대로 **색만으로 구분하지
+말 것** — 색각 대응이자 발표 슬라이드로 캡처했을 때도 읽히게 하려는 것이다.
+
+숫자가 셋인 이유가 있다. `samples` 는 읽은 표본(소스별로 쪼갬), `relevant` 는
+그중 이 주장에 닿는 것, `hits` 는 그중 어긋나는 것이다. 목업 SSD 행이 그 차이를
+보여준다 — 리뷰 142건을 읽었지만 실측을 언급한 것은 3건뿐이라 판정이
+`no_evidence` 다. **표시할 때 `samples` 와 `relevant` 를 섞지 말 것.**
+
+### `set[]` — 4단계
+
+```json
+{ "category": "쿨러", "code": "COOL-T1", "name": "타워형 공랭", "price": 34000,
+  "added_by_claim": "cpu-cooler", "warning": "" }
+```
+
+- `added_by_claim` 이 있으면 **반증 판정 때문에 편성된 줄**이다. 목업이 이걸
+  *"검증이 설명용 장식이 아니라 구성에 관여한다는 증거"* 라고 부른다 — 화면에서
+  이 줄이 그냥 부품처럼 보이면 3단계가 한 일이 안 보인다
+- `warning` 이 있으면 **반증됐지만 대안이 없어 유지된 줄**이다. 목록에서 빼지
+  말 것 — 백엔드가 빼지 않는 이유와 같다(아래)
+
+### `indicators` — §7 세 지표
+
+```json
+{ "conditions_met": 3, "conditions_total": 4, "conditions_unmet": ["refresh_hz: ..."],
+  "verdicts": {"refuted": 2, "confirmed": 2, "partly": 1, "no_evidence": 1},
+  "samples_compared": 982,
+  "review_risk_buckets": {"0-20%": 891, "20-40%": 36, ...} }
+```
+
+**하나로 합치지 말 것.** 종합 점수 필드가 없는 것이 실수가 아니라 설계다 —
+합치면 가중치를 정당화해야 하는데 근거가 없고, 멘토가 물어본 것이 정확히 그
+지점이었다(기획안 §7). 조작 확률도 이진 판정이 아니라 분포로만 나간다.
+
+## 화면이 지켜야 하는 것 둘
+
+목업 마지막의 공개 화면(공정위 사용후기 규정 대응)이 서비스의 약속으로 적어 둔
+것이다. 백엔드는 검사로 고정했고(`tests/test_recommend_engine.py`), 화면에서
+깨지면 같은 약속이 거짓이 된다.
+
+1. **반증된 항목을 목록에서 빼지 않는다.** 경고만 붙인다
+2. **리뷰를 순위에 반영하지 않는다.** 리뷰가 만드는 값은 스펙 주장의 판정
+   하나뿐이다. 판정으로 재정렬하지 말 것
+
+## 합성 데이터 고지
+
+리뷰는 지금 **합성**이다(네이버·카카오 리뷰 API 가 없다는 것이 9/7 23시에
+확인됐다). 조작 리뷰의 정답 라벨이 필요해 합성했고, **숨기지 않는 것이 조건**이라
+화면 어딘가에 고지가 있어야 한다. 문구는 `app/reviews/synthetic.py` 의
+`disclosure()` 에 있다.
+
+## 해 보기
+
+```bash
+uvicorn app.main:app --reload --port 8000
+curl -s localhost:8000/api/recommend -H 'content-type: application/json' \
+  -d '{"query":"〈오르카 프로토콜〉 QHD 상옵 예산 120만 원",
+       "answers":{"refresh_hz":"144Hz","reuse":"케이스만","priority":"상관없음"}}'
+```
