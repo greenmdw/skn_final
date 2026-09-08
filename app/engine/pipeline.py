@@ -43,37 +43,22 @@ def step1_checklist(pack, query: str, answers: dict | None = None) -> tuple[dict
     사실이 팩에서만 오기 때문이다.
     """
     known: dict = dict(answers or {})
-
-    if "game" not in known:
-        for title in _game_titles(pack):
-            if title in query:
-                known["game"] = title
-                break
-
-    if "budget" not in known:
-        m = re.search(r"(\d[\d,]*)\s*만\s*원", query)
-        if m:
-            known["budget"] = int(m.group(1).replace(",", "")) * 10000
-        else:
-            m = re.search(r"(\d[\d,]{5,})\s*원", query)
-            if m:
-                known["budget"] = int(m.group(1).replace(",", ""))
-
-    if "resolution" not in known:
-        for token, value in (("QHD", "QHD 2560×1440"), ("FHD", "FHD 1920×1080"),
-                             ("4K", "4K 3840×2160")):
-            if token in query.upper():
-                known["resolution"] = value
-                break
-
+    known.update(pack.extract(query, known))
     return known, pack.followups(known)
 
 
-def _game_titles(pack) -> list[str]:
-    """팩이 아는 외부 사실의 키. 팩 내부 표를 직접 읽지 않으려고 한 겹 둔다."""
-    from .packs import pc
+def extract_budget(text: str) -> int | None:
+    """
+    "120만 원" · "1,200,000원" 에서 금액을 뽑는다. **도메인과 무관하다.**
 
-    return list(pc.GAMES) if pack.name == "pc" else []
+    팩이 쓰라고 여기 둔다 — 돈 읽는 규칙은 PC 든 여행이든 같고, 팩마다 정규식을
+    베껴 두면 한쪽만 고쳐진다.
+    """
+    m = re.search(r"(\d[\d,]*)\s*만\s*원", text)
+    if m:
+        return int(m.group(1).replace(",", "")) * 10000
+    m = re.search(r"(\d[\d,]{5,})\s*원", text)
+    return int(m.group(1).replace(",", "")) if m else None
 
 
 # ── 2단계: 요구사항 확인 ─────────────────────────────────────────────────────
@@ -103,7 +88,7 @@ def rank(pack, requirements: list[Requirement], budget: int,
 
     chosen: list[dict] = []
     for category in pack.required_categories(known or {}):
-        cands = [p for p in catalog if p["category"] == category and _meets(p, hard)]
+        cands = [p for p in catalog if p["category"] == category and pack.meets(p, hard)]
         if not cands:
             continue
         # 배분액 안에서 가장 비싼 것을 고른다. 배분 안에 아무것도 없으면 그
@@ -114,16 +99,6 @@ def rank(pack, requirements: list[Requirement], budget: int,
                       else min(cands, key=lambda p: p["price"]))
 
     return _repair(pack, chosen, hard)
-
-
-def _meets(part: dict, hard: dict[str, Requirement]) -> bool:
-    """하드 제약 하나하나를 품목에 대본다. 관계없는 제약은 통과다."""
-    vram = hard.get("vram")
-    if vram and part["category"] == "GPU":
-        need = int(re.sub(r"\D", "", vram.value) or 0)
-        if part.get("vram", 0) < need:
-            return False
-    return True
 
 
 def _repair(pack, parts: list[dict], hard: dict[str, Requirement],
@@ -151,7 +126,7 @@ def _repair(pack, parts: list[dict], hard: dict[str, Requirement],
             alts = sorted(
                 (p for p in catalog
                  if p["category"] == part["category"] and p["code"] != part["code"]
-                 and _meets(p, hard)),
+                 and pack.meets(p, hard)),
                 key=lambda p: p["price"],
             )
             for alt in alts:
@@ -247,7 +222,7 @@ def _apply_remedies(pack, parts: list[dict], verdicts: list[ClaimVerdict],
         add = remedy.add_category
         if not add or add in {p["category"] for p in parts}:
             continue
-        cands = [p for p in catalog if p["category"] == add and _meets(p, hard)]
+        cands = [p for p in catalog if p["category"] == add and pack.meets(p, hard)]
         if not cands:
             continue
         part = min(cands, key=lambda p: p["price"])
@@ -290,7 +265,7 @@ def _fit(pack, parts: list[dict], budget: int, hard: dict[str, Requirement],
         for i, part in enumerate(parts):
             for alt in sorted((p for p in catalog
                                if p["category"] == part["category"]
-                               and p["price"] < part["price"] and _meets(p, hard)),
+                               and p["price"] < part["price"] and pack.meets(p, hard)),
                               key=lambda p: -p["price"]):
                 trial = settle(i, alt)
                 if trial is None:
@@ -309,7 +284,7 @@ def _fit(pack, parts: list[dict], budget: int, hard: dict[str, Requirement],
         for i, part in enumerate(parts):
             for alt in sorted((p for p in catalog
                                if p["category"] == part["category"]
-                               and p["price"] > part["price"] and _meets(p, hard)),
+                               and p["price"] > part["price"] and pack.meets(p, hard)),
                               key=lambda p: p["price"]):
                 trial = settle(i, alt)
                 if trial is None or cost(trial) > budget:

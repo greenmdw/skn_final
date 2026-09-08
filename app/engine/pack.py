@@ -67,6 +67,19 @@ class DomainPack(Protocol):
         """거래 가능한 품목 전부. 카테고리·가격·사양을 포함한다."""
         ...
 
+    def extract(self, query: str, known: dict) -> dict:
+        """
+        사용자 문장에서 이 도메인이 아는 것을 뽑는다. **새로 안 것만** 돌려준다.
+
+        돈 읽기처럼 도메인과 무관한 것은 `pipeline.extract_budget()` 을 쓴다 —
+        팩마다 정규식을 베껴 두면 한쪽만 고쳐진다.
+        """
+        ...
+
+    def meets(self, part: dict, requirements: dict) -> bool:
+        """품목 하나가 하드 제약을 만족하는가. `constraints()` 의 낱개 판이다."""
+        ...
+
     def required_categories(self, known: dict) -> list[str]:
         """이번 요청에 필요한 카테고리. 재사용·비대상 품목을 여기서 뺀다."""
         ...

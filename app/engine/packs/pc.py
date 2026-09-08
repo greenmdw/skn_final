@@ -14,14 +14,18 @@ PC 부품 팩 — 2026-09-07에 확정된 도메인(기획안 §4).
 기획안 §3이 도메인 의존이라 표시한 세 칸 + `pack.py` 가 찾아낸 네 번째 칸.
 
     품목 사전       catalog() · claims_for() · followups() · weights()
+                   · required_categories() · extract()
     외부 사실       external_facts()   ← 게임사 공개 권장 사양
-    하드 제약       constraints()      ← 소켓·전력·길이. 기획안 §3 표가 안 센 칸
+    하드 제약       constraints()(조합) · meets()(낱개)  ← 기획안 §3 표가 안 센 칸
     리뷰 소스       review_source()
 """
 
 from __future__ import annotations
 
+import re
+
 from ...reviews.synthetic import SyntheticReviews
+from ..pipeline import extract_budget
 from ..schemas import Claim, NeedsInput, Remedy, Requirement
 
 NAME = "pc"
@@ -271,6 +275,56 @@ class PCPack:
 
     def catalog(self) -> list[dict]:
         return [dict(p) for p in CATALOG]
+
+    def extract(self, query: str, known: dict) -> dict:
+        """
+        1단계 — 사용자 문장에서 이 도메인이 아는 것을 뽑는다.
+
+        **엔진이 아니라 팩이 한다.** 게임 이름은 이 팩의 사전에만 있고, 여행
+        팩이라면 도시·날짜를 뽑을 자리다. 예전에는 엔진이 `pack.name == "pc"` 로
+        분기해 이 표를 읽었는데, 그러면 도메인이 하나 늘 때마다 엔진을 고쳐야
+        해서 `DomainPack` 이 있으나 마나였다.
+
+        **사전에 없는 게임은 지어내지 않는다.** 모르면 안 넣고, 2단계에서
+        외부 사실이 비는 것으로 드러난다.
+        """
+        out: dict = {}
+
+        if "game" not in known:
+            for title in GAMES:
+                if title in query:
+                    out["game"] = title
+                    break
+
+        if "budget" not in known:
+            budget = extract_budget(query)
+            if budget:
+                out["budget"] = budget
+
+        if "resolution" not in known:
+            for token, value in (("QHD", "QHD 2560×1440"), ("FHD", "FHD 1920×1080"),
+                                 ("4K", "4K 3840×2160")):
+                if token in query.upper():
+                    out["resolution"] = value
+                    break
+
+        return out
+
+    def meets(self, part: dict, requirements: dict) -> bool:
+        """
+        3단계 ① — 품목 **하나**가 하드 제약을 만족하는가.
+
+        `constraints()` 가 조합 규칙(소켓·전력·길이)이라면 이쪽은 낱개 규칙이다.
+        둘 다 도메인 지식이라 같이 팩에 있어야 하는데, 예전에는 이 함수만 엔진에
+        `vram` 과 `"GPU"` 로 하드코딩돼 있었다 — 여행의 "도보 15분 이내"를 넣으려면
+        엔진을 고쳐야 했다.
+        """
+        vram = requirements.get("vram")
+        if vram and part["category"] == "GPU":
+            need = int(re.sub(r"\D", "", vram.value) or 0)
+            if part.get("vram", 0) < need:
+                return False
+        return True
 
     def required_categories(self, known: dict) -> list[str]:
         """

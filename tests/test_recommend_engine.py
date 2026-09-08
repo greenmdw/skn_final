@@ -309,6 +309,43 @@ def check_matcher_guardrails() -> None:
     print("  ✓ 지어낸 id · 지어낸 인용 · 모순된 판정 · 수치 없는 근거를 버린다")
 
 
+def check_engine_knows_no_domain() -> None:
+    """
+    엔진 코드 어디에도 도메인이 박혀 있으면 안 된다. `run.py` 의 레지스트리만 예외다.
+
+    예전에는 두 곳이 새고 있었다. `pipeline` 이 `packs.pc` 를 임포트해
+    `pack.name == "pc"` 로 분기했고(게임 이름 표를 읽으려고), 하드 제약을 품목에
+    대보는 `_meets()` 가 `vram` 과 `"GPU"` 로 하드코딩돼 있었다. 여행 팩을 넣으면
+    엔진을 고쳐야 했으니 `DomainPack` 이 있으나 마나였다.
+
+    **주석과 docstring 은 보지 않는다** — PC 를 예로 들어 설명하는 것은 누출이
+    아니라 문서다. `ast` 로 벗겨내고 코드만 본다.
+    """
+    import ast
+
+    engine = ROOT / "app" / "engine"
+    banned = ("packs", "'pc'", '"pc"', "vram", "GAMES")
+    offenders = []
+
+    for path in sorted(engine.glob("*.py")):
+        if path.name == "run.py":       # 도메인을 고르는 레지스트리. 여기만 이름을 안다
+            continue
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+                body = node.body
+                if (body and isinstance(body[0], ast.Expr)
+                        and isinstance(body[0].value, ast.Constant)
+                        and isinstance(body[0].value.value, str)):
+                    node.body = body[1:] or [ast.Pass()]
+        code = ast.unparse(tree)
+        offenders += [f"{path.name}: {n}" for n in banned if n in code]
+
+    assert not offenders, f"엔진이 도메인을 안다: {offenders}"
+    print(f"  ✓ 엔진 {len(list(engine.glob('*.py'))) - 1}개 모듈이 도메인을 모른다")
+
+
 def check_unscored_risk_is_never_clean() -> None:
     """
     조작 확률을 **못 잰 리뷰**를 "깨끗함"으로 처리하면 안 된다.
@@ -389,6 +426,7 @@ def main() -> int:
         check_matcher_guardrails,
         check_tools_never_take_user_text,
         check_unscored_risk_is_never_clean,
+        check_engine_knows_no_domain,
     ]
     failed = 0
     print("추천 엔진 검증")
