@@ -21,12 +21,7 @@
 
 from __future__ import annotations
 
-import os
-
 from .agent_tools import TOOLS
-
-# 어시스턴트 전용 모델. 지정하지 않으면 협상 쪽과 같은 모델을 쓴다.
-MODEL = os.environ.get("ASSISTANT_MODEL") or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
 ASSISTANT_SYSTEM = (
     "당신은 B2B 조달 담당자를 돕는 어시스턴트입니다. 전자부품 유통 카탈로그를 "
@@ -59,7 +54,7 @@ def ask(question: str) -> dict:
 
     from .strands_agents import _model
 
-    agent = Agent(model=_model(MODEL), tools=TOOLS, system_prompt=ASSISTANT_SYSTEM)
+    agent = Agent(model=_model("assistant"), tools=TOOLS, system_prompt=ASSISTANT_SYSTEM)
     result = agent(question)
 
     tools_used = [

@@ -33,8 +33,8 @@ log = logging.getLogger(__name__)
 
 RISK_MODE = os.environ.get("RISK_MODE", "none").lower()
 RISK_BATCH = int(os.getenv("RISK_BATCH", "10"))
-# 채점 모델. 대조와 마찬가지로 호출량이 많아 따로 고를 수 있게 둔다.
-RISK_MODEL = os.environ.get("RISK_MODEL") or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+# 채점 모델은 `_model("risk")` 가 고른다 — 대조와 마찬가지로 호출량이 많아
+# 자리별로 따로 지정할 수 있다(`RISK_MODEL` / `RISK_BEDROCK_MODEL`).
 
 
 class RiskScorer(Protocol):
@@ -98,7 +98,7 @@ class LLMRiskScorer:
 
         for i in range(0, len(todo), RISK_BATCH):
             batch = todo[i:i + RISK_BATCH]
-            agent = Agent(model=_model(RISK_MODEL), system_prompt=RISK_SYSTEM)
+            agent = Agent(model=_model("risk"), system_prompt=RISK_SYSTEM)
             try:
                 result = agent.structured_output(_Batch, _prompt(batch))
             except Exception as e:  # noqa: BLE001 — 한 묶음이 실패해도 나머지는 매긴다

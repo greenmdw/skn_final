@@ -13,10 +13,19 @@ SDK 를 직접 호출해서 그 기준을 채우지 못한다.
 정보 은닉 규약(셀러는 바이어 상한가를 못 본다)이 그 문장 안에 들어 있어서,
 어댑터마다 프롬프트를 들고 있으면 한쪽만 고쳐질 때 규약이 조용히 깨진다.
 
-**모델 바꾸기.** `_model()` 한 곳만 고치면 된다. Bedrock 으로 가려면
-`OpenAIModel(...)` 을 `BedrockModel(model_id=..., region_name=...)` 으로 바꾸는
-것이 전부다 — 나머지(`Agent`, `structured_output`, 프롬프트, 스키마)는 그대로다.
-해커톤 3단계(가점)가 이 한 줄이다.
+**모델 바꾸기.** `MODEL_PROVIDER` 하나다. `openai`(기본) / `bedrock` 이고, 나머지
+(`Agent`, `structured_output`, 프롬프트, 스키마, 도구)는 그대로다. 해커톤 가점
+항목이 이 스위치다.
+
+**Bedrock 없이도 전부 돌아간다.** 기본 프로바이더가 `openai` 이고, 그보다 먼저
+`rule`·`label`·`none` 모드가 모델을 아예 안 쓴다 — 검사와 데모는 어느 쪽 자격증명도
+필요 없다.
+
+[모델 이름을 자리(role)로 받는 이유]
+프로바이더마다 모델 id 형식이 다르다(`gpt-4o-mini` ↔ `global.anthropic.claude-opus-5`).
+호출부가 id 를 직접 넘기면 프로바이더를 바꾸는 순간 남의 형식 id 가 그대로 흘러가서
+**런타임에야 터진다.** 그래서 호출부는 `_model("match")` 처럼 **자리**만 말하고,
+그 자리의 id 는 프로바이더별 환경변수에서 고른다.
 """
 
 from __future__ import annotations
@@ -28,9 +37,15 @@ from pydantic import BaseModel, Field
 from .schemas import SellerRegister, BuyerRequest
 from .agent_prompts import seller_prompt, buyer_prompt
 
-# 사용할 모델. .env 의 OPENAI_MODEL 로 덮어쓸 수 있다(기본값: gpt-4o-mini).
-# 협상 판단은 비교적 단순한 추론이라 저가 모델로 충분.
+# 어느 프로바이더를 쓸 것인가. openai(기본) / bedrock
+MODEL_PROVIDER = os.environ.get("MODEL_PROVIDER", "openai").lower()
+
+# 프로바이더별 기본 모델. 자리별로 덮어쓰려면 아래 `_id_for` 참고.
 MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+# Bedrock 은 교차 리전 추론 프로파일 접두사(global./us./eu.)를 붙인 id 를 받는다.
+# **날짜 접미사나 -v1:0 을 붙이지 않는다** — 지금 모델 id 는 그 자체로 완결이다.
+BEDROCK_MODEL = os.environ.get("BEDROCK_MODEL", "global.anthropic.claude-opus-5")
+AWS_REGION = os.environ.get("AWS_REGION", "us-west-2")
 
 
 # ── 구조화 출력 스키마 ──────────────────────────────────────────────────────
@@ -50,30 +65,91 @@ class BuyerDecision(BaseModel):
     message: str = Field(description="협상 상대에게 보낼 짧은 메시지(한국어, 1문장)")
 
 
-def _model(model_id: str | None = None):
+def _id_for(role: str | None, provider: str) -> str:
     """
-    모델 프로바이더. 여기 한 곳만 바꾸면 Bedrock·Anthropic·Ollama 로 간다.
+    이 자리에서 쓸 모델 id. `{ROLE}_{PROVIDER}_MODEL` → `{PROVIDER}_MODEL` 순으로 찾는다.
 
-    임포트를 함수 안에 두는 이유는 `rule` 모드(기본값)가 이 패키지 없이도 돌아야
-    하기 때문이다 — `negotiate.py` 가 필요할 때만 이 파일을 임포트한다.
+        _id_for("match", "bedrock")  →  MATCH_BEDROCK_MODEL  또는 BEDROCK_MODEL
+        _id_for("match", "openai")   →  MATCH_MODEL          또는 OPENAI_MODEL
+
+    openai 쪽 자리 변수에 접두사가 없는 이유는 이 이름들이 먼저 있었기 때문이다
+    (`MATCH_MODEL`·`ASSISTANT_MODEL`·`RISK_MODEL`). 문서와 .env 가 그 이름을 쓰고 있다.
     """
+    fallback = BEDROCK_MODEL if provider == "bedrock" else MODEL
+    if not role:
+        return fallback
+    suffix = "_BEDROCK_MODEL" if provider == "bedrock" else "_MODEL"
+    return os.environ.get(f"{role.upper()}{suffix}") or fallback
+
+
+def _load_env_once() -> None:
+    """
+    `.env` 를 한 번 더 찾는다. `main.py` 는 기동할 때 읽지만 스크립트·검사는 안 읽는다.
+
+    자격증명이 필요한 지점이 `_model()` 하나뿐이라 여기 둔다 — 키를 .env 에 넣어
+    두고도 "키가 없습니다"를 보는 일이 없게.
+    """
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+
+def _model(role: str | None = None):
+    """
+    이 자리에서 쓸 모델. **호출부는 자리 이름만 말하고 id 는 모른다.**
+
+    임포트를 함수 안에 두는 이유는 기본 모드(`rule`·`label`·`none`)가 이 패키지들
+    없이도 돌아야 하기 때문이다.
+    """
+    if MODEL_PROVIDER == "bedrock":
+        return _bedrock(_id_for(role, "bedrock"))
+    if MODEL_PROVIDER != "openai":
+        raise RuntimeError(
+            f"모르는 MODEL_PROVIDER 입니다: {MODEL_PROVIDER!r}. "
+            "쓸 수 있는 것: 'openai'(기본), 'bedrock'."
+        )
+    return _openai(_id_for(role, "openai"))
+
+
+def _openai(model_id: str):
     from strands.models.openai import OpenAIModel
 
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        # `main.py` 는 기동할 때 .env 를 읽지만 스크립트·검사는 안 읽는다.
-        # 키가 필요한 지점이 여기 하나뿐이라, 없을 때만 한 번 더 찾는다 —
-        # 키를 .env 에 넣어 두고도 "키가 없습니다"를 보는 일이 없게.
-        from dotenv import load_dotenv
-
-        load_dotenv()
+        _load_env_once()
         api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError(
             "OPENAI_API_KEY 환경변수가 설정되어 있지 않습니다. "
-            "Strands 를 쓰려면(협상·리포트·어시스턴트) 이 키가 필요합니다."
+            "키 없이 돌리려면 기본 모드(NEGOTIATOR_MODE=rule · MATCH_MODE=label · "
+            "RISK_MODE=none)를 쓰거나, MODEL_PROVIDER=bedrock 으로 가세요."
         )
-    return OpenAIModel(client_args={"api_key": api_key}, model_id=model_id or MODEL)
+    return OpenAIModel(client_args={"api_key": api_key}, model_id=model_id)
+
+
+def _bedrock(model_id: str):
+    """
+    Bedrock. 자격증명은 boto3 의 표준 체인(환경변수·프로파일·인스턴스 역할)에서 온다.
+
+    **모델 id 에 날짜 접미사나 `-v1:0` 을 붙이지 않는다.** 교차 리전 추론 프로파일
+    접두사(`global.`·`us.`·`eu.`)만 붙인 `global.anthropic.claude-opus-5` 형태다.
+
+    대조·조작확률처럼 호출이 많은 자리는 `MATCH_BEDROCK_MODEL` 로 더 싼 모델을
+    따로 지정하는 것이 정석이다(예: `global.anthropic.claude-haiku-4-5`).
+    """
+    try:
+        from strands.models.bedrock import BedrockModel
+    except ImportError as e:  # pragma: no cover - 설치 상태에 따라 다름
+        raise RuntimeError(
+            "Bedrock 프로바이더를 쓸 수 없습니다. `pip install 'strands-agents[bedrock]' boto3` "
+            f"가 필요합니다: {e}"
+        ) from e
+
+    if not os.environ.get("AWS_REGION") and not os.environ.get("AWS_PROFILE"):
+        _load_env_once()
+
+    return BedrockModel(model_id=model_id,
+                        region_name=os.environ.get("AWS_REGION", AWS_REGION))
 
 
 def _agent(system_prompt: str):

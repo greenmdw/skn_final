@@ -111,13 +111,33 @@ tests/
 | `RISK_MODE` | `none` 붙은 점수만 | `llm` 모델이 조작 확률을 매긴다 |
 | `REVIEW_SOURCE` | `synthetic` | 새 소스는 `app/reviews/` 에 등록 |
 | `CATALOG_SOURCE` | `snapshot` 실 유통 데이터 | `sqlite` |
+| `MODEL_PROVIDER` | `openai` | `bedrock` — AWS 자격증명은 boto3 표준 체인 |
 | `NEGOTIATOR_MODE` | `rule` | `llm` · `strands` (이전 기획) |
 | `SUMMARIZER_MODE` | `template` | `llm` 설명 제너레이션 (이전 기획) |
 
-모델은 자리별로 고를 수 있습니다 — `MATCH_MODEL` · `RISK_MODEL` ·
-`ASSISTANT_MODEL` · `OPENAI_MODEL`. **대조가 전체 호출의 대부분**이라 거기만 싼
-모델을 쓰는 것이 정석입니다. Bedrock 으로 옮길 때는 `app/strands_agents.py` 의
-`_model()` 한 곳만 고치면 됩니다 — LLM 호출 지점 여섯 중 다섯이 이 함수를 지납니다.
+**프로바이더는 `MODEL_PROVIDER` 하나로 바뀝니다** — `openai`(기본) / `bedrock`.
+나머지(에이전트·도구·프롬프트·스키마)는 그대로입니다.
+
+```bash
+MODEL_PROVIDER=bedrock \
+MATCH_BEDROCK_MODEL=global.anthropic.claude-haiku-4-5 \
+  .venv/bin/uvicorn app.main:app --port 8000
+```
+
+모델은 **자리별로** 고릅니다. 호출부는 `_model("match")` 처럼 자리 이름만 말하고
+id 는 프로바이더별 환경변수에서 옵니다 — 프로바이더를 바꿔도 남의 형식 id 가
+새지 않습니다.
+
+| 자리 | openai | bedrock |
+|---|---|---|
+| 기본 | `OPENAI_MODEL` | `BEDROCK_MODEL` |
+| 의미 대조 | `MATCH_MODEL` | `MATCH_BEDROCK_MODEL` |
+| 조작 확률 | `RISK_MODEL` | `RISK_BEDROCK_MODEL` |
+| 조달 어시스턴트 | `ASSISTANT_MODEL` | `ASSISTANT_BEDROCK_MODEL` |
+
+**대조가 전체 호출의 대부분**이라 거기만 싼 모델을 쓰는 것이 정석입니다.
+Bedrock 모델 id 는 교차 리전 추론 프로파일 접두사(`global.`·`us.`·`eu.`)를 붙이고
+**날짜 접미사나 `-v1:0` 은 붙이지 않습니다.**
 
 > **`MATCH_MODE=llm` 은 요청 한 건에 리뷰 1,013건을 대조해 8분쯤 걸립니다.**
 > 데모 기본값으로 쓰기에는 무겁습니다.

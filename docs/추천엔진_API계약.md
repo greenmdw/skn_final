@@ -20,18 +20,20 @@ POST /api/recommend
 | `RISK_MODE` | `none` — 이미 붙은 점수만 쓴다 | `llm` — 모델이 조작 확률을 매긴다 |
 | `REVIEW_SOURCE` | `synthetic` | 새 소스는 `app/reviews/__init__.py` 에 등록 |
 
-모델은 자리별로 고를 수 있다. 지정하지 않으면 전부 `OPENAI_MODEL`(기본 `gpt-4o-mini`)
-을 쓴다.
+프로바이더는 `MODEL_PROVIDER` 하나로 바뀐다 — `openai`(기본) / `bedrock`.
+응답 형은 어느 쪽이든 같으므로 **화면은 신경 쓸 것이 없다.**
 
-| | 어디 |
-|---|---|
-| `MATCH_MODEL` | 의미 대조. **호출량이 압도적이라 여기만 싼 모델을 쓰는 게 정석이다** |
-| `RISK_MODEL` | 조작 확률 |
-| `ASSISTANT_MODEL` | 조달 어시스턴트(협상 쪽) |
-| `OPENAI_MODEL` | 나머지 전부 |
+모델은 자리별로 고른다. 호출부는 `_model("match")` 처럼 자리만 말하고 id 는
+프로바이더별 환경변수에서 온다.
 
-Bedrock 으로 옮길 때는 `app/strands_agents.py` 의 `_model()` 한 곳만 고치면 된다 —
-LLM 호출 지점 여섯 중 다섯이 이 함수를 지난다.
+| 자리 | openai | bedrock |
+|---|---|---|
+| 기본 | `OPENAI_MODEL` | `BEDROCK_MODEL` |
+| 의미 대조 | `MATCH_MODEL` | `MATCH_BEDROCK_MODEL` |
+| 조작 확률 | `RISK_MODEL` | `RISK_BEDROCK_MODEL` |
+| 조달 어시스턴트 | `ASSISTANT_MODEL` | `ASSISTANT_BEDROCK_MODEL` |
+
+대조는 **호출량이 압도적이라 여기만 싼 모델을 쓰는 게 정석이다.**
 
 **`MATCH_MODE=label` 은 의미 대조가 아니다.** 합성 데이터에 붙은 정답 라벨을 읽는
 것이고 실데이터에는 그 라벨이 없다. 응답 형이 같아서 화면 쪽에서 달라지는 것은
