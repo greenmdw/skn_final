@@ -83,7 +83,8 @@ def verify_claims(claims_by_part: dict[str, list[Claim]], source,
             continue
         reviews = source.fetch(part_code)
         for claim in claims:
-            evidence = gather(claim, reviews, matcher, threshold, scorer)
+            evidence = gather(claim, reviews, matcher, threshold, scorer,
+                              getattr(source, "may_quote", False))
             out.append(ClaimVerdict(claim=claim, evidence=evidence,
                                     verdict=verdict_from(evidence)))
     return out

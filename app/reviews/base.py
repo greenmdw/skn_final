@@ -29,6 +29,11 @@ from ..engine.schemas import Claim, Evidence
 
 class ReviewSource(Protocol):
     name: str
+    # 이 소스의 원문을 응답에 실어도 되는가. **기본은 안 된다.**
+    # 9/8 17시: 리뷰 원문을 그대로 가져와 저장·노출하는 것은 법적 문제가 있다.
+    # 우리가 만든 합성 데이터만 예외다. `Review.text` 도 대조하는 동안에만 쓰는
+    # 값이고 저장 대상이 아니다 — 실소스 어댑터는 요청이 끝나면 버려야 한다.
+    may_quote: bool = False
 
     def evidence_for(self, claim: Claim) -> Evidence:
         """

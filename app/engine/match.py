@@ -35,6 +35,16 @@ log = logging.getLogger(__name__)
 
 MATCH_MODE = os.environ.get("MATCH_MODE", "label").lower()
 
+# 근거 인용을 응답에 실을 것인가.
+#   auto (기본값) 소스가 정한다 — `ReviewSource.may_quote`
+#   off           언제나 가린다
+#   on            언제나 싣는다 (우리가 만든 데이터일 때만 쓸 것)
+#
+# 9/8 17시 방침이 **리뷰 원문을 그대로 내보내지 않는다**여서 생긴 스위치다.
+# 합성 리뷰는 우리가 만든 문장이라 기본적으로 실을 수 있고, 실소스 어댑터는
+# 반대(`may_quote = False`)가 기본이어야 한다.
+REVIEW_EXCERPTS = os.environ.get("REVIEW_EXCERPTS", "auto").lower()
+
 # 주장 하나에 대해 모델에게 보낼 리뷰 수 상한. 비용과 지연이 여기서 정해진다.
 # 넘치면 앞에서부터 자르고 몇 건을 못 봤는지 근거에 남긴다 — 조용히 자르면
 # "표본 부족"과 "우리가 안 봤다"가 구분되지 않는다.
@@ -226,7 +236,7 @@ def _prompt(claim: Claim, reviews: list[Review]) -> str:
 
 # ── 근거 만들기 ──────────────────────────────────────────────────────────────
 def gather(claim: Claim, reviews: list[Review], matcher: Matcher,
-           risk_threshold: float, scorer=None) -> Evidence:
+           risk_threshold: float, scorer=None, source_may_quote: bool = False) -> Evidence:
     """
     리뷰 묶음 하나에서 주장 하나의 근거를 만든다.
 
@@ -267,22 +277,49 @@ def gather(claim: Claim, reviews: list[Review], matcher: Matcher,
     relevant = [j for j in judgments if j.bears_on]
     hits = [j for j in relevant if j.contradicts]
 
-    quotes = [j.quote for j in (hits or relevant) if j.quote][:3]
-    if not quotes:
-        quotes = [by_id[j.review_id].text for j in (hits or relevant)[:3] if j.review_id in by_id]
+    # **검증은 이미 끝났다.** 모델이 지어낸 인용은 `accept()` 가 서버 안에서
+    # 버렸다. 여기서 정하는 것은 그 인용을 밖으로 내보낼지 뿐이다.
+    shown = (hits or relevant)[:3]
+    if _may_quote(source_may_quote):
+        policy = "verbatim"
+        quotes = [j.quote for j in shown if j.quote]
+        if not quotes:
+            quotes = [by_id[j.review_id].text for j in shown if j.review_id in by_id]
+    else:
+        policy = "withheld"
+        quotes = []
 
     return Evidence(
         samples=samples,
         relevant=len(relevant),
         hits=len(hits),
-        note=_note(len(relevant), len(hits), truncated, unscored),
+        note=_note(len(relevant), len(hits), truncated, unscored, policy),
         quotes=quotes,
+        excerpt_policy=policy,
+        sources=[by_id[j.review_id].source_url for j in shown
+                 if j.review_id in by_id and by_id[j.review_id].source_url],
         excluded_high_risk=excluded,
         unscored_risk=unscored,
     )
 
 
-def _note(relevant: int, hits: int, truncated: int, unscored: int = 0) -> str:
+def _may_quote(source_may_quote: bool) -> bool:
+    """
+    인용을 응답에 실을 수 있는가. `REVIEW_EXCERPTS` 가 소스의 기본값을 덮는다.
+
+    **기본을 소스가 정하게 둔 이유**: 인용해도 되는지는 그 리뷰가 어디서 왔는지에
+    달렸다. 우리가 만든 합성 문장은 되고, 남의 사이트에서 온 원문은 안 된다.
+    전역 스위치 하나로 두면 소스를 갈아 끼울 때 정책이 따라오지 않는다.
+    """
+    if REVIEW_EXCERPTS == "on":
+        return True
+    if REVIEW_EXCERPTS == "off":
+        return False
+    return source_may_quote
+
+
+def _note(relevant: int, hits: int, truncated: int, unscored: int = 0,
+          policy: str = "verbatim") -> str:
     """
     근거 한 줄. **숫자에서만 만든다** — 손으로 쓴 문구를 두지 않는다.
 
@@ -297,6 +334,9 @@ def _note(relevant: int, hits: int, truncated: int, unscored: int = 0) -> str:
         # 이 문장이 화면에 그대로 나가야 한다 — 필터가 돌지 않은 표본이라는 사실을
         # 숫자만으로는 아무도 안 읽는다.
         tail += f" (조작 확률을 재지 못한 {unscored}건이 표본에 섞여 있습니다)"
+    if policy == "withheld":
+        # 근거가 없는 것과 못 보여주는 것은 다르다. 화면이 그렇게 읽게 적는다.
+        tail += " (리뷰 원문은 정책상 싣지 않습니다 — 출처로 확인하세요)"
     if hits:
         return f"{relevant}건이 이 주장에 닿고 그중 {hits}건이 어긋납니다{tail}."
     if relevant:

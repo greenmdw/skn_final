@@ -417,6 +417,44 @@ def check_unscored_risk_is_never_clean() -> None:
     print("  ✓ 조작 확률을 못 잰 표본을 세고 근거 문장에 적는다")
 
 
+def check_excerpts_can_be_withheld() -> None:
+    """
+    **검증과 노출은 다른 일이다.**
+
+    9/8 17시에 *"리뷰 원문을 그대로 가져와 저장하는 것은 법적 문제가 있어 절대
+    안 되며, 반드시 가공한 뒤 노출해야 한다"* 가 정해졌다. 그런데 판정의 근거로
+    원문 인용을 쓰고 있었다 — 그 숫자를 지어내지 않았다는 것을 보이는 수단이었다.
+
+    인용을 없애면 그 수단이 사라진다. 그래서 **검증은 서버 안에서 계속하고
+    내보내는 것만 가린다.** 가려도 판정과 표본 수는 그대로여야 하고, 화면이
+    "근거가 없다"와 "못 보여준다"를 구분할 수 있어야 한다.
+    """
+    from app.engine.match import LabelMatcher, gather
+    from app.reviews.risk import NoRiskScorer
+
+    claim = Claim(claim_id="c", subject="파워", text="조용합니다")
+    reviews = [Review(review_id=f"r{i}", part_code="P", text="코일 소음이 납니다.",
+                      risk=0.01, bears_on=["c"], contradicts=["c"],
+                      source_url=f"https://shop.example/review/{i}")
+               for i in range(20)]
+
+    shown = gather(claim, reviews, LabelMatcher(), 0.20, NoRiskScorer(),
+                   source_may_quote=True)
+    hidden = gather(claim, reviews, LabelMatcher(), 0.20, NoRiskScorer(),
+                    source_may_quote=False)
+
+    # 판정에 쓰는 값은 정책과 무관해야 한다
+    assert shown.relevant == hidden.relevant == 20, "정책이 표본 수를 바꿨다"
+    assert shown.hits == hidden.hits == 20, "정책이 판정 근거 수를 바꿨다"
+
+    assert shown.quotes and shown.excerpt_policy == "verbatim", "허락했는데 인용이 없다"
+    assert not hidden.quotes, "가리기로 했는데 원문이 실렸다"
+    assert hidden.excerpt_policy == "withheld", hidden.excerpt_policy
+    assert hidden.sources, "인용을 가렸으면 출처라도 가리켜야 한다"
+    assert "정책상" in hidden.note, f"못 보여준다는 사실을 안 말한다: {hidden.note}"
+    print("  ✓ 인용을 가려도 판정·표본은 그대로이고, 가렸다는 것을 말한다")
+
+
 def check_tools_never_take_user_text() -> None:
     """
     **도구 인자에 사용자 문장이 없어야 한다.**
@@ -470,6 +508,7 @@ def main() -> int:
         check_tools_never_take_user_text,
         check_unscored_risk_is_never_clean,
         check_engine_knows_no_domain,
+        check_excerpts_can_be_withheld,
         check_screening_reports_zero,
         check_silent_failures_are_spoken,
     ]

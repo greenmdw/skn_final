@@ -51,6 +51,9 @@ class SyntheticReviews:
     """
 
     name = "synthetic"
+    # 우리가 지어낸 문장이라 인용해도 된다. **실소스 어댑터는 False 가 기본이어야
+    # 한다** — 9/8 17시 방침(리뷰 원문을 그대로 내보내지 않는다).
+    may_quote = True
 
     def __init__(self, pools: dict, phrases: dict, filler: list[str],
                  threshold: float = 0.20) -> None:
