@@ -309,6 +309,40 @@ def check_matcher_guardrails() -> None:
     print("  ✓ 지어낸 id · 지어낸 인용 · 모순된 판정 · 수치 없는 근거를 버린다")
 
 
+def check_tools_never_take_user_text() -> None:
+    """
+    **도구 인자에 사용자 문장이 없어야 한다.**
+
+    처음에는 `ask_missing(query)` 로 받았다. 세 번 돌려 보니 세 번 다 모델이
+    원문을 고쳐서 넘겼고, 두 번은 게임명이 빠져 **VRAM 12GB 하드 제약이 통째로
+    사라졌다.** 그런데 에러는 안 난다 — 조건을 어긴 8GB 카드가 든 세트가
+    그럴듯하게 나온다. 한 번은 예산까지 빠져 배분이 무너졌다.
+
+    사용자 질문은 서버가 이미 갖고 있으므로 `bind()` 로 물린다. `rank()` 가
+    판정을 못 받게 한 것과 같은 수다 — 받을 수 없으면 못 바꾼다.
+    """
+    from app.engine import tools
+
+    specs = {t.tool_spec["name"]: t.tool_spec for t in tools.TOOLS}
+    assert "ask_missing" in specs, list(specs)
+
+    banned = {"query", "question", "text", "input", "user_query", "prompt"}
+    for name, spec in specs.items():
+        props = set(spec["inputSchema"]["json"].get("properties", {}))
+        leaked = props & banned
+        assert not leaked, f"{name} 이 사용자 문장을 인자로 받는다: {leaked}"
+        assert spec.get("description"), f"{name}: 설명이 없으면 모델이 언제 부를지 모른다"
+
+    assert not spec_props(specs, "ask_missing"), (
+        "ask_missing 에 인자가 생겼다 — 사용자 입력이 모델을 거쳐 돌아올 통로다"
+    )
+    print(f"  ✓ 도구 {len(specs)}종 어디에도 사용자 문장을 넘기지 않는다")
+
+
+def spec_props(specs: dict, name: str) -> set:
+    return set(specs[name]["inputSchema"]["json"].get("properties", {}))
+
+
 def main() -> int:
     checks = [
         check_mockup_verdicts,
@@ -325,6 +359,7 @@ def main() -> int:
         check_high_risk_reviews_are_excluded,
         check_quotes_are_real,
         check_matcher_guardrails,
+        check_tools_never_take_user_text,
     ]
     failed = 0
     print("추천 엔진 검증")

@@ -10,8 +10,23 @@ Strands `@tool` — 6단계 각각을 에이전트가 부를 수 있게 노출�
 룰이 하고, 모델이 정하는 것은 *무엇을 언제 부를지*다. 그래야 "소켓이 안 맞는데
 맞다고 함"이 모델 쪽에서 생길 자리가 없다.
 
-**팩은 모듈 전역으로 고정한다.** 도구 시그니처에 팩을 넣으면 모델이 도메인을
-고르게 되는데, 도메인은 모델이 정할 것이 아니다.
+**사용자 입력과 팩은 모듈 전역으로 고정한다. 도구 인자로 받지 않는다.**
+
+팩이 인자면 모델이 도메인을 고르게 되는데 도메인은 모델이 정할 것이 아니다.
+사용자 질문은 더 나쁘다 — 처음에는 `ask_missing(query)` 로 받았는데, 세 번
+돌려 보니 **세 번 다 모델이 원문을 고쳐서 넘겼다.**
+
+    원문   "〈오르카 프로토콜〉 QHD 상옵으로 돌리고 싶어요. 예산 120만 원이고 …"
+    1회차  "QHD 상옵으로 돌리고 싶어요. 예산 120만 원이고 …"        게임명 소실
+    2회차  "오르카 프로토콜 QHD 상옵을 돌리기 위한 부품 추천을 위해 …"
+    3회차  "QHD 상옵으로 돌아갈 PC 부품 추천을 위해 필요한 정보를 …"  게임·예산 소실
+
+게임명이 빠지면 2단계의 외부 사실이 안 붙고 **VRAM 12GB 하드 제약이 사라진다.**
+그런데 에러는 안 난다 — 파이프라인은 끝까지 돌고, 조건을 어긴 8GB 카드가 든
+세트가 그럴듯하게 나온다. 예산까지 빠지면 배분이 통째로 무너진다.
+
+사용자 질문은 서버가 이미 갖고 있다. 모델을 거쳐 돌아올 이유가 없고, 거치면
+바뀐다. **모델이 정할 것은 언제 부를지이지 사용자가 무엇을 말했는지가 아니다.**
 """
 
 from __future__ import annotations
@@ -22,14 +37,22 @@ from . import pipeline
 from .schemas import Requirement
 
 _PACK = None
+_QUERY = ""
 _STATE: dict = {}
 
 
-def bind(pack) -> None:
-    """요청 하나가 시작될 때 팩을 물린다. 도구들은 이 팩만 본다."""
-    global _PACK
+def bind(pack, query: str = "", answers: dict | None = None) -> None:
+    """
+    요청 하나가 시작될 때 팩·사용자 질문·되묻기 답을 물린다.
+
+    도구들은 여기 물린 것만 본다. 모델이 바꿔 넣을 수 있는 통로를 두지 않는다.
+    """
+    global _PACK, _QUERY
     _PACK = pack
+    _QUERY = query
     _STATE.clear()
+    if answers:
+        _STATE["known"] = dict(answers)
 
 
 def state() -> dict:
@@ -38,17 +61,16 @@ def state() -> dict:
 
 
 @tool
-def ask_missing(query: str) -> dict:
+def ask_missing() -> dict:
     """
     사용자 입력에서 아는 것을 뽑고, 아직 모르는 것을 되묻을 목록으로 돌려준다.
 
     추천을 내기 전에 가장 먼저 부른다. `needs_input` 이 비어 있지 않으면
     추천을 만들지 말고 그 질문을 사용자에게 돌려주어야 한다.
 
-    Args:
-        query: 사용자가 쓴 문장 그대로
+    **인자가 없다.** 사용자가 쓴 문장은 서버가 이미 갖고 있다 — 옮겨 적지 말 것.
     """
-    known, needs = pipeline.step1_checklist(_PACK, query, _STATE.get("known"))
+    known, needs = pipeline.step1_checklist(_PACK, _QUERY, _STATE.get("known"))
     _STATE["known"] = known
     _STATE["needs_input"] = needs
     return {"known": known, "needs_input": [n.model_dump() for n in needs]}

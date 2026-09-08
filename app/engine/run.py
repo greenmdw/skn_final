@@ -27,6 +27,7 @@ SYSTEM = (
     "당신은 PC 부품 추천 엔진을 운영합니다. 도구로만 판단하세요.\n"
     "- 순서: ask_missing → collect_requirements → build_set → "
     "verify_claims_against_reviews → apply_verdicts_to_set\n"
+    "- **도구에 사용자 문장을 옮겨 적지 마세요.** 서버가 이미 갖고 있습니다\n"
     "- ask_missing 의 needs_input 이 비어 있지 않으면 **거기서 멈추고** 무엇을 "
     "물어야 하는지만 답하세요. 답을 지어내 진행하지 마세요\n"
     "- 부품 사양·가격·호환성·리뷰 건수를 기억으로 답하지 마세요. 전부 도구에서 옵니다\n"
@@ -92,9 +93,7 @@ def _run_strands(pack, query: str, answers: dict | None, domain: str) -> Recomme
     from ..strands_agents import _model
     from . import tools
 
-    tools.bind(pack)
-    if answers:
-        tools.state()["known"] = dict(answers)
+    tools.bind(pack, query, answers)
 
     agent = Agent(model=_model(), tools=tools.TOOLS, system_prompt=SYSTEM)
     result = agent(query)
