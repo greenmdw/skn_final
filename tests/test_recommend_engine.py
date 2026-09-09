@@ -34,7 +34,7 @@ from app.engine.schemas import (  # noqa: E402
 from app.engine.verify import verdict_from                    # noqa: E402
 
 ANSWERS = {"refresh_hz": "144Hz", "reuse": "케이스만", "priority": "상관없음"}
-QUERY = "〈오르카 프로토콜〉 QHD 상옵으로 돌리고 싶어요. 예산 120만 원이고 3년 된 본체 쓰고 있습니다"
+QUERY = "〈인디아나 존스: 그레이트 서클〉 QHD 상옵으로 돌리고 싶어요. 예산 120만 원이고 3년 된 본체 쓰고 있습니다"
 
 
 def check_mockup_verdicts() -> None:
@@ -103,7 +103,7 @@ def check_reviews_do_not_rank() -> None:
     )
 
     known = dict(ANSWERS)
-    known.update(game="오르카 프로토콜", budget=1_200_000)
+    known.update(game="인디아나 존스: 그레이트 서클", budget=1_200_000)
     reqs = pipeline.step2_requirements(pack, known)
     base = [p["code"] for p in pipeline.rank(pack, reqs, 1_200_000, known)]
 
@@ -318,8 +318,8 @@ def check_screening_reports_zero() -> None:
     만 뜨고 무엇이 달라졌는지 안 보이면, 심사위원의 *"8GB였으면 뭐가 달라집니까"*
     에 답할 것이 없다. **0을 0이라고 말하는 것**이 답이다.
     """
-    twelve = recommend("〈오르카 프로토콜〉 QHD 예산 120만 원", answers=ANSWERS)
-    eight = recommend("〈실버레인〉 QHD 예산 120만 원", answers=ANSWERS)
+    twelve = recommend("〈인디아나 존스: 그레이트 서클〉 QHD 예산 120만 원", answers=ANSWERS)
+    eight = recommend("〈몬스터 헌터 와일즈〉 QHD 예산 120만 원", answers=ANSWERS)
 
     assert twelve.screening and eight.screening, "깔때기 데이터가 없다"
     a = next(x for x in twelve.screening if x.key == "vram")
@@ -345,7 +345,7 @@ def check_silent_failures_are_spoken() -> None:
     assert unknown.notices, "하드 제약이 없는데 아무 말도 안 한다"
     assert any("보증하지 않" in n for n in unknown.notices), unknown.notices
 
-    poor = recommend("〈오르카 프로토콜〉 QHD 예산 50만 원", answers=ANSWERS)
+    poor = recommend("〈인디아나 존스: 그레이트 서클〉 QHD 예산 50만 원", answers=ANSWERS)
     assert poor.spent > poor.budget, "이 시나리오는 예산을 넘겨야 한다"
     assert poor.budget_met is False, "예산을 넘겼는데 충족으로 표시된다"
     assert any("초과" in n for n in poor.notices), poor.notices

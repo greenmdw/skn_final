@@ -29,11 +29,11 @@ uv sync                 # 또는: pip install -r requirements.txt   (Python 3.11
 ```bash
 # 1차 — 되묻기만 온다
 curl -s localhost:8000/api/recommend -H 'content-type: application/json' \
-  -d '{"query":"〈오르카 프로토콜〉 QHD 상옵으로 돌리고 싶어요. 예산 120만 원"}'
+  -d '{"query":"〈인디아나 존스: 그레이트 서클〉 QHD 상옵으로 돌리고 싶어요. 예산 120만 원"}'
 
 # 2차 — answers 를 채워 다시
 curl -s localhost:8000/api/recommend -H 'content-type: application/json' \
-  -d '{"query":"〈오르카 프로토콜〉 QHD 상옵으로 돌리고 싶어요. 예산 120만 원",
+  -d '{"query":"〈인디아나 존스: 그레이트 서클〉 QHD 상옵으로 돌리고 싶어요. 예산 120만 원",
        "answers":{"refresh_hz":"144Hz","reuse":"케이스만","priority":"상관없음"}}'
 ```
 

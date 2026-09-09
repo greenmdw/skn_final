@@ -178,10 +178,16 @@ POST /api/recommend
 
 ```json
 "screening": [{ "key": "vram", "label": "VRAM 12GB 이상", "excluded": 1, "remaining": 11,
-                "origin": "게임사 공개 권장 사양 · 〈오르카 프로토콜〉" }],
+                "origin": "게임사 공개 권장 사양 · 〈인디아나 존스: 그레이트 서클〉 QHD(1440p) 네이티브 권장 · Bethesda 공식 지원 문서" }],
 "budget_met": false,
 "notices": ["예산 500,000원 안에 들어오는 조합을 찾지 못했습니다. …"]
 ```
+
+**`origin` 에 기준과 출처가 같이 실린다** (2026-09-09). 게임명이 실명으로 바뀌면서
+*"어느 해상도·옵션 기준의 권장 사양인가"* 와 *"어느 문서에서 왔는가"* 가 값과 함께
+간다 — 12GB 와 8GB 의 차이는 게임의 차이이기도 하지만 기준의 차이이기도 해서,
+기준을 빼면 화면이 *"12GB 가 필요하다"* 를 설명할 수 없다. `as_of` 는 그 문서를
+확인한 날이다. **화면은 이 문자열을 잘라 쓰지 말 것.**
 
 **`excluded: 0` 인 행을 지우지 말 것.** 외부 사실을 주입해도 예산이 넉넉하면
 결과가 같을 수 있다 — 요구는 바닥이지 목표가 아니기 때문이다. 그때 *"권장 사양을
@@ -220,6 +226,6 @@ POST /api/recommend
 ```bash
 uvicorn app.main:app --reload --port 8000
 curl -s localhost:8000/api/recommend -H 'content-type: application/json' \
-  -d '{"query":"〈오르카 프로토콜〉 QHD 상옵 예산 120만 원",
+  -d '{"query":"〈인디아나 존스: 그레이트 서클〉 QHD 상옵 예산 120만 원",
        "answers":{"refresh_hz":"144Hz","reuse":"케이스만","priority":"상관없음"}}'
 ```
