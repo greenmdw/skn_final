@@ -1,0 +1,1460 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan Basket — 화면 목업</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#F3F5F6; --surface:#FFFFFF; --surface-2:#EDF0F1; --surface-3:#E2E7E9;
+  --ink:#111917; --ink-2:#48555A; --ink-3:#7A868B;
+  --line:#DCE2E4; --line-2:#C2CBCE;
+  --accent:#0E7C7B; --accent-ink:#0A5F5E; --accent-soft:#DFF0EF;
+  --hot:#C2502B; --hot-soft:#FBE9E2;
+  --ok:#0E7C4A; --ok-soft:#E1F2E9;
+  --warn:#A96A00; --warn-soft:#FBEEDA;
+  --bad:#BE362F; --bad-soft:#FBE7E5;
+  --none:#68737A; --none-soft:#EAEEEF;
+  --shadow:0 1px 2px rgba(17,25,23,.06), 0 10px 28px -18px rgba(17,25,23,.32);
+  --r:10px;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#0C1011; --surface:#151B1C; --surface-2:#1D2426; --surface-3:#262F31;
+    --ink:#E9EEEF; --ink-2:#A4B0B4; --ink-3:#78868B;
+    --line:#27302F; --line-2:#3A4547;
+    --accent:#4FC3BF; --accent-ink:#7BD6D2; --accent-soft:#12312F;
+    --hot:#EE9575; --hot-soft:#331C14;
+    --ok:#4FC489; --ok-soft:#13291F;
+    --warn:#DFA43D; --warn-soft:#2E2413;
+    --bad:#F0817A; --bad-soft:#331A19;
+    --none:#8B979D; --none-soft:#1F2729;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -18px rgba(0,0,0,.75);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0C1011; --surface:#151B1C; --surface-2:#1D2426; --surface-3:#262F31;
+  --ink:#E9EEEF; --ink-2:#A4B0B4; --ink-3:#78868B;
+  --line:#27302F; --line-2:#3A4547;
+  --accent:#4FC3BF; --accent-ink:#7BD6D2; --accent-soft:#12312F;
+  --hot:#EE9575; --hot-soft:#331C14;
+  --ok:#4FC489; --ok-soft:#13291F;
+  --warn:#DFA43D; --warn-soft:#2E2413;
+  --bad:#F0817A; --bad-soft:#331A19;
+  --none:#8B979D; --none-soft:#1F2729;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 10px 28px -18px rgba(0,0,0,.75);
+}
+*{box-sizing:border-box}
+html{color-scheme:light dark}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:400 14px/1.62 "IBM Plex Sans KR",system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  -webkit-font-smoothing:antialiased}
+.mono{font-family:"IBM Plex Mono","IBM Plex Sans KR",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+img{max-width:100%}
+[hidden]{display:none!important}
+b,strong{font-weight:600}
+a{color:var(--accent-ink)}
+
+/* ── 문서 껍데기 ─────────────────────────────────────────── */
+.topbar{background:var(--surface);border-bottom:1px solid var(--line)}
+.wrap{max-width:1520px;margin:0 auto;padding:0 22px}
+.brandrow{display:flex;gap:18px;align-items:flex-start;justify-content:space-between;padding:16px 0 14px}
+.brand{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.brand h1{margin:0;font-size:19px;font-weight:700;letter-spacing:-.01em}
+.ver{font-size:11px;color:var(--ink-3);border:1px solid var(--line);border-radius:999px;padding:2px 8px}
+.tagline{margin:6px 0 0;color:var(--ink-2);font-size:13px;max-width:82ch}
+.flag{flex:none;font-size:11px;font-weight:600;color:var(--hot);background:var(--hot-soft);
+  border:1px solid color-mix(in srgb,var(--hot) 30%,transparent);border-radius:999px;padding:4px 10px;white-space:nowrap}
+
+.layout{display:grid;grid-template-columns:238px minmax(0,1fr);gap:22px;padding:20px 0 64px;align-items:start}
+@media (max-width:1080px){.layout{grid-template-columns:1fr}}
+
+.spine{position:sticky;top:14px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r);padding:10px;box-shadow:var(--shadow)}
+.spine-label{font-size:10.5px;font-weight:600;letter-spacing:.09em;color:var(--ink-3);
+  text-transform:uppercase;padding:4px 8px 8px}
+.step{display:flex;gap:9px;align-items:flex-start;width:100%;text-align:left;background:none;
+  border:0;border-radius:8px;padding:7px 8px;cursor:pointer;color:var(--ink-2);font:inherit;font-size:13px}
+.step:hover{background:var(--surface-2);color:var(--ink)}
+.step[aria-current="true"]{background:var(--accent-soft);color:var(--accent-ink);font-weight:600}
+.step .num{flex:none;width:34px;font-size:10.5px;font-weight:600;color:var(--ink-3);padding-top:2px;letter-spacing:.02em}
+.step[aria-current="true"] .num{color:var(--accent-ink)}
+.step .sub{display:block;font-size:11px;font-weight:400;color:var(--ink-3);line-height:1.45}
+.rule{height:1px;background:var(--line);margin:8px 6px}
+
+.panel{display:none}
+.panel.on{display:block}
+.phead{margin:0 0 14px}
+.eyebrow{font-size:10.5px;font-weight:600;letter-spacing:.09em;color:var(--accent-ink);text-transform:uppercase}
+.phead h2{margin:3px 0 0;font-size:22px;letter-spacing:-.015em}
+.phead p{margin:7px 0 0;color:var(--ink-2);font-size:13px;max-width:88ch}
+.spec{font-size:12px;color:var(--ink-3);margin-top:6px}
+.spec b{color:var(--ink-2);font-weight:600}
+
+.note{border:1px solid var(--line);border-left:3px solid var(--accent);background:var(--surface);
+  border-radius:0 var(--r) var(--r) 0;padding:11px 14px;margin:14px 0;font-size:13px;color:var(--ink-2)}
+.note b{color:var(--ink)}
+.note.warnish{border-left-color:var(--warn)}
+.note.hotish{border-left-color:var(--hot)}
+
+/* 카테고리 스위처 */
+.catbar{display:flex;gap:7px;flex-wrap:wrap;align-items:center;margin:0 0 12px}
+.catbar .lbl{font-size:11px;font-weight:600;color:var(--ink-3);letter-spacing:.05em;margin-right:4px}
+.cat{border:1px solid var(--line-2);background:var(--surface);color:var(--ink-2);border-radius:999px;
+  padding:5px 13px;font:inherit;font-size:12.5px;cursor:pointer}
+.cat:hover{border-color:var(--accent);color:var(--ink)}
+.cat[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.cat .tag{font-size:10px;opacity:.75;margin-left:5px}
+</style>
+<style>
+/* ── 목업 프레임 (데스크톱 1440 기준) ──────────────────────── */
+.stage{border:1px solid var(--line-2);border-radius:12px;background:var(--surface-2);
+  box-shadow:var(--shadow);overflow:hidden}
+.stagebar{display:flex;align-items:center;gap:8px;padding:7px 12px;background:var(--surface-3);
+  border-bottom:1px solid var(--line)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--line-2)}
+.stagebar .cap{font-size:11px;color:var(--ink-3);margin-left:6px}
+.stagebar .right{margin-left:auto;font-size:10.5px;color:var(--ink-3)}
+.scroller{overflow-x:auto}
+.app{display:grid;grid-template-columns:260px minmax(420px,1fr) 380px;min-width:1100px;
+  height:660px;background:var(--surface)}
+.app.nolist{grid-template-columns:260px minmax(420px,1fr)}
+.app.narrow{grid-template-columns:64px minmax(420px,1fr)}
+.app.full{grid-template-columns:260px minmax(420px,1fr)}
+
+/* 패널 사이 손잡이 — 명세 3.2 */
+.grip{position:relative}
+.grip::after{content:"";position:absolute;top:0;bottom:0;right:-3px;width:5px;cursor:col-resize;
+  background:linear-gradient(var(--line),var(--line));background-size:1px 100%;
+  background-position:center;background-repeat:no-repeat}
+.grip:hover::after{background:linear-gradient(var(--accent),var(--accent));background-size:3px 100%;
+  background-position:center;background-repeat:no-repeat}
+
+/* 좌 · 사이드바 */
+.side{background:var(--surface-2);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.side-top{padding:12px 12px 8px}
+.logo{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px;letter-spacing:-.01em}
+.logo .mark{width:20px;height:20px;border-radius:6px;background:var(--accent);flex:none}
+.iconbtn{border:0;background:none;color:var(--ink-3);cursor:pointer;font:inherit;font-size:12px;
+  padding:3px 6px;border-radius:6px;margin-left:auto}
+.iconbtn:hover{background:var(--surface-3);color:var(--ink)}
+.newchat{display:flex;align-items:center;gap:7px;width:100%;margin-top:11px;border:1px solid var(--line-2);
+  background:var(--surface);border-radius:8px;padding:7px 10px;font:inherit;font-size:13px;color:var(--ink);cursor:pointer}
+.newchat:hover{border-color:var(--accent)}
+.side-scroll{flex:1;overflow-y:auto;padding:10px 8px;min-height:0}
+.side-lbl{font-size:10.5px;font-weight:600;letter-spacing:.07em;color:var(--ink-3);padding:4px 6px 6px}
+.hist{display:block;width:100%;text-align:left;border:0;background:none;border-radius:8px;padding:7px 9px;
+  cursor:pointer;font:inherit;font-size:12.5px;color:var(--ink-2);line-height:1.45}
+.hist:hover{background:var(--surface-3)}
+.hist.on{background:var(--surface-3);color:var(--ink);font-weight:600}
+.hist .st{display:block;font-size:10.5px;font-weight:400;color:var(--ink-3);margin-top:1px}
+.hist.hit{background:var(--hot-soft);color:var(--hot);font-weight:600;
+  box-shadow:inset 2px 0 0 var(--hot)}
+.hist.hit .st{color:var(--hot)}
+.side-bot{border-top:1px solid var(--line);padding:9px 8px}
+.sidelink{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;border-radius:8px;
+  padding:7px 9px;cursor:pointer;font:inherit;font-size:12.5px;color:var(--ink-2)}
+.sidelink:hover{background:var(--surface-3);color:var(--ink)}
+.sidelink .cnt{margin-left:auto;font-size:10.5px;background:var(--accent);color:#fff;border-radius:999px;padding:1px 6px}
+.me{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;cursor:pointer;font-size:12.5px}
+.me:hover{background:var(--surface-3)}
+.ini{width:24px;height:24px;border-radius:50%;background:var(--accent-soft);color:var(--accent-ink);
+  display:grid;place-items:center;font-size:11px;font-weight:600;flex:none}
+.caret{margin-left:auto;color:var(--ink-3);font-size:10px}
+
+/* 중 · 채팅 */
+.chat{display:flex;flex-direction:column;min-width:0;min-height:0}
+.chat-scroll{flex:1;overflow-y:auto;padding:20px 26px;min-height:0}
+.msg{max-width:640px;margin:0 0 14px}
+.msg.me{margin-left:auto}
+.bub{border-radius:12px;padding:10px 14px;font-size:13.5px;line-height:1.62}
+.msg.bot .bub{background:var(--surface-2);border:1px solid var(--line)}
+.msg.me .bub{background:var(--accent);color:#fff;border-radius:12px 12px 4px 12px}
+.who{font-size:10.5px;color:var(--ink-3);margin:0 0 4px 2px;letter-spacing:.03em}
+.composer{border-top:1px solid var(--line);padding:12px 26px 14px;background:var(--surface)}
+.inputbox{display:flex;align-items:center;gap:10px;border:1px solid var(--line-2);border-radius:10px;
+  padding:9px 12px;background:var(--surface-2);color:var(--ink-3);font-size:13px}
+.inputbox .send{margin-left:auto;background:var(--accent);color:#fff;border-radius:7px;padding:3px 10px;font-size:12px}
+.composer .hint{font-size:11px;color:var(--ink-3);margin-top:7px}
+
+/* 선택 카드 그룹 — 명세 S3 */
+.qgroup{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:12px 14px;margin:0 0 10px;max-width:640px}
+.qgroup .q{font-size:13px;font-weight:600;margin-bottom:9px;display:flex;align-items:center;gap:7px}
+.qkind{font-size:10px;font-weight:500;color:var(--ink-3);border:1px solid var(--line);border-radius:999px;padding:1px 7px}
+.opts{display:flex;gap:7px;flex-wrap:wrap}
+.opt{border:1px solid var(--line-2);background:var(--surface-2);border-radius:999px;padding:5px 12px;
+  font-size:12.5px;color:var(--ink-2);cursor:pointer}
+.opt:hover{border-color:var(--accent)}
+.opt.sel{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+.opt.dunno{border-style:dashed;color:var(--ink-3)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--line);
+  border-radius:999px;padding:3px 6px 3px 10px;font-size:11.5px;color:var(--ink-2)}
+.chip b{color:var(--ink);font-weight:600}
+.chip .x{color:var(--ink-3);border:0;background:none;cursor:pointer;font-size:11px;padding:0 3px}
+.chip .x:hover{color:var(--bad)}
+</style>
+<style>
+/* 제품 카드 — 명세 S4 */
+.pcard{display:grid;grid-template-columns:64px minmax(0,1fr);gap:12px;border:1px solid var(--line);
+  background:var(--surface);border-radius:12px;padding:12px;margin:0 0 9px;max-width:640px}
+.thumb{width:64px;height:64px;border-radius:8px;background:var(--surface-3);display:grid;place-items:center;
+  color:var(--ink-3);font-size:9.5px;text-align:center;line-height:1.3}
+.pslot{font-size:10px;font-weight:600;letter-spacing:.06em;color:var(--accent-ink);background:var(--accent-soft);
+  border-radius:4px;padding:1px 6px;display:inline-block}
+.pname{font-size:13.5px;font-weight:600;margin:5px 0 2px}
+.pprice{font-size:14px;font-weight:600}
+.why{font-size:12px;color:var(--ink-2);margin:6px 0 8px;border-left:2px solid var(--accent);padding-left:9px}
+.why em{font-style:normal;color:var(--accent-ink);font-weight:600}
+.rbadge{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);background:var(--surface-2);
+  border-radius:999px;padding:3px 11px;font-size:11.5px;color:var(--ink-2);cursor:pointer}
+.rbadge:hover{border-color:var(--accent)}
+.rbadge b{color:var(--ink);font-weight:600}
+.rbadge .sep{color:var(--line-2)}
+.prow{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:2px}
+.addbtn{margin-left:auto;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:8px;
+  padding:5px 13px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer}
+.addbtn.done{background:var(--surface-2);border-color:var(--line-2);color:var(--ink-3);font-weight:500}
+.pwarn{margin-top:8px;font-size:11.5px;color:var(--warn);background:var(--warn-soft);border-radius:7px;padding:6px 9px}
+
+/* 판정 글리프 — 색만으로 구분하지 않는다 */
+.v{display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:2px 9px;font-size:11px;font-weight:600}
+.v .g{font-family:"IBM Plex Mono",monospace;font-size:11px}
+.v-ok{background:var(--ok-soft);color:var(--ok)}
+.v-part{background:var(--warn-soft);color:var(--warn)}
+.v-bad{background:var(--bad-soft);color:var(--bad)}
+.v-none{background:var(--none-soft);color:var(--none)}
+
+/* 추론 로그 — 명세 S4-a */
+.acc{border:1px solid var(--line);background:var(--surface);border-radius:12px;margin:0 0 14px;max-width:640px;overflow:hidden}
+.acc-head{display:flex;align-items:center;gap:9px;padding:11px 14px;font-size:13px;font-weight:600;cursor:pointer;
+  background:var(--surface-2);border-bottom:1px solid var(--line)}
+.acc-head .tw{color:var(--ink-3);font-size:11px;margin-left:auto}
+.stepline{display:grid;grid-template-columns:24px minmax(0,1fr);gap:10px;padding:11px 14px;border-bottom:1px solid var(--line);font-size:12.5px}
+.stepline:last-child{border-bottom:0}
+.stepline .n{width:22px;height:22px;border-radius:50%;background:var(--surface-3);color:var(--ink-2);
+  display:grid;place-items:center;font-size:11px;font-weight:600}
+.stepline .t{font-weight:600;font-size:12.5px}
+.stepline .d{color:var(--ink-2);font-size:12px;margin-top:2px}
+.stepline.done .n{background:var(--ok-soft);color:var(--ok)}
+.stepline.run .n{background:var(--accent-soft);color:var(--accent-ink)}
+.num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;font-weight:600}
+.kv{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.kvi{font-size:11px;background:var(--surface-2);border:1px solid var(--line);border-radius:6px;padding:2px 8px;color:var(--ink-2)}
+.kvi b{color:var(--ink)}
+
+/* 우 · 물품 리스트 패널 */
+.list{border-left:1px solid var(--line);display:flex;flex-direction:column;background:var(--surface-2);min-height:0}
+.list-top{padding:13px 14px;border-bottom:1px solid var(--line);background:var(--surface)}
+.list-cat{font-size:11px;font-weight:600;letter-spacing:.05em;color:var(--ink-3)}
+.total{font-size:22px;font-weight:700;letter-spacing:-.02em;margin:3px 0 1px}
+.list-sub{font-size:11.5px;color:var(--ink-3)}
+.sumrow{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.sumi{font-size:11px;border:1px solid var(--line);background:var(--surface-2);border-radius:6px;padding:3px 8px;color:var(--ink-2)}
+.sumi b{color:var(--ink);font-weight:600}
+.sumi.ok{background:var(--ok-soft);border-color:transparent;color:var(--ok)}
+.sumi.bad{background:var(--bad-soft);border-color:transparent;color:var(--bad)}
+.sumi.warn{background:var(--warn-soft);border-color:transparent;color:var(--warn)}
+.list-scroll{flex:1;overflow-y:auto;padding:10px;min-height:0}
+.list-bot{border-top:1px solid var(--line);padding:11px 12px;background:var(--surface)}
+.cta{width:100%;border:0;background:var(--accent);color:#fff;border-radius:9px;padding:10px;
+  font:inherit;font-size:13.5px;font-weight:600;cursor:pointer}
+.cta[disabled]{background:var(--surface-3);color:var(--ink-3);cursor:not-allowed}
+.cta.ghost{background:var(--surface);border:1px solid var(--accent);color:var(--accent-ink)}
+.cta-hint{font-size:11px;color:var(--ink-3);text-align:center;margin-top:6px}
+
+.slot{margin-bottom:8px}
+.slot-h{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:600;color:var(--ink-3);
+  letter-spacing:.05em;padding:4px 4px 6px;cursor:pointer}
+.slot-h .tw{font-size:9px}
+.slot-h .cnt{margin-left:auto;font-weight:400}
+.item{display:grid;grid-template-columns:40px minmax(0,1fr);gap:9px;background:var(--surface);
+  border:1px solid var(--line);border-radius:9px;padding:9px;margin-bottom:6px}
+.item .th{width:40px;height:40px;border-radius:6px;background:var(--surface-3)}
+.item .nm{font-size:12px;line-height:1.45;font-weight:500}
+.item .pr{font-size:12.5px;font-weight:600;margin-top:2px}
+.item .ctl{display:flex;align-items:center;gap:6px;margin-top:5px;font-size:11px;color:var(--ink-3)}
+.qty{display:inline-flex;align-items:center;border:1px solid var(--line-2);border-radius:6px;overflow:hidden}
+.qty span{padding:1px 6px;font-size:11px}
+.qty b{padding:1px 8px;border-left:1px solid var(--line);border-right:1px solid var(--line);font-size:11px}
+.item .more{margin-left:auto;color:var(--ink-3);cursor:pointer;padding:0 4px}
+.item.empty{grid-template-columns:1fr;border-style:dashed;background:none;color:var(--ink-3);font-size:11.5px;
+  padding:11px 10px;text-align:center}
+.item.byclaim{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)}
+.byclaim-tag{font-size:10px;color:var(--accent-ink);background:var(--accent-soft);border-radius:4px;
+  padding:1px 6px;display:inline-block;margin-top:5px}
+.item .iwarn{font-size:10.5px;color:var(--warn);margin-top:5px;line-height:1.45}
+.banner{border-radius:9px;padding:9px 11px;font-size:11.5px;margin-bottom:9px;line-height:1.55}
+.banner.bad{background:var(--bad-soft);color:var(--bad)}
+.banner.warn{background:var(--warn-soft);color:var(--warn)}
+.banner.ok{background:var(--ok-soft);color:var(--ok)}
+.banner.hot{background:var(--hot-soft);color:var(--hot)}
+.banner b{font-weight:700}
+</style>
+<style>
+/* 리뷰 상세 — 명세 S5 (우측 슬라이드 패널 420px) */
+.app.withrev{grid-template-columns:260px minmax(360px,1fr) 420px}
+.rev{border-left:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;min-height:0}
+.rev-top{padding:13px 16px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:10px}
+.rev-top h3{margin:0;font-size:14px}
+.rev-top .sub{font-size:11.5px;color:var(--ink-3);margin-top:2px}
+.rev-scroll{flex:1;overflow-y:auto;padding:14px 16px;min-height:0}
+.rsec{margin-bottom:18px}
+.rsec h4{margin:0 0 9px;font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--ink-3)}
+.scorepair{display:flex;align-items:stretch;gap:10px}
+.score{flex:1;border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface-2)}
+.score .lb{font-size:10.5px;color:var(--ink-3)}
+.score .vl{font-size:24px;font-weight:700;letter-spacing:-.02em}
+.score.after{border-color:var(--accent);background:var(--accent-soft)}
+.score.after .vl{color:var(--accent-ink)}
+.dist{display:grid;grid-template-columns:14px minmax(0,1fr) 40px;gap:7px;align-items:center;font-size:11px;margin-bottom:4px}
+.bar{height:7px;border-radius:4px;background:var(--surface-3);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:4px}
+.bar.pre i{background:var(--line-2)}
+.axis{display:grid;grid-template-columns:minmax(0,1fr) 92px 54px;gap:9px;align-items:center;font-size:12px;margin-bottom:7px}
+.quote{border:1px solid var(--line);border-radius:9px;padding:10px 12px;margin-bottom:8px;font-size:12.5px;line-height:1.6}
+.quote .src{font-size:10.5px;color:var(--ink-3);margin-top:7px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.quote .src a{color:var(--accent-ink);text-decoration:none}
+.withheld{border:1px dashed var(--line-2);border-radius:9px;padding:11px 12px;font-size:12px;color:var(--ink-2);
+  background:var(--surface-2)}
+.withheld b{color:var(--ink)}
+
+/* 다이얼로그 — 명세 S5-a */
+.scrim{position:absolute;inset:0;background:rgba(10,16,15,.44);display:grid;place-items:center;padding:24px}
+.stagewrap{position:relative}
+.dlg{background:var(--surface);border:1px solid var(--line-2);border-radius:14px;width:min(520px,92%);
+  box-shadow:0 24px 60px -20px rgba(0,0,0,.5);overflow:hidden}
+.dlg-h{padding:15px 18px 12px;border-bottom:1px solid var(--line)}
+.dlg-h h3{margin:0;font-size:15px}
+.dlg-h p{margin:4px 0 0;font-size:12px;color:var(--ink-3)}
+.dlg-b{padding:14px 18px;max-height:400px;overflow-y:auto;
+  box-shadow:inset 0 -16px 14px -14px rgba(17,25,23,.22)}
+.field{margin-bottom:13px}
+.field label{display:block;font-size:11.5px;font-weight:600;color:var(--ink-2);margin-bottom:5px}
+.inp{border:1px solid var(--line-2);border-radius:8px;padding:8px 11px;font-size:13px;background:var(--surface-2)}
+.seg{display:flex;gap:6px;flex-wrap:wrap}
+.dlg-f{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:9px;justify-content:flex-end;background:var(--surface-2)}
+.btn{border:1px solid var(--line-2);background:var(--surface);color:var(--ink-2);border-radius:8px;
+  padding:8px 15px;font:inherit;font-size:13px;cursor:pointer}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+
+/* 랜딩 — 명세 S1 */
+.lp{background:var(--surface);height:660px;overflow-y:auto}
+.lp-head{display:flex;align-items:center;gap:10px;padding:14px 34px;border-bottom:1px solid var(--line);
+  position:sticky;top:0;background:var(--surface);z-index:2}
+.lp-head .r{margin-left:auto;display:flex;gap:8px;align-items:center}
+.hero{padding:56px 34px 44px;text-align:center;background:linear-gradient(180deg,var(--accent-soft),transparent)}
+.hero h1{margin:0;font-size:38px;letter-spacing:-.03em;line-height:1.2}
+.hero .slogan{margin:11px auto 0;font-size:15px;color:var(--ink-2);max-width:52ch}
+.hero .cta-row{margin-top:22px;display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap}
+.hero .free{font-size:11.5px;color:var(--ink-3)}
+.sec{padding:34px}
+.sec > h2{margin:0 0 5px;font-size:20px;letter-spacing:-.02em}
+.sec > .lead{margin:0 0 20px;font-size:13px;color:var(--ink-2)}
+.how{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+@media (max-width:860px){.how{grid-template-columns:1fr}}
+.how .c{border:1px solid var(--line);border-radius:12px;padding:16px;background:var(--surface-2)}
+.how .n{font-family:"IBM Plex Mono",monospace;font-size:11px;color:var(--accent-ink);font-weight:600}
+.how h3{margin:6px 0 5px;font-size:14.5px}
+.how p{margin:0;font-size:12.5px;color:var(--ink-2)}
+.feat{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px;align-items:center;
+  padding:20px 0;border-top:1px solid var(--line)}
+.feat.flip .txt{order:2}
+@media (max-width:860px){.feat{grid-template-columns:1fr}.feat.flip .txt{order:0}}
+.feat h3{margin:0 0 6px;font-size:16px;letter-spacing:-.01em}
+.feat p{margin:0;font-size:13px;color:var(--ink-2)}
+.shot{border:1px solid var(--line-2);border-radius:10px;background:var(--surface-2);
+  min-height:150px;display:grid;place-items:center;text-align:center;padding:16px;color:var(--ink-3);font-size:12px}
+.shot b{display:block;color:var(--ink-2);font-size:12.5px;margin-bottom:3px}
+.gains{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+@media (max-width:860px){.gains{grid-template-columns:1fr}}
+.gain{border:1px solid var(--line);border-radius:12px;padding:15px;background:var(--surface)}
+.gain h3{margin:0 0 5px;font-size:14.5px}
+.gain p{margin:0;font-size:12.5px;color:var(--ink-2)}
+.lp-cta{padding:40px 34px 52px;text-align:center;background:var(--surface-2);border-top:1px solid var(--line)}
+
+/* 반응형 프레임 */
+.devices{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+.device{border:1px solid var(--line-2);border-radius:12px;overflow:hidden;background:var(--surface);box-shadow:var(--shadow)}
+.device .cap{font-size:11px;color:var(--ink-3);padding:7px 11px;background:var(--surface-3);border-bottom:1px solid var(--line)}
+.device.tablet{width:430px}
+.device.mobile{width:280px}
+.sheet{position:absolute;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line-2);
+  border-radius:12px 12px 0 0;padding:11px 13px;box-shadow:0 -8px 24px -14px rgba(0,0,0,.4)}
+
+/* 미구현 표시 */
+.na{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:600;color:var(--hot);
+  background:var(--hot-soft);border-radius:4px;padding:1px 6px;letter-spacing:.02em}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:14px}
+.card{border:1px solid var(--line);background:var(--surface);border-radius:var(--r);padding:14px 16px}
+.card h3{margin:0 0 9px;font-size:13.5px}
+.card ul{margin:0;padding-left:17px;font-size:12.5px;color:var(--ink-2);line-height:1.75}
+table.t{width:100%;border-collapse:collapse;font-size:12.5px}
+table.t th,table.t td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+table.t th{font-size:10.5px;letter-spacing:.05em;color:var(--ink-3);font-weight:600;text-transform:uppercase}
+table.t tr:last-child td{border-bottom:0}
+.foot{margin-top:34px;padding-top:16px;border-top:1px solid var(--line);font-size:12px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="wrap">
+    <div class="brandrow">
+      <div>
+        <div class="brand">
+          <h1>Plan Basket — 화면 목업</h1>
+          <span class="ver mono">기능명세 기준 · 카테고리 3종</span>
+        </div>
+        <p class="tagline">구매 목적 한 줄이면 필요한 물건 전체를 리스트로 만들되, <b>여러 사이트 리뷰를 정제해 고르고 왜 골랐는지 근거를 함께 낸다.</b> 결제는 외부 쇼핑몰에서 이뤄지고 이 서비스는 리스트업과 근거 제시까지다.</p>
+      </div>
+      <span class="flag">목업 · 예시 데이터</span>
+    </div>
+  </div>
+</div>
+
+<div class="wrap">
+<div class="layout">
+
+  <nav class="spine" aria-label="화면 목록">
+    <div class="spine-label">화면</div>
+    <button class="step" data-go="s1" aria-current="true"><span class="num">S1</span><span>랜딩<span class="sub">브랜드 소개 · 채팅 진입</span></span></button>
+    <button class="step" data-go="s2"><span class="num">S2</span><span>카테고리 선택<span class="sub">셋 중 하나 · 선택 필수</span></span></button>
+    <button class="step" data-go="s3"><span class="num">S3</span><span>대화 · 조건 수집<span class="sub">필수 입력 → 선택 카드</span></span></button>
+    <button class="step" data-go="s4"><span class="num">S4</span><span>추천 결과<span class="sub">제품 카드 + 리스트</span></span></button>
+    <button class="step" data-go="s4a"><span class="num">S4-a</span><span>추론 로그<span class="sub">5단계 · 깔때기 · 지표</span></span></button>
+    <button class="step" data-go="s5"><span class="num">S5</span><span>리뷰 상세<span class="sub">정제 전후 · 항목별</span></span></button>
+    <button class="step" data-go="s5a"><span class="num">S5-a</span><span>리스트 확정<span class="sub">구매 예정일 · 목표가</span></span></button>
+    <button class="step" data-go="s5b"><span class="num">S5-b</span><span>확정 완료<span class="sub">읽기 전용 · 구매 링크</span></span></button>
+    <div class="rule"></div>
+    <button class="step" data-go="s7"><span class="num">S7</span><span>로그인<span class="sub">이메일 · 저장에만 필요</span></span></button>
+    <button class="step" data-go="ex"><span class="num">＊</span><span>예외 · 빈 상태<span class="sub">명세 §9</span></span></button>
+    <button class="step" data-go="rwd"><span class="num">＊</span><span>반응형<span class="sub">태블릿 · 모바일</span></span></button>
+    <button class="step" data-go="map"><span class="num">＊</span><span>API 매핑<span class="sub">무엇이 실제로 도는가</span></span></button>
+  </nav>
+
+  <main>
+    <div class="panel on" data-panel="s1"></div>
+    <div class="panel" data-panel="s2"></div>
+    <div class="panel" data-panel="s3"></div>
+    <div class="panel" data-panel="s4"></div>
+    <div class="panel" data-panel="s4a"></div>
+    <div class="panel" data-panel="s5"></div>
+    <div class="panel" data-panel="s5a"></div>
+    <div class="panel" data-panel="s5b"></div>
+    <div class="panel" data-panel="s7"></div>
+    <div class="panel" data-panel="ex"></div>
+    <div class="panel" data-panel="rwd"></div>
+    <div class="panel" data-panel="map"></div>
+
+    <div class="foot">
+      화면 골격과 컴포넌트는 세 카테고리가 완전히 같고, 카테고리를 고르면 <b>다섯 가지만 통째로 교체</b>된다 —
+      필수 입력값 · 질문 세트 · 슬롯 구조 · 검증 규칙 · 리뷰 평가 축.
+      이 목업은 그 다섯 가지를 정의 객체 하나(<span class="mono">PACKS</span>)에 두고 같은 템플릿으로 그린다.
+      응답 스키마는
+      <a href="../추천엔진_API계약.md">추천엔진_API계약.md</a>.
+    </div>
+  </main>
+</div>
+</div>
+<script>
+/* ─────────────────────────────────────────────────────────────
+   카테고리별로 갈리는 다섯 가지 — 명세 §6.0
+     1 필수 입력값 · 2 질문 세트 · 3 슬롯 구조 · 4 검증 규칙 · 5 리뷰 평가 축
+   화면 골격과 컴포넌트는 셋이 완전히 같다. 여기만 갈아끼운다.
+
+   PC 의 숫자는 지어낸 것이 아니라 `POST /api/recommend` 의 실제 응답이다
+   (질의: 인디아나 존스: 그레이트 서클 QHD 상옵 · 예산 120만).
+   목업과 API 가 다른 숫자를 말하면 발표에서 둘 중 하나는 거짓말이 된다.
+   아기 용품·요리 식자재는 팩이 아직 없어(`ready:false`) 전부 예시다.
+   ───────────────────────────────────────────────────────────── */
+const PACKS = {
+pc: {
+  key:'pc', label:'PC 본체 조립', short:'PC', ready:true,
+  blurb:'용도에 맞는 사양을 호환성까지 확인해서',
+  scope:'<b>본체만 취급한다.</b> 모니터·키보드·마우스 등 주변기기는 다루지 않으며 관련 질문도 하지 않는다 (명세 §6.1).',
+  required:[
+    {k:'용도', v:'게임 / 작업·편집 / 사무·학습'},
+    {k:'예산 상한', v:'직접 입력'}
+  ],
+  userSay:'인디아나 존스: 그레이트 서클을 QHD 상옵으로 돌리고 싶어요. 예산 120만 원이고 3년 된 본체 쓰고 있습니다',
+  askFirst:'먼저 두 가지만 받을게요. <b>용도와 예산 상한</b>입니다 — 이 둘이 없으면 추천을 만들지 않습니다.',
+  afterAsk:'조건을 세 가지만 더 확인할게요. 모르시면 그대로 두셔도 됩니다.',
+  questions:[
+    {q:'어떤 작업을 주로 하시나요', kind:'단일 선택', opts:['롤·오버워치급 게임','배그·최신 AAA 게임','영상·이미지 편집','문서·웹','잘 모르겠어요'], sel:1},
+    {q:'조립', kind:'단일 선택', opts:['직접 조립','조립 대행 필요','잘 모르겠어요'], sel:1},
+    {q:'선호 브랜드', kind:'단일 선택', opts:['인텔','AMD','상관없음','잘 모르겠어요'], sel:2},
+    {q:'케이스 크기', kind:'단일 선택', opts:['미들타워','미니타워','상관없음','잘 모르겠어요'], sel:2},
+    {q:'소음', kind:'단일 선택', opts:['조용한 게 중요함','상관없음','잘 모르겠어요'], sel:1},
+    {q:'확장 계획', kind:'단일 선택', opts:['나중에 부품 추가 예정','없음','잘 모르겠어요'], sel:-1}
+  ],
+  conds:[
+    {k:'게임', v:'인디아나 존스: 그레이트 서클'},{k:'해상도', v:'QHD 2560×1440'},
+    {k:'옵션', v:'상'},{k:'예산', v:'1,200,000원'},{k:'기존 본체', v:'보유 · 3년'},
+    {k:'주사율', v:'144Hz'},{k:'재사용', v:'케이스만'}
+  ],
+  budget:1200000, spent:1187000,
+  summary:[
+    {t:'호환성 확인 완료', cls:'ok'},
+    {t:'권장 정격 <b>650W 이상</b>', cls:''},
+    {t:'예산 잔액 <b>13,000원</b>', cls:''}
+  ],
+  slots:[
+    {name:'CPU', items:[{n:'A사 6코어 12스레드', p:289000, warn:'기본 쿨러로는 정격이 유지되지 않는다는 리뷰가 다수입니다.'}]},
+    {name:'GPU', items:[{n:'B사 12GB', p:437000, warn:'부하 시 온도가 스펙보다 높다는 리뷰가 있습니다. 케이스 흡배기를 확인하세요.'}]},
+    {name:'RAM', items:[{n:'16GB DDR5-6000', p:92000}]},
+    {name:'메인보드', items:[{n:'A사 S1 보드', p:148000}]},
+    {name:'저장장치', items:[{n:'1TB NVMe Gen4', p:98000}]},
+    {name:'파워', items:[{n:'650W 80+ Gold', p:89000}]},
+    {name:'케이스', items:[], empty:'재사용 — 쓰던 케이스를 그대로 씁니다'},
+    {name:'쿨러', items:[{n:'타워형 공랭', p:34000, byclaim:'3단계에서 «기본 쿨러로 정격 유지» 주장이 반증되며 편성됨'}]}
+  ],
+  rules:[
+    'CPU 소켓 ↔ 메인보드 칩셋','RAM 규격(DDR4/DDR5) · 슬롯 수 · 용량',
+    'GPU 길이 ↔ 케이스 수용 길이','쿨러 높이 ↔ 케이스 높이',
+    '파워 용량 ↔ 시스템 소비전력 + 여유율','M.2 슬롯 수 ↔ 저장장치 개수'
+  ],
+  axes:['소음','발열','초기 불량률','내구성','조립 난이도'],
+  products:[
+    {slot:'GPU', n:'B사 12GB 그래픽카드', p:437000,
+     why:'말씀하신 <em>QHD 네이티브 권장 VRAM 12GB</em> 를 충족하는 후보 중 가장 저렴합니다',
+     rv:{total:267, cleaned:22, rate:'8.2%', score:'4.2'}, added:true,
+     verdicts:[{v:'bad', g:'✕', t:'반증'},{v:'ok', g:'●', t:'확인'}]},
+    {slot:'CPU', n:'A사 6코어 12스레드', p:289000,
+     why:'이 게임은 GPU 의존도가 높아, <em>여유분을 그래픽카드로 넘겼습니다</em>',
+     rv:{total:194, cleaned:16, rate:'8.2%', score:'4.4'}, added:true,
+     verdicts:[{v:'bad', g:'✕', t:'반증'}]},
+    {slot:'저장장치', n:'1TB NVMe Gen4', p:98000,
+     why:'예산 배분 후 남은 구간에서 용량·규격이 맞는 것',
+     rv:{total:155, cleaned:13, rate:'8.4%', score:'—'}, added:true,
+     verdicts:[{v:'none', g:'·', t:'근거 없음'}],
+     flag:'리뷰 142건을 읽었지만 연속 쓰기 실측을 <b>언급한 리뷰가 3건뿐</b>이라 판정하지 않았습니다.'},
+    {slot:'쿨러', n:'타워형 공랭', p:34000,
+     why:'CPU 의 <em>«기본 쿨러로 정격 유지»</em> 주장이 반증돼 세트에 넣었습니다',
+     rv:null, added:true, byclaim:true,
+     flag:'이 품목에는 검증할 제조사 주장이 없습니다 — 리뷰 배지도 만들지 않습니다.'}
+  ],
+  review:{
+    title:'B사 12GB 그래픽카드',
+    compared:245, kinds:'리뷰 214 · Q&A 31', excluded:22, unscored:0,
+    claims:[
+      {v:'bad', g:'✕', t:'반증', txt:'게이밍 부하 시 68°C', note:'214건이 이 주장에 닿고 그중 47건이 어긋납니다.'},
+      {v:'ok', g:'●', t:'확인', txt:'보조전원 8핀 1개', note:'214건을 대조했고 어긋나는 사례가 없습니다.'}
+    ],
+    quotes:[
+      {t:'풀로드에서 80도 위로 올라간다는 언급이 반복됩니다.', s:'스토어 리뷰', d:'2026-09-02'},
+      {t:'보조전원이 8핀 1개라 쓰던 파워를 그대로 썼다는 언급이 많습니다.', s:'스토어 리뷰', d:'2026-09-02'},
+      {t:'케이스가 좁으면 간섭이 생긴다는 설치 관련 지적이 있습니다.', s:'상품 Q&A', d:'2026-08-28'}
+    ]
+  },
+  reasoning:[
+    {t:'의도 분해', d:'문장에서 게임·해상도·옵션·예산·기존 본체를 뽑고, <b>모르는 것 3건</b>(주사율·재사용·우선순위)을 먼저 물었습니다.',
+     kv:['추출 5','되묻기 3','<b>모르면 추천을 만들지 않습니다</b>']},
+    {t:'비교 매칭', d:'게임사 공개 권장 사양을 하드 제약으로 걸어 후보를 걸렀습니다.',
+     kv:['후보 <b>12</b> → <b>11</b>','VRAM 12GB 이상 · <b>1개 제외</b>'],
+     src:'게임사 공개 권장 사양 · 〈인디아나 존스: 그레이트 서클〉 QHD(1440p) 네이티브 권장 · Bethesda 공식 지원 문서 (확인 2026-09-09)'},
+    {t:'검증 · 재탐색', d:'제조사 주장 6건을 리뷰로 대조했습니다. <b>종합 점수로 합치지 않습니다</b> — 가중치를 정당화할 근거가 없기 때문입니다.',
+     kv:['반증 <b>2</b>','확인 <b>2</b>','부분 <b>1</b>','근거 없음 <b>1</b>','대조한 리뷰 <b>768</b>건'],
+     na:'명세가 적은 «검사 Agent ↔ 변호인 Agent 교차 검증, 통과 기준 80점»은 백엔드에 점수 개념이 없습니다. 지금 실제로 도는 것은 판정 4종입니다.'},
+    {t:'설명 생성', d:'근거 5문장이 전부 판정과 <span class="mono">claim_id</span> 로 연결됩니다. 사실은 룰에서만 오고, 어긋나면 템플릿으로 되돌아갑니다.',
+     kv:['근거 <b>5</b>문장','미연결 <b>0</b>']},
+    {t:'리포트', d:'최종 조합을 확정했습니다.',
+     kv:['합계 <b>1,187,000원</b>','잔액 <b>13,000원</b>','호환성 경고 <b>0</b>건','예산 충족']}
+  ],
+  indicators:{
+    cond:'3 / 4', condNote:'주사율 144Hz 기준 평균 프레임은 실측 표본이 부족해 <b>판정하지 않았습니다</b> — 미충족이 아닙니다.',
+    verdicts:'반증 2 · 확인 2 · 부분 1 · 근거 없음 1',
+    samples:'768건 (겹치지 않게 센 실제 대조 수)',
+    risk:'0–20% 768 · 20–40% 43 · 40–60% 13 · 60–80% 8 · 80–100% 6'
+  },
+  listName:'게임용 PC · 120만원',
+  history:[{n:'120만원 게이밍 PC', st:'', on:true},{n:'생후 6개월 아기 용품', st:'확정 · 가격 추적 중'},{n:'4인분 김치찌개 재료', st:''}]
+},
+baby: {
+  key:'baby', label:'아기 용품', short:'아기', ready:false,
+  blurb:'월령에 맞는 필수 목록을 처음부터',
+  scope:'안전·건강에 대한 <b>단정적 표현을 쓰지 않는다.</b> 인증·리콜 정보는 출처와 조회 시점을 반드시 함께 표기한다 (명세 §6.2).',
+  required:[
+    {k:'아이 월령', v:'생년월일 입력 → 자동 계산 <span class="mono">또는</span> 출산 예정일(출산 전 준비 모드)'},
+    {k:'이미 보유한 물품', v:'슬롯 단위로 체크'},
+    {k:'예산 범위', v:'직접 입력'}
+  ],
+  userSay:'6개월 아기인데 이유식 시작하려고요. 차는 있고 외출은 보통이에요',
+  askFirst:'먼저 세 가지를 받을게요. <b>아이 월령(또는 출산 예정일)·이미 있는 물품·예산 범위</b>입니다.',
+  afterAsk:'생후 6개월 기준으로 잡았습니다. 다섯 가지만 더 확인할게요.',
+  questions:[
+    {q:'수유 방식', kind:'단일 선택', opts:['모유','분유','혼합','아직 미정','잘 모르겠어요'], sel:2},
+    {q:'수면 형태', kind:'단일 선택', opts:['아기 침대','범퍼 침대','부모와 같이','잘 모르겠어요'], sel:0},
+    {q:'차량 이용', kind:'단일 선택', opts:['있음 (카시트 필요)','없음','잘 모르겠어요'], sel:0},
+    {q:'외출 빈도', kind:'단일 선택', opts:['잦음','보통','거의 없음','잘 모르겠어요'], sel:1},
+    {q:'계절', kind:'단일 선택', opts:['봄·가을','여름','겨울','잘 모르겠어요'], sel:0}
+  ],
+  conds:[{k:'월령', v:'생후 6개월'},{k:'수유', v:'혼합'},{k:'수면', v:'아기 침대'},{k:'차량', v:'있음'},{k:'외출', v:'보통'},{k:'예산', v:'500,000원'},{k:'보유', v:'3건'}],
+  budget:500000, spent:486000,
+  tabs:['지금 필요','곧 필요 (D+60)','나중'],
+  summary:[
+    {t:'<b>생후 6개월</b> 기준', cls:''},
+    {t:'리콜 확인 필요 <b>1건</b>', cls:'bad'},
+    {t:'보유로 제외 <b>3건</b>', cls:''}
+  ],
+  slots:[
+    {name:'수유', items:[
+      {n:'젖병 3개 세트 · 240ml', p:24000},
+      {n:'젖병 소독기', p:89000},
+      {n:'수유쿠션', p:0, own:true}]},
+    {name:'수면', items:[
+      {n:'아기 침대', p:0, own:true},
+      {n:'스와들 2매', p:32000}]},
+    {name:'위생 / 기저귀', items:[
+      {n:'기저귀 4팩 (M)', p:68000},
+      {n:'물티슈 10팩', p:24000},
+      {n:'기저귀 갈이대', p:0, own:true}]},
+    {name:'외출 (카시트 · 유모차)', items:[
+      {n:'카시트 · 체중 9–18kg', p:249000, recall:'같은 제조사의 다른 모델에 리콜 이력이 있습니다. 모델명을 확인해 주세요.'}]}
+  ],
+  rules:[
+    '월령 적합성 (해당 월령에 맞는 품목인지)','KC 안전인증 여부',
+    '리콜 이력 조회 (공공 안전정보 데이터 기준)','카시트 체중·신장 적용 범위 ↔ 아이 정보',
+    '보유 물품 중복 제외'
+  ],
+  axes:['안전성','세척 편의','실제 사용 기간','부모 편의(무게·조작)','아이 반응'],
+  products:[
+    {slot:'수유', n:'젖병 3개 세트 · 240ml', p:24000,
+     why:'<em>생후 6개월</em>부터 이유식을 시작하는 시기라 필요합니다. 세척이 쉽다는 후기가 많습니다',
+     rv:{total:412, cleaned:44, rate:'10.7%', score:'4.3'}, added:true},
+    {slot:'외출', n:'카시트 · 체중 9–18kg', p:249000,
+     why:'차량 이용 있음 · <em>체중 적용 범위가 현재 월령을 포함</em>합니다',
+     rv:{total:1180, cleaned:186, rate:'15.8%', score:'4.1'}, added:true,
+     recall:'같은 제조사의 다른 모델에 리콜 이력이 있습니다. 모델명을 확인해 주세요. <span class="mono">출처 공공 안전정보 · 조회 2026-09-09</span>'},
+    {slot:'수면', n:'스와들 2매', p:32000,
+     why:'<em>봄·가을</em> 기준 두께. 6개월은 뒤집기 시작이라 팔 자유형으로 좁혔습니다',
+     rv:{total:298, cleaned:31, rate:'10.4%', score:'4.0'}, added:true}
+  ],
+  review:{
+    title:'카시트 · 체중 9–18kg',
+    compared:994, kinds:'리뷰 902 · Q&A 92', excluded:186, unscored:0,
+    claims:[
+      {v:'part', g:'◐', t:'부분 확인', txt:'설치 3분', note:'902건 중 121건이 설치 시간이 더 걸린다고 말합니다.'},
+      {v:'ok', g:'●', t:'확인', txt:'ISOFIX 호환', note:'902건을 대조했고 어긋나는 사례가 없습니다.'}
+    ],
+    quotes:[
+      {t:'설치 자체는 어렵지 않으나 차종에 따라 각도 조절에 시간이 걸린다는 언급이 반복됩니다.', s:'스토어 리뷰', d:'2026-09-05'},
+      {t:'세탁 후 커버 재장착이 번거롭다는 지적이 다수입니다.', s:'커뮤니티', d:'2026-09-01'},
+      {t:'장거리에서 아이가 덜 뒤척인다는 언급이 있습니다.', s:'스토어 리뷰', d:'2026-08-30'}
+    ]
+  },
+  reasoning:[
+    {t:'의도 분해', d:'월령·보유 물품·예산을 먼저 받고, 수유/수면/차량/외출/계절을 물었습니다.', kv:['필수 3','질문 5']},
+    {t:'비교 매칭', d:'월령 적합성과 KC 안전인증으로 후보를 걸렀습니다.', kv:['후보 <b>86</b> → <b>41</b>','월령 부적합 <b>38개 제외</b>','KC 미인증 <b>7개 제외</b>']},
+    {t:'검증 · 재탐색', d:'제품 주장을 리뷰로 대조하고, <b>리콜 이력을 따로 조회</b>했습니다.', kv:['부분 확인 <b>1</b>','확인 <b>1</b>','리콜 확인 필요 <b>1</b>'], src:'리콜 조회 · 공공 안전정보 데이터 · 조회 2026-09-09'},
+    {t:'설명 생성', d:'월령 근거를 문장 앞에 놓습니다. 안전·건강은 단정하지 않습니다.', kv:['근거 <b>6</b>문장']},
+    {t:'리포트', d:'보유 물품 3건을 빼고 합산했습니다.', kv:['합계 <b>486,000원</b>','보유 제외 <b>3</b>건','리콜 확인 <b>1</b>건']}
+  ],
+  indicators:{cond:'4 / 5', condNote:'«실제 사용 기간»은 표본이 6개월 미만이라 판정하지 않았습니다.',
+    verdicts:'확인 1 · 부분 확인 1 · 리콜 확인 필요 1', samples:'994건', risk:'0–20% 994 · 20% 이상 186건 제외'},
+  listName:'생후 6개월 아기 용품',
+  history:[{n:'생후 6개월 아기 용품', st:'', on:true},{n:'120만원 게이밍 PC', st:''},{n:'4인분 김치찌개 재료', st:'확정 · 가격 추적 중'}]
+},
+food: {
+  key:'food', label:'요리 식자재', short:'식자재', ready:false,
+  blurb:'만들 요리에 필요한 재료를 한 번에',
+  scope:'세 카테고리 중 <b>유일하게 중간 계층이 있다.</b> 대화 1건에 요리가 여러 개 들어가고 요리마다 재료가 딸린다 (명세 §6.3).',
+  required:[
+    {k:'상황 · 목적', v:'홈파티 / 주간 식단 / 자취 첫 장보기 / 특정 요리'},
+    {k:'인분 수', v:'직접 입력'},
+    {k:'요리 수 또는 기간', v:'예: 3끼 / 일주일'},
+    {k:'보유 재료', v:'재료 단위로 체크'}
+  ],
+  userSay:'주말에 4인분으로 두 끼 해먹으려고요. 김치는 있어요',
+  askFirst:'먼저 네 가지를 받을게요. <b>상황·인분 수·요리 수(기간)·보유 재료</b>입니다.',
+  afterAsk:'4인분 · 2끼로 잡았습니다. 다섯 가지만 더 확인할게요.',
+  questions:[
+    {q:'난이도', kind:'단일 선택', opts:['초보','보통','상관없음','잘 모르겠어요'], sel:0},
+    {q:'조리 시간', kind:'단일 선택', opts:['30분 이내','1시간','상관없음','잘 모르겠어요'], sel:0},
+    {q:'맵기', kind:'단일 선택', opts:['안 매움','보통','매움','잘 모르겠어요'], sel:1},
+    {q:'빼야 할 재료', kind:'직접 입력', opts:['고수','+ 직접 입력'], sel:0},
+    {q:'보유 조리도구', kind:'다중 선택', opts:['오븐','에어프라이어','없음','잘 모르겠어요'], sel:1,
+     hint:'레시피 후보를 거르는 조건으로만 씁니다 — 슬롯에는 넣지 않습니다'}
+  ],
+  conds:[{k:'상황', v:'주말 2끼'},{k:'인분', v:'4인분'},{k:'난이도', v:'초보'},{k:'조리 시간', v:'30분 이내'},{k:'맵기', v:'보통'},{k:'제외 재료', v:'고수'},{k:'보유', v:'신김치'}],
+  budget:60000, spent:40500,
+  summary:[
+    {t:'<b>4인분</b> 기준', cls:''},
+    {t:'중복 재료 통합 <b>2건</b>', cls:'ok'},
+    {t:'보유로 제외 <b>1건</b>', cls:''}
+  ],
+  dishes:[
+    {name:'김치찌개', meta:'4인분 · 약 25분 · 재료 7', groups:[
+      {name:'주재료', items:[{n:'돼지목살 400g', p:9800},{n:'신김치 500g', p:0, own:true}]},
+      {name:'채소 / 부재료', items:[
+        {n:'대파 1단', p:2900, dup:'요리 2개에 사용', left:'100g 필요 · 1단 단위 판매 — 약 60% 남습니다'},
+        {n:'두부 1모', p:1800, exp:'유통기한 짧음'},
+        {n:'양파 3입', p:2400, dup:'요리 2개에 사용'}]},
+      {name:'양념 / 소스', items:[{n:'고춧가루 100g', p:4500},{n:'다진마늘 100g', p:2200}]}
+    ]},
+    {name:'제육볶음', meta:'4인분 · 약 20분 · 재료 5', groups:[
+      {name:'주재료', items:[{n:'돼지앞다리살 500g', p:8900}]},
+      {name:'채소 / 부재료', items:[
+        {n:'양파', p:0, merged:'김치찌개에 합산됨'},
+        {n:'대파', p:0, merged:'김치찌개에 합산됨'}]},
+      {name:'양념 / 소스', items:[{n:'고추장 500g', p:5400},{n:'설탕 1kg', p:2600}]}
+    ]}
+  ],
+  rules:[
+    '인분 환산 — 인분 수 변경 시 모든 재료 수량 재계산',
+    '중복 재료 합산 — 2개 이상의 요리에 쓰이면 합쳐서 1건으로',
+    '보유 재료 차감 — 체크 시 목록에서 제외, 총액 즉시 반영',
+    '최소 판매 단위 반영 — 대파 100g 이 필요해도 1단 단위로 판매됨',
+    '유통기한 주의 표시 — 빨리 상하는 재료',
+    '제외 재료가 들어간 요리는 후보에서 배제'
+  ],
+  axes:['신선도','양 대비 가격','재구매 의사','배송 상태(아이스팩·포장)'],
+  products:[
+    {slot:'채소', n:'대파 1단', p:2900,
+     why:'선택하신 <em>김치찌개와 제육볶음 모두에 대파가 들어가서</em> 한 단만 사면 됩니다',
+     rv:{total:840, cleaned:96, rate:'11.4%', score:'4.1'}, added:true,
+     flag:'100g 이 필요한데 1단 단위로만 팔립니다 — <b>약 60% 남습니다.</b>'},
+    {slot:'주재료', n:'돼지목살 400g', p:9800,
+     why:'<em>4인분</em> 기준 환산량. 초보 난이도 레시피에서 실패가 적은 부위입니다',
+     rv:{total:1520, cleaned:210, rate:'13.8%', score:'4.2'}, added:true},
+    {slot:'주재료', n:'신김치 500g', p:0,
+     why:'<em>«이 재료는 있어요»</em> 로 체크하셔서 목록에서 뺐습니다',
+     rv:null, added:false, own:true,
+     flag:'보유 재료는 총액에서 즉시 빠집니다.'}
+  ],
+  review:{
+    title:'돼지목살 400g',
+    compared:1310, kinds:'리뷰 1,240 · Q&A 70', excluded:210, unscored:34,
+    claims:[
+      {v:'part', g:'◐', t:'부분 확인', txt:'당일 도축 · 냉장 배송', note:'1,240건 중 167건이 배송 상태 문제를 말합니다.'},
+      {v:'none', g:'·', t:'근거 없음', txt:'지방 비율 2등급', note:'등급을 언급한 리뷰가 4건뿐 — 표본 부족.'}
+    ],
+    quotes:[],
+    withheld:true
+  },
+  reasoning:[
+    {t:'의도 분해', d:'상황·인분·요리 수·보유 재료를 먼저 받고, <b>제외 재료(고수)</b>가 든 레시피를 후보에서 뺐습니다.', kv:['필수 4','제외 재료 1','레시피 후보 <b>18</b> → <b>14</b>']},
+    {t:'비교 매칭', d:'난이도·조리 시간·조리도구로 레시피를 좁히고 요리 2건을 골랐습니다.', kv:['레시피 <b>14</b> → <b>2</b>','오븐 필요 레시피 <b>5개 제외</b>']},
+    {t:'검증 · 재탐색', d:'재료 판매처의 주장을 리뷰로 대조했습니다.', kv:['부분 확인 <b>1</b>','근거 없음 <b>1</b>','대조한 리뷰 <b>1,310</b>건'],
+     na:'<b>조작 확률을 못 잰 리뷰가 34건 섞여 있습니다.</b> 그래서 «20% 이상을 걸렀다»고 말하지 않습니다.'},
+    {t:'설명 생성', d:'중복 재료와 남는 양을 문장으로 냅니다.', kv:['근거 <b>5</b>문장','중복 합산 <b>2</b>건']},
+    {t:'리포트', d:'인분 환산 → 중복 합산 → 보유 차감 → 최소 판매 단위 순으로 계산했습니다.', kv:['합계 <b>40,500원</b>','요리 <b>2</b>건','보유 제외 <b>1</b>건']}
+  ],
+  indicators:{cond:'5 / 6', condNote:'«지방 비율 2등급»은 언급 리뷰가 4건뿐이라 판정하지 않았습니다.',
+    verdicts:'부분 확인 1 · 근거 없음 1', samples:'1,310건',
+    risk:'0–20% 1,310 · 20% 이상 210건 제외 · <b>미채점 34건</b>'},
+  listName:'주말 2끼 · 4인분',
+  history:[{n:'4인분 김치찌개 재료', st:'', on:true},{n:'120만원 게이밍 PC', st:''},{n:'생후 6개월 아기 용품', st:'확정 · 가격 추적 중'}]
+}
+};
+</script>
+<script>
+/* ── 공통 조각 ─────────────────────────────────────────────── */
+let CAT = 'pc';
+const P = () => PACKS[CAT];
+const won = n => n.toLocaleString('ko-KR');
+const naTag = t => `<span class="na" title="${t}">백엔드 없음</span>`;
+
+function side(o={}){
+  const p = P();
+  if(o.collapsed){
+    return `<div class="side" style="align-items:center">
+      <div class="side-top" style="padding:12px 0"><div class="mark" style="width:22px;height:22px;border-radius:7px;background:var(--accent);margin:0 auto"></div></div>
+      <div class="side-scroll" style="padding:8px 0;text-align:center;font-size:11px;color:var(--ink-3)">＋<br><br>▤<br><br>▤<br><br>▤</div>
+      <div class="side-bot" style="width:100%;display:grid;place-items:center"><div class="ini">김</div></div>
+    </div>`;
+  }
+  const hist = p.history.map(h=>{
+    const cls = h.hit ? 'hist hit' : (h.on ? 'hist on' : 'hist');
+    const st = h.st ? `<span class="st">${h.st}</span>` : '';
+    return `<button class="${cls}">${h.n}${st}</button>`;
+  }).join('');
+  const me = o.anon
+    ? `<button class="sidelink" style="justify-content:center;border:1px solid var(--line-2)">로그인</button>`
+    : `<div class="me"><div class="ini">김</div><span>김지은</span><span class="caret">▲</span></div>`;
+  return `<div class="side grip">
+    <div class="side-top">
+      <div class="logo"><span class="mark"></span>Plan Basket<button class="iconbtn" title="사이드바 접기">《</button></div>
+      <button class="newchat">＋ 새 대화</button>
+    </div>
+    <div class="side-scroll">
+      <div class="side-lbl">대화 기록</div>
+      ${hist}
+    </div>
+    <div class="side-bot">
+      <button class="sidelink">▤ 리뷰 둘러보기</button>
+      ${me}
+    </div>
+  </div>`;
+}
+
+function itemCard(it, locked){
+  if(it.own) return `<div class="item" style="opacity:.62">
+      <div class="th"></div>
+      <div><div class="nm">${it.n}</div>
+        <div class="ctl"><span class="mono" style="color:var(--ok)">이미 있어요 · 제외됨</span></div></div></div>`;
+  if(it.merged) return `<div class="item" style="opacity:.72">
+      <div class="th"></div>
+      <div><div class="nm">${it.n}</div>
+        <div class="ctl"><span style="color:var(--accent-ink)">${it.merged}</span></div></div></div>`;
+  const ctl = locked
+    ? `<div class="ctl"><span class="mono">수량 ${it.q||1}</span><a href="#" style="margin-left:auto;text-decoration:none">구매하러 가기 ↗</a></div>`
+    : `<div class="ctl"><span class="qty"><span>−</span><b>${it.q||1}</b><span>＋</span></span>
+         <span>구매 링크 ↗</span><span class="more">···</span></div>`;
+  return `<div class="item${it.byclaim?' byclaim':''}">
+    <div class="th"></div>
+    <div>
+      <div class="nm">${it.n}</div>
+      <div class="pr mono">${won(it.p)}원</div>
+      ${ctl}
+      ${it.byclaim?`<div class="byclaim-tag">${it.byclaim}</div>`:''}
+      ${it.dup?`<div class="byclaim-tag">${it.dup}</div>`:''}
+      ${it.warn?`<div class="iwarn">⚠ ${it.warn}</div>`:''}
+      ${it.recall?`<div class="iwarn" style="color:var(--bad)">⛔ 리콜 확인 필요 — ${it.recall}</div>`:''}
+      ${it.left?`<div class="iwarn">${it.left}</div>`:''}
+      ${it.exp?`<div class="iwarn">${it.exp}</div>`:''}
+    </div></div>`;
+}
+
+function slotBlocks(locked){
+  const p = P();
+  if(p.dishes){
+    return p.dishes.map(d=>`
+      <div class="slot">
+        <div class="slot-h" style="font-size:12.5px;color:var(--ink);letter-spacing:0">
+          <span class="tw">▾</span>${d.name}<span class="cnt">${d.meta}</span></div>
+        ${d.groups.map(g=>`
+          <div style="padding-left:6px;margin-bottom:6px">
+            <div class="slot-h" style="padding:2px 4px 4px">${g.name}</div>
+            ${g.items.map(i=>itemCard(i,locked)).join('')}
+          </div>`).join('')}
+        <div style="padding:2px 6px 8px"><a href="#" style="font-size:11px;text-decoration:none">조리법 보기 ↗</a></div>
+      </div>`).join('');
+  }
+  return p.slots.map(s=>{
+    const body = s.items.length
+      ? s.items.map(i=>itemCard(i,locked)).join('')
+      : `<div class="item empty">${s.empty || `${s.name} · 아직 선택되지 않음`}</div>`;
+    return `<div class="slot">
+      <div class="slot-h"><span class="tw">▾</span>${s.name}<span class="cnt">${s.items.length?`${s.items.length}개`:'—'}</span></div>
+      ${body}</div>`;
+  }).join('');
+}
+
+function itemCount(){
+  const p = P();
+  return p.dishes
+    ? p.dishes.reduce((a,d)=>a+d.groups.reduce((b,g)=>b+g.items.filter(i=>!i.own&&!i.merged).length,0),0)
+    : p.slots.reduce((a,s)=>a+s.items.filter(i=>!i.own).length,0);
+}
+function countLabel(){
+  const p = P();
+  return p.dishes ? `요리 ${p.dishes.length}건 · 재료 ${itemCount()}개` : `${itemCount()}개`;
+}
+
+function listPanel(state){
+  const p = P();
+  const empty = state==='empty';
+  const locked = state==='locked';
+  const filling = state==='filling';
+  if(empty){
+    return `<div class="list">
+      <div class="list-top"><div class="list-cat">물품 리스트</div>
+        <div class="total mono" style="color:var(--ink-3)">—</div>
+        <div class="list-sub">담긴 항목 0개</div></div>
+      <div class="list-scroll" style="display:grid;place-items:center;text-align:center;color:var(--ink-3);font-size:12.5px">
+        <div>아직 담긴 제품이 없습니다.<br>대화를 시작하면 여기에 쌓입니다.</div></div>
+      <div class="list-bot"><button class="cta" disabled>리스트 확정</button>
+        <div class="cta-hint">카테고리를 먼저 골라 주세요</div></div></div>`;
+  }
+  if(filling){
+    return `<div class="list">
+      <div class="list-top"><div class="list-cat">${p.label}</div>
+        <div class="total mono" style="color:var(--ink-3)">—</div>
+        <div class="list-sub">조건을 확인하는 중입니다. 확정되는 항목부터 아래에 채워집니다.</div></div>
+      <div class="list-scroll">${p.dishes
+        ? `<div class="item empty">요리가 아직 정해지지 않았습니다</div>`
+        : p.slots.map(s=>`<div class="item empty">${s.name} · 아직 선택되지 않음</div>`).join('')}</div>
+      <div class="list-bot"><button class="cta" disabled>리스트 확정</button>
+        <div class="cta-hint">아직 선택되지 않은 항목 ${p.dishes?2:p.slots.length}개</div></div></div>`;
+  }
+  const cnt = itemCount();
+  const banner = locked
+    ? `<div class="banner ok"><b>확정됨 · 가격 추적 중</b> — 목표가 ${won(Math.round(p.spent*0.95))}원 이하로 떨어지면 이메일로 알려드립니다.</div>`
+    : (CAT==='baby' ? `<div class="banner bad"><b>리콜 확인 필요 1건</b> — 카시트. 같은 제조사의 다른 모델에 이력이 있습니다.<br><span class="mono" style="font-size:10.5px">출처 공공 안전정보 · 조회 2026-09-09</span></div>` : '');
+  const tabs = p.tabs ? `<div class="catbar" style="margin:9px 0 0">${p.tabs.map((t,i)=>
+      `<button class="cat" aria-pressed="${i===0}" style="font-size:11.5px;padding:3px 10px">${t}</button>`).join('')}</div>` : '';
+  const bot = locked
+    ? `<button class="cta ghost">구매 링크 모아보기</button>
+       <div class="cta-hint">항목별 외부 구매 링크 · 전체 링크 복사</div>`
+    : `<button class="cta">리스트 확정</button>
+       <div class="cta-hint">확정하면 가격 추적이 시작됩니다</div>`;
+  return `<div class="list">
+    <div class="list-top">
+      <div class="list-cat">${p.label}${locked?' · 읽기 전용':''}</div>
+      <div class="total mono">${won(p.spent)}원</div>
+      <div class="list-sub">담긴 항목 ${cnt}개 · 예산 ${won(p.budget)}원</div>
+      <div class="sumrow">${p.summary.map(s=>`<span class="sumi ${s.cls}">${s.t}</span>`).join('')}</div>
+      ${tabs}
+    </div>
+    <div class="list-scroll">${banner}${slotBlocks(locked)}
+      ${locked?'':`<div style="font-size:10.5px;color:var(--ink-3);padding:6px 4px 0;line-height:1.6">리뷰는 <b>순위에 반영되지 않습니다.</b> 리뷰가 만드는 값은 제조사 주장의 판정 하나뿐입니다.</div>`}
+    </div>
+    <div class="list-bot">${bot}</div></div>`;
+}
+
+function frame(o){
+  const cls = ['app']; if(o.cls) cls.push(o.cls);
+  const inner = `<div class="${cls.join(' ')}">${o.side ?? side()}${o.chat}${o.list ?? ''}${o.rev ?? ''}</div>`;
+  return `<div class="stagewrap"><div class="stage">
+    <div class="stagebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      <span class="cap">${o.cap||''}</span><span class="right">데스크톱 1440</span></div>
+    <div class="scroller">${inner}</div></div>${o.scrim||''}</div>`;
+}
+</script>
+<script>
+/* ── 화면 ─────────────────────────────────────────────────── */
+function phead(eyebrow, title, desc, spec){
+  return `<div class="phead"><div class="eyebrow">${eyebrow}</div><h2>${title}</h2>
+    <p>${desc}</p>${spec?`<div class="spec">${spec}</div>`:''}</div>`;
+}
+
+const SCREENS = {};
+
+SCREENS.s1 = () => phead('S1','랜딩',
+  '심사자가 공개 URL 로 처음 보는 화면이다. 단순 채팅창이 아니라 <b>무엇을 하는 서비스인지</b>를 먼저 말한다. 사이드바가 없는 유일한 화면이라 여기서만 헤더를 유지한다(명세 §3.1).',
+  '명세 S1 · §3.1 · §12 — 「제공 기능」의 UI 이미지는 <b>아래 화면들의 실제 캡처로 대체 예정</b>이라 지금은 자리만 잡았다.')
++ `<div class="stage"><div class="stagebar"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span class="cap">S1 랜딩</span><span class="right">데스크톱 1440</span></div>
+<div class="lp">
+  <div class="lp-head"><div class="logo"><span class="mark"></span>Plan Basket</div>
+    <div class="r"><button class="btn" style="padding:6px 13px">로그인</button></div></div>
+  <div class="hero">
+    <h1>장바구니를 한 번에</h1>
+    <p class="slogan">신뢰성 있는 리뷰를 바탕으로, 구매 목적 한 줄이면 필요한 물건 전체를 근거와 함께 골라 드립니다.</p>
+    <div class="cta-row"><button class="btn pri" style="padding:11px 24px;font-size:14px">채팅 시작</button>
+      <span class="free">가입 없이 바로 사용</span></div>
+  </div>
+  <div class="sec">
+    <h2>이렇게 동작합니다</h2>
+    <div class="how">
+      <div class="c"><div class="n mono">01</div><h3>원하는 목적을 자연어로 설명한다</h3>
+        <p>필요한 물건이 아니라 하려는 일을 말하면 됩니다. 모르는 것이 남으면 되묻고, <b>그전에는 추천을 만들지 않습니다.</b></p></div>
+      <div class="c"><div class="n mono">02</div><h3>검증된 리뷰로 후보를 좁힌다</h3>
+        <p>제조사가 스펙에 적은 주장을 리뷰로 대조합니다. 조작 의심 리뷰는 <b>지우지 않고 대조에서 뺀 뒤 그 건수를 보여줍니다.</b></p></div>
+      <div class="c"><div class="n mono">03</div><h3>근거와 함께 리스트가 완성된다</h3>
+        <p>어떤 과정을 거쳐 골랐는지 단계별로 펼쳐 볼 수 있습니다. 확인한 것과 <b>모르는 것을 갈라서</b> 적습니다.</p></div>
+    </div>
+  </div>
+  <div class="sec" style="padding-top:6px">
+    <h2>제공 기능</h2>
+    <p class="lead">설명 글과 실제 UI 를 짝지어 보여 준다. 항목마다 좌우가 번갈아 놓인다.</p>
+    <div class="feat"><div class="txt"><h3>대화로 조건 수집</h3>
+      <p>목적만 말하면 필요한 조건을 되물어 채워 줍니다. 모든 질문에 «잘 모르겠어요»가 있고, 고른 조건은 언제든 고치거나 지울 수 있습니다.</p></div>
+      <div class="shot"><div><b>S3 선택 카드 화면</b>실제 캡처로 대체 예정</div></div></div>
+    <div class="feat flip"><div class="txt"><h3>근거가 보이는 추천</h3>
+      <p>의도 분해 → 비교 매칭 → 검증·재탐색 → 설명 생성 → 리포트. 각 단계에서 후보가 몇 개 걸러졌는지까지 펼쳐 볼 수 있습니다.</p></div>
+      <div class="shot"><div><b>S4-a 추론 로그 펼침</b>실제 캡처로 대체 예정</div></div></div>
+    <div class="feat"><div class="txt"><h3>리뷰 클렌징</h3>
+      <p>여러 사이트 리뷰를 모아 정제한 뒤 평점을 다시 계산합니다. <b>정제 전후를 나란히</b> 보여 줍니다.</p></div>
+      <div class="shot"><div><b>S5 리뷰 상세 비교</b>실제 캡처로 대체 예정</div></div></div>
+    <div class="feat flip"><div class="txt"><h3>한 번에 담기는 리스트</h3>
+      <p>필요한 품목이 슬롯별로 채워지고 총액이 실시간 계산됩니다. <b>빈 슬롯도 자리를 유지</b>해 무엇이 남았는지 보입니다.</p></div>
+      <div class="shot"><div><b>S4 리스트 패널</b>실제 캡처로 대체 예정</div></div></div>
+  </div>
+  <div class="sec" style="padding-top:6px">
+    <h2>사용 시 이점</h2>
+    <p class="lead">기능이 아니라 결과를 말하는 영역.</p>
+    <div class="gains">
+      <div class="gain"><h3>검색 시간이 줄어든다</h3><p>여러 사이트를 돌아다니며 비교하지 않아도 됩니다.</p></div>
+      <div class="gain"><h3>잘못된 조합을 피한다</h3><p>호환되지 않는 부품, 월령에 맞지 않는 용품을 걸러 줍니다.</p></div>
+      <div class="gain"><h3>광고성 리뷰에 속지 않는다</h3><p>정제 전후 평점 차이를 직접 보여 줍니다.</p></div>
+      <div class="gain"><h3>가격을 놓치지 않는다</h3><p>목표가를 설정해 두면 하락 시 알려 줍니다.</p></div>
+    </div>
+  </div>
+  <div class="lp-cta"><button class="btn pri" style="padding:11px 24px;font-size:14px">채팅 시작</button></div>
+</div></div>`
++ `<div class="note"><b>초안에서 바뀐 것</b> — 초안 랜딩은 히어로와 「동작 방식」 3단까지였다. 명세가 요구하는 <b>「제공 기능」 4항목 · 「사용 시 이점」 4항목 · 하단 CTA 반복</b>을 더했다. 카피는 명세 §12가 임시라고 표시한 것이라 팀 표현으로 교체해야 한다.</div>`;
+
+SCREENS.s2 = () => phead('S2','카테고리 선택',
+  '카테고리를 <b>고르기 전에는 자유 입력을 받지 않는다.</b> 고르는 순간 그 카테고리 전용 슬롯 구조가 리스트 패널에 생성된다.',
+  '명세 S2 · §6.0 — 백엔드는 <span class="mono">GET /api/domains</span> 로 셋을 다 준다. <b><span class="mono">ready:false</span> 인 것도 목록에서 빼지 않는다</b> — 고를 수 없게 하되 없는 것처럼 굴지는 않는다.')
++ frame({cap:'S2 카테고리 선택', chat:`<div class="chat grip">
+  <div class="chat-scroll">
+    <div class="msg bot"><div class="who">Plan Basket</div>
+      <div class="bub">안녕하세요, 쇼핑을 도와드릴게요. <b>어느 제품군을 찾고 계신가요?</b></div></div>
+    ${Object.values(PACKS).map(p=>`
+      <div class="pcard" style="grid-template-columns:1fr;cursor:pointer;${p.key===CAT?'border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)':''}">
+        <div><div class="pname" style="margin-top:0">${p.label}
+          ${p.ready?'':`<span class="na" style="margin-left:6px">팩 미구현</span>`}</div>
+          <div style="font-size:12.5px;color:var(--ink-2)">${p.blurb}</div>
+          ${p.ready?'':`<div style="font-size:11px;color:var(--ink-3);margin-top:6px">고를 수는 있지만 지금은 예시 화면만 나옵니다 — 품목 사전·외부 사실·하드 제약·리뷰 소스가 아직 비어 있습니다.</div>`}
+        </div></div>`).join('')}
+  </div>
+  <div class="composer">
+    <div class="inputbox" style="opacity:.55">카테고리를 먼저 골라 주세요<span class="send">보내기</span></div>
+    <div class="hint">선택 필수 — 명세 §S2</div>
+  </div></div>`, list:listPanel('empty')});
+
+SCREENS.s3 = () => { const p=P(); return phead('S3','대화 · 조건 수집',
+  '<b>카테고리 직후, 자유 대화보다 먼저 필수 입력값을 받는다</b>(명세 §6.0). 그다음 자유 입력을 받고, 부족한 것만 선택 카드로 채운다. 고른 조건은 누적되며 <b>수정·삭제할 수 있다.</b>',
+  `명세 S3 · §6.0 — 백엔드는 왕복이 두 번이다. 1차 호출이 <span class="mono">needs_input[]</span> 만 돌려주고, 답을 <span class="mono">answers</span> 에 담아 같은 엔드포인트를 다시 부른다. <b>모르는 게 남으면 추천을 만들지 않는다.</b>`)
++ `<div class="catbar"><span class="lbl">카테고리</span>${catBtns()}</div>`
++ frame({cap:`S3 · ${p.label}`, chat:`<div class="chat grip">
+  <div class="chat-scroll">
+    <div class="msg bot"><div class="who">Plan Basket</div><div class="bub">${p.askFirst}</div></div>
+    <div class="qgroup"><div class="q">필수 입력값<span class="qkind">먼저 받는다</span></div>
+      <table class="t">${p.required.map(r=>`<tr><td style="width:34%;color:var(--ink-3)">${r.k}</td><td>${r.v}</td></tr>`).join('')}</table></div>
+    <div class="msg me"><div class="bub">${p.userSay}</div></div>
+    <div class="msg bot"><div class="who">Plan Basket</div><div class="bub">${p.afterAsk}</div></div>
+    ${p.questions.slice(0,3).map(q=>qgroup(q)).join('')}
+    <div class="msg bot"><div class="bub" style="background:none;border:0;padding:0;font-size:12px;color:var(--ink-3)">
+      질문 ${p.questions.length}개 중 3개 표시 — 나머지는 ${p.questions.slice(3).map(q=>`«${q.q}»`).join(' · ')}</div></div>
+    <div class="qgroup" style="border-color:var(--accent)">
+      <div class="q">지금까지 모인 조건<span class="qkind">수정 · 삭제 가능</span></div>
+      <div class="chips">${p.conds.map(c=>`<span class="chip"><span style="color:var(--ink-3)">${c.k}</span><b>${c.v}</b><button class="x">✕</button></span>`).join('')}</div>
+      <div style="margin-top:10px"><button class="btn pri" style="font-size:12.5px;padding:7px 15px">이 조건으로 찾기</button>
+        <span style="font-size:11px;color:var(--ink-3);margin-left:9px">${p.conds.length}개 조건 · 필수 입력 충족</span></div>
+    </div>
+  </div>
+  <div class="composer"><div class="inputbox">목록에 없는 조건은 직접 입력하셔도 됩니다<span class="send">보내기</span></div></div>
+  </div>`, list:listPanel('filling')})
++ `<div class="note"><b>초안에서 바뀐 것</b> — 초안은 질문이 «모니터 보유 / 해상도 / 주변기기» 셋이었다. 명세 §6.1이 <b>본체만 취급하고 주변기기 질문을 하지 않는다</b>고 했으므로 그 질문을 걷어내고 명세의 여섯 질문으로 바꿨다. 모든 그룹에 «잘 모르겠어요»를 넣었다.</div>`; };
+
+function qgroup(q){
+  return `<div class="qgroup"><div class="q">${q.q}<span class="qkind">${q.kind}</span></div>
+    <div class="opts">${q.opts.map((o,i)=>{
+      const dunno = o==='잘 모르겠어요' || o==='상관없음';
+      return `<button class="opt${i===q.sel?' sel':''}${dunno?' dunno':''}">${o}</button>`;}).join('')}</div>
+    ${q.hint?`<div style="font-size:11px;color:var(--ink-3);margin-top:8px">${q.hint}</div>`:''}</div>`;
+}
+function catBtns(){
+  return Object.values(PACKS).map(p=>`<button class="cat" data-cat="${p.key}" aria-pressed="${p.key===CAT}">${p.label}${p.ready?'':'<span class="tag">팩 미구현</span>'}</button>`).join('');
+}
+</script>
+<script>
+function pcard(pr){
+  const badge = pr.rv
+    ? `<button class="rbadge">리뷰 <b>${won(pr.rv.total)}</b>건<span class="sep">·</span>클렌징 <b>${pr.rv.rate}</b> 제외<span class="sep">·</span>정제 후 <b>${pr.rv.score}</b> ${pr.rv.score==='—'?'':naTag('평점은 백엔드에 필드가 없다')}</button>`
+    : '';
+  const vs = (pr.verdicts||[]).map(v=>`<span class="v v-${v.v}"><span class="g">${v.g}</span>${v.t}</span>`).join(' ');
+  return `<div class="pcard${pr.byclaim?' ':''}">
+    <div class="thumb">제품<br>이미지</div>
+    <div>
+      <span class="pslot">${pr.slot}</span>
+      <div class="pname">${pr.n}</div>
+      <div class="pprice mono">${pr.p?won(pr.p)+'원':'—'}</div>
+      <div class="why">${pr.why}</div>
+      <div class="prow">${badge}${vs}
+        <button class="addbtn${pr.added?' done':''}">${pr.added?'담김':'리스트에 담기'}</button></div>
+      ${pr.flag?`<div class="pwarn">${pr.flag}</div>`:''}
+      ${pr.recall?`<div class="pwarn" style="color:var(--bad);background:var(--bad-soft)">⛔ ${pr.recall}</div>`:''}
+    </div></div>`;
+}
+
+SCREENS.s4 = () => { const p=P(); return phead('S4','추천 결과',
+  '<b>서비스의 얼굴.</b> 좌측에 추천 메시지와 제품 요약 카드, 우측 리스트 패널이 채워진다. 추천 이유는 <b>사용자가 입력한 조건을 인용하는 형식</b>이다.',
+  '명세 S4 · §5 — 카드의 리뷰 배지는 <span class="mono">evidence.samples</span> 와 <span class="mono">excluded_high_risk</span> 에서 만든다. <b>평점만 백엔드에 없다.</b>')
++ `<div class="catbar"><span class="lbl">카테고리</span>${catBtns()}</div>`
++ frame({cap:`S4 · ${p.label}`, chat:`<div class="chat grip">
+  <div class="chat-scroll">
+    <div class="acc"><div class="acc-head">추천 근거 보기 · 5단계 검증 완료<span class="tw">▾ 펼치기</span></div></div>
+    <div class="msg bot"><div class="who">Plan Basket</div><div class="bub">
+      ${CAT==='pc'?'QHD 네이티브 권장을 충족하는 조합입니다. 예산 1,200,000원 중 <b>1,187,000원</b>을 썼고 호환성 경고는 없습니다.'
+        :CAT==='baby'?'생후 6개월 기준으로 <b>지금 필요한 것</b>부터 담았습니다. 보유하신 3건은 뺐고, <b>리콜 확인이 필요한 항목이 1건</b> 있습니다.'
+        :'4인분 2끼 기준으로 요리 2건과 재료를 담았습니다. <b>두 요리에 겹치는 재료 2건은 합쳐서 한 번만</b> 삽니다.'}
+    </div></div>
+    ${p.products.map(pcard).join('')}
+    <div class="msg bot"><div class="bub" style="background:none;border:0;padding:0;font-size:12px;color:var(--ink-3)">
+      조건을 바꾸거나 특정 항목만 다시 골라 달라고 하셔도 됩니다.</div></div>
+  </div>
+  <div class="composer"><div class="inputbox">무엇이 필요하신가요?<span class="send">보내기</span></div></div>
+  </div>`, list:listPanel('full')})
++ `<div class="note hotish"><b>명세에 없어서 더한 것</b> — 리스트 패널 아래의 «리뷰는 순위에 반영되지 않습니다» 고지${CAT==='pc'
+    ? `와 «3단계에서 반증되며 편성됨» 표시. 백엔드가 <span class="mono">added_by_claim</span> 으로 이미 내보내고 있고, <b>이게 안 보이면 검증이 설명용 장식으로 읽힌다.</b>`
+    : `. ${CAT==='food'?'«요리 2개에 사용»·«약 60% 남습니다» 는 명세 §6.3 의 중복 합산·최소 판매 단위 규칙이다':'리콜 배지는 명세 §6.2 가 «다른 어떤 표시보다 우선» 이라고 한 것이다'} — <b>팩이 아직 없어 백엔드에는 대응 필드가 없다.</b>`}</div>`; };
+
+SCREENS.s4a = () => { const p=P(); const i=p.indicators; return phead('S4-a','추론 로그',
+  '접힌 상태에는 요약 한 줄만 나온다. 펼치면 단계별로 한 줄씩 보이고, 각 단계를 다시 펼쳐 상세 근거를 본다.',
+  '명세 S4-a · §7 — 5단계는 명세 그대로다. <b>세 지표는 따로 나가고 합치지 않는다</b> — 합치면 가중치를 정당화해야 하는데 근거가 없다.')
++ `<div class="catbar"><span class="lbl">카테고리</span>${catBtns()}</div>`
++ frame({cap:`S4-a · ${p.label}`, cls:'full', chat:`<div class="chat">
+  <div class="chat-scroll">
+    <div class="acc" style="max-width:none">
+      <div class="acc-head">추천 근거 보기 · 5단계 검증 완료<span class="tw">▴ 접기</span></div>
+      ${p.reasoning.map((s,ix)=>`<div class="stepline done">
+        <div class="n">${ix+1}</div>
+        <div><div class="t">${s.t}</div><div class="d">${s.d}</div>
+          ${s.kv?`<div class="kv">${s.kv.map(k=>`<span class="kvi">${k}</span>`).join('')}</div>`:''}
+          ${s.src?`<div class="d" style="font-size:11px;color:var(--ink-3);margin-top:6px">출처 ${s.src}</div>`:''}
+          ${s.na?`<div class="pwarn" style="margin-top:8px">${naTag('점수 개념이 없다')} ${s.na}</div>`:''}
+        </div></div>`).join('')}
+      <div class="stepline"><div class="n">6</div>
+        <div><div class="t" style="color:var(--ink-3)">사후 갱신 — 확정되면 여기에 추가</div>
+          <div class="d">6단계 정의가 아직 안 갈렸다(기획안 §16-5).</div></div></div>
+    </div>
+
+    <div class="acc" style="max-width:none">
+      <div class="acc-head">신뢰 지표 셋 — 종합 점수로 합치지 않는다</div>
+      <div class="stepline"><div class="n">①</div><div><div class="t">조건 충족도 <span class="num">${i.cond}</span></div>
+        <div class="d">${i.condNote}</div></div></div>
+      <div class="stepline"><div class="n">②</div><div><div class="t">판정 분포</div><div class="d">${i.verdicts}</div>
+        <div class="kv"><span class="kvi">확인 <b>●</b></span><span class="kvi">부분 <b>◐</b></span><span class="kvi">반증 <b>✕</b></span><span class="kvi">근거 없음 <b>·</b></span></div>
+        <div class="d" style="font-size:11px;color:var(--ink-3);margin-top:5px">색만으로 구분하지 않는다 — 글리프와 라벨이 항상 붙는다.</div></div></div>
+      <div class="stepline"><div class="n">③</div><div><div class="t">조작 확률 분포 — <b>이진 판정을 하지 않는다</b></div>
+        <div class="d">대조한 리뷰 ${i.samples}</div>
+        <div class="kv"><span class="kvi">${i.risk}</span></div></div></div>
+    </div>
+
+    <div class="acc" style="max-width:none">
+      <div class="acc-head">3단계 ① 깔때기 — 하드 제약이 후보를 몇 개 걸렀나</div>
+      ${CAT==='pc'?`
+      <div class="stepline"><div class="n">▸</div><div><div class="t">VRAM 12GB 이상 — <span class="num">1개 제외</span> · 11개 남음</div>
+        <div class="d">게임사 공개 권장 사양 · 〈인디아나 존스: 그레이트 서클〉 QHD(1440p) 네이티브 권장 · Bethesda 공식 지원 문서</div>
+        <div class="d" style="font-size:11px;color:var(--ink-3);margin-top:4px">확인 2026-09-09 · <b>발행처가 갱신 시점을 밝히지 않아 시차를 잴 수 없습니다.</b></div></div></div>
+      <div class="stepline"><div class="n">▸</div><div><div class="t">파워 정격 650W 이상 — <span class="num">0개 제외</span></div>
+        <div class="d"><b>0을 0이라고 보인다.</b> 조건을 걸어도 결과가 같을 수 있고, 그때 «걸었습니다»만 뜨고 무엇이 달라졌는지 안 보이면 «8GB였으면 뭐가 달라집니까»에 답할 것이 없다.</div></div></div>`
+      :`<div class="stepline"><div class="n">▸</div><div><div class="t">${p.reasoning[1].kv.join(' · ').replace(/<[^>]+>/g,'')}</div>
+        <div class="d">이 카테고리는 팩이 아직 없어 예시다.</div></div></div>`}
+    </div>
+  </div></div>`})
++ `<div class="note"><b>명세와 갈리는 자리</b> — 명세 3단계는 «검사 Agent ↔ 변호인 Agent 교차 검증, 통과 기준 80점»이라고 적었다. 백엔드에는 <b>점수 개념이 없고</b> 판정 4종(확인·부분 확인·반증·근거 없음)이 나간다. 화면에서 80점을 말하려면 백엔드에 점수를 만들어야 한다 — 지금은 실제로 도는 것을 그렸다.</div>`; };
+</script>
+<script>
+function revPanel(){
+  const p=P(), r=p.review;
+  const dist=[['5',58,52],['4',24,27],['3',9,11],['2',5,6],['1',4,4]];
+  const axVals=[88,71,46,64,58];
+  const quotes = r.withheld
+    ? `<div class="withheld"><b>이 소스는 인용을 싣지 않습니다.</b> 리뷰 원문을 그대로 저장·노출할 수 없다는 방침(2026-09-08)에 따라 정책상 가렸습니다.
+        <div style="margin-top:8px">판정과 표본 수는 그대로입니다 — <b>«근거가 없다»가 아니라 «못 보여준다»</b>입니다.
+        모델이 낸 인용이 원문에 실제로 있는지는 서버 안에서 계속 확인하고, 지어낸 인용은 그 자리에서 버려집니다.</div>
+        <div style="margin-top:8px"><a href="#">출처에서 확인하기 ↗</a></div></div>`
+    : r.quotes.map(q=>`<div class="quote">${q.t}
+        <div class="src">출처 ${q.s}<span>·</span>수집 ${q.d}<span>·</span><a href="#">원문 보기 ↗</a></div></div>`).join('')
+      + `<div style="font-size:11px;color:var(--ink-3);margin-top:4px">요약문만 제공합니다. 원문은 출처 사이트에서 확인해 주세요.</div>`;
+  return `<div class="rev">
+    <div class="rev-top"><div><h3>리뷰 요약</h3><div class="sub">${r.title}</div></div>
+      <button class="iconbtn" style="margin-left:auto">✕</button></div>
+    <div class="rev-scroll">
+      <div class="rsec"><h4>정제 전후 평점 ${naTag('평점 필드가 백엔드에 없다')}</h4>
+        <div class="scorepair">
+          <div class="score"><div class="lb">원본</div><div class="vl mono">4.6</div></div>
+          <div class="score after"><div class="lb">클렌징 후</div><div class="vl mono">4.2</div></div>
+        </div>
+        <div style="font-size:11.5px;color:var(--ink-2);margin-top:8px">
+          ${won(r.compared+r.excluded)}건 중 <b>${r.excluded}건 제외</b> (${(r.excluded/(r.compared+r.excluded)*100).toFixed(1)}%) — 조작 확률 20% 이상이라 대조에서 뺐습니다. <b>지우지 않습니다.</b></div>
+        ${r.unscored?`<div class="pwarn" style="margin-top:8px">조작 확률을 <b>못 잰 리뷰가 ${r.unscored}건</b> 섞여 있습니다. 그래서 «20% 이상을 전부 걸렀다»고 말하지 않습니다.</div>`:''}
+      </div>
+      <div class="rsec"><h4>평점 분포 (정제 전 / 후) ${naTag('평점 필드가 백엔드에 없다')}</h4>
+        ${dist.map(([k,a,b])=>`<div class="dist"><span class="mono">${k}</span>
+          <div><div class="bar pre" style="margin-bottom:2px"><i style="width:${b}%"></i></div>
+               <div class="bar"><i style="width:${a}%"></i></div></div>
+          <span class="mono" style="font-size:10.5px;color:var(--ink-3)">${a}%</span></div>`).join('')}
+      </div>
+      <div class="rsec"><h4>항목별 평가 — ${p.label} 평가 축 ${naTag('축별 집계가 백엔드에 없다')}</h4>
+        ${p.axes.map((a,ix)=>`<div class="axis"><span>${a}</span>
+          <div class="bar"><i style="width:${axVals[ix]||60}%"></i></div>
+          <span class="mono" style="font-size:11px;color:var(--ink-3)">긍정 ${axVals[ix]||60}%</span></div>`).join('')}
+      </div>
+      <div class="rsec"><h4>이 품목의 판정 — 실제 백엔드 값</h4>
+        ${r.claims.map(c=>`<div class="quote"><div style="display:flex;gap:8px;align-items:center;margin-bottom:5px">
+          <span class="v v-${c.v}"><span class="g">${c.g}</span>${c.t}</span>
+          <b style="font-size:12.5px">«${c.txt}»</b></div>
+          <div style="font-size:12px;color:var(--ink-2)">${c.note}</div></div>`).join('')}
+        <div style="font-size:11px;color:var(--ink-3);margin-top:6px">대조 표본 ${r.kinds} — <b>읽은 표본과 주장에 닿는 표본은 다릅니다.</b></div>
+      </div>
+      <div class="rsec"><h4>대표 리뷰 요약</h4>${quotes}</div>
+      <div class="rsec"><div class="withheld" style="font-size:11.5px">
+        <b>이 리뷰는 합성입니다.</b> 네이버·카카오에 리뷰 API 가 없다는 것이 확인돼(2026-09-07) 조작 리뷰의 정답 라벨을 만들려고 합성했습니다. 숨기지 않는 것이 합성을 고른 조건입니다.</div></div>
+    </div></div>`;
+}
+
+SCREENS.s5 = () => { const p=P(); return phead('S5','리뷰 상세',
+  '제품 카드의 리뷰 배지를 누르면 우측에서 열린다. <b>원문은 저장·표시하지 않는다</b>(저작권) — 요약문과 출처·수집 시점만 낸다.',
+  '명세 S5 · §11 — 백엔드는 <span class="mono">excerpt_policy</span> 로 «인용이 실려 있다(verbatim)»와 «정책상 가렸다(withheld)»를 갈라 준다. <b><span class="mono">withheld</span> 를 «근거 없음»처럼 그리면 안 된다.</b>')
++ `<div class="catbar"><span class="lbl">카테고리</span>${catBtns()}</div>`
++ frame({cap:`S5 · ${p.label}`, cls:'withrev', chat:`<div class="chat">
+  <div class="chat-scroll">
+    ${p.products.slice(0,2).map(pcard).join('')}
+    <div class="msg bot"><div class="bub" style="background:none;border:0;padding:0;font-size:12px;color:var(--ink-3)">
+      리뷰 배지를 누르면 오른쪽에 상세가 열립니다.</div></div>
+  </div>
+  <div class="composer"><div class="inputbox">무엇이 필요하신가요?<span class="send">보내기</span></div></div>
+  </div>`, rev:revPanel()})
++ `<div class="note warnish"><b>${CAT==='food'?'이 카테고리는 인용이 가려진 상태를 보여준다':'인용이 실린 상태다'}</b> — 실데이터 소스는 <span class="mono">withheld</span> 가 기본이고 합성 소스는 인용이 실린다. 화면은 <b>둘을 다르게 그려야 한다.</b> 판정과 표본 수는 어느 쪽이든 그대로다.</div>`; };
+</script>
+<script>
+SCREENS.s5a = () => { const p=P(); const target=Math.round(p.spent*0.95);
+  return phead('S5-a','리스트 확정',
+  '리스트 패널 <b>최하단에 고정된</b> «리스트 확정»을 누르면 열린다. 필수 슬롯이 다 차지 않으면 버튼이 비활성이고, 호환성 경고가 있으면 <b>막지는 않되 경고를 다이얼로그에 다시 표시</b>한다.',
+  '명세 S5-a · §8 — <b>백엔드에 전무하다.</b> 리스트 저장·확정·목표가·가격 알림·로그인이 모두 화면 전용이다. 가격 트래킹은 «카테고리별 난이도가 다르다»에서 논의가 멈췄다.')
++ `<div class="catbar"><span class="lbl">카테고리</span>${catBtns()}</div>`
++ frame({cap:`S5-a · ${p.label}`, chat:`<div class="chat"><div class="chat-scroll">
+    ${p.products.slice(0,1).map(pcard).join('')}
+  </div><div class="composer"><div class="inputbox">무엇이 필요하신가요?<span class="send">보내기</span></div></div></div>`,
+  list:listPanel('full'),
+  scrim:`<div class="scrim"><div class="dlg">
+    <div class="dlg-h"><h3>리스트 확정 <span class="na" style="vertical-align:middle">백엔드 없음</span></h3>
+      <p>확정하면 가격 추적이 시작됩니다. 항목은 읽기 전용으로 바뀝니다.</p></div>
+    <div class="dlg-b">
+      ${CAT==='baby'?`<div class="banner bad" style="margin-bottom:13px"><b>리콜 확인 필요 1건</b> — 카시트. 확정을 막지는 않지만 모델명을 확인해 주세요.<br><span class="mono" style="font-size:10.5px">출처 공공 안전정보 · 조회 2026-09-09</span></div>`:''}
+      <div class="field"><label>리스트 이름</label>
+        <div class="inp">${p.listName}</div>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:4px">자동 생성값입니다. 고칠 수 있습니다.</div></div>
+      <div class="field"><label>구성 요약 <span style="font-weight:400;color:var(--ink-3)">읽기 전용</span></label>
+        <div class="inp" style="background:var(--surface-3);color:var(--ink-2)">항목 ${countLabel()} · 합계 <b class="mono">${won(p.spent)}원</b></div></div>
+      <div class="field"><label>구매 예정일 — 가격 알림 기간을 결정합니다</label>
+        <div class="seg"><button class="opt">오늘</button><button class="opt sel">이번 주</button><button class="opt">이번 달</button><button class="opt">직접 입력</button></div>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:6px">지나면 가격 추적을 자동 종료합니다 (연장 가능).</div></div>
+      <div class="field"><label>목표가</label>
+        <div class="seg" style="margin-bottom:7px"><button class="opt sel">총액 기준</button><button class="opt">항목별 개별</button></div>
+        <div class="inp mono">${won(target)}원 <span style="color:var(--ink-3);font-family:inherit;font-size:11.5px">— 현재 총액의 −5% (기본값)</span></div></div>
+      <div class="field"><label>알림 수신</label>
+        <div class="inp">jieun@example.com</div>
+        <div style="font-size:11px;color:var(--ink-3);margin-top:4px">이메일이 기본입니다. 카카오 알림톡은 추후.</div></div>
+    </div>
+    <div class="dlg-f"><button class="btn">취소</button><button class="btn pri">확정하기</button></div>
+  </div></div>`})
++ `<div class="note hotish"><b>비로그인 상태에서는 여기서 로그인을 요구한다</b>(명세 §9). 저장·알림에 필요하기 때문이고, 로그인 후 <b>확정 흐름을 이어서 진행</b>한다 — 처음부터 다시 시키지 않는다.</div>`; };
+
+SCREENS.s5b = () => { const p=P(); const target=Math.round(p.spent*0.95); const now=Math.round(p.spent*0.93);
+  return phead('S5-b','확정 완료 상태',
+  '항목이 <b>읽기 전용</b>으로 바뀌고 하단 버튼이 «구매 링크 모아보기»로 교체된다. 채팅 영역에 확정 요약 카드가 삽입되고, 사이드바 항목이 «초안» → «확정»으로 바뀐다.',
+  '명세 S5-b · §7 · §8 — 사이드바 정렬은 <b>액션 필요 → 최근순</b>이고, 강조는 «목표가 도달» 상태에만 준다.')
++ `<div class="catbar"><span class="lbl">카테고리</span>${catBtns()}</div>`
++ frame({cap:`S5-b · ${p.label} · 목표가 도달`,
+  side: (()=>{ const p2=P(); const saved=JSON.stringify(p2.history);
+      p2.history = JSON.parse(saved).map((h,i)=> i===0 ? {n:h.n, st:'목표가 도달 · 확인 필요', hit:true} : h);
+      const s = side(); p2.history = JSON.parse(saved); return s; })(),
+  chat:`<div class="chat grip"><div class="chat-scroll">
+    <div class="banner hot" style="max-width:640px"><b>목표가 도달</b> — 현재가 <span class="mono">${won(now)}원</span> (설정가 대비 <span class="mono">−${won(target-now)}원</span>)
+      <div style="margin-top:7px"><button class="btn" style="padding:5px 12px;font-size:12px">구매 링크 모아보기</button></div></div>
+    <div class="pcard" style="grid-template-columns:1fr;max-width:640px;border-color:var(--accent)">
+      <div><span class="pslot">확정 요약</span>
+        <div class="pname">${p.listName}</div>
+        <table class="t" style="margin-top:6px">
+          <tr><td style="width:38%;color:var(--ink-3)">확정 시각</td><td class="mono">2026-09-09 10:24</td></tr>
+          <tr><td style="color:var(--ink-3)">항목 수</td><td>${countLabel()}</td></tr>
+          <tr><td style="color:var(--ink-3)">총액</td><td class="mono">${won(p.spent)}원</td></tr>
+          <tr><td style="color:var(--ink-3)">목표가</td><td class="mono">${won(target)}원 <span style="font-family:inherit;color:var(--ink-3)">(총액 기준)</span></td></tr>
+          <tr><td style="color:var(--ink-3)">구매 예정일</td><td>이번 주 — 지나면 추적을 자동 종료합니다</td></tr>
+        </table></div></div>
+    <div class="msg bot"><div class="bub" style="background:none;border:0;padding:0;font-size:12px;color:var(--ink-3)">
+      «수정하기»를 누르면 초안으로 되돌아간다는 경고 후 편집할 수 있습니다.</div></div>
+  </div>
+  <div class="composer"><div class="inputbox">무엇이 필요하신가요?<span class="send">보내기</span></div></div></div>`,
+  list:listPanel('locked')})
++ `<div class="note"><b>구매 링크 모아보기</b> — 항목별 외부 구매 링크 목록에 «구매하러 가기»·«링크 복사»가 붙고 하단에 «전체 링크 복사»가 있다. 결제는 이 서비스가 하지 않는다 — <b>견적을 확정하면 가격비교 사이트로 연결</b>하기로 정리됐고, 프로토타입이므로 결제를 무리하게 구현하지 않는다는 정리도 함께 나왔다.</div>`; };
+
+SCREENS.s7 = () => phead('S7','로그인',
+  '<b>이메일 로그인만 있다</b>(소셜 없음). 비로그인 상태에서도 대화와 추천은 그대로 된다 — 저장·리스트 확정·가격 알림에만 필요하다.',
+  '명세 S7 · §9 — 비로그인 확정 시도는 로그인 요청 후 <b>확정 흐름을 이어서</b> 진행한다.')
++ frame({cap:'S7 로그인', side:side({anon:true}), cls:'nolist', chat:`<div class="chat">
+  <div class="chat-scroll" style="display:grid;place-items:center">
+    <div style="width:min(380px,90%)">
+      <div class="logo" style="justify-content:center;margin-bottom:16px"><span class="mark"></span>Plan Basket</div>
+      <div class="pcard" style="grid-template-columns:1fr">
+        <div>
+          <div class="pname" style="margin-top:0">로그인</div>
+          <p style="font-size:12.5px;color:var(--ink-2);margin:0 0 14px">로그인하지 않아도 대화와 추천은 그대로 쓸 수 있습니다. <b>리스트 저장·가격 알림</b>에만 필요합니다.</p>
+          <div class="field"><label>이메일 주소</label><div class="inp">jieun@example.com</div></div>
+          <button class="cta" style="margin-top:4px">로그인</button>
+          <div class="cta-hint">처음이면 같은 주소로 계정이 만들어집니다.</div>
+        </div></div>
+    </div>
+  </div></div>`});
+</script>
+<script>
+SCREENS.ex = () => phead('＊','예외 · 빈 상태',
+  '명세 §9의 일곱 가지와, <b>백엔드가 «반드시 알려야 한다»고 표시해 내보내는 고지 셋</b>을 함께 그린다.',
+  '명세 §9 + API <span class="mono">notices[]</span> · <span class="mono">budget_met</span> — <b><span class="mono">notices[]</span> 는 비어 있는 것이 정상이고, 있으면 반드시 보여야 한다.</b>')
++ `<div class="grid2">
+  <div class="card"><h3>추천 실행 중</h3>
+    <div class="acc" style="max-width:none;margin:0">
+      <div class="acc-head" style="font-size:12px">엔진 실행 중<span class="tw">3 / 5</span></div>
+      ${['의도 분해','비교 매칭','검증 · 재탐색','설명 생성','리포트'].map((t,i)=>`
+        <div class="stepline ${i<2?'done':(i===2?'run':'')}"><div class="n">${i<2?'✓':i+1}</div>
+          <div><div class="t" style="${i>2?'color:var(--ink-3)':''}">${t}</div>
+          <div class="d">${i===0?'조건 7개 추출':i===1?'후보 12 → 11':i===2?'교차 검증 진행 중…':''}</div></div></div>`).join('')}
+    </div></div>
+
+  <div class="card"><h3>추천 실패 — 조건 완화 제안</h3>
+    <div class="banner bad">조건을 모두 만족하는 조합이 없습니다.</div>
+    <p style="font-size:12.5px;color:var(--ink-2);margin:0 0 10px">QHD 네이티브 권장 + 예산 80만원을 동시에 만족하는 후보가 남지 않았습니다.
+      <b>예산을 12만원 올리면</b> 조건을 모두 만족합니다.</p>
+    <div class="seg"><button class="btn pri" style="font-size:12.5px;padding:6px 13px">92만원으로 다시 찾기</button>
+      <button class="btn" style="font-size:12.5px;padding:6px 13px">조건 하나 빼기</button></div></div>
+
+  <div class="card"><h3>예산 초과 — <span class="mono">budget_met:false</span></h3>
+    <div class="banner warn"><b>예산 500,000원 안에 들어오는 조합을 찾지 못했습니다.</b> 합계는 1,130,000원입니다.</div>
+    <p style="font-size:12.5px;color:var(--ink-2);margin:0">합계만 보여주면 사용자는 <b>예산을 지킨 줄 안다.</b> 백엔드가 <span class="mono">budget_met</span> 을 따로 내보내는 이유가 이것이다.</p></div>
+
+  <div class="card"><h3>외부 사실 없음 — <span class="mono">notices[]</span></h3>
+    <div class="banner warn">이 게임의 공개 권장 사양을 찾지 못해 <b>하드 제약 없이</b> 추천했습니다.</div>
+    <p style="font-size:12.5px;color:var(--ink-2);margin:0">사전에 없는 게임은 <b>지어내지 않는다.</b> 모르면 안 넣고, 2단계가 비는 것으로 드러나며, 화면이 그것을 말한다.</p></div>
+
+  <div class="card"><h3>조작 확률 미채점 — <span class="mono">unscored_risk &gt; 0</span></h3>
+    <div class="banner warn">조작 확률을 <b>재지 못한 리뷰 34건</b>이 표본에 섞여 있습니다.</div>
+    <p style="font-size:12.5px;color:var(--ink-2);margin:0">이때는 «20% 이상을 걸렀다»고 <b>말하면 안 된다.</b> 거르지 못한 것이 섞여 있기 때문이다 — 문구가 이 값에 따라 갈려야 한다.</p></div>
+
+  <div class="card"><h3>호환성 충돌</h3>
+    <div class="banner bad"><b>호환성 경고 1건</b> — 선택한 케이스에 이 쿨러 높이(158mm)가 들어가지 않습니다.</div>
+    <p style="font-size:12.5px;color:var(--ink-2);margin:0 0 10px">어느 항목끼리 문제인지 <b>명시</b>하고, 해당 항목 카드에도 표시한다. 확정을 막지는 않되 다이얼로그에 다시 띄운다.</p>
+    <div class="seg"><button class="btn" style="font-size:12.5px;padding:6px 13px">쿨러 대안 보기</button>
+      <button class="btn" style="font-size:12.5px;padding:6px 13px">케이스 바꾸기</button></div></div>
+
+  <div class="card"><h3>확정 시 슬롯 미충족</h3>
+    <div style="max-width:280px"><button class="cta" disabled>리스트 확정</button>
+      <div class="cta-hint">아직 선택되지 않은 항목 3개</div></div>
+    <p style="font-size:12.5px;color:var(--ink-2);margin:10px 0 0">빈 슬롯도 <b>자리를 유지</b>하기 때문에 무엇이 남았는지 세어서 말할 수 있다.</p></div>
+
+  <div class="card"><h3>품절 · 링크 만료</h3>
+    <div class="item" style="border-color:var(--warn)">
+      <div class="th"></div>
+      <div><div class="nm">B사 12GB 그래픽카드</div><div class="pr mono" style="color:var(--ink-3);text-decoration:line-through">437,000원</div>
+        <div class="iwarn">품절 — 구매 링크가 만료됐습니다.</div>
+        <div class="ctl"><button class="btn" style="font-size:11.5px;padding:4px 10px">이 슬롯만 다시 찾기</button></div></div></div></div>
+
+  <div class="card"><h3>대화 시작 전 · 빈 상태</h3>
+    <div style="border:1px dashed var(--line-2);border-radius:9px;padding:26px 14px;text-align:center;color:var(--ink-3);font-size:12.5px">
+      아직 담긴 제품이 없습니다.<br>대화를 시작하면 여기에 쌓입니다.</div></div>
+
+  <div class="card"><h3>비로그인 상태에서 확정 시도</h3>
+    <p style="font-size:12.5px;color:var(--ink-2);margin:0 0 10px">로그인을 요청하고, 끝나면 <b>확정 흐름을 이어서</b> 진행한다. 처음부터 다시 시키지 않는다.</p>
+    <div class="banner ok">로그인 후 «${PACKS.pc.listName}» 확정을 이어서 진행합니다.</div></div>
+</div>`;
+
+SCREENS.rwd = () => phead('＊','반응형',
+  '데스크톱은 3분할에 패널 폭을 드래그로 조절한다(최소 폭 사이드바 200 · 채팅 420 · 리스트 320, 더블클릭하면 기본 폭 복귀, 조절한 폭은 <b>사용자별로 저장</b>). 태블릿 이하에서는 리스트 패널이 하단 시트로 바뀌고 폭 조절이 없어진다.',
+  '명세 §3.2 · §10')
++ `<div class="devices">
+  <div class="device tablet"><div class="cap">태블릿 — 리스트 패널이 하단 시트로</div>
+    <div style="position:relative;height:400px;display:grid;grid-template-columns:56px 1fr;background:var(--surface)">
+      <div class="side" style="align-items:center;padding-top:10px">
+        <div class="mark" style="width:20px;height:20px;border-radius:6px;background:var(--accent)"></div></div>
+      <div class="chat"><div class="chat-scroll" style="padding:12px">
+        <div class="msg bot"><div class="bub" style="font-size:12px">QHD 네이티브 권장을 충족하는 조합입니다.</div></div>
+        <div class="pcard" style="grid-template-columns:44px 1fr;padding:9px">
+          <div class="thumb" style="width:44px;height:44px;font-size:8px">이미지</div>
+          <div><div class="pname" style="font-size:12px;margin:0">B사 12GB</div><div class="pprice mono" style="font-size:12px">437,000원</div></div></div>
+      </div></div>
+      <div class="sheet" style="grid-column:1/-1">
+        <div style="display:flex;align-items:center;gap:10px">
+          <b style="font-size:12.5px">담긴 항목 8개</b>
+          <span class="mono" style="margin-left:auto;font-weight:600">1,187,000원</span>
+          <span style="color:var(--ink-3);font-size:11px">▲</span></div></div>
+    </div></div>
+
+  <div class="device mobile"><div class="cap">모바일 — 사이드바는 오버레이 드로어</div>
+    <div style="position:relative;height:400px;background:var(--surface)">
+      <div style="position:absolute;inset:0;background:rgba(10,16,15,.42);z-index:2"></div>
+      <div style="position:absolute;top:0;bottom:0;left:0;width:200px;z-index:3;background:var(--surface-2);border-right:1px solid var(--line);padding:12px">
+        <div class="logo" style="font-size:13px"><span class="mark" style="width:17px;height:17px"></span>Plan Basket</div>
+        <button class="newchat" style="font-size:12px;padding:6px 9px">＋ 새 대화</button>
+        <div class="side-lbl" style="margin-top:10px">대화 기록</div>
+        <button class="hist on" style="font-size:11.5px">120만원 게이밍 PC</button>
+        <button class="hist" style="font-size:11.5px">생후 6개월 아기 용품<span class="st">확정 · 가격 추적 중</span></button>
+      </div>
+      <div class="chat"><div class="chat-scroll" style="padding:11px">
+        <div class="msg bot"><div class="bub" style="font-size:11.5px">어느 제품군을 찾고 계신가요?</div></div></div></div>
+      <div class="sheet"><div style="display:flex;align-items:center;gap:8px">
+        <b style="font-size:12px">담긴 항목 8개</b>
+        <span class="mono" style="margin-left:auto;font-size:12px;font-weight:600">1,187,000원</span></div></div>
+    </div></div>
+</div>
+<div class="note"><b>데스크톱의 패널 손잡이</b>는 이 목업에서 경계선에 표시만 해 뒀다(마우스를 올리면 굵어진다). 최소 폭·더블클릭 복귀·사용자별 저장은 <b>구현 쪽 명세</b>라 화면으로는 안 보인다.</div>`;
+</script>
+<script>
+SCREENS.map = () => phead('＊','API 매핑 — 무엇이 실제로 도는가',
+  '이 목업의 PC 화면 숫자는 지어낸 것이 아니라 <span class="mono">POST /api/recommend</span> 의 실제 응답이다. 어느 요소가 응답에서 오고 어느 요소가 아직 화면 전용인지 여기서 가른다.',
+  '<b>화면 담당자가 먼저 볼 표다.</b> 스키마 원본은 <span class="mono">app/engine/schemas.py</span>, 계약은 <a href="../추천엔진_API계약.md">추천엔진_API계약.md</a>.')
++ `<div class="card" style="margin-bottom:14px"><h3>응답에서 그대로 오는 것</h3>
+<table class="t">
+<thead><tr><th>화면 요소</th><th>API 필드</th><th>지금 값 (PC)</th></tr></thead>
+<tbody>
+<tr><td>선택 카드 그룹</td><td class="mono">needs_input[]</td><td>3건 — 주사율 · 재사용 · 우선순위</td></tr>
+<tr><td>2단계 외부 사실 · 출처 · 기준 시점</td><td class="mono">requirements[].origin / .as_of</td><td>Bethesda 공식 지원 문서 · 2026-09-09</td></tr>
+<tr><td>깔때기 «후보 12 → 11»</td><td class="mono">screening[]</td><td>VRAM 12GB 이상 · 1개 제외 · 11개 남음</td></tr>
+<tr><td>판정 글리프 ● ◐ ✕ ·</td><td class="mono">claims[].verdict</td><td>반증 2 · 확인 2 · 부분 1 · 근거 없음 1</td></tr>
+<tr><td>리뷰 배지 «총 N건 · 제외 M건»</td><td class="mono">evidence.samples / .excluded_high_risk</td><td>245건 대조 · 22건 제외</td></tr>
+<tr><td>«근거가 없다»와 «못 보여준다»의 구분</td><td class="mono">evidence.excerpt_policy</td><td>verbatim (합성 소스) / withheld (실소스)</td></tr>
+<tr><td>«3단계에서 편성됨» 표시</td><td class="mono">set[].added_by_claim</td><td>쿨러 ← <span class="mono">cpu-cooler</span></td></tr>
+<tr><td>항목 경고 문구</td><td class="mono">set[].warning</td><td>CPU · GPU 2건</td></tr>
+<tr><td>총액 · 잔액 · 예산 충족</td><td class="mono">spent / budget / budget_met</td><td>1,187,000 / 1,200,000 / true</td></tr>
+<tr><td>신뢰 지표 셋</td><td class="mono">indicators</td><td>조건 3/4 · 판정 분포 · 대조 768건</td></tr>
+<tr><td>반드시 알려야 하는 고지</td><td class="mono">notices[]</td><td>지금은 빈 배열 (정상)</td></tr>
+<tr><td>근거 문장 ↔ 판정 연결</td><td class="mono">reasons[].claim_id</td><td>5문장 · 미연결 0</td></tr>
+</tbody></table></div>
+
+<div class="card" style="margin-bottom:14px"><h3>화면에 있는데 <span class="na">백엔드 없음</span> — 명세는 요구한다</h3>
+<table class="t">
+<thead><tr><th>화면 요소</th><th>왜 없나</th><th>어떻게 할 것인가</th></tr></thead>
+<tbody>
+<tr><td><b>평점 일체</b> — 원본 4.6 / 정제 후 4.2 / 분포 / 항목별 평가</td>
+    <td><span class="mono">Evidence</span> 에 평점 개념 자체가 없다. 표본 수 · 닿는 수 · 어긋나는 수뿐</td>
+    <td>필드를 만들지, 화면이 «제외 건수»로 말할지 결정 필요. <b>제일 큰 구멍</b></td></tr>
+<tr><td>제품 이미지 · 수량 · 외부 구매 링크</td><td><span class="mono">set[]</span> 은 category/code/name/price/added_by_claim/warning</td><td>카탈로그 쪽에서 붙여야 한다</td></tr>
+<tr><td>빈 슬롯 목록 «아직 선택되지 않음»</td><td>팩의 슬롯 정의가 API 로 안 나온다</td><td><span class="mono">GET /api/domains</span> 에 슬롯을 실어 주면 싸다</td></tr>
+<tr><td>리스트 저장 · 확정 · 목표가 · 가격 알림 · 로그인</td><td>전무</td><td>화면 전용. 가격 트래킹은 난이도 논의에서 멈췄다</td></tr>
+<tr><td>«통과 기준 80점 / 실제 점수»</td><td>점수 개념이 없다. 판정 4종이 나간다</td><td>점수를 만들지, 명세를 판정 쪽으로 고칠지 결정 필요</td></tr>
+</tbody></table></div>
+
+<div class="card"><h3>백엔드가 주는데 <b>명세 화면에 자리가 없던 것</b> — 이 목업이 자리를 만들었다</h3>
+<table class="t">
+<thead><tr><th>필드</th><th>어디에 넣었나</th><th>왜 자리를 내야 하나</th></tr></thead>
+<tbody>
+<tr><td class="mono">screening[]</td><td>S4-a 깔때기 블록</td><td>«8GB였으면 뭐가 달라집니까»에 답하는 유일한 자리. <b>0을 0이라고 보이는 것</b>까지가 약속</td></tr>
+<tr><td class="mono">added_by_claim</td><td>리스트 항목 카드 · S4 제품 카드</td><td>안 보이면 검증이 설명용 장식으로 읽힌다</td></tr>
+<tr><td class="mono">excerpt_policy</td><td>S5 대표 리뷰 요약</td><td><b>못 보여주는 것 ≠ 근거 없는 것.</b> 이 서비스가 파는 구분</td></tr>
+<tr><td class="mono">notices[] · budget_met</td><td>예외 화면</td><td>합계만 보이면 사용자는 예산을 지킨 줄 안다</td></tr>
+<tr><td class="mono">indicators</td><td>S4-a 신뢰 지표 블록</td><td><b>종합 점수로 합치지 않는 것</b>이 설계다</td></tr>
+<tr><td>합성 데이터 고지</td><td>S5 하단</td><td>숨기지 않는 것이 합성을 고른 조건이었다</td></tr>
+</tbody></table></div>
+
+<div class="note warnish"><b>화면이 지켜야 하는 것 둘</b> — 백엔드는 검사로 고정했고 화면에서 깨지면 같은 약속이 거짓이 된다.
+① <b>반증된 항목을 목록에서 빼지 않는다</b> (경고만 붙인다) ② <b>리뷰를 순위에 반영하지 않는다</b> (리뷰가 만드는 값은 스펙 주장의 판정 하나뿐이다).</div>`;
+
+/* ── 배선 ─────────────────────────────────────────────────── */
+let SCR = 's1';
+function render(){
+  document.querySelectorAll('.panel').forEach(el=>{
+    const k = el.dataset.panel;
+    el.classList.toggle('on', k===SCR);
+    if(k===SCR) el.innerHTML = SCREENS[k] ? SCREENS[k]() : '';
+  });
+  document.querySelectorAll('.step').forEach(b=>b.setAttribute('aria-current', String(b.dataset.go===SCR)));
+  document.querySelectorAll('[data-cat]').forEach(b=>{
+    b.onclick = () => { CAT = b.dataset.cat; syncHash(); render(); };
+  });
+  window.scrollTo({top:0, behavior:'instant'});
+}
+document.querySelectorAll('.step').forEach(b=>{
+  b.onclick = () => { SCR = b.dataset.go; syncHash(); render(); };
+});
+
+/* 링크로 특정 화면을 열 수 있게 — 예: …/planbasket.html#s4/food */
+let selfHash = false;
+function syncHash(){ selfHash = true; location.hash = SCR + '/' + CAT; }
+function readHash(){
+  const [a,b] = (location.hash||'').replace(/^#/,'').split('/');
+  if(a && SCREENS[a]) SCR = a;
+  if(b && PACKS[b]) CAT = b;
+}
+window.addEventListener('hashchange', ()=>{
+  if(selfHash){ selfHash = false; return; }   // 우리가 쓴 해시면 다시 그리지 않는다
+  readHash(); render();
+});
+readHash();
+const ORDER = ['s1','s2','s3','s4','s4a','s5','s5a','s5b','s7','ex','rwd','map'];
+document.addEventListener('keydown', e=>{
+  if(e.target.closest('input,textarea')) return;
+  const i = ORDER.indexOf(SCR);
+  if(e.key==='ArrowRight' && i<ORDER.length-1){ SCR=ORDER[i+1]; syncHash(); render(); }
+  if(e.key==='ArrowLeft'  && i>0){ SCR=ORDER[i-1]; syncHash(); render(); }
+});
+render();
+</script>
+</body>
+</html>

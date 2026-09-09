@@ -5,6 +5,11 @@
   화면 3 (협상 결과·승인)    -> GET  /api/deals/{txid}
                               POST /api/deals/{txid}/approve
                               POST /api/deals/{txid}/reject
+  화면 4 (조달 어시스턴트)   -> POST /api/assistant   (Strands 도구 호출)
+
+추천 엔진(4안)은 화면 대응이 없다 — 화면 구성이 별도 담당이라 백엔드는 계약만
+낸다. `POST /api/recommend` 하나이고 응답 스키마는 `app/engine/schemas.py` 의
+`Recommendation` 이다.
 """
 
 from __future__ import annotations
@@ -16,19 +21,24 @@ load_dotenv()  # .env 파일을 읽어서 OPENAI_API_KEY, NEGOTIATOR_MODE 등을
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
+from pydantic import BaseModel
+
 from .schemas import SellerRegister, BuyerRequest
-from .store import store
+from . import feasibility
+from .store import store, CatalogReadOnly
 from .negotiate import run_negotiation
 from .report import write_report, summarizer
-from .rfq_parse import parse_buyer_text
-from .seed_catalog import seed as seed_catalog
-from .integrations.odoo.router import router as odoo_router
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI(title="Deal Ledger MMVP")
-app.include_router(odoo_router)
 
 # 데모 목적: 로컬에서 파일로 연 목업 HTML(origin: null)도 호출 가능하도록 전체 허용
+#
+# !! EC2 배포 전 반드시 좁힐 것 !!
+# 이 서버에는 인증이 없고, 승인/거절 계열 POST 는 거래를 확정·취소한다. 즉 지금
+# 상태로 외부에 노출하면 사용자가 방문한 아무 웹페이지의 JS가 거래를 확정시킬 수 있다
+# (단순 POST는 CORS와 무관하게 전송되고, allow_origins="*" 는 응답까지 읽게 해 준다).
+# 최소한 ① allow_origins 를 실제 오리진으로 좁히고 ② 승인 계열에 토큰을 둘 것.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -49,7 +59,11 @@ def serve_mockup():
 
 @app.post("/api/sellers/register")
 def register_seller(offer: SellerRegister):
-    store.register_seller(offer)
+    try:
+        store.register_seller(offer)
+    except CatalogReadOnly as e:
+        # 500이 아니라 "왜 안 되는지"가 화면에 보여야 한다
+        raise HTTPException(409, str(e))
     return {"ok": True, "registered": offer}
 
 
@@ -58,35 +72,120 @@ def list_sellers():
     return store.list_sellers()
 
 
+@app.get("/api/items")
+def list_items():
+    """화면의 품목 드롭다운용. 카탈로그 출처가 가진 품목 목록."""
+    return store.list_items()
+
+
+class AssistantQuestion(BaseModel):
+    """조달 담당자의 자연어 질문."""
+    question: str
+
+
+@app.post("/api/assistant")
+def ask_assistant(req: AssistantQuestion):
+    """
+    Strands 에이전트가 도구(카탈로그·납품 가능성)를 직접 부르며 답한다.
+
+    무슨 도구를 몇 번 불렀는지도 함께 돌려준다 — 답만 보면 모델이 지어낸 것과
+    룰이 판정한 것을 구분할 수 없는데, 이 프로젝트가 보여주려는 게 그 구분이다.
+
+    키가 없거나 모델이 실패하면 502 로 그 사유를 그대로 내보낸다. 협상·리포트와
+    달리 여기는 **폴백이 없다** — 룰만으로 답할 수 있는 질문이 아니기 때문이다.
+    """
+    from . import assistant
+
+    try:
+        return assistant.ask(req.question)
+    except Exception as e:  # noqa: BLE001 — 사유가 화면에 보여야 한다
+        raise HTTPException(502, f"어시스턴트를 쓸 수 없습니다: {e}")
+
+
+@app.get("/api/domains")
+def list_domains():
+    """
+    카테고리 선택지. 화면 흐름의 두 번째 단계(카테고리 선택)가 여기서 온다.
+
+    `ready: false` 인 것은 **팩이 아직 없는 도메인**이다. 목록에서 빼지 않는 이유는
+    화면이 무엇이 남았는지 보여줄 수 있어야 하기 때문이다 — 고를 수 없게 하되
+    없는 것처럼 굴지는 않는다.
+    """
+    from .engine.run import available_domains
+
+    return available_domains()
+
+
+class RecommendRequest(BaseModel):
+    """추천 요청. `answers` 는 되묻기(1단계)에 사용자가 답한 것이다."""
+
+    query: str
+    domain: str = "pc"
+    answers: dict = {}
+
+
+@app.post("/api/recommend")
+def recommend(req: RecommendRequest):
+    """
+    6단계 추천 엔진. 응답은 `Recommendation`(`app/engine/schemas.py`).
+
+    **되묻기가 남으면 추천이 비어 있고 `needs_input` 만 온다.** 화면은 그 질문을
+    사용자에게 보이고 답을 `answers` 에 담아 다시 부른다. 모르는 채로 세트를
+    짜지 않는 것이 1단계의 일이라 이 왕복이 정상 동작이다.
+
+    기본 모드는 `rule` 이라 API 키 없이 돈다. `RECOMMEND_MODE=strands` 면
+    에이전트가 도구를 골라 부르고 `tools_used` 에 그 내역이 실린다.
+    """
+    from .engine.run import recommend as run_recommend
+
+    try:
+        return run_recommend(req.query, req.domain, req.answers)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001 — 사유가 화면에 보여야 한다
+        raise HTTPException(502, f"추천을 만들 수 없습니다: {e}")
+
+
+class FeasibilityRequest(BaseModel):
+    """납품 가능성 질의."""
+    item: str                 # 품목 코드 (예: 39-01-2040)
+    qty: int
+    due_days: int
+
+
+@app.post("/api/feasibility")
+def check_feasibility(req: FeasibilityRequest):
+    """
+    "이 수량을 이 납기 안에 댈 수 있는가" — 전 구간 룰 기반. 숫자는 카탈로그에서만 온다.
+    LLM이 "재고 10대인데 100대 가능"이라고 답할 자리를 없애는 것이 목적.
+    """
+    try:
+        result = feasibility.check(req.item, req.qty, req.due_days)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    result["procurement_requests"] = feasibility.procurement_requests(result)
+    return result
+
+
+@app.post("/api/feasibility/procure")
+def procure_shortages(req: FeasibilityRequest):
+    """부족분마다 협상을 돌린다 (검증 → 조달 연결)."""
+    try:
+        result = feasibility.check(req.item, req.qty, req.due_days)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    deals = []
+    for r in feasibility.procurement_requests(result):
+        summary = run_negotiation(store, BuyerRequest(**r))
+        deals.append(summary)
+    return {"feasible": result["feasible"], "reasons": result["reasons"], "deals": deals}
+
+
 @app.post("/api/buyers/request")
 def buyer_request(request: BuyerRequest):
     """규칙 기반이라 즉시(동기) 협상까지 끝내고 결과를 바로 반환한다."""
     summary = run_negotiation(store, request)
     return summary
-
-
-@app.post("/api/buyers/parse")
-def buyer_parse(body: dict):
-    """자연어 P.list → 구조화 RFQ 필드. 화면에서 확인·수정 후 request로 보낸다 (§2-2)."""
-    return parse_buyer_text(body.get("text", ""))
-
-
-@app.post("/api/buyers/request_text")
-def buyer_request_text(body: dict):
-    """자연어 요청을 파싱해서 바로 협상까지 실행. 파싱 결과와 협상 결과를 함께 반환."""
-    parsed = parse_buyer_text(body.get("text", ""))
-    if parsed.get("_missing"):
-        raise HTTPException(422, f"필수 항목을 해석하지 못했습니다: {', '.join(parsed['_missing'])}")
-    req = BuyerRequest(**{k: v for k, v in parsed.items() if not k.startswith("_")})
-    summary = run_negotiation(store, req)
-    return {"rfq": parsed, "result": summary}
-
-
-@app.post("/api/dev/seed")
-def dev_seed(per_model: int = 3):
-    """CSV 정가 기반으로 셀러 카탈로그를 재시드 (데모 준비용)."""
-    n = seed_catalog(reset=True, per_model=per_model)
-    return {"ok": True, "seeded": n, "sellers": store.list_sellers()}
 
 
 @app.get("/api/deals/{txid}")
@@ -104,6 +203,7 @@ def get_deal(txid: str):
 
 @app.post("/api/deals/{txid}/approve")
 def approve_deal(txid: str):
+    # 주의: 인증 없음. 이 호출이 거래를 확정한다 (상단 CORS 주석 참고).
     deal = store.get_deal(txid)
     if not deal:
         raise HTTPException(404, "존재하지 않는 거래ID입니다")
@@ -115,6 +215,7 @@ def approve_deal(txid: str):
 
 @app.post("/api/deals/{txid}/reject")
 def reject_deal(txid: str):
+    # 주의: 인증 없음. 이 호출이 거래를 취소한다 (상단 CORS 주석 참고).
     deal = store.get_deal(txid)
     if not deal:
         raise HTTPException(404, "존재하지 않는 거래ID입니다")

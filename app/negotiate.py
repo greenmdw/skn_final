@@ -11,9 +11,13 @@ MAX_ROUNDS로 반영했다. 초과 시 해당 셀러는 자동으로 결렬 처�
 
 에이전트 구현체는 NEGOTIATOR_MODE 환경변수로 전환된다:
   - "rule" (기본값): RuleBasedSellerAgent/RuleBasedBuyerAgent — API 비용 없음
-  - "llm": OpenAISellerAgent/OpenAIBuyerAgent — OPENAI_API_KEY 필요
+  - "strands": StrandsSellerAgent/StrandsBuyerAgent — 해커톤 필수 요건. OPENAI_API_KEY 필요
+  - "llm": OpenAISellerAgent/OpenAIBuyerAgent — OpenAI SDK 직접 호출(구형). OPENAI_API_KEY 필요
 어느 쪽이든 SellerAgentPort/BuyerAgentPort 인터페이스가 같아서 이 파일의
 나머지 로직(라운드 진행, 로그 적재, 최저가 채택)은 전혀 안 바뀐다.
+
+기본값이 여전히 "rule" 인 이유는 **키 없이 실행돼야 하기 때문이다** — 심사위원이
+받자마자 돌릴 수 있어야 하고, 데모 당일 API 가 흔들려도 같은 화면이 나와야 한다.
 """
 
 from __future__ import annotations
@@ -22,84 +26,145 @@ from .schemas import Envelope, MsgType, BuyerRequest, SellerRegister, new_txid
 from .agents import RuleBasedSellerAgent, RuleBasedBuyerAgent, SellerAgentPort, BuyerAgentPort
 from .audit import audit_seller_offer, audit_buyer_accept
 from .store import CentralStore
-from .spec_match import extract_spec_tags, score_match
-from .pricing import SPEC_MATCH_MIN, apply_bulk_discount as _apply_bulk_discount
 
 MAX_ROUNDS = 3  # 하한선: 이 이상 왕복해도 안 맞으면 결렬 (무한루프 방지)
 
 
 def _build_agents() -> tuple[SellerAgentPort, BuyerAgentPort]:
+    # 임포트를 분기 안에 두는 이유: 키도 패키지도 없이 rule 모드가 돌아야 한다.
     mode = os.environ.get("NEGOTIATOR_MODE", "rule").lower()
+    if mode == "strands":
+        from .strands_agents import StrandsSellerAgent, StrandsBuyerAgent
+        return StrandsSellerAgent(), StrandsBuyerAgent()
     if mode == "llm":
-        from .llm_agents import OpenAISellerAgent, OpenAIBuyerAgent  # 필요할 때만 임포트(키 없어도 rule 모드는 동작)
+        from .llm_agents import OpenAISellerAgent, OpenAIBuyerAgent
         return OpenAISellerAgent(), OpenAIBuyerAgent()
     return RuleBasedSellerAgent(), RuleBasedBuyerAgent()
 
 
-def _screen_candidates(
-    store: CentralStore, txid: str, request: BuyerRequest, buyer_tags: dict
-) -> list[tuple[SellerRegister, float]]:
+def _spec_matches(request_spec: str, seller_spec: str) -> bool:
+    """사양 매칭 — v3의 "fuzzy match" 자리. 지금은 대소문자 무시 부분일치로 단순 구현."""
+    if not request_spec:  # 사양 불문
+        return True
+    return request_spec.strip().lower() in seller_spec.strip().lower()
+
+
+def _screen_candidates(store: CentralStore, txid: str, request: BuyerRequest) -> list[SellerRegister]:
     """
-    1차 스크리닝 — 협상 이전에 재고·납기·MOQ·신뢰도를 룰로 검사하고, 사양은 유사도 점수를 매긴다.
+    1차 스크리닝 — 협상 이전에 재고·사양·납기를 검사한다.
     떨어진 셀러는 라운드에 들어가지 않고, 왜 떨어졌는지 로그에 즉시 남는다
     (v3: "재고 10대인데 100대 가능하다고 응답" 같은 할루시네이션을 룰로 사전 차단).
-    반환: 통과한 (셀러, 사양_유사도) 목록.
     """
-    passed: list[tuple[SellerRegister, float]] = []
-    for seller in store.sellers_for(request.item):
+    passed: list[SellerRegister] = []
+    # 수량을 함께 넘긴다. 출처가 수량구간을 갖고 있으면(스냅샷) 그 수량에 맞는
+    # 단가로 후보가 들어온다. 구간이 없는 출처(sqlite)는 인자를 무시한다.
+    for seller in store.sellers_for(request.item, request.qty):
         reasons = []
         if seller.qty < request.qty:
             reasons.append(f"재고부족(보유 {seller.qty} < 요청 {request.qty})")
-        spec_score, spec_detail = score_match(buyer_tags, seller.spec_tags)
-        if spec_score < SPEC_MATCH_MIN:
-            reasons.append(f"사양 유사도 미달({spec_score:.2f} < {SPEC_MATCH_MIN})")
+        # MOQ는 재고와 부등호 방향이 반대다 — 주문량이 최소주문량 "이상"이어야 통과.
+        # 스냅샷의 moq 에서 들어온다. 0이면 제약 없음.
+        if seller.min_qty and request.qty < seller.min_qty:
+            reasons.append(f"최소주문량 미달(요청 {request.qty} < MOQ {seller.min_qty})")
+        if not _spec_matches(request.spec, seller.spec):
+            reasons.append(f"사양불일치(요구 '{request.spec}' vs 보유 '{seller.spec}')")
         if seller.lead_time_days > request.max_lead_time_days:
             reasons.append(f"납기초과(제시 {seller.lead_time_days}일 > 허용 {request.max_lead_time_days}일)")
-        if request.qty < seller.moq:
-            reasons.append(f"최소주문수량 미달(요청 {request.qty} < MOQ {seller.moq})")
-        if request.trust_score < seller.buyer_trust_required:
-            reasons.append(f"바이어 신뢰도 부족(보유 {request.trust_score} < 요구 {seller.buyer_trust_required})")
-        if seller.trust_score < request.seller_trust_min:
-            reasons.append(f"셀러 신뢰도 부족(보유 {seller.trust_score} < 요구 {request.seller_trust_min})")
 
         if reasons:
             store.append(Envelope(**{
                 "from": "central", "to": seller.seller_id, "type": MsgType.REJECT, "txid": txid,
-                "payload": {"stage": "screening", "reason": ", ".join(reasons),
-                            "spec_score": spec_score, "spec_detail": spec_detail},
+                "payload": {"stage": "screening", "reason": ", ".join(reasons)},
             }))
         else:
-            passed.append((seller, spec_score))
+            passed.append(seller)
     return passed
+
+
+def run_standard_order(store: CentralStore, request: BuyerRequest,
+                       seller_id: str, price: int, note: str) -> dict:
+    """
+    표준계약 범위 안의 발주 — **협상 라운드가 없다.**
+
+    기존 거래처와 이미 조건이 정해져 있으면 매번 값을 다시 다툴 이유가 없다.
+    그래서 이 경로는 REQUEST → OFFER → ACCEPT → SETTLED 네 줄만 남기고 끝난다.
+    로그 형식은 협상 경로와 같으므로 리포트·발주서 생성은 그대로 재사용된다.
+
+    에이전트가 "언제 안 나서는가"를 코드로 보여주는 자리이기도 하다.
+    """
+    txid = new_txid()
+    common = {"txid": txid}
+
+    # 표준 경로도 접수/발송을 나눈다 — 예산은 셀러에게 가지 않는다
+    store.append(Envelope(**{
+        "from": "buyer", "to": "central", "type": MsgType.REQUEST, **common,
+        "payload": {
+            "item": request.item, "qty": request.qty, "cap_price": request.cap_price,
+            "spec": request.spec, "max_lead_time_days": request.max_lead_time_days,
+            "route": "STANDARD",
+        },
+    }))
+    store.append(Envelope(**{
+        "from": "central", "to": seller_id, "type": MsgType.REQUEST, **common,
+        "payload": {
+            "item": request.item, "qty": request.qty,
+            "spec": request.spec, "max_lead_time_days": request.max_lead_time_days,
+            "route": "STANDARD",
+        },
+    }))
+    store.append(Envelope(**{
+        "from": seller_id, "to": "buyer", "type": MsgType.OFFER, **common,
+        "payload": {"price": price, "round": 0, "message": note},
+    }))
+    store.append(Envelope(**{
+        "from": "buyer", "to": seller_id, "type": MsgType.ACCEPT, **common,
+        "payload": {"price": price, "message": "표준계약 범위 내이므로 협상 없이 수용합니다."},
+    }))
+
+    summary = {
+        "txid": txid, "status": "SETTLED", "seller_id": seller_id,
+        "item": request.item, "qty": request.qty, "price": price,
+        "approval": "PENDING", "reason": note,
+    }
+    store.append(Envelope(**{
+        "from": "central", "to": "*", "type": MsgType.SETTLED, **common,
+        "payload": {"seller_id": seller_id, "price": price, "rounds": 0},
+    }))
+    store.set_deal(txid, summary)
+    return summary
 
 
 def run_negotiation(store: CentralStore, request: BuyerRequest) -> dict:
     txid = new_txid()
     seller_agent, buyer_agent = _build_agents()
 
-    # 0. 바이어 요구 사양을 구조화 태그로 추출 (LLM 또는 정규식 폴백, 캐시됨)
-    buyer_tags = extract_spec_tags(request.spec)
-
-    # 1. REQUEST 브로드캐스트
+    # 1. 접수와 공고를 나눈다.
+    #    바이어는 중앙에 전체 조건(예산 포함)을 접수하고, 중앙은 예산을 뺀 공고를 낸다.
+    #    상한가는 바이어의 유보가격이다 — 셀러가 알면 거기 붙여 부르면 그만이라
+    #    협상이 성립하지 않는다. 중앙은 매칭·감사에 필요하므로 알아야 한다.
     store.append(Envelope(**{
-        "from": "buyer", "to": "*", "type": MsgType.REQUEST, "txid": txid,
+        "from": "buyer", "to": "central", "type": MsgType.REQUEST, "txid": txid,
         "payload": {
             "item": request.item, "qty": request.qty, "cap_price": request.cap_price,
-            "spec": request.spec, "spec_tags": buyer_tags,
-            "max_lead_time_days": request.max_lead_time_days,
-            "priority": request.priority,
+            "spec": request.spec, "max_lead_time_days": request.max_lead_time_days,
+        },
+    }))
+    store.append(Envelope(**{
+        "from": "central", "to": "*", "type": MsgType.REQUEST, "txid": txid,
+        "payload": {
+            "item": request.item, "qty": request.qty,
+            "spec": request.spec, "max_lead_time_days": request.max_lead_time_days,
         },
     }))
 
-    # 2. 1차 스크리닝 (재고·납기·MOQ·신뢰도 룰 + 사양 유사도) — 통과 못 하면 라운드 자체에 안 들어감
-    candidates = _screen_candidates(store, txid, request, buyer_tags)
-    spec_scores: dict[str, float] = {s.seller_id: sc for s, sc in candidates}
+    # 2. 1차 스크리닝 (재고·사양·납기) — 통과 못 하면 라운드 자체에 안 들어감
+    candidates = _screen_candidates(store, txid, request)
 
     if not candidates:
         summary = {
             "txid": txid, "status": "FAILED", "fail_type": "NO_MATCH",
             "item": request.item, "qty": request.qty,
-            "reason": "조건(재고·납기·MOQ·신뢰도·사양 유사도)을 만족하는 판매자가 없습니다. 조건 완화가 필요합니다.",
+            "reason": "조건(재고·사양·납기)을 만족하는 판매자가 없습니다. 조건 완화가 필요합니다.",
         }
         store.set_deal(txid, summary)
         return summary
@@ -107,15 +172,13 @@ def run_negotiation(store: CentralStore, request: BuyerRequest) -> dict:
     # 3. 스크리닝 통과 셀러끼리 가격 협상
     accepted: list[tuple[SellerRegister, int]] = []
 
-    for seller, spec_score in candidates:
+    for seller in candidates:
         last_reject_price: int | None = None
         for round_no in range(1, MAX_ROUNDS + 1):
-            raw_price, seller_msg = seller_agent.decide(
-                seller, round_no, request.cap_price, last_reject_price, MAX_ROUNDS
-            )
+            raw_price, seller_msg = seller_agent.decide(seller, round_no, last_reject_price)
             price, seller_audit_note = audit_seller_offer(raw_price, seller.floor_price)
 
-            offer_payload = {"price": price, "round": round_no, "message": seller_msg, "spec_score": spec_score}
+            offer_payload = {"price": price, "round": round_no, "message": seller_msg}
             if seller_audit_note:
                 offer_payload["audit_note"] = seller_audit_note
             store.append(Envelope(**{
@@ -127,20 +190,19 @@ def run_negotiation(store: CentralStore, request: BuyerRequest) -> dict:
             accept, buyer_audit_note = audit_buyer_accept(raw_accept, price, request.cap_price)
 
             if accept:
-                final_price, disc_note = _apply_bulk_discount(seller, request.qty, price)
-                accept_payload = {"price": final_price, "agreed_price": price, "message": buyer_msg}
-                if disc_note:
-                    accept_payload["bulk_discount"] = disc_note
+                accept_payload = {"price": price, "message": buyer_msg}
                 if buyer_audit_note:
                     accept_payload["audit_note"] = buyer_audit_note
                 store.append(Envelope(**{
                     "from": "buyer", "to": seller.seller_id, "type": MsgType.ACCEPT, "txid": txid,
                     "payload": accept_payload,
                 }))
-                accepted.append((seller, final_price))
+                accepted.append((seller, price))
                 break
             else:
-                reject_payload = {"reason": "상한가 초과", "cap_price": request.cap_price, "message": buyer_msg}
+                # 이 엔벨로프는 셀러에게 가는 메시지다 — 상한가 액수를 싣지 않는다.
+                # (리포트는 REQUEST 쪽 payload에서 상한가를 읽으므로 영향 없다)
+                reject_payload = {"reason": "상한가 초과", "message": buyer_msg}
                 if buyer_audit_note:
                     reject_payload["audit_note"] = buyer_audit_note
                 store.append(Envelope(**{
@@ -159,25 +221,12 @@ def run_negotiation(store: CentralStore, request: BuyerRequest) -> dict:
         store.set_deal(txid, summary)
         return summary
 
-    # 낙찰 — 바이어가 사전 선택한 우선순위(§2-2)에 따라:
-    #   price_min : 최저가 우선 (동가면 사양 유사도 높은 쪽)
-    #   spec_max  : 사양 유사도 우선 (동점이면 저가 쪽)
-    if request.priority == "spec_max":
-        winner, price = max(
-            accepted, key=lambda sp: (spec_scores.get(sp[0].seller_id, 0.0), -sp[1])
-        )
-    else:
-        winner, price = min(
-            accepted, key=lambda sp: (sp[1], -spec_scores.get(sp[0].seller_id, 0.0))
-        )
+    # 최저가 채택
+    winner, price = min(accepted, key=lambda x: x[1])
 
     store.append(Envelope(**{
         "from": "central", "to": "*", "type": MsgType.SETTLED, "txid": txid,
-        "payload": {"seller_id": winner.seller_id, "price": price,
-                    "priority": request.priority,
-                    "spec_score": spec_scores.get(winner.seller_id, 0.0),
-                    "payment_terms": winner.payment_terms,
-                    "delivery_terms": winner.delivery_terms},
+        "payload": {"seller_id": winner.seller_id, "price": price},
     }))
 
     summary = {

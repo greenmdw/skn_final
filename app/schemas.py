@@ -1,8 +1,15 @@
 """
 L0 계약서 (코드화)
-- 품목 스키마 5필드: 품목ID, 수량, 제시가, 셀러 최저수용가, 바이어 상한가
+- 품목 스키마: 품목ID, 수량, 제시가, 셀러 최저수용가, 바이어 상한가 (최초 5필드)
+  + 사양·납기일수 (v3 D-02) + 최소주문량 MOQ
 - 메시지 타입 5종: REQUEST, OFFER, ACCEPT, REJECT, SETTLED
 - 메시지 봉투(envelope): from/to/type/txid/ts/payload
+
+  **엔벨로프는 상대에게 가는 메시지다.** 그래서 셀러 앞으로 가는 봉투에는
+  바이어의 유보가격(cap_price)을 싣지 않는다. 상대가 지불의사 최대치를 알면
+  거기 붙여 부르면 그만이라 협상이 성립하지 않는다.
+  바이어는 중앙에 전체 조건을 접수(buyer→central)하고, 중앙이 예산을 뺀
+  공고(central→*)를 낸다. 리포트는 접수 쪽에서 상한가를 읽는다.
 - LLM 어댑터 인터페이스: 지금은 템플릿 구현체, 나중에 파일 하나만 갈아끼우면 LLM으로 교체됨
 """
 
@@ -14,14 +21,14 @@ from datetime import datetime, timezone
 import uuid
 
 
-# ── 고정 품목 — 도메인: 그래픽카드(GPU) 제조업체 B2B (명세서 §1).
-# 값은 app/seed_data/nvidia_gpu_corporate_deliveries.csv 의 "제품명"과 정확히 일치시킨다 (시드 재사용).
-class Item(str, Enum):
-    RTX_PRO_6000_Blackwell = "NVIDIA RTX PRO 6000 Blackwell"
-    L40S = "NVIDIA L40S"
-    H100_NVL = "NVIDIA H100 NVL"
-    RTX_6000_Ada = "NVIDIA RTX 6000 Ada Generation"
-    A100_80GB_PCIe = "NVIDIA A100 80GB PCIe"
+# ── 품목 코드 ──
+# 예전에는 3종 고정 Enum이었다. 품목 마스터가 외부 카탈로그에 있어서
+# 어떤 코드가 유효한지를 이 파일이 알 수 없으므로, 코드 문자열을 그대로 받는다.
+# (sqlite 모드의 기존 데모 값 "A4용지/토너/볼트"도 문자열이라 그대로 유효하다)
+Item = str
+
+# 옛 Enum이 갖고 있던 3종. sqlite 모드 목업의 기본 선택지로만 쓴다.
+LEGACY_ITEMS: tuple[str, ...] = ("A4용지", "토너", "볼트")
 
 
 class MsgType(str, Enum):
@@ -60,29 +67,20 @@ class SellerRegister(BaseModel):
     seller_id: str            # "셀러 A" / "셀러 B"
     item: Item
     qty: int                  # 재고
-    offer_price: int          # 제시가        (§2-1: 알고리즘 — Boulware/Conceder + 재고 E값)
-    floor_price: int          # 최저 수용가    (§2-1: 알고리즘 대상, 바이어에게 노출 금지)
-    description: str = ""      # 상품 상세설명  (§2-1: LLM + RAG 벡터화 대상)
-    spec_tags: dict[str, Any] = Field(default_factory=dict)  # description에서 추출한 구조화 태그 (register 시 채워짐, RAG 인덱스 자리)
-    lead_time_days: int = 0   # 납기일수       (§2-1: 룰베이스)
-    moq: int = 1                    # 최소주문수량 — 요청 수량이 이 값 이상이어야 함 (§2-1: 룰베이스)
-    buyer_trust_required: int = 0   # 이 셀러가 요구하는 바이어 최소 신뢰도(0~100) (§2-1: 룰베이스)
-    trust_score: int = 100          # 이 셀러의 신뢰도 점수(0~100) — 바이어의 seller_trust_min과 비교
-    payment_terms: str = ""         # 대금결제조건 (예: "선급 30% / 납품 후 70%") — 표시·기록용
-    delivery_terms: str = ""        # 인도조건 (예: "DDP 매수인 창고", "FOB 부산") — 표시·기록용
-    bulk_discount_rate: float = 0.0     # 대량구매할인률 0~1 (예: 0.05 = 5%)
-    bulk_discount_min_qty: int = 0      # 이 수량 이상 주문 시 대량할인 적용 (0이면 비활성)
+    offer_price: int          # 제시가
+    floor_price: int          # 최저 수용가 (바이어에게 노출 금지)
+    spec: str = ""            # 사양 (예: "80g/2500매")
+    lead_time_days: int = 0   # 납기일수
+    min_qty: int = 0          # 최소주문량(MOQ). 스냅샷의 moq 대응.
+                              # 0이면 제약 없음 — 기존 sqlite 데이터의 동작이 바뀌지 않는다.
 
 
 class BuyerRequest(BaseModel):
     item: Item
-    qty: int                        # (§2-2: 룰베이스, 사람 입력)
-    cap_price: int                  # 상한가 (§2-2: 알고리즘 대상)
-    spec: str = ""                  # 요구 사양 (§2-2: LLM+RAG. 빈 문자열이면 사양 불문)
-    max_lead_time_days: int = 999   # 허용 최대 납기일수 (§2-2: 룰베이스, 사람 입력. 기본값: 사실상 제한 없음)
-    seller_trust_min: int = 0       # 요구하는 셀러 최소 신뢰도(0~100) (§2-2: 룰베이스, 사람 입력)
-    trust_score: int = 100          # 이 바이어의 신뢰도 점수(0~100) — 셀러의 buyer_trust_required와 비교
-    priority: str = "price_min"     # 협상 우선순위 (§2-2 사전 선택): "spec_max"(스펙우선) | "price_min"(가격우선)
+    qty: int
+    cap_price: int                  # 상한가
+    spec: str = ""                  # 요구 사양 (빈 문자열이면 사양 불문)
+    max_lead_time_days: int = 999   # 허용 최대 납기일수 (기본값: 사실상 제한 없음)
 
 
 # ── LLM 어댑터 인터페이스 (지금은 템플릿, 나중에 이 인터페이스만 만족하면 교체 가능) ──
