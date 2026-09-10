@@ -1,6 +1,6 @@
 # db/ — 스키마 마이그레이션 (Truefit)
 
-`PlanBasket_테이블_명세서 v4` 의 58개 테이블 (12개 스키마) DDL. **RDS / Aurora PostgreSQL 16 호환** 을 전제로 작성.
+[테이블_명세서 v4](../docs/db/table_spec.md) 의 58개 테이블 (12개 스키마) DDL. **RDS / Aurora PostgreSQL 16 호환** 을 전제로 작성.
 
 ## 실행
 
