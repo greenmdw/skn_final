@@ -110,7 +110,7 @@ tests/                     스모크
 3. `routers/*` — 501 → 실제 응답
 4. `auth/*` — auth_code 저장소 결정 (마이그레이션 추가 vs Redis)
 5. `engine/*` 의 `# TODO` 실제 로직 (하드필터 비교 · 완전탐색 · 리뷰축)
-6. `rag/embedding.py` + `rag_repo.hybrid_search` — pgvector 연결, `MOCK_MODE=0`
-7. `db/migrations/0006_*` — 업무규칙 가드 트리거 (C14 불변성, C15 잠금)
+6. 설명서 RAG의 실제 Bedrock 품질 평가·PDF/OCR 확장 — [구현·실행·검증 문서](docs/rag_implementation.md)
+7. `db/migrations/0007_*` 이후 — 업무규칙 가드 트리거 (C14 불변성, C15 잠금); `0006`은 RAG 활성 프로필 제약
 8. `data/parts_catalog.csv` + `scripts/gen_parts_offers.py`
 9. 유아 도메인 (`baby.yaml` + per_item 분기)

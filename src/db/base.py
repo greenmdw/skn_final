@@ -4,6 +4,7 @@
     with get_conn() as conn:
         PlanRepo(conn).create_plan(...)
 """
+
 from __future__ import annotations
 
 from typing import Any, Sequence
@@ -16,12 +17,20 @@ class Repo:
     # 편의 헬퍼 (실제 구현 시 psycopg cursor 사용)
     def _one(self, sql: str, params: Sequence[Any] = ()) -> dict | None:
         """단일 행 dict 또는 None."""
-        raise NotImplementedError
+        from psycopg.rows import dict_row
+
+        with self.conn.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(sql, params)
+            return cursor.fetchone()
 
     def _all(self, sql: str, params: Sequence[Any] = ()) -> list[dict]:
         """행 리스트."""
-        raise NotImplementedError
+        from psycopg.rows import dict_row
+
+        with self.conn.cursor(row_factory=dict_row) as cursor:
+            cursor.execute(sql, params)
+            return cursor.fetchall()
 
     def _exec(self, sql: str, params: Sequence[Any] = ()) -> None:
         """반환 없는 실행."""
-        raise NotImplementedError
+        self.conn.execute(sql, params)

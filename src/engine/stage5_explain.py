@@ -12,6 +12,12 @@ from src.engine import LogFn
 _AXIS_MAP = {"가격": "가격", "성능": "성능", "밸런스": "호환성", "호환여유": "호환성"}
 
 
+def explain_manual(service, request):
+    """Actual source-only explanation; does not invent a procedure or safety score."""
+    from dataclasses import replace
+    return service.answer(replace(request, purpose="recommendation"))
+
+
 def _contribution(build: BuildResult) -> dict[str, int]:
     # TODO: RankResult 의 slot별 breakdown 을 전달받아
     #   contribution[축] = Σ(slot_weight · breakdown[축]) / total 로 집계.

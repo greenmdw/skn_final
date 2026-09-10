@@ -1,11 +1,9 @@
-"""evidence_search(domain, query, filters) — RAG 근거 검색 @tool.
+"""Scoped pgvector + keyword evidence search; legacy scenarios remain explicit mocks.
 
-실제: pgvector 하이브리드 쿼리
-    WHERE domain=? AND (product_key=? OR product_key IS NULL) [AND age_month_range @> ?]
-    ORDER BY embedding <=> :qvec LIMIT k
-데모: 시나리오가 넘겨준 미니 코퍼스에서 축(axis) 키워드로 매칭.
-저작권: 원문 미저장 — 발췌 요약 + 출처 링크만 보관.
+Real calls require exact product scope and a recommendation run. Material access,
+usage policy, current revision, corpus and embedding profile are enforced in SQL.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -22,15 +20,39 @@ def load_mini_corpus(chunks: list[dict[str, Any]]) -> None:
     _MINI_CORPUS = list(chunks)
 
 
-def evidence_search(domain: str, query: str, filters: dict | None = None, k: int = 3) -> list[dict]:
+def evidence_search(
+    domain: str, query: str, filters: dict | None = None, k: int = 3
+) -> list[dict]:
     """근거 청크 검색.
 
     Returns:
         각 dict: text(발췌 요약), source_url, collected_at, score. 0건이면 빈 리스트("회색").
     """
     if not MOCK_MODE:
-        # TODO: 실제 로직 구현 필요 — 임베딩 쿼리 + pgvector 하이브리드 검색
-        raise NotImplementedError("evidence_search: 실제 pgvector 검색 미구현 (MOCK_MODE=0)")
+        from src.rag.contracts import RetrievalError, SearchRequest
+
+        allowed = {
+            "product_key",
+            "variant_key",
+            "language",
+            "market",
+            "corpus",
+            "purpose",
+            "recommendation_run_id",
+            "context",
+            "axis",
+        }
+        supplied = dict(filters or {})
+        if set(supplied) - allowed:
+            raise ValueError("unsupported_search_filters")
+        supplied.pop(
+            "axis", None
+        )  # Axis describes a query; it cannot bypass product scope.
+        request = SearchRequest(domain=domain, query=query, k=k, **supplied)
+        result = search_evidence(request)
+        if result.status == "error":
+            raise RetrievalError(result.error_code)
+        return result.hits
 
     filters = filters or {}
     axis = filters.get("axis", "")
@@ -46,3 +68,23 @@ def evidence_search(domain: str, query: str, filters: dict | None = None, k: int
     ]
     print(f"[MOCK] evidence_search(domain={domain!r}, axis={axis!r}) → {len(hits)}건")
     return hits[:k]
+
+
+def search_evidence(request, *, repo=None, embedder=None):
+    """Typed production entry point; does not depend on global MOCK_MODE."""
+    from src.rag.embedding import get_embedder
+    from src.rag.service import RagService
+
+    embedder = embedder or get_embedder()
+    if repo is not None:
+        return RagService(repo, embedder).search(request)
+    import psycopg
+    from src.config import DATABASE_URL
+    from src.repo.rag_repo import RagRepo
+    from src.rag.contracts import SearchResult
+
+    try:
+        with psycopg.connect(DATABASE_URL, connect_timeout=5) as conn:
+            return RagService(RagRepo(conn), embedder).search(request)
+    except psycopg.Error:
+        return SearchResult("error", error_code="retrieval_database_unavailable")

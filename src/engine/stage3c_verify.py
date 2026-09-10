@@ -71,3 +71,14 @@ def problem_slot(scenario: dict, round_index: int) -> str | None:
     """이번 라운드가 지목한 재탐색 대상 슬롯."""
     rounds = scenario["verify"]["rounds"]
     return rounds[min(round_index, len(rounds) - 1)].get("problem_slot")
+
+
+def verify_baby_manual(service, request, *, age_months=None, weight_kg=None, independent_sitting=None):
+    """Actual manual-backed eligibility path, independent of demo score seeds.
+
+    Returns partial/unknown coverage and cited conditions. Consumers must not
+    convert eligibility_status=pass into an overall product safety pass.
+    """
+    from src.rag.verification import verify_seat
+    return verify_seat(service, request, age_months=age_months, weight_kg=weight_kg,
+                       independent_sitting=independent_sitting)

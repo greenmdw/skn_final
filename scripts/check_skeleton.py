@@ -96,7 +96,10 @@ exp = {"repo/*.py": 11, "services/*.py": 6, "routers/*.py": 5, "workers/*.py": 5
 struct_ok = all(cnt(g) == v for g, v in exp.items())
 check("구조 개수", struct_ok, " ".join(f"{g.split('/')[0]}={cnt(g)}/{v}" for g, v in exp.items()))
 check("엔진 8단계+[6]", len(list((ROOT / "src/engine").glob("stage*.py"))) == 9)
-check("마이그레이션 6", len(list((ROOT / "db/migrations").glob("*.sql"))) == 6)
+migrations = sorted((ROOT / "db/migrations").glob("*.sql"))
+versions = [int(p.name.split("_", 1)[0]) for p in migrations]
+check("마이그레이션 순서", len(versions) >= 6 and versions == list(range(len(versions))),
+      f"{len(versions)}개 연속 버전")
 
 print()
 print("전체:", "PASS — 뼈대 정상" if ok else "FAIL — 위 항목 확인")

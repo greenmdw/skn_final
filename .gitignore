@@ -23,6 +23,8 @@ ENV/
 
 # ── 테스트 / 타입 / 린트 캐시 ──
 .pytest_cache/
+node_modules/
+.rag-files/
 .mypy_cache/
 .ruff_cache/
 .coverage

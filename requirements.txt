@@ -4,6 +4,7 @@ pyyaml>=6.0             # config/categories/*.yaml 로드
 python-dotenv>=1.0.0    # .env 주입
 
 # === DB ===
+boto3>=1.34,<2          # Bedrock Titan text embeddings
 psycopg[binary]>=3.1    # PostgreSQL + pgvector (db/migrate.py, 이후 repo 계층)
 
 # === 백엔드 API ===
