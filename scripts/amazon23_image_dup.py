@@ -16,8 +16,8 @@ Baby 에서 계정 2개+ 이미지 247건이 나왔는데, 전부 **같은 리�
                최다: ID 하나가 7계정·7상품·973일에 걸쳐 등장(평점 4종) — 조작보다 공용 사진(스톡·스크린샷)
                에 가깝다. 축은 "열리기는 하나" 규모가 카드 한 줄 이상을 정당화하지 않는다
 
-  → 인수인계 `데이터_표.md` 의 미확인 칸 "Amazon'23 사진 URL 중복 여부" 의 답: **실질적으로 없다.**
-    Hollenbeck(22,911장 전부 고유)과 같은 결론이다.
+  → 사전 조사가 미확인으로 남겨 둔 "Amazon'23 사진 URL 중복 여부" 의 답: **실질적으로 없다.**
+    Hollenbeck 공개 데이터(22,911장 전부 고유)와 같은 결론이다.
 
 사용:  uv run --with pandas python scripts/amazon23_image_dup.py data/amazon23/baby_images.tsv data/amazon23/baby_edges.tsv
 """

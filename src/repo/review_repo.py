@@ -146,7 +146,7 @@ class ProductRiskStore:
                 "조작 라벨 없음 — 정제 평점·제외 비율은 산출하지 않는다. "
                 "아래는 상품 단위 관측 사실이며 개별 리뷰의 진위가 아니다."),
             "product_manipulation_risk": {
-                "score": None,                       # 점수는 두지 않는다 (§7-3: 반박 가능한 것만)
+                "score": None,                       # 점수는 두지 않는다 (근거 카드 원칙: 반박 가능한 것만)
                 "evidence": self.observations(product_key),
                 "reliable_range": bool(f["n"] >= self.meta.get("min_reviews", 30)),
                 "controls": self.controls,
