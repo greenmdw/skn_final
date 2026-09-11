@@ -24,6 +24,7 @@ python db/migrate.py status
 | `0003_foreign_keys.sql` | 모든 FK (`ON DELETE RESTRICT`) — 복합 FK C01~C12 포함 |
 | `0004_triggers.sql` | `updated_at` 자동 갱신 트리거 (updated_at 컬럼 있는 테이블 전부) |
 | `0005_indexes.sql` | 성능 인덱스 (명세서 "인덱스 제안" + FK 조인용) · GIN(search_vector) |
+| `0007_review_summary_relation_axis.sql` | `evidence.review_summary` + `author_ref`(소스별 솔트 해시) · `review_posted_at` — 관계·행동 축(공유 리뷰어·7일 몰림·간격)이 온라인 요약 위에서 계산되려면 필요. 원문 미저장 정책과 무관한 메타데이터 |
 
 phase 방식(테이블 전부 → 제약 전부 → 인덱스 전부)을 쓴 이유: 스키마 간 순환 참조가 있어서
 (`assets.material_revision` ↔ `rag.ingestion_job`, `catalog` ↔ `evidence` ↔ `rag` ↔ `engine` ↔ `planning`).
