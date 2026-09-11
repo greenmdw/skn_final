@@ -165,6 +165,43 @@ class Explanation(BaseModel):
     review_line_by_slot: dict[str, str] = Field(default_factory=dict)
 
 
+# ── 저장된 추천 결과 (서비스 내부 DTO) ───────────────────────────────────
+class RecommendationEvidence(BaseModel):
+    """추천 검증 또는 설명에 실제 채택된 설명서 근거."""
+
+    evidence_id: str
+    text: str
+    locator: dict[str, Any] = Field(default_factory=dict)
+    file_sha256: str | None = None
+    review_status: str | None = None
+
+
+class RecommendationCandidate(BaseModel):
+    """추천 실행에 저장된 후보의 서비스 내부 표현."""
+
+    product_key: str
+    variant_key: str | None = None
+    product_name: str
+    price: int | None = None
+    eligibility_status: str
+    verification_status: str
+    coverage_status: str
+    reason: str | None = None
+    evidence: list[RecommendationEvidence] = Field(default_factory=list)
+    error_code: str | None = None
+
+
+class RecommendationResult(BaseModel):
+    """저장소/파이프라인에서 HTTP 계층으로 넘기는 추천 실행 결과."""
+
+    recommendation_run_id: str
+    list_id: str
+    revision_id: str
+    status: str
+    candidates: list[RecommendationCandidate] = Field(default_factory=list)
+    error_code: str | None = None
+
+
 # ── 전체 결과 ───────────────────────────────────────────────────────────
 class PipelineResult(BaseModel):
     scenario: str
