@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ── auth ──
@@ -84,12 +84,30 @@ class ReportOut(BaseModel):
 
 
 # ── reviews (A7) ──
+class ReviewTelemetry(BaseModel):
+    """리뷰 작성 폼의 계측값 — 횟수와 시간뿐, 타이핑 내용은 받지 않는다.
+
+    리뷰 진위 축 중 유일하게 소급 수집이 불가능한 것이라 폼이 생기는 지금 넣는다.
+    `review_revision.usage_context.telemetry` 로 저장된다 (테이블 변경 없음).
+    양성 신호로만 쓴다 — "붙여넣기 없음" 은 무죄 증거가 아니다 (보고 타이핑하는 우회가 너무 쉽다).
+    정수 외의 값·모르는 키는 거부한다: 본문이나 키 입력 내용이 이 경로로 들어오면 안 된다.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    paste_count: int = Field(0, ge=0, description="붙여넣기 이벤트 수")
+    paste_chars: int = Field(0, ge=0, description="붙여넣은 글자 수 합계 (내용 아님)")
+    typing_ms: int = Field(0, ge=0, description="키 입력이 있었던 시간 합계 (ms)")
+    edit_count: int = Field(0, ge=0, description="삭제·수정 이벤트 수")
+    compose_ms: int = Field(0, ge=0, description="폼을 연 뒤 제출까지 (ms)")
+
+
 class PartReviewIn(BaseModel):
     variant_id: str
     rating: int
     title: str
     body: str
     axis_scores: dict[str, Any] = {}
+    telemetry: Optional[ReviewTelemetry] = None
 
 
 class BuildReviewIn(BaseModel):
@@ -98,3 +116,4 @@ class BuildReviewIn(BaseModel):
     title: str
     body: str
     axis_scores: dict[str, Any] = {}
+    telemetry: Optional[ReviewTelemetry] = None

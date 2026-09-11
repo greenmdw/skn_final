@@ -2040,6 +2040,7 @@ RAG 자료 인용을 후보의 설명에도 명시적으로 연결한다.
 | pc_build_component.component_snapshot | brand, model, variant_key, product_type, hardware_revision | 게시 시 variant에서 복사. 개인 시리얼 번호는 요구하지 않음 |
 | pc_build_version.environment | BIOS·OS·팬 구성·측정 온도 등 사용자가 확인한 문맥 | 모르는 값은 NULL/미확인. 데이터가 없는 실측값을 추정해 채우지 않음 |
 | review_revision.axis_scores | 도메인의 component 또는 build 평가 축과 1~5 점수 | 대상 수준별 축 검증. 전체 PC 소음 점수를 CPU 소음 평점으로 전파 금지 |
+| review_revision.usage_context.telemetry | 작성 폼 계측: paste_count, paste_chars, typing_ms, edit_count, compose_ms — 전부 0 이상 정수. 선택 키이며 없으면 만들지 않는다 | 정수 외 값·모르는 키 거부(본문·키 입력 내용 저장 금지). 양성 신호로만 쓴다 — 붙여넣기 없음은 무죄 증거가 아니고, 키가 없는 것은 "미계측" 이지 0 이 아니다. 소급 수집 불가라 폼이 생기는 시점에 넣는다 |
 | review_aggregate.ratings | 정제 전후 평점, 분포, source_counts, 정규화 방법 | 같은 분석 집합·척도 기준. 통계와 aggregate_member 수를 맞춤 |
 | price_watch_evaluation.breakdown | purchase_line_id, offer_observation_id, pack_count, amount, shipping, discount | 실재 관측·대상·시각·통화 검증. 전체 배송비 중복 합산 방지 |
 | generation_run.generation_config | template_text 또는 템플릿 참조·해시, parameters, random_seed(미지원 시 null), requested_labels(선택) | 원문·비밀정보 제외; requested_labels는 생성 의도이며 승인 정답이 아님 |

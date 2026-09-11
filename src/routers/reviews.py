@@ -1,6 +1,9 @@
 """/reviews/* — A7 부품/전체 PC 리뷰 작성·게시. JWT 필수.
 
 리뷰 상세 조회(S5, 정제 전후 평점·요약 3건)는 /session 결과에 포함되거나 별도 GET.
+작성 요청의 선택 필드 `telemetry`(schemas.ReviewTelemetry)는 폼 계측값 — 횟수·시간만 받고
+`review_revision.usage_context.telemetry` 로 저장한다. 프론트는 붙여넣기·키 입력 이벤트를
+세기만 하고 내용은 보내지 않는다.
 """
 from __future__ import annotations
 
