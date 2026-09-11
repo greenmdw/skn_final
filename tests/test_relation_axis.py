@@ -15,8 +15,9 @@ DAY = relation_axis.DAY_MS
 
 
 def _edges(tmp_path):
-    """상품 BURST: 60건 중 40건이 같은 주 · 리뷰어 절반이 QUIET 에도 등장.
-    상품 QUIET: 60건이 1년에 고르게 · 계정 전부 1건뿐."""
+    """상품 BURST: 60건 중 40건이 첫 주(출시) · 리뷰어 절반이 QUIET 에도 등장.
+    상품 QUIET: 60건이 1년에 고르게 · 계정 전부 1건뿐.
+    상품 LATE: 첫 리뷰 후 300일 뒤 한 주에 40건 — 출시가 아닌 몰림."""
     rows = []
     for i in range(60):
         day = 100 + (i % 7 if i < 40 else 20 * i)          # 앞 40건은 7일 창 안
@@ -24,6 +25,9 @@ def _edges(tmp_path):
     for i in range(60):
         uid = f"u{i}" if i < 30 else f"q{i}"                # 앞 30명은 BURST 와 공유
         rows.append((uid, "QUIET", (200 + 6 * i) * DAY, 4 if i % 2 else 5, 1))
+    for i in range(60):
+        day = 100 + (400 + i % 7 if i < 40 else 5 * i)     # 첫 리뷰 day 100, 몰림은 day 500 주
+        rows.append((f"l{i}", "LATE", day * DAY, 5, 0))
     p = tmp_path / "edges.tsv"
     with open(p, "w") as f:
         f.write("user_id\tparent_asin\tts_ms\trating\tverified\thelpful\tn_img\ttext_len\n")
@@ -37,7 +41,7 @@ def test_batch_produces_observations_not_scores(tmp_path):
     res = relation_axis.run(_edges(tmp_path), out, min_reviews=10, card_min_reviews=10,
                             n_cards=1, log=lambda *_: None)
     pf = res["products"]
-    assert pf["BURST"]["burst7"] > pf["QUIET"]["burst7"]
+    assert pf["BURST"]["burst7"] > pf["QUIET"]["burst7"] and pf["LATE"]["burst7"] == pytest.approx(40 / 60, abs=1e-3)
     assert pf["BURST"]["burst7"] == pytest.approx(40 / 60, abs=1e-3)   # JSON 은 소수 4자리
     assert pf["BURST"]["shared_reviewers"] == 30 and pf["BURST"]["deg"] == 1
     assert pf["QUIET"]["one_off_rate"] == pytest.approx(0.5)       # q* 30명은 1건뿐
@@ -73,17 +77,19 @@ def test_rank_review_axis_uses_store_without_judging(tmp_path, monkeypatch):
     relation_axis.run(_edges(tmp_path), out, min_reviews=10, card_min_reviews=10,
                       n_cards=1, log=lambda *_: None)
     store = ProductRiskStore(out)
-    store.controls.update({"burst7": 0.05, "one_off_rate": 0.3, "prolific_rate": 0.05})
+    store.controls.update({"burst7": 0.05, "one_off_rate": 0.1, "prolific_rate": 0.05})
     monkeypatch.setattr(review_repo, "_default_store", store)
     monkeypatch.setattr(review_repo, "_default_store_tried", True)
 
-    # BURST: 몰림 67% 지만 첫 주(출시)라 랭킹 신호에서 빠진다. 1건 계정 50% 는 0.3×2 미만 → 관측됨·특이 없음
+    # BURST: 몰림 67% 지만 첫 주(출시)라 랭킹 신호에서 빠진다 → 관측됨·특이 없음
     assert "burst7" not in [k for k, _, _ in store.excess("BURST")]
     v, flags = rk._review_axis(Candidate(product_key="BURST", slot="X", name="b"))
     assert v == rk._REVIEW_CLEAR and flags == ["REVIEW_OBS:observed"]
-    # 대조군 중앙값이 낮아지면 같은 50% 가 2배를 넘는다 → 검토 필요. 이유가 flags 에 남는다
-    store.controls["one_off_rate"] = 0.2
+    # 1건 계정 비율은 랭킹 신호가 아니다 — QUIET 는 50% 인데(중앙값 10%의 5배) 걸리지 않는다
     v, flags = rk._review_axis(Candidate(product_key="QUIET", slot="X", name="q"))
-    assert v == rk._REVIEW_FLAGGED and flags and flags[0].startswith("REVIEW_OBS:one_off_rate=")
+    assert v == rk._REVIEW_CLEAR and "one_off_rate" not in [k for k, _, _ in store.excess("QUIET")]
+    # LATE: 출시 300일 뒤 한 주에 67% → 검토 필요. 이유가 flags 에 남는다
+    v, flags = rk._review_axis(Candidate(product_key="LATE", slot="X", name="l"))
+    assert v == rk._REVIEW_FLAGGED and flags and flags[0].startswith("REVIEW_OBS:burst7=")
     # 데이터에 없는 상품: 모름 = 0.5, 감점 없음
     assert rk._review_axis(Candidate(product_key="NOPE", slot="X", name="n")) == (rk._REVIEW_UNKNOWN, [])

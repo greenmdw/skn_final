@@ -61,8 +61,12 @@ class ProductRiskStore:
     소비자 노출 여부는 별도 결정 사항이고, 이 리더는 그 결정을 선점하지 않는다.
     """
 
-    # 랭킹용으로 "전체 중앙값 대비 배수" 를 보는 관측값. 값이 클수록 몰림·1건 계정·다작 쪽
-    EXCESS_KEYS = ("burst7", "one_off_rate", "prolific_rate")
+    # 랭킹용으로 "대조군 중앙값 대비 배수" 를 보는 관측값. 값이 클수록 몰림·다작 쪽.
+    # one_off_rate(1건 계정 비율)는 뺐다 — 실측 라벨(Hollenbeck)에서 방향이 반대로 나왔는데(AUC 0.065)
+    # 그 자료의 표집 구조(캠페인 리뷰어는 여러 상품에 나타난다) 탓일 수 있어 어느 방향도 믿을 수 없다.
+    # 카드에는 그대로 보이고, 랭킹 신호에서만 뺀다. burst7 은 같은 라벨에서 걸린 상품의 82.9% 가
+    # 양성(기저율 42.8%), prolific_rate 는 단독 AUC 0.797 로 방향이 맞았다.
+    EXCESS_KEYS = ("burst7", "prolific_rate")
 
     def __init__(self, path: str | Path, alias_csv: str | Path | None = None):
         self.path = Path(path)
