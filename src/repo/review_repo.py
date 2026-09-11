@@ -156,6 +156,26 @@ class ProductRiskStore:
         }
 
 
+_default_store: ProductRiskStore | None = None
+_default_store_tried = False
+
+
+def default_risk_store() -> ProductRiskStore | None:
+    """config.REVIEW_RISK_JSON 의 산출물을 한 번만 읽어 공유한다. 파일이 없으면 None — 호출자는 "관측 없음" 으로.
+    테스트는 `_default_store`·`_default_store_tried` 를 monkeypatch 한다."""
+    global _default_store, _default_store_tried
+    if not _default_store_tried:
+        _default_store_tried = True
+        from src.config import PARTS_ASIN_MAP, REVIEW_RISK_JSON
+        if REVIEW_RISK_JSON.exists():
+            _default_store = ProductRiskStore(REVIEW_RISK_JSON, PARTS_ASIN_MAP)
+    return _default_store
+
+
+# 관측 지표 → 사람이 읽는 이름. 랭킹 flags 와 [5] 설명이 같이 쓴다
+OBS_LABEL = {"burst7": "7일 몰림", "one_off_rate": "1건 계정 비율", "prolific_rate": "다작 계정 비율"}
+
+
 class ReviewSummaryDemoFile:
     """`data/review_summaries.json`(합성 데모) 리더 — 항목별 평가·대표 요약 3건의 유일한 출처.
 

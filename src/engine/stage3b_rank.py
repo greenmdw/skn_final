@@ -7,10 +7,10 @@ score = Σ w_axis·norm_axis − (Pending 이면 0.20).
 """
 from __future__ import annotations
 
-from src.config import (PARTS_ASIN_MAP, PENDING_SCORE_PENALTY, REVIEW_AXIS_EXCESS, REVIEW_RISK_JSON,
-                        TOP_N_DEFAULT, TOP_N_IMPACT)
+from src.config import PENDING_SCORE_PENALTY, REVIEW_AXIS_EXCESS, TOP_N_DEFAULT, TOP_N_IMPACT
 from src.dto import Candidate, HardFilterResult, RankResult, RequirementSpec, Slots
 from src.engine import LogFn
+from src.repo.review_repo import default_risk_store
 
 _IMPACT_SLOTS = {"GPU", "CPU"}
 
@@ -28,22 +28,10 @@ _WEIGHTS = {"가격": 0.35, "성능": 0.25, "밸런스": 0.15, "리뷰": 0.20, "
 # 하나라도 넘음 0.25. 판정이 아니다 — 덜 보여줄 뿐이고 되돌릴 수 있는 자리라 검증 없이 쓴다.
 # 넘은 지표는 flags 에 남겨 [5] 설명이 "왜" 를 보여줄 수 있게 한다.
 _REVIEW_UNKNOWN, _REVIEW_CLEAR, _REVIEW_FLAGGED = 0.5, 0.75, 0.25
-_review_store = None
-_review_store_tried = False
-
-
-def _get_review_store():
-    global _review_store, _review_store_tried
-    if not _review_store_tried:
-        _review_store_tried = True
-        if REVIEW_RISK_JSON.exists():
-            from src.repo.review_repo import ProductRiskStore
-            _review_store = ProductRiskStore(REVIEW_RISK_JSON, PARTS_ASIN_MAP)
-    return _review_store
 
 
 def _review_axis(cand: Candidate) -> tuple[float, list[str]]:
-    store = _get_review_store()
+    store = default_risk_store()
     if store is None or store.get(cand.product_key) is None:
         return _REVIEW_UNKNOWN, []
     over = [(k, v, m) for k, v, m in store.excess(cand.product_key) if v >= REVIEW_AXIS_EXCESS * m]

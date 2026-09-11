@@ -7,27 +7,22 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from src.config import PARTS_ASIN_MAP, REVIEW_RISK_JSON, REVIEW_SUMMARIES_DEMO
+from src.config import REVIEW_SUMMARIES_DEMO
 from src.errors import NotFound
+from src.repo.review_repo import ReviewSummaryDemoFile, default_risk_store
 from src.schemas import ProductRiskOut, ReviewSummaryOut, ReviewTelemetry, SyntheticDemoOut
 
 TELEMETRY_KEY = "telemetry"
 
-_risk_store = None
-_demo_file = None
-_loaded = False
+_demo_file: ReviewSummaryDemoFile | None = None
 
 
 def _stores():
     """파일 기반 산출물 — DB 연결 전까지의 자리. 산출 JSON 이 없으면 관측 없이 데모 블록만."""
-    global _risk_store, _demo_file, _loaded
-    if not _loaded:
-        _loaded = True
-        from src.repo.review_repo import ProductRiskStore, ReviewSummaryDemoFile
-        if REVIEW_RISK_JSON.exists():
-            _risk_store = ProductRiskStore(REVIEW_RISK_JSON, PARTS_ASIN_MAP)
+    global _demo_file
+    if _demo_file is None:
         _demo_file = ReviewSummaryDemoFile(REVIEW_SUMMARIES_DEMO)
-    return _risk_store, _demo_file
+    return default_risk_store(), _demo_file
 
 
 def get_summary(product_key: str) -> ReviewSummaryOut:

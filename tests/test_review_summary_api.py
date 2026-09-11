@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from src.api import app
 from src.config import REVIEW_SUMMARIES_DEMO
+from src.repo import review_repo
 from src.repo.review_repo import ProductRiskStore, ReviewSummaryDemoFile
 from src.services import review_service
 
@@ -26,9 +27,9 @@ def client(tmp_path, monkeypatch):
     p.write_text(json.dumps(risk), encoding="utf-8")
     store = ProductRiskStore(p)
     store.alias["amd-ryzen-5-5600"] = "ASIN1"          # 데모 부품 하나를 관측에 잇는다
-    monkeypatch.setattr(review_service, "_risk_store", store)
+    monkeypatch.setattr(review_repo, "_default_store", store)
+    monkeypatch.setattr(review_repo, "_default_store_tried", True)
     monkeypatch.setattr(review_service, "_demo_file", ReviewSummaryDemoFile(REVIEW_SUMMARIES_DEMO))
-    monkeypatch.setattr(review_service, "_loaded", True)
     return TestClient(app)
 
 
