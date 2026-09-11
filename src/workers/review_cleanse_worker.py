@@ -1,11 +1,46 @@
 """오프라인 리뷰 클렌징 배치 (리뷰 담당 팀원).
 
-수집 → 진위 라벨(메타데이터 우선, 텍스트 AI탐지 최하위 가중치) → 평점 재계산 →
+수집 → **관계·행동 축 관측**(`relation_axis`) → [진위 라벨 — 미구현] → 평점 재계산 →
 임베딩 → 평가축별 대표 리뷰 → 요약 3건 → evidence.review_summary / review_aggregate 저장.
 산출물만 저장, 원문 미저장. dataset 의 합성 표본은 운영 집계에 포함하지 않음(C21).
+
+지금 도는 단계는 관계·행동 축 하나다. 그 단계가 내는 것은 점수가 아니라
+**상품 단위 관측 사실 + 근거 카드**이고, `product_manipulation_risk` 로 리뷰 단위
+판정과 분리해 든다. 텍스트 AI 탐지는 가중치 0 — 텍스트 단독 판정 불가(인수인계
+ADR-0002)와 LLM 단독 판정 금지(같은 문서 원칙 8)가 그 이유다.
+
+    # 1) 엣지 표 (표준 라이브러리)
+    python scripts/amazon23_edges.py /path/Baby_Products.jsonl --cat baby
+    # 2) 관계·행동 축 (pandas·numpy·scipy 필요)
+    python -m src.workers.review_cleanse_worker data/amazon23/baby_edges.tsv \
+        --out data/amazon23/baby_product_risk.json
 """
 from __future__ import annotations
 
+import argparse
+from pathlib import Path
 
-def run() -> None:
-    raise NotImplementedError
+from src.config import DATA_DIR
+
+DEFAULT_EDGES = DATA_DIR / "amazon23" / "baby_edges.tsv"
+DEFAULT_OUT = DATA_DIR / "amazon23" / "baby_product_risk.json"
+
+
+def run(edges: str | Path = DEFAULT_EDGES, out: str | Path = DEFAULT_OUT, **kw) -> dict:
+    from src.workers import relation_axis   # 무거운 의존성은 배치 실행 시에만
+    return relation_axis.run(edges, out, **kw)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("edges", nargs="?", default=str(DEFAULT_EDGES))
+    ap.add_argument("--out", default=str(DEFAULT_OUT))
+    ap.add_argument("--min-reviews", type=int, default=30, help="산출 JSON 에 넣을 상품의 최소 리뷰 수")
+    ap.add_argument("--card-min-reviews", type=int, default=200)
+    ap.add_argument("--cards", type=int, default=3, help="그룹당 카드 수")
+    a = ap.parse_args()
+    run(a.edges, a.out, min_reviews=a.min_reviews, card_min_reviews=a.card_min_reviews, n_cards=a.cards)
+
+
+if __name__ == "__main__":
+    main()

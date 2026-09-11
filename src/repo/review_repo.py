@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from uuid import UUID
 
 from src.db.base import Repo
@@ -45,3 +47,71 @@ class ReviewRepo(Repo):
          top_summaries, confidence_note}
         """
         raise NotImplementedError
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 오프라인 산출물 리더 — DB 연결 전까지 [3-B]/[3-C]/S5 가 읽는 자리
+# ─────────────────────────────────────────────────────────────────────────────
+class ProductRiskStore:
+    """`review_cleanse_worker` 가 만든 `*_product_risk.json` 을 읽어 계약 모양으로 낸다.
+
+    관계·행동 축은 **상품 단위 관측 사실**만 낸다. 조작 라벨이 없으므로
+    `cleaned_rating`·`cleanse_ratio` 는 채우지 않는다(None) — 탐지기 없이 하향 평점을
+    만들면 "조작을 걸러낸 하향" 과 "만족 고객을 걸러낸 하향" 을 구별할 수 없다.
+    소비자 노출 여부는 별도 결정 사항이고, 이 리더는 그 결정을 선점하지 않는다.
+    """
+
+    def __init__(self, path: str | Path):
+        self.path = Path(path)
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        self.meta: dict = data["meta"]
+        self.controls: dict = data["controls"]
+        self.products: dict = data["products"]
+        self.cards: dict = {c["product_key"]: c for grp in data["cards"].values() for c in grp}
+
+    def get(self, product_key: str) -> dict | None:
+        return self.products.get(product_key)
+
+    def observations(self, product_key: str) -> list[str]:
+        """카드가 있으면 카드 문장, 없으면 특징 표에서 핵심 셋만 문장으로."""
+        c = self.cards.get(product_key)
+        if c:
+            return list(c["observations"])
+        f = self.products.get(product_key)
+        if not f:
+            return []
+        m = self.controls
+        return [
+            f"리뷰 {int(f['n'])}건 중 {int(f['burst7_count'])}건({100*f['burst7']:.1f}%)이 7일 안에 몰림"
+            f" — 전체 상품 중앙값 {100*m['burst7']:.1f}%",
+            f"리뷰어 {int(f['shared_reviewers'])}명이 다른 상품에서도 함께 나타남 (연결 상품 {int(f['deg'])}개)"
+            f" — 중앙값 {m['shared_reviewers']:.0f}명 / {m['deg']:.0f}개",
+            f"5점 비율 {100*f['p5']:.0f}% — 중앙값 {100*m['p5']:.0f}%",
+        ]
+
+    def get_review_authenticity(self, product_key: str) -> dict:
+        """[3-C] 계약 (기획서 §10-6) 과 같은 키. 채울 수 없는 값은 None 으로 두고 이유를 적는다."""
+        f = self.products.get(product_key)
+        if not f:
+            return {"orig_rating": None, "cleaned_rating": None, "cleanse_ratio": None,
+                    "axis_scores": {}, "total_reviews": 0, "top_summaries": [],
+                    "confidence_note": "관측 없음 — 리뷰 수가 산출 문턱 미만이거나 데이터에 없는 상품",
+                    "product_manipulation_risk": {"score": None, "evidence": [], "reliable_range": None}}
+        return {
+            "orig_rating": round(f["mean_rating"], 2),
+            "cleaned_rating": None,
+            "cleanse_ratio": None,
+            "axis_scores": {},
+            "total_reviews": int(f["n"]),
+            "top_summaries": [],
+            "confidence_note": (
+                "조작 라벨 없음 — 정제 평점·제외 비율은 산출하지 않는다. "
+                "아래는 상품 단위 관측 사실이며 개별 리뷰의 진위가 아니다."),
+            "product_manipulation_risk": {
+                "score": None,                       # 점수는 두지 않는다 (§7-3: 반박 가능한 것만)
+                "evidence": self.observations(product_key),
+                "reliable_range": bool(f["n"] >= self.meta.get("min_reviews", 30)),
+                "controls": self.controls,
+                "source": self.meta.get("source"),
+            },
+        }
