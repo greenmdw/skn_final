@@ -247,15 +247,29 @@ def render_card(c: EvidenceCard) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 # 배치 진입점
 # ─────────────────────────────────────────────────────────────────────────────
+def load_category_filter(meta_tsv: str | Path, pattern: str) -> set[str]:
+    """`scripts/amazon23_meta_slim.py` 의 TSV 에서 categories 가 패턴에 맞는 ASIN 집합."""
+    m = pd.read_csv(meta_tsv, sep="\t", dtype="string", usecols=["parent_asin", "categories"])
+    hit = m[m.categories.fillna("").str.contains(pattern, case=False, regex=True)]
+    return set(hit.parent_asin.dropna())
+
+
 def run(edges_path: str | Path, out_json: str | Path, *, min_reviews: int = 30,
-        card_min_reviews: int = 200, n_cards: int = 3, log=print) -> dict:
+        card_min_reviews: int = 200, n_cards: int = 3, log=print,
+        product_filter: set[str] | None = None, scope_label: str | None = None) -> dict:
     """엣지 표 → 상품 특징 + 근거 카드 JSON.
 
     반환 dict 가 곧 JSON 내용이다:
-      meta      데이터 규모 · 계정 단위 특징의 정의 비율(Q3)
-      controls  전체 상품 중앙값 (대조군)
-      products  {asin: facts}  — min_reviews 이상 상품만
+      meta      데이터 규모 · 계정 단위 특징의 정의 비율(Q3) · 대조군 범위
+      controls  대조군 중앙값 — product_filter 가 있으면 **그 범위 안의** 상품 중앙값
+      products  {asin: facts}  — min_reviews 이상 (product_filter 안의) 상품만
       cards     몰림 상위 / 연결 상위 / 대조 하위 카드
+
+    **대조군은 같은 부류의 상품이어야 한다.** Electronics 전체 중앙값을 PC 부품에 대면 다작
+    계정 비율(4.4%)이 PC 부품에서는 일상적으로 2~3배라 절반이 "검토 필요" 로 찍힌다 — 조작이
+    아니라 PC 조립자가 부품을 여러 번 산다는 사실이다. 인수인계 §33(도메인 전이 비대칭)의
+    교훈 그대로다. 특징은 전체 그래프에서 계산하고(다른 부류 상품과의 연결도 실제 연결이다),
+    중앙값과 출력만 범위를 좁힌다.
     """
     log(f"[관계·행동] 엣지 읽는 중: {edges_path}")
     df = load_edges(edges_path)
@@ -276,11 +290,14 @@ def run(edges_path: str | Path, out_json: str | Path, *, min_reviews: int = 30,
     pf = product_features(df, rf, P, products)
 
     big = pf[pf.n >= min_reviews]
+    if product_filter is not None:
+        big = big[big.index.isin(product_filter)]
+        log(f"  대조군 범위: {scope_label or 'filter'} — 상품 {len(product_filter):,}개 중 리뷰 {min_reviews}건+ {len(big):,}개")
     controls = {k: float(big[k].median()) for k in CONTROL_KEYS}
     log(f"  대조군(리뷰 {min_reviews}건+ 상품 {len(big):,}개 중앙값): "
         + " · ".join(f"{k} {v:.3g}" for k, v in controls.items()))
 
-    cand = pf[pf.n >= card_min_reviews]
+    cand = big[big.n >= card_min_reviews]
     picks = {
         "burst_top": cand.sort_values("burst7", ascending=False).index[:n_cards],
         "graph_top": cand.sort_values("deg_norm", ascending=False).index[:n_cards],
@@ -297,6 +314,7 @@ def run(edges_path: str | Path, out_json: str | Path, *, min_reviews: int = 30,
             "source": str(edges_path), "n_reviews": int(len(df)),
             "n_accounts": int(df.user_id.nunique()), "n_products": int(df.parent_asin.nunique()),
             "min_reviews": min_reviews, "labels": None,
+            "control_scope": scope_label or "all",
             "q3": q3,
             "note": "조작 라벨 없음. 값은 전부 관측 사실이며 탐지 성능이 아니다. "
                     "절대 수치를 다른 언어·도메인·내부 데이터로 옮기지 않는다.",

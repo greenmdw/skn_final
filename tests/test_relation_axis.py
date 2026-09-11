@@ -61,3 +61,28 @@ def test_store_keeps_cleaned_rating_empty(tmp_path):
     assert risk["score"] is None and len(risk["evidence"]) >= 3 and risk["reliable_range"] is True
     missing = store.get_review_authenticity("NOPE")
     assert missing["total_reviews"] == 0 and missing["product_manipulation_risk"]["evidence"] == []
+
+
+def test_rank_review_axis_uses_store_without_judging(tmp_path, monkeypatch):
+    """[3-B] 리뷰축: 관측 없음 0.5 · 관측됨 0.75 · 중앙값 2배 초과 0.25. 출시 첫 주 몰림은 안 센다."""
+    from src.dto import Candidate
+    from src.engine import stage3b_rank as rk
+
+    out = tmp_path / "risk.json"
+    relation_axis.run(_edges(tmp_path), out, min_reviews=10, card_min_reviews=10,
+                      n_cards=1, log=lambda *_: None)
+    store = ProductRiskStore(out)
+    store.controls.update({"burst7": 0.05, "one_off_rate": 0.3, "prolific_rate": 0.05})
+    monkeypatch.setattr(rk, "_review_store", store)
+    monkeypatch.setattr(rk, "_review_store_tried", True)
+
+    # BURST: 몰림 67% 지만 첫 주(출시)라 랭킹 신호에서 빠진다. 1건 계정 50% 는 0.3×2 미만 → 관측됨·특이 없음
+    assert "burst7" not in [k for k, _, _ in store.excess("BURST")]
+    v, flags = rk._review_axis(Candidate(product_key="BURST", slot="X", name="b"))
+    assert v == rk._REVIEW_CLEAR and flags == ["REVIEW_OBS:observed"]
+    # 대조군 중앙값이 낮아지면 같은 50% 가 2배를 넘는다 → 검토 필요. 이유가 flags 에 남는다
+    store.controls["one_off_rate"] = 0.2
+    v, flags = rk._review_axis(Candidate(product_key="QUIET", slot="X", name="q"))
+    assert v == rk._REVIEW_FLAGGED and flags and flags[0].startswith("REVIEW_OBS:one_off_rate=")
+    # 데이터에 없는 상품: 모름 = 0.5, 감점 없음
+    assert rk._review_axis(Candidate(product_key="NOPE", slot="X", name="n")) == (rk._REVIEW_UNKNOWN, [])

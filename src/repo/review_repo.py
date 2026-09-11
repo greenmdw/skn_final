@@ -61,23 +61,61 @@ class ProductRiskStore:
     소비자 노출 여부는 별도 결정 사항이고, 이 리더는 그 결정을 선점하지 않는다.
     """
 
-    def __init__(self, path: str | Path):
+    # 랭킹용으로 "전체 중앙값 대비 배수" 를 보는 관측값. 값이 클수록 몰림·1건 계정·다작 쪽
+    EXCESS_KEYS = ("burst7", "one_off_rate", "prolific_rate")
+
+    def __init__(self, path: str | Path, alias_csv: str | Path | None = None):
         self.path = Path(path)
         data = json.loads(self.path.read_text(encoding="utf-8"))
         self.meta: dict = data["meta"]
         self.controls: dict = data["controls"]
         self.products: dict = data["products"]
         self.cards: dict = {c["product_key"]: c for grp in data["cards"].values() for c in grp}
+        # 데모 부품 슬러그 → ASIN (scripts/map_parts_to_asin.py). 엔진 키와 요약 키 둘 다 받는다
+        self.alias: dict[str, str] = {}
+        if alias_csv and Path(alias_csv).exists():
+            import csv
+            with open(alias_csv, encoding="utf-8") as f:
+                for r in csv.DictReader(f):
+                    if r.get("asin"):
+                        self.alias[r["product_key"]] = r["asin"]
+                        self.alias[r["summary_key"]] = r["asin"]
+
+    def resolve(self, key: str) -> str:
+        return self.alias.get(key, key)
 
     def get(self, product_key: str) -> dict | None:
-        return self.products.get(product_key)
+        return self.products.get(self.resolve(product_key))
+
+    LAUNCH_WINDOW_DAYS = 7
+
+    def excess(self, product_key: str) -> list[tuple[str, float, float]]:
+        """대조군 중앙값과 나란히 둔 관측값 — (지표, 값, 중앙값). 판정이 아니라 '검토자가 볼 것' 의 목록.
+
+        출시 첫 주의 몰림은 뺀다 — 몰림이 중앙값 2배를 넘는 상품의 14% 가 출시 주에 몰린 것이었다
+        (Electronics 실측). 그건 조작이 아니라 출시다. 카드에는 그대로 보이고, 랭킹 신호에서만 뺀다.
+        """
+        f = self.get(product_key)
+        if not f:
+            return []
+        launch_burst = (f.get("burst7_start_day") is not None and f.get("first_day") is not None
+                        and f["burst7_start_day"] - f["first_day"] <= self.LAUNCH_WINDOW_DAYS)
+        out = []
+        for k in self.EXCESS_KEYS:
+            if k == "burst7" and launch_burst:
+                continue
+            v, m = f.get(k), self.controls.get(k)
+            if v is not None and m:
+                out.append((k, float(v), float(m)))
+        return out
 
     def observations(self, product_key: str) -> list[str]:
         """카드가 있으면 카드 문장, 없으면 특징 표에서 핵심 셋만 문장으로."""
-        c = self.cards.get(product_key)
+        asin = self.resolve(product_key)
+        c = self.cards.get(asin)
         if c:
             return list(c["observations"])
-        f = self.products.get(product_key)
+        f = self.products.get(asin)
         if not f:
             return []
         m = self.controls
@@ -91,7 +129,7 @@ class ProductRiskStore:
 
     def get_review_authenticity(self, product_key: str) -> dict:
         """[3-C] 계약 (기획서 §10-6) 과 같은 키. 채울 수 없는 값은 None 으로 두고 이유를 적는다."""
-        f = self.products.get(product_key)
+        f = self.get(product_key)
         if not f:
             return {"orig_rating": None, "cleaned_rating": None, "cleanse_ratio": None,
                     "axis_scores": {}, "total_reviews": 0, "top_summaries": [],
@@ -113,5 +151,6 @@ class ProductRiskStore:
                 "reliable_range": bool(f["n"] >= self.meta.get("min_reviews", 30)),
                 "controls": self.controls,
                 "source": self.meta.get("source"),
+                "product_ref": self.resolve(product_key),
             },
         }
