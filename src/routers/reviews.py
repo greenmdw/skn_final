@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from src import schemas
+from src.services import review_service
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
@@ -35,7 +36,11 @@ def publish(review_id: str) -> dict:
     raise NotImplementedError
 
 
-@router.get("/summary/{product_key}")
-def review_summary(product_key: str) -> dict:
-    """S5 리뷰 상세: 정제 전/후 평점, 항목별 평가, 요약 3건 + 출처·조회시점."""
-    raise NotImplementedError
+@router.get("/summary/{product_key}", response_model=schemas.ReviewSummaryOut)
+def review_summary(product_key: str) -> schemas.ReviewSummaryOut:
+    """S5 리뷰 상세 — 실측 관측(관계·행동 축)과 합성 데모 블록을 분리해 낸다.
+
+    product_key 는 엔진 키(`amd-ryzen-5-5600`)·요약 키·ASIN 모두 받는다.
+    읽기 전용 공개 데이터라 인증 없이 둔다 (auth 구현 후 optional_principal 로 소유 세션 연결).
+    """
+    return review_service.get_summary(product_key)

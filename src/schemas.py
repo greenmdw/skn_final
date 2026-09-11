@@ -117,3 +117,47 @@ class BuildReviewIn(BaseModel):
     body: str
     axis_scores: dict[str, Any] = {}
     telemetry: Optional[ReviewTelemetry] = None
+
+
+class ProductRiskOut(BaseModel):
+    """상품 단위 관측 사실. 점수 없음 — 검토자가 확인·반박할 수 있는 문장과 대조군 중앙값."""
+    score: None = None
+    evidence: list[str] = []
+    reliable_range: Optional[bool] = None
+    controls: dict[str, float] = {}
+    control_scope: Optional[str] = None
+    product_ref: Optional[str] = None            # 관측이 붙은 외부 상품 식별자 (예: ASIN)
+    verify_url: Optional[str] = None
+
+
+class SyntheticDemoOut(BaseModel):
+    """합성 데모값 블록 — 화면은 반드시 '합성 데모값' 표지와 함께 보여준다. 실사용자 노출 금지."""
+    is_synthetic: Literal[True] = True
+    note: str
+    cleaned_rating: Optional[float] = None
+    cleanse_ratio: Optional[float] = None
+    removed_count: Optional[int] = None
+    rating_dist: dict[str, Any] = {}
+    axis_scores: dict[str, Any] = {}
+    top_summaries: list[dict[str, Any]] = []
+    sources: list[dict[str, Any]] = []
+    collected_at: Optional[str] = None
+
+
+class ReviewSummaryOut(BaseModel):
+    """S5 리뷰 상세 — `get_review_authenticity` 계약(기획서 §10-6)과 같은 최상위 키.
+
+    실측 필드(orig_rating · total_reviews · product_manipulation_risk)와 합성 데모 블록을 섞지 않는다.
+    cleaned_rating · cleanse_ratio 는 판정기가 없어 항상 null 이다(docs/decisions/0001).
+    """
+    product_key: str
+    product_name: Optional[str] = None
+    orig_rating: Optional[float] = None
+    cleaned_rating: None = None
+    cleanse_ratio: None = None
+    axis_scores: dict[str, Any] = {}             # 실측 없음 — 비어 있다. 합성값은 synthetic_demo 에
+    total_reviews: int = 0
+    top_summaries: list[dict[str, Any]] = []     # 위와 같음
+    confidence_note: str
+    product_manipulation_risk: ProductRiskOut
+    synthetic_demo: Optional[SyntheticDemoOut] = None
