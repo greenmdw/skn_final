@@ -1,6 +1,6 @@
 # 프론트 작업에 따른 외부 수정 요청
 
-- 작성: 2026-09-11 (2차 갱신) · 프론트 작업(`front` 브랜치)
+- 작성: 2026-09-11 (3차 갱신) · 프론트 작업(`front` 브랜치)
 - 목적: 프론트는 `frontend/` 폴더만 수정한다. 그 밖(백엔드·DB·데이터·인프라·문서)에서 필요한 변경을 이 문서에 모아 담당자에게 전달한다.
 
 ## 결정 사항
@@ -12,7 +12,7 @@
 | 인증 | 이메일 + 비밀번호. 로그인 토큰은 httpOnly 쿠키. **이메일 인증은 2026-10-26로 연기** |
 | 카테고리 | **컴퓨터와 유아용품 모두** 해커톤(9/15)까지 |
 | 채팅 조건 추출 | **LLM(Bedrock) 사용 안 함** — 규칙 기반 추출 + 칩 선택 |
-| 로그인·가입 화면 | `TrueFit.html` 안의 화면(`#/login`, `#/signup`, `#/account`) |
+| 로그인·가입 화면 | `TrueFit.html` 진입점의 SPA 화면(`#/login`, `#/signup`, `#/account`). 화면 코드는 `frontend/js/pages/auth.js` |
 
 > **해커톤 시연 가능 여부는 아래 "해커톤 전" 항목의 백엔드 완료에 달려 있다.** 프론트는 계약대로 호출 코드를 먼저 만들고, API가 준비되는 순서대로 실제 동작을 확인한다.
 
@@ -267,6 +267,37 @@ WHERE user_id = %(user_id)s;
 
 `src/schemas.py`의 `SessionOut`, `ConditionStateOut`, `RecommendResultOut`, `ReportOut` 등은 골격만 있어 아래 내용으로 교체·확장이 필요하다. 필드 이름·구조를 바꿔야 하면 이 문서를 먼저 고친 뒤 구현한다.
 
+#### D-4-0. 프론트 연결 현황과 백엔드 구현 체크리스트
+
+프론트는 2026-09-11 현재 아래 파일에서 이 계약의 요청 경로와 응답 필드를 사용한다.
+
+| 프론트 파일 | 담당 범위 |
+|---|---|
+| `frontend/js/api.js` | `TF_API` 공통 fetch, `TF_AUTH`, 오류 봉투 처리 |
+| `frontend/js/core.js` | `TF_PLAN` API 어댑터, 장바구니 목록·공통 상태 |
+| `frontend/js/pages/planner.js` | 세션 생성, 카테고리, 조건 대화, 칩 답변, 조건 수정, 초기화, 사양 파일 |
+| `frontend/js/pages/results.js` | 추천 결과·폴링, 후보 교체, 리뷰, 확정, 리포트, 가격 알림 |
+| `frontend/js/app.js` | 화면 이벤트를 위 API 어댑터에 연결 |
+
+프론트에는 가짜 응답 fallback이 없다. 따라서 아래 항목이 구현되기 전에는 화면 연결 코드를 작성했더라도 실제 사용자 흐름을 완료할 수 없다.
+
+- `src/routers/session.py`: `GET /session/{list_id}`, `/reset`, `/spec-file`, `/items/{item_id}`, `/alternatives`, `/swap`, `/result-message`를 추가한다.
+- `src/routers/lists.py`: `PATCH /lists/{list_id}`, `DELETE /lists/{list_id}`를 추가한다.
+- `src/schemas.py`: 현재 골격을 아래 `ConditionState`, `RecommendResult`, `ListSummary`, `Report`, `PriceWatch` 구조로 교체한다.
+- `SessionOut.browser_token`을 제거하고 `truefit_guest` httpOnly 쿠키로 전달한다.
+- `POST /session/{list_id}/recommend`는 선택적인 `strategy` 본문을 받고 `202 {"run_id", "status"}`를 반환하도록 바꾼다. 현재 라우터 선언은 본문을 받지 않고 `RecommendResultOut`을 즉시 반환하는 형태다.
+- `ConfirmIn`에 `memo`를 추가하고, 가격 알림에는 `{"enabled", "target_amount"?}` 전용 입력 스키마를 사용한다.
+- `GET /lists`는 배열 자체가 아니라 `{"items": [ListSummary]}`를 반환한다.
+- 모든 구현은 `credentials: include`로 전달되는 로그인 쿠키와 guest 쿠키를 모두 고려하고, 아래 공통 오류 봉투를 유지한다.
+
+**프론트-백엔드 통합 완료 기준**
+
+1. 비로그인 상태에서 세션 생성 → PC·유아용품 조건 대화 → 추천 결과 조회까지 완료된다.
+2. 결과에서 담기·빼기, 수량, 구매 시점, 후보 교체, 결과 대화가 새로고침 후에도 서버 상태로 복원된다.
+3. 비로그인 확정 시 401을 받고 로그인 화면으로 이동하며, 로그인 후 같은 `list_id`의 `#/confirm`으로 돌아온다.
+4. 확정 후 `GET /report`의 데이터만으로 리포트를 그리고, 알림 설정·목록 이름 변경·삭제가 서버에 반영된다.
+5. API 미구현 시 501 `not_implemented`, 입력 오류 시 422 계약 오류, 소유권 불일치 시 404 `not_found`가 공통 봉투로 반환된다.
+
 **공통 규칙**
 - JSON, 오류 봉투 `{"error": {"code", "message", "field"}}`. 금액은 원 단위 정수, 시각은 ISO 8601(UTC), 날짜는 `YYYY-MM-DD`.
 - 카테고리 값은 `computer` | `baby`.
@@ -328,6 +359,7 @@ WHERE user_id = %(user_id)s;
 | 화면 동작 | 메서드·경로 | 요청 본문 | 성공 응답 | 주요 오류 |
 |---|---|---|---|---|
 | 새 장바구니 만들기 | `POST /session` | — | `201 {"list_id"}` (+ 비로그인이면 `truefit_guest` 쿠키) | — |
+| 조건 대화 화면 다시 열기 (새로고침·사이드바에서 선택) | `GET /session/{list_id}` (**신규**) | — | `200 ConditionState` (카테고리 미선택이면 `category: null`) | `not_found`(404) |
 | 카테고리 선택·변경 | `POST /session/{list_id}/category` | `{"category"}` | `200 ConditionState` (첫 안내 메시지 포함). 변경 시 기존 조건·결과 초기화 | `validation_failed`(422) |
 | 채팅 입력 | `POST /session/{list_id}/message` | `{"text"}` (500자 이하) | `200 ConditionState` (사용자·답변 메시지 추가). 조건이 다 찬 뒤 입력은 조건 변경으로 반영하고, 반영할 게 없으면 메모로 저장 | `category_required`(409) |
 | 질문 칩 선택 | `POST /session/{list_id}/answer` | `{"question_id", "selected": ["value"]}` | `200 ConditionState` | `validation_failed`(422) |
@@ -403,7 +435,7 @@ WHERE user_id = %(user_id)s;
 }
 ```
 
-- `status`: `running` | `done` | `failed`. 상품·가격이 준비되면 `done`으로 응답하고, LLM 문장(`reason`, `checks`, `verification`, `explanation`)은 각자 `pending`에서 `ready`/`failed`로 바뀐다. 프론트는 `pending`이 남아 있는 동안 폴링을 계속한다.
+- `status`: `running` | `done` | `failed`. `failed`이면 `"error": {"code", "message"}`를 함께 준다(화면에 `message` 표시). 상품·가격이 준비되면 `done`으로 응답하고, LLM 문장(`reason`, `checks`, `verification`, `explanation`)은 각자 `pending`에서 `ready`/`failed`로 바뀐다. 프론트는 `pending`이 남아 있는 동안 폴링을 계속한다.
 - `price_source`: `synthetic`(합성) | `observed`(판매처 수집). `review`가 없으면 `null`(리뷰 없음 표시).
 - `timing`, `budget_share`: 유아용품 결과의 "예산과 구매 시점" 표에 사용. 컴퓨터는 `timing="now"`.
 - `purchase_url`이 `null`이면 "상품 페이지" 버튼은 "판매처 미연결"로 표시한다.
@@ -490,7 +522,7 @@ WHERE user_id = %(user_id)s;
 | 대상 | 변경 | 이유 |
 |---|---|---|
 | `src/api.py` | **둘 중 하나**: (1) API 라우터 등록 뒤 `frontend/`를 정적 파일로 서빙(`StaticFiles`) — 추천, 또는 (2) `CORSMiddleware`(`allow_origins`에 `http://127.0.0.1:5500`, `http://localhost:5500`, `allow_credentials=True`) | 로그인 쿠키를 포함한 API 호출. 현재는 둘 다 없어 브라우저에서 API 호출 불가. 프론트 개발 서버 포트는 **5500** — Windows에서 8080 바인딩이 OS 예약으로 거부되는 사례가 있어 변경(README의 8080 안내도 함께 수정 필요) |
-| 서빙 제외 | `frontend/CLAUDE.md`, `frontend/.design/`은 공개 경로에서 제외 | 개발 지침·디자인 원본 보관용 파일 |
+| 정적 서빙 범위 | `frontend/TrueFit.html`, `frontend/css/`, `frontend/js/`, `frontend/assets/`만 공개한다. `frontend/CLAUDE.md` 같은 개발 문서는 제외한다 | 디자인 원본 HTML은 더 이상 `frontend/.design/`에 보관하지 않으며 `.design/`도 사용하지 않음 |
 | `Dockerfile`(신규), `docker-compose.yml` | TrueFit API(+프론트) 컨테이너 추가 | 현재 compose는 DB만 실행, TrueFit용 Dockerfile 없음 |
 | 저장소 브랜치 | `origin/backend` 브랜치 내용 확인·정리 | 이 브랜치의 `Dockerfile`·`app/`은 TrueFit이 아닌 다른 프로젝트(Odoo 협상 앱) 코드 |
 
@@ -501,7 +533,7 @@ WHERE user_id = %(user_id)s;
 | 파일 | 변경 | 이유 |
 |---|---|---|
 | `README.md:69` | `frontend/mockup.html`, `frontend/index.html` 설명 문단 삭제 | 프론트에서 이전 목업(`index.html`, `mockup.html`, `mockup.pdf`)을 삭제함 |
-| `README.md` 화면 목업·API 표 | 로그인·회원가입·회원정보가 `TrueFit.html` 안의 화면으로 들어왔다는 내용, 인증 API 표를 §A-4로 교체 | 현재 "로그인·회원가입 링크 대상 파일 없음"으로 적혀 있음 |
+| `README.md` 화면·API 표 | `TrueFit.html`이 SPA 진입점이고 실제 화면 로직은 `frontend/js/pages/`, API 어댑터는 `frontend/js/api.js`·`core.js`로 분리됐다는 내용 및 인증 API 표를 §A-4로 교체 | 현재 프론트 구조와 문서 설명을 일치시켜야 함 |
 | `db/README.md` | Docker Desktop 사전 준비 (§B) | 설치 안 된 PC에서 절차 실패 |
 | `기술기획서_데모+최종.md` §2-2, §3, §18, §19-1 | 이메일 6자리 코드 → 이메일+비밀번호, JWT 저장 "httpOnly 쿠키" 확정, 조건 추출 LLM 미사용(규칙 기반) | 결정 사항 변경 |
 | `프로젝트_기획서_v2.md` 4-3 | 인증 방식 문구 변경 | 결정 사항 변경 |

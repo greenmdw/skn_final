@@ -35,21 +35,26 @@
 
 ## 디자인 원본 반영 규칙
 - 디자인 원본은 사용자가 전달하는 `C:\Users\green\Downloads\TrueFit.html`이며 UI 수정이 계속 들어온다.
-- 받은 원본은 `frontend/.design/TrueFit_<YYYYMMDD-HHMM>.html`로 그대로 보관한다 (`frontend/.gitignore`로 git 제외).
-- 새 원본이 오면 **직전 원본과 diff**를 떠서 바뀐 부분만 `frontend/TrueFit.html`에 이식한다. 통째로 덮어써서 API 연결 코드를 잃지 않는다.
+- 디자인 원본 HTML은 크기가 크므로 `frontend/` 내부에 복사하거나 보관하지 않는다. `.design/` 스냅샷도 만들지 않는다.
+- 새 원본은 `C:\Users\green\Downloads\TrueFit.html`에서 직접 확인하고 현재 `frontend/` 구현과 비교한다. 필요한 레이아웃·CSS·문구 변경만 분리된 대상 파일에 이식하며, 원본으로 파일을 통째로 덮어써서 API 연결 코드를 잃지 않는다.
 - 레이아웃·CSS·문구는 원본을 우선한다. 개발 목적으로 원본과 달라진 곳에는 `TF-DEV:` 주석을 단다.
 - 이미지는 `frontend/assets/` 파일로 참조한다. 원본의 base64 내장 이미지는 파일로 추출해 교체한다.
   - `truefit-logo.png` = 워드마크 (원본 `project_asset/truefit-transparent.png`)
   - `truefit-icon.png` = 아이콘 (원본 `project_asset/logo.png`)
 
-## 앱 구조 (TrueFit.html)
-- 단일 파일 SPA. 해시 라우트: `#/`(랜딩), `#/category`, `#/conditions`, `#/results`, `#/logs`, `#/review?id`, `#/confirm`, `#/report`, `#/login`, `#/signup`, `#/account`.
+## 앱 구조
+- `TrueFit.html`을 진입점으로 사용하는 SPA. 해시 라우트: `#/`(랜딩), `#/category`, `#/conditions`, `#/results`, `#/logs`, `#/review?id`, `#/confirm`, `#/report`, `#/login`, `#/signup`, `#/account`.
 - **로그인·회원가입·회원정보는 페이지 안 라우트로 유지**한다. 별도 `.html` 파일로 분리하지 않는다.
-- 라우트 테이블은 `render()`의 객체 맵. 새 화면은 여기에 등록한다.
-- 같은 이름 함수가 여러 번 선언돼 있다(`sidebar`, `conditionsV3` 등). **마지막 선언만 유효**하므로 수정은 마지막 선언에 한다. 같은 이름을 또 선언하지 않는다. 중복 정리는 해커톤 이후.
+- 구조 분리 기준과 담당 경계는 `REFACTOR_PLAN.md`를 따른다.
+- CSS는 `css/base.css` → `css/planner.css` → `css/theme.css` 순서로 불러온다. 공통 색상·간격은 `theme.css`, 화면 흐름 레이아웃은 `planner.css`, 랜딩과 기본 요소는 `base.css`에서 수정한다.
+- JavaScript는 `js/core.js` → `js/pages/planner.js` → `js/api.js` → `js/pages/auth.js` → `js/pages/results.js` → `js/app.js` → `js/i18n.js` 순서로 불러온다. 아직 전역 의존성이 있으므로 이 순서를 임의로 바꾸지 않는다.
+- 라우트 테이블과 공통 이벤트 위임은 `js/app.js`에 둔다. 새 화면 렌더러는 해당 `js/pages/` 파일에 추가하고 라우트만 `js/app.js`에 등록한다.
+- API URL·응답 변환·오류 처리는 `js/api.js`에만 둔다. 페이지 파일에서 직접 `fetch()`하지 않는다.
+- 이벤트 연결에 쓰는 `id`, `name`, `data-*` 속성과 접근성 속성은 UI 스타일 수정만으로 제거하거나 바꾸지 않는다.
+- 같은 이름의 전역 함수나 상수를 다시 선언하지 않는다. 기존 중복·전역 의존성 제거는 기능 안정화 후 ES module 전환 단계에서 진행한다.
 
 ## 코드 규칙
-- 기존 코드 스타일(한 줄 압축 함수, 템플릿 문자열 렌더, `$`/`esc`/`won`/`go`/`toast` 유틸)을 따른다.
+- 템플릿 문자열 렌더와 `$`/`esc`/`won`/`go`/`toast` 유틸은 현재 유지한다. 새 코드와 수정하는 함수는 읽기 쉬운 여러 줄 형식으로 작성하며 한 줄 압축을 새로 만들지 않는다.
 - 서버에서 받은 값·사용자 입력을 HTML에 넣을 때는 반드시 `esc()`를 거친다.
 - 비동기 호출 중에는 버튼 중복 클릭을 막고, 화면 전환 뒤 늦게 도착한 응답이 다른 화면을 덮어쓰지 않게 한다.
 - 새 전역 이름은 `TF_`/`tf` 접두어, 새 브라우저 저장 키는 `truefit-` 접두어를 쓴다.
