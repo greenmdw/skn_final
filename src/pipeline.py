@@ -14,7 +14,7 @@ from typing import Callable
 
 from src.categories import load_category, verify_branch
 from src.config import MAX_RESEARCH_ROUNDS, SCENARIO_DIR
-from src.dto import Candidate, PipelineResult
+from src.dto import BasketLine, BasketResult, Candidate, PipelineResult, VerificationResult, VerificationTarget
 from src.engine import stage1_intent, stage2_requirement, stage3_0_candidates
 from src.engine import stage3a_hardfilter, stage3b_rank, stage3c_verify
 from src.engine import stage4_optimize, stage5_explain
@@ -96,3 +96,28 @@ def _run_computer_branch(scenario: dict, result: PipelineResult, log: LogFn) -> 
         else:
             log(f"      ! 재탐색 {round_no}회 소진 → best-so-far + '검증 미완료' 표시")
             return
+
+
+def run_baby_db_pipeline(*, list_id: str, candidates: list[dict], slots: dict, budget_max: int | None = None) -> tuple[BasketResult, VerificationResult]:
+    """DB 카탈로그에서 이미 범위가 결정된 baby 후보를 처리한다.
+
+    이 경로는 scenario JSON과 전역 미니 코퍼스를 읽지 않는다. RAG 검증 주입은 다음
+    단계에서 수행한다. product_key/variant_key가 없는 후보는 설명서 검증 대상이 아니다.
+    """
+    selected: list[BasketLine] = []
+    targets: list[VerificationTarget] = []
+    total = 0
+    for raw in candidates:
+        product_key, variant_key = raw.get("product_key"), raw.get("variant_key")
+        name, price = raw.get("name", ""), int(raw.get("price", 0))
+        if not product_key or not variant_key:
+            targets.append(VerificationTarget(subject=name or "미식별 후보", passed=False, gray_axes=["missing_catalog_identifier"], transcript=[{"reason": "missing_catalog_identifier"}]))
+            continue
+        if budget_max is not None and total + price > budget_max:
+            targets.append(VerificationTarget(subject=name, passed=False, gray_axes=["budget_exceeded"], transcript=[{"reason": "budget_exceeded"}]))
+            continue
+        selected.append(BasketLine(category="baby", sub_item=raw.get("slot", "item"), product_key=product_key, name=name, price=price, score=float(raw.get("score", 0))))
+        total += price
+        targets.append(VerificationTarget(subject=name, passed=False, gray_axes=["manual_verification_pending"], transcript=[{"product_key": product_key, "variant_key": variant_key}]))
+    basket = BasketResult(list_id=list_id, buy_now=selected, totals={"total": total, "currency": "KRW"}, budget={"max": budget_max, "remaining": None if budget_max is None else budget_max-total})
+    return basket, VerificationResult(list_id=list_id, category="baby", mode="per_item", targets=targets)

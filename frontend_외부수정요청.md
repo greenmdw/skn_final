@@ -13,6 +13,9 @@
 | 카테고리 | **컴퓨터와 유아용품 모두** 해커톤(9/15)까지 |
 | 채팅 조건 추출 | **LLM(Bedrock) 사용 안 함** — 규칙 기반 추출 + 칩 선택 |
 | 로그인·가입 화면 | `TrueFit.html` 안의 화면(`#/login`, `#/signup`, `#/account`) |
+| 가격 알림 | **개발 범위에서 완전히 제외**. 관련 API·UI·worker를 구현하지 않음 |
+
+> 가격 알림 관련 기존 문구와 계약은 이후 구현 요청이 아니라 과거 초안이다. 현재 범위에서는 `POST /lists/{id}/alert`, 가격 주기 조회·도달 판정·이메일 발송을 사용하지 않는다.
 
 > **해커톤 시연 가능 여부는 아래 "해커톤 전" 항목의 백엔드 완료에 달려 있다.** 프론트는 계약대로 호출 코드를 먼저 만들고, API가 준비되는 순서대로 실제 동작을 확인한다.
 
@@ -140,7 +143,7 @@ WHERE user_id = %(user_id)s;
 ```
 
 - 이메일을 익명 값으로 바꾸므로 **같은 이메일로 즉시 재가입할 수 있다.** 재가입 제한 기간이 필요하면 별도 결정(§G).
-- 탈퇴 회원의 장바구니·리뷰·가격 알림 처리(삭제/익명 유지/알림 중지)는 §G에서 정책을 정한다. 최소한 **가격 알림 발송 대상에서 제외**해야 한다.
+- 탈퇴 회원의 장바구니·리뷰 처리(삭제/익명 유지)는 §G에서 정책을 정한다.
 - 응답 시 로그인 쿠키 삭제.
 
 ### A-4. API 계약 (프론트 `TF_AUTH`와 1:1 대응)
@@ -245,7 +248,7 @@ WHERE user_id = %(user_id)s;
 | 대화 다시 시작·사양 파일 | 조건 대화 초기화, 업그레이드 모드 사양 파일 인식 | **신규** `POST /session/{id}/reset`, `POST /session/{id}/spec-file` |
 
 요청·응답 필드는 **§D-4 계약 초안**을 따른다.
-| 리스트 확정·리포트·가격 알림 | 이름·구매 예정일·목표가 저장, 리포트 조회, 알림 설정 | `POST /lists/{id}/confirm`, `GET /lists/{id}/report`, `POST /lists/{id}/alert` |
+| 리스트 확정·리포트 | 이름·구매 예정일·목표가 저장, 리포트 조회 | `POST /lists/{id}/confirm`, `GET /lists/{id}/report` |
 | 사이드바 장바구니 | 목록, **이름 변경, 삭제** | `GET /lists`, **신규** `PATCH /lists/{id}`, `DELETE /lists/{id}` |
 
 ### D-3. LLM 사용 범위 (확정 2026-09-11)
@@ -434,7 +437,7 @@ WHERE user_id = %(user_id)s;
 }
 ```
 
-#### D-4-3. 장바구니 목록 · 확정 · 리포트 · 가격 알림
+#### D-4-3. 장바구니 목록 · 확정 · 리포트
 
 | 화면 동작 | 메서드·경로 | 요청 본문 | 성공 응답 | 주요 오류 |
 |---|---|---|---|---|
@@ -443,7 +446,6 @@ WHERE user_id = %(user_id)s;
 | 장바구니 삭제 | `DELETE /lists/{list_id}` (**신규**) | — | `204` | `not_found`(404) |
 | 리스트 확정 | `POST /lists/{list_id}/confirm` | `{"name", "planned_purchase_at", "target_amount", "memo"}` (memo 1000자 이하) | `200 Report` | `unauthorized`(401 → 프론트가 로그인 화면으로), `no_items_selected`(422), `over_budget`(422) |
 | 리포트 | `GET /lists/{list_id}/report` | — | `200 Report` | `unauthorized`(401), `not_found`(404, 미확정) |
-| 목표가 알림 설정 | `POST /lists/{list_id}/alert` | `{"enabled", "target_amount"?}` | `200 {"price_watch": PriceWatch}` | `unauthorized`(401) |
 
 **`ListSummary`**
 
@@ -473,15 +475,12 @@ WHERE user_id = %(user_id)s;
      "review": {"total_count": 1284, "excluded_ratio": 0.12, "rating_refined": 4.2},
      "evidence_text": "QHD 게임 기준 예산 안에서 성능 여유가 가장 큰 후보입니다."}
   ],
-  "price_watch": {"enabled": false, "target_amount": 1400000, "status": "waiting", "latest_total": null, "observed_at": null},
   "data_notice": "상품·가격·리뷰는 합성 데이터입니다."
 }
 ```
 
-- `price_watch.status`: `waiting`(추적 대기) | `tracking` | `reached`(목표가 도달). 디자인에 있는 "목표가 도달 예시 보기" 버튼은 가짜 데이터용이라 프론트에서 제거하고 이 값만 표시한다.
-
 #### D-4-4. 참고 — 저장 위치
-저장 테이블 선택은 백엔드 설계에 따른다. 화면 기준으로 관련되는 테이블은 `identity.conversation`·`message`(대화), `planning.plan`·`plan_revision`·`plan_condition`·`plan_node`·`purchase_line`(조건·장바구니·확정), `engine.recommendation_run`·`recommendation_candidate`·`validation_result`(추천·검증), `catalog.*`·`evidence.review_*`(상품·리뷰), `notification.price_watch`(알림)이다.
+저장 테이블 선택은 백엔드 설계에 따른다. 화면 기준으로 관련되는 테이블은 `identity.conversation`·`message`(대화), `planning.plan`·`plan_revision`·`plan_condition`·`plan_node`·`purchase_line`(조건·장바구니·확정), `engine.recommendation_run`·`recommendation_candidate`·`validation_result`(추천·검증), `catalog.*`·`evidence.review_*`(상품·리뷰)이다.
 
 ---
 

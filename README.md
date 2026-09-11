@@ -81,6 +81,7 @@ PostgreSQL과 pgvector를 같은 DB에서 사용합니다. 설계상 파일 원�
 
 - [테이블 명세서 v4](docs/db/table_spec.md): 설계 기준, 58개 테이블·컬럼·제약·수용 기준
 - [데이터 구조 설계 근거](데이터_구조_설계_근거.md): 업무별 분리 이유, 초기 범위, 리뷰·학습 데이터 정책
+- [개발 역할 분담](개발_역할_분담.md): 5인 소유 영역, 통합 순서, 충돌 방지 규칙과 가격 알림 제외 범위
 - [확대 가능한 SVG](docs/db/database-structure-overview.svg)
 - [항목을 편집할 수 있는 PPTX](docs/db/pptx/database-structure-overview.pptx): 가로형 1장, 텍스트·도형·선 개별 편집
 - [DB 마이그레이션 설명](db/README.md)
@@ -160,7 +161,7 @@ OpenAPI에는 업무·개발용 22개 작업과 `/health` 1개가 등록되어 �
 | 개발   | `GET /dev/scenarios`, `POST /dev/run`                                                                                                                      | 목 시나리오 실행                   |
 | 인증   | `POST /auth/request-code`, `/auth/verify`, `/auth/logout`, `GET /auth/me`                                                                                  | 이메일 코드·JWT·세션 병합 미구현   |
 | 세션   | `POST /session`, `POST /session/{list_id}/category`, `/message`, `/answer`, `/recommend`, `PATCH /session/{list_id}/slot`, `GET /session/{list_id}/result` | 계약·진입점 중심, 서비스 구현 필요 |
-| 리스트 | `POST /lists/{list_id}/confirm`, `/alert`, `GET /lists/{list_id}/report`, `GET /lists`                                                                     | 확정·저장·리포트·알림 미구현       |
+| 리스트 | `POST /lists/{list_id}/confirm`, `GET /lists/{list_id}/report`, `GET /lists`                                                                               | 확정·저장·리포트 미구현            |
 | 리뷰   | `GET /reviews/pending`, `POST /reviews/part`, `/reviews/build`, `/reviews/{review_id}/publish`, `GET /reviews/summary/{product_key}`                       | 작성·게시·운영 집계 미구현         |
 
 설명서 RAG는 CLI·서비스 함수로 구현되어 있으며 별도 HTTP 엔드포인트를 제공하지 않습니다. 공통 `src/db` 연결 풀은 미구현이지만 RAG CLI·검색 함수는 psycopg 직접 연결과 `RagRepo`
