@@ -1,6 +1,6 @@
 # db/ — 스키마 마이그레이션 (Truefit)
 
-[테이블_명세서 v5](../docs/db/table_spec.md) 의 58개 테이블 (12개 스키마) DDL. **RDS / Aurora PostgreSQL 16 호환** 을 전제로 작성.
+[테이블_명세서 v6](../docs/db/table_spec.md) 의 58개 테이블 (12개 스키마) DDL. **RDS / Aurora PostgreSQL 16 호환** 을 전제로 작성.
 
 ## 사전 준비
 
@@ -34,6 +34,7 @@ python db/migrate.py status
 | `0006_rag_active_profile.sql` | 활성 임베딩 프로필 하나를 강제하는 부분 UNIQUE |
 | `0007_app_user_password_auth.sql` | 이메일+비밀번호 인증, 로그인 잠금, 약관 동의와 소프트 탈퇴 |
 | `0008_frontend_contract.sql` | 리스트 소프트 삭제, 확정 목표금액·메모, 추천 설명 비동기 상태 |
+| `0009_frontend_requirement_revision.sql` | 변경된 프론트 요구의 이메일 인증 시각·계정 updated_at·UI 설정 복원 |
 
 phase 방식(테이블 전부 → 제약 전부 → 인덱스 전부)을 쓴 이유: 스키마 간 순환 참조가 있어서
 (`assets.material_revision` ↔ `rag.ingestion_job`, `catalog` ↔ `evidence` ↔ `rag` ↔ `engine` ↔ `planning`).
@@ -64,9 +65,9 @@ phase 방식(테이블 전부 → 제약 전부 → 인덱스 전부)을 쓴 이
   C10(pc_build↔version) C12(review↔revision)
 - `updated_at` 트리거
 
-`identity.app_user`와 `identity.conversation`은 `created_at`만 저장하므로 갱신 트리거 대상이 아니다.
+`identity.conversation`은 `created_at`만 저장하므로 갱신 트리거 대상이 아니다. `identity.app_user.updated_at`과 트리거는 변경된 요구를 반영하는 0009에서 추가한다.
 `config.domain_version`에는 게시 완료된 버전만 적재하며 게시 전 초안은 버전 관리 저장소에서 관리한다.
-`identity.user_preference`는 알림 수신 설정만 저장한다.
+`identity.user_preference`는 UI 표시 설정과 알림 수신 설정을 별도 JSON으로 저장한다.
 
 프론트 외부 수정 요청은 새 테이블 없이 기존 책임에 맞춰 반영한다. `app_user`는 단일 로컬 인증 수단, `plan`은 리스트 수명주기, `plan_revision`은 확정 스냅샷, `recommendation_run/candidate`는 비동기 설명 상태를 맡는다. 화면 `stage`, `budget_share`, 합계는 저장하지 않고 기존 상태와 관계형 금액으로 계산한다. `requirement.id`를 결과의 안정적인 `item_id`로 사용하며 수량·구매 시점·후보 교체에는 기존 `purchase_line`, `requirement`, `recommendation_candidate`를 사용한다.
 

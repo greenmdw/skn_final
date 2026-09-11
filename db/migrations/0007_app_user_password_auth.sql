@@ -1,5 +1,6 @@
 -- 0007_app_user_password_auth.sql — 이메일+비밀번호 인증과 동의·탈퇴 상태
--- email_verified_at과 범용 updated_at은 두지 않는다. 인증/보안 사건은 전용 시각으로 기록한다.
+-- 인증/보안 사건은 아래 전용 시각으로 기록한다. 이후 변경된 프론트 요구의
+-- email_verified_at, updated_at, ui_settings는 0009에서 forward-only로 추가한다.
 
 ALTER TABLE identity.app_user
   ADD COLUMN password_hash        text,
