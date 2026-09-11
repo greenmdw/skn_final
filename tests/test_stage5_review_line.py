@@ -34,7 +34,7 @@ def store(tmp_path, monkeypatch):
 def test_review_lines_evidence_and_caveat(store):
     rank = RankResult(slots={
         "케이스": {"ranked": [{"product_key": "nzxt-h5-flow",
-                             "flags": ["REVIEW_OBS:burst7=0.184>2x중앙값0.055", "REVIEW_OBS:prolific_rate=0.250>2x중앙값0.100"]}]},
+                             "flags": ["REVIEW_OBS:burst7=0.184>2x0.055", "REVIEW_OBS:prolific_rate=0.250>2x0.100"]}]},
         "쿨러": {"ranked": [{"product_key": "deepcool-ak400", "flags": ["REVIEW_OBS:observed"]}]},
         "CPU": {"ranked": [{"product_key": "intel-core-i5-14400f", "flags": []}]},
     })

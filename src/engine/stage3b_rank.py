@@ -10,7 +10,7 @@ from __future__ import annotations
 from src.config import PENDING_SCORE_PENALTY, REVIEW_AXIS_EXCESS, TOP_N_DEFAULT, TOP_N_IMPACT
 from src.dto import Candidate, HardFilterResult, RankResult, RequirementSpec, Slots
 from src.engine import LogFn
-from src.repo.review_repo import default_risk_store
+from src.repo.review_repo import OBS_FLAG_OBSERVED, default_risk_store, format_obs_flag
 
 _IMPACT_SLOTS = {"GPU", "CPU"}
 
@@ -36,8 +36,8 @@ def _review_axis(cand: Candidate) -> tuple[float, list[str]]:
         return _REVIEW_UNKNOWN, []
     over = [(k, v, m) for k, v, m in store.excess(cand.product_key) if v >= REVIEW_AXIS_EXCESS * m]
     if over:
-        return _REVIEW_FLAGGED, [f"REVIEW_OBS:{k}={v:.3f}>{REVIEW_AXIS_EXCESS:g}x중앙값{m:.3f}" for k, v, m in over]
-    return _REVIEW_CLEAR, ["REVIEW_OBS:observed"]
+        return _REVIEW_FLAGGED, [format_obs_flag(k, v, m, REVIEW_AXIS_EXCESS) for k, v, m in over]
+    return _REVIEW_CLEAR, [OBS_FLAG_OBSERVED]
 
 
 def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int) -> Candidate:

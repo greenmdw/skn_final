@@ -109,6 +109,8 @@ class ProductRiskStore:
             if k == "burst7" and launch_burst:
                 continue
             v, m = f.get(k), self.controls.get(k)
+            # 중앙값이 0 이면 "몇 배" 가 정의되지 않아 이 지표는 조용히 빠진다 — 대조군이 그 지표를
+            # 거의 안 갖는 데이터(예: 다작 계정이 드문 표본)에서 규칙이 몰림 하나로 줄어드는 이유.
             if v is not None and m:
                 out.append((k, float(v), float(m)))
         return out
@@ -178,6 +180,30 @@ def default_risk_store() -> ProductRiskStore | None:
 
 # 관측 지표 → 사람이 읽는 이름. 랭킹 flags 와 [5] 설명이 같이 쓴다
 OBS_LABEL = {"burst7": "7일 몰림", "one_off_rate": "1건 계정 비율", "prolific_rate": "다작 계정 비율"}
+
+# [3-B] 가 Candidate.flags(list[str]) 에 남기고 [5] 가 읽는 관측 플래그. 팀 DTO 를 바꾸지 않으려고
+# 문자열이지만, 만들고 읽는 곳은 여기 둘뿐이다.
+OBS_FLAG_PREFIX = "REVIEW_OBS:"
+OBS_FLAG_OBSERVED = OBS_FLAG_PREFIX + "observed"       # 관측됨 · 중앙값 초과 없음
+
+
+def format_obs_flag(key: str, value: float, median: float, excess: float) -> str:
+    """예: REVIEW_OBS:burst7=0.184>2x0.055"""
+    return f"{OBS_FLAG_PREFIX}{key}={value:.3f}>{excess:g}x{median:.3f}"
+
+
+def parse_obs_flag(flag: str) -> tuple[str, float, float] | None:
+    """(지표, 값, 중앙값). 관측됨 표지·다른 플래그는 None."""
+    if not flag.startswith(OBS_FLAG_PREFIX) or flag == OBS_FLAG_OBSERVED:
+        return None
+    body = flag[len(OBS_FLAG_PREFIX):]
+    key, rest = body.split("=", 1)
+    value, rhs = rest.split(">", 1)
+    return key, float(value), float(rhs.split("x", 1)[1])
+
+
+def is_obs_flag(flag: str) -> bool:
+    return flag.startswith(OBS_FLAG_PREFIX)
 
 
 class ReviewSummaryDemoFile:

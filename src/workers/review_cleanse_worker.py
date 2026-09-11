@@ -12,7 +12,8 @@ GPT-4o 50.0% 인데 확신 85.6, Hidden Persuaders arXiv 2506.13313).
 
     # 1) 엣지 표 (표준 라이브러리)
     python scripts/amazon23_edges.py /path/Baby_Products.jsonl --cat baby
-    # 2) 관계·행동 축 (pandas·numpy·scipy 필요)
+    # 2) 관계·행동 축 (pandas·numpy·scipy — `uv sync --group review-analysis`)
+    #    자원: Baby 6.0M건 ≈ 3GB·25초, Electronics 43.9M건 ≈ 12GB·6분 (엣지 표 전체를 메모리에 올린다)
     python -m src.workers.review_cleanse_worker data/amazon23/baby_edges.tsv \
         --out data/amazon23/baby_product_risk.json
     # 3) 대조군을 같은 부류로 좁힌다 — PC 부품 데모가 읽는 파일 (config.REVIEW_RISK_JSON)

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from src.dto import BuildResult, Explanation, ExplanationItem, RankResult, VerificationResult
 from src.engine import LogFn
-from src.repo.review_repo import OBS_LABEL, default_risk_store
+from src.repo.review_repo import OBS_LABEL, default_risk_store, is_obs_flag, parse_obs_flag
 
 _AXIS_MAP = {"가격": "가격", "성능": "성능", "밸런스": "호환성", "호환여유": "호환성"}
 
@@ -21,7 +21,7 @@ def _ranked_flags(rank: RankResult | None, slot: str, product_key: str) -> list[
         return []
     for c in rank.slots.get(slot, {}).get("ranked", []):
         if c.get("product_key") == product_key:
-            return [f for f in c.get("flags", []) if f.startswith("REVIEW_OBS:")]
+            return [f for f in c.get("flags", []) if is_obs_flag(f)]
     return []
 
 
@@ -32,7 +32,7 @@ def _review_line(product_key: str, flags: list[str]) -> tuple[str, list[dict], s
     store = default_risk_store()
     facts = store.get(product_key) if store else None
     n = int(facts["n"]) if facts else 0
-    over = [f for f in flags if f != "REVIEW_OBS:observed"]
+    over = [p for p in map(parse_obs_flag, flags) if p is not None]
     evidence = []
     if store and facts:
         ref = store.resolve(product_key)
@@ -40,13 +40,9 @@ def _review_line(product_key: str, flags: list[str]) -> tuple[str, list[dict], s
                     for t in store.observations(product_key)]
     if not over:
         return f"리뷰 {n}건 관측 — 대조군 중앙값 대비 특이 없음", evidence, None
-    parts = []
-    for f in over:                                   # REVIEW_OBS:burst7=0.184>2x중앙값0.055
-        k, rest = f[len("REVIEW_OBS:"):].split("=", 1)
-        v, m = rest.split(">", 1)[0], rest.rsplit("중앙값", 1)[-1]
-        parts.append(f"{OBS_LABEL.get(k, k)} {100 * float(v):.1f}% (부류 중앙값 {100 * float(m):.1f}%)")
+    parts = [f"{OBS_LABEL.get(k, k)} {100 * v:.1f}% (부류 중앙값 {100 * m:.1f}%)" for k, v, m in over]
     line = f"리뷰 {n}건 관측 — " + " · ".join(parts) + " — 검토 권장"
-    caveat = (f"리뷰 관측({', '.join(OBS_LABEL.get(f[len('REVIEW_OBS:'):].split('=')[0], '?') for f in over)})은 "
+    caveat = (f"리뷰 관측({', '.join(OBS_LABEL.get(k, k) for k, _, _ in over)})은 "
               f"상품 단위 신호이며 개별 리뷰의 진위가 아닙니다")
     return line, evidence, caveat
 

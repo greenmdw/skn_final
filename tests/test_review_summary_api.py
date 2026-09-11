@@ -2,7 +2,9 @@
 import json
 
 import pytest
-from fastapi.testclient import TestClient
+
+pytest.importorskip("httpx")                      # TestClient 의존성 — `uv sync --group test`
+from fastapi.testclient import TestClient         # noqa: E402
 
 from src.api import app
 from src.config import REVIEW_SUMMARIES_DEMO
