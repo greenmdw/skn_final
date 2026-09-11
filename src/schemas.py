@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from typing import Any, Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from src.dto import RecommendationResult
 
 
 # ── auth ──
@@ -59,12 +61,81 @@ class ConditionStateOut(BaseModel):
 
 # ── recommend / result (S4) ──
 class RecommendResultOut(BaseModel):
+    """저장된 추천 실행 결과의 공개 API 계약.
+
+    DB 행 또는 파이프라인 내부 DTO를 그대로 직렬화하지 않고
+    ``recommendation_result_out``에서 이 모델로 변환한다.
+    """
+
+    recommendation_run_id: str
     list_id: str
-    status: str                      # running | done | failed
-    items: list[dict] = []
-    totals: dict[str, Any] = {}
-    reasoning_log: list[dict] = []   # S4-a 5단계
-    explanation: dict = {}
+    revision_id: str
+    status: str                      # running | done | failed | conflict
+    candidates: list["RecommendationCandidateOut"] = Field(default_factory=list)
+    error_code: str | None = None
+
+
+class RecommendationEvidenceOut(BaseModel):
+    """응답 직전에 다시 권한 검사를 통과한 설명서 인용."""
+
+    evidence_id: str
+    text: str
+    locator: dict[str, Any] = Field(default_factory=dict)
+    file_sha256: str | None = None
+    review_status: str | None = None
+
+
+class RecommendationCandidateOut(BaseModel):
+    product_key: str
+    variant_key: str | None = None
+    product_name: str
+    price: int | None = None
+    eligibility_status: str
+    verification_status: str
+    coverage_status: str
+    reason: str | None = None
+    evidence: list[RecommendationEvidenceOut] = Field(default_factory=list)
+    error_code: str | None = None
+
+
+def recommendation_result_out(result: RecommendationResult) -> RecommendResultOut:
+    """서비스 내부 추천 DTO를 공개 HTTP DTO로 명시적으로 변환한다.
+
+    저장소가 반환하는 DB 행을 API 응답으로 직접 노출하지 않도록 서비스 계층은
+    먼저 ``RecommendationResult``를 만들고 이 경계를 통과해야 한다.
+    """
+
+    return RecommendResultOut(
+        recommendation_run_id=result.recommendation_run_id,
+        list_id=result.list_id,
+        revision_id=result.revision_id,
+        status=result.status,
+        candidates=[
+            RecommendationCandidateOut(
+                product_key=candidate.product_key,
+                variant_key=candidate.variant_key,
+                product_name=candidate.product_name,
+                price=candidate.price,
+                eligibility_status=candidate.eligibility_status,
+                verification_status=candidate.verification_status,
+                coverage_status=candidate.coverage_status,
+                reason=candidate.reason,
+                evidence=[
+                    RecommendationEvidenceOut(
+                        evidence_id=evidence.evidence_id,
+                        text=evidence.text,
+                        locator=evidence.locator,
+                        file_sha256=evidence.file_sha256,
+                        review_status=evidence.review_status,
+                    )
+                    for evidence in candidate.evidence
+                ],
+                error_code=candidate.error_code,
+            )
+            for candidate in result.candidates
+        ],
+        error_code=result.error_code,
+    )
 
 
 # ── list confirm (S5-a) / report (S5-b) ──
@@ -89,7 +160,7 @@ class PartReviewIn(BaseModel):
     rating: int
     title: str
     body: str
-    axis_scores: dict[str, Any] = {}
+    axis_scores: dict[str, Any] = Field(default_factory=dict)
 
 
 class BuildReviewIn(BaseModel):
@@ -97,4 +168,4 @@ class BuildReviewIn(BaseModel):
     rating: int
     title: str
     body: str
-    axis_scores: dict[str, Any] = {}
+    axis_scores: dict[str, Any] = Field(default_factory=dict)
