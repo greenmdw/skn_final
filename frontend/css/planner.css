@@ -224,8 +224,8 @@ body:has(.flow:not([hidden]))>header{display:none}
 .basket-name-form button{border:0;border-radius:8px;padding:7px 9px;background:#38533a;color:#fff;font-size:11px}
 .basket-name-form .basket-name-cancel{background:#ebeae7;color:#546355}
 .brand-logo{display:block;width:210px;height:auto;max-height:58px;object-fit:contain}
-.planner-home .planner-brand-full{display:block;width:176px;height:54px;font-size:0;background:url('./assets/truefit-logo.png') center/contain no-repeat}
-.planner-home .planner-brand-short{display:none;width:50px;height:50px;font-size:0;background:url('./assets/truefit-icon.png') center/contain no-repeat}
+.planner-home .planner-brand-full{display:block;width:176px;height:54px;font-size:0;background:url('../assets/truefit-logo.png') center/contain no-repeat}
+.planner-home .planner-brand-short{display:none;width:50px;height:50px;font-size:0;background:url('../assets/truefit-icon.png') center/contain no-repeat}
 .planner-sidebar.is-collapsed .planner-home .planner-brand-full{display:none}
 .planner-sidebar.is-collapsed .planner-home .planner-brand-short{display:block}
 .footer-brand-logo{display:block;width:170px;height:auto;max-height:62px;object-fit:contain;object-position:left center}

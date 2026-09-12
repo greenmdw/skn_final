@@ -1,6 +1,6 @@
 # 프론트 작업에 따른 외부 수정 요청
 
-- 작성: 2026-09-11 (3차 갱신) · 프론트 작업(`front` 브랜치)
+- 작성: 2026-09-11 (4차 갱신) · 프론트 작업(`front` 브랜치)
 - 목적: 프론트는 `frontend/` 폴더만 수정한다. 그 밖(백엔드·DB·데이터·인프라·문서)에서 필요한 변경을 이 문서에 모아 담당자에게 전달한다.
 
 ## 결정 사항
@@ -12,7 +12,8 @@
 | 인증 | 이메일 + 비밀번호. 로그인 토큰은 httpOnly 쿠키. **이메일 인증은 2026-10-26로 연기** |
 | 카테고리 | **컴퓨터와 유아용품 모두** 해커톤(9/15)까지 |
 | 채팅 조건 추출 | **LLM(Bedrock) 사용 안 함** — 규칙 기반 추출 + 칩 선택 |
-| 로그인·가입 화면 | `TrueFit.html` 진입점의 SPA 화면(`#/login`, `#/signup`, `#/account`). 화면 코드는 `frontend/js/pages/auth.js` |
+| 로그인·가입 화면 | 별도 `login.html`/`signup.html`/`account.html` 페이지(2026-09-11 멀티페이지 전환 후). 화면 코드는 `frontend/js/pages/auth.js` |
+| 프론트 구조 | 해시 라우트 1개 HTML(`TrueFit.html`) → **화면마다 별도 `.html` 파일**로 전환(2026-09-11). 화면 지도·페이지별 파일은 `frontend/CLAUDE.md` 참고. URL도 `#/results` 같은 해시가 아니라 `results.html`처럼 실제 경로다 — 백엔드에서 프론트 화면 링크를 만들 일이 있으면 이 점을 참고 |
 
 > **해커톤 시연 가능 여부는 아래 "해커톤 전" 항목의 백엔드 완료에 달려 있다.** 프론트는 계약대로 호출 코드를 먼저 만들고, API가 준비되는 순서대로 실제 동작을 확인한다.
 
@@ -522,7 +523,7 @@ WHERE user_id = %(user_id)s;
 | 대상 | 변경 | 이유 |
 |---|---|---|
 | `src/api.py` | **둘 중 하나**: (1) API 라우터 등록 뒤 `frontend/`를 정적 파일로 서빙(`StaticFiles`) — 추천, 또는 (2) `CORSMiddleware`(`allow_origins`에 `http://127.0.0.1:5500`, `http://localhost:5500`, `allow_credentials=True`) | 로그인 쿠키를 포함한 API 호출. 현재는 둘 다 없어 브라우저에서 API 호출 불가. 프론트 개발 서버 포트는 **5500** — Windows에서 8080 바인딩이 OS 예약으로 거부되는 사례가 있어 변경(README의 8080 안내도 함께 수정 필요) |
-| 정적 서빙 범위 | `frontend/TrueFit.html`, `frontend/css/`, `frontend/js/`, `frontend/assets/`만 공개한다. `frontend/CLAUDE.md` 같은 개발 문서는 제외한다 | 디자인 원본 HTML은 더 이상 `frontend/.design/`에 보관하지 않으며 `.design/`도 사용하지 않음 |
+| 정적 서빙 범위 | `frontend/*.html`(랜딩·카테고리·조건 대화·추천 결과·로그·확정·리포트·로그인·회원가입·회원정보 10개), `frontend/css/`, `frontend/js/`, `frontend/assets/`만 공개한다. `frontend/CLAUDE.md` 같은 개발 문서는 제외한다 | 2026-09-11 멀티페이지 전환으로 진입점이 여러 개다. 디자인 원본 HTML은 `frontend/`에 보관하지 않음 |
 | `Dockerfile`(신규), `docker-compose.yml` | TrueFit API(+프론트) 컨테이너 추가 | 현재 compose는 DB만 실행, TrueFit용 Dockerfile 없음 |
 | 저장소 브랜치 | `origin/backend` 브랜치 내용 확인·정리 | 이 브랜치의 `Dockerfile`·`app/`은 TrueFit이 아닌 다른 프로젝트(Odoo 협상 앱) 코드 |
 
@@ -532,8 +533,7 @@ WHERE user_id = %(user_id)s;
 
 | 파일 | 변경 | 이유 |
 |---|---|---|
-| `README.md:69` | `frontend/mockup.html`, `frontend/index.html` 설명 문단 삭제 | 프론트에서 이전 목업(`index.html`, `mockup.html`, `mockup.pdf`)을 삭제함 |
-| `README.md` 화면·API 표 | `TrueFit.html`이 SPA 진입점이고 실제 화면 로직은 `frontend/js/pages/`, API 어댑터는 `frontend/js/api.js`·`core.js`로 분리됐다는 내용 및 인증 API 표를 §A-4로 교체 | 현재 프론트 구조와 문서 설명을 일치시켜야 함 |
+| `README.md` | ✅ 완료(프론트에서 처리). 이전 목업 설명 삭제, 멀티페이지 구조·포트 5500·`TF_API` 안내로 갱신 | — |
 | `db/README.md` | Docker Desktop 사전 준비 (§B) | 설치 안 된 PC에서 절차 실패 |
 | `기술기획서_데모+최종.md` §2-2, §3, §18, §19-1 | 이메일 6자리 코드 → 이메일+비밀번호, JWT 저장 "httpOnly 쿠키" 확정, 조건 추출 LLM 미사용(규칙 기반) | 결정 사항 변경 |
 | `프로젝트_기획서_v2.md` 4-3 | 인증 방식 문구 변경 | 결정 사항 변경 |

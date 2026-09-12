@@ -57,6 +57,11 @@ function field(label,name,type,value,extra=''){return `<label for="f-${name}">${
 function tfRequire(data){if(!data||typeof data!=='object')throw new TF_ApiError(0,'bad_response','서버 응답이 올바르지 않아요.');return data}
 function tfStatusPanel(title,message='',actions=''){return `<div class="panel empty"><h2>${esc(title)}</h2>${message?`<p class="muted">${esc(message)}</p>`:''}${actions}</div>`}
 function readAuthSession(){return TF_AUTH.user}
+// TF-DEV: 서버 로그인 상태 확인 — 모든 페이지에서 한 번 실행. 결과가 필요한 페이지는 TF_AUTH.ready.then(...)으로 이어 붙인다.
+TF_AUTH.ready=TF_AUTH.refresh();
 // TF-DEV: 카테고리 선택은 index.html 퀵스타트 카드·category.html·푸터 바로가기 모두에서 쓰여 core.js에 둔다.
 async function tfSetCategory(c,{fresh=false}={}){if(tfPlan.busy)return;const category=tfApiCategory(c),summary=tfListSummary(),known=tfPlan.condition?.category||summary?.category||null;if(!fresh&&tfPlan.listId&&known===category){go('conditions');return}if(!fresh&&tfPlan.listId&&known&&known!==category&&!window.confirm('카테고리를 바꾸면 지금까지의 조건과 추천 결과가 초기화돼요. 계속할까요?'))return;tfPlan.busy=true;try{if(fresh||!tfPlan.listId){const created=tfRequire(await TF_PLAN.createSession());tfSelectList(created.list_id)}const state=tfRequire(await TF_PLAN.chooseCategory(tfPlan.listId,category));tfPlan.condition=state;tfPlan.result=null;tfPlan.report=null;tfPlan.resultMessages=[];tfPlan.listsLoaded=false;go('conditions')}catch(err){if(!tfListGone(err))toast(tfAuthErrorMessage(err))}finally{tfPlan.busy=false}}
 function choose(c){return tfSetCategory(c,{fresh:true})}
+// TF-DEV: 로그인 필요 화면(account/confirm/report)과 로그아웃 버튼(사이드바·헤더·회원정보)이 공유 — core.js에 둔다.
+function tfSendToLogin(returnPage){try{sessionStorage.setItem('truefit-login-return',returnPage)}catch{}go('login')}
+async function tfLogout(){try{await TF_AUTH.logout();toast('로그아웃되었습니다.');return true}catch(error){toast(tfAuthErrorMessage(error,'로그아웃하지 못했어요.'));return false}}

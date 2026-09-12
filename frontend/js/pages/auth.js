@@ -1,6 +1,4 @@
-// TF-DEV: login.html · signup.html · account.html 전용. authShell()로 flow를 채운다.
-function tfSendToLogin(returnPage){try{sessionStorage.setItem('truefit-login-return',returnPage)}catch{}go('login')}
-async function tfLogout(){try{await TF_AUTH.logout();toast('로그아웃되었습니다.');return true}catch(error){toast(tfAuthErrorMessage(error,'로그아웃하지 못했어요.'));return false}}
+// TF-DEV: login.html · signup.html · account.html 전용. authShell()로 flow를 채운다. tfSendToLogin/tfLogout은 core.js에 있다.
 function tfConsumeLoginReturn(){let page='';try{page=sessionStorage.getItem('truefit-login-return')||'';sessionStorage.removeItem('truefit-login-return')}catch{}return page&&!/^(login|signup)\.html$/.test(page)?page:'index.html'}
 function authValidEmail(value){return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)}
 function authValidPassword(value){return value.length>=8&&/[A-Za-z]/.test(value)&&/\d/.test(value)}

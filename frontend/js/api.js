@@ -1,5 +1,6 @@
 // TF-DEV: 서버 API 공통 호출 — 계약: docs/frontend_외부수정요청.md §A-4, §D-4
-const TF_API_BASE=(()=>{const value=(document.querySelector('meta[name="truefit-api-base"]')?.content||'auto').trim();if(value!=='auto')return value.replace(/\/+$/,'');return location.port==='5500'?location.protocol+'//'+location.hostname+':8000':''})();
+// TF-DEV: ?api=http://host:port 로 한 번 열면 이후 페이지 이동에도(멀티페이지라 매번 쿼리스트링을 못 붙임) 같은 브라우저 탭에서 유지된다. 지우려면 sessionStorage의 truefit-api-override를 비우면 됨.
+const TF_API_BASE=(()=>{const params=new URLSearchParams(location.search),queryOverride=params.get('api');if(queryOverride){try{sessionStorage.setItem('truefit-api-override',queryOverride)}catch{}}let override=queryOverride;if(!override)try{override=sessionStorage.getItem('truefit-api-override')||''}catch{}if(override)return override.replace(/\/+$/,'');const value=(document.querySelector('meta[name="truefit-api-base"]')?.content||'auto').trim();if(value!=='auto')return value.replace(/\/+$/,'');return location.port==='5500'?location.protocol+'//'+location.hostname+':8000':''})();
 class TF_ApiError extends Error{constructor(status,code,message,field=null){super(message);this.name='TF_ApiError';this.status=status;this.code=code;this.field=field}}
 const TF_API={
  async request(method,path,body){
@@ -24,7 +25,7 @@ const TF_API={
 // TF-DEV: 인증 어댑터 — 로그인 상태는 서버 httpOnly 쿠키로만 판단하고 화면은 TF_AUTH.user만 본다
 const TF_AUTH={
  user:null,loaded:false,ready:null,
- _set(user){this.user=user?{id:user.id,email:user.email,name:user.display_name,marketing:!!user.marketing_agreed,createdAt:user.created_at}:null;this.loaded=true;renderAccountHeader();tfOnAuthChange();return this.user},
+ _set(user){this.user=user?{id:user.id,email:user.email,name:user.display_name,marketing:!!user.marketing_agreed,createdAt:user.created_at}:null;this.loaded=true;if(typeof renderAccountHeader==='function')renderAccountHeader();if(typeof tfOnAuthChange==='function')tfOnAuthChange();return this.user},
  async refresh(){try{const data=await TF_API.get('/auth/me');return this._set(data&&data.user)}catch(error){return this._set(null)}},
  me(){return this.refresh()},
  async signup({email,password,displayName,termsAgreed,privacyAgreed,marketingAgreed}){const data=await TF_API.post('/auth/signup',{email,password,display_name:displayName,terms_agreed:!!termsAgreed,privacy_agreed:!!privacyAgreed,marketing_agreed:!!marketingAgreed});return this._set(data&&data.user)},
