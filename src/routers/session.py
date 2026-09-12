@@ -1,47 +1,42 @@
-"""/session/* — S1~S3 대화·조건 수집 + [추천 실행]. 인증 불요(browser_token or JWT)."""
+"""/session HTTP handlers."""
 from __future__ import annotations
-
-from fastapi import APIRouter
-
+from uuid import UUID
+from fastapi import APIRouter, Depends
 from src import schemas
-from src.services import recommendation_service, session_service
+from src.auth.deps import Principal, optional_principal
+from src.db import get_conn
+from src.services import session_service
 
 router = APIRouter(prefix="/session", tags=["session"])
 
-
 @router.post("", response_model=schemas.SessionOut)
-def create() -> schemas.SessionOut:
-    raise NotImplementedError
+def create(principal: Principal = Depends(optional_principal)) -> schemas.SessionOut:
+    with get_conn() as conn:
+        return schemas.SessionOut(**session_service.create_session(conn, principal))
 
+@router.post("/{list_id}/category", response_model=schemas.ConditionStateOut)
+def choose_category(list_id: UUID, body: schemas.CategoryIn, principal: Principal = Depends(optional_principal)) -> schemas.ConditionStateOut:
+    with get_conn() as conn:
+        return schemas.ConditionStateOut(**session_service.choose_category(conn, list_id, body.category, body.mode, principal))
 
-@router.post("/{list_id}/category")
-def choose_category(list_id: str, body: schemas.CategoryIn) -> dict:
-    """카테고리 미선택 상태에서 /message 호출 시 400."""
-    raise NotImplementedError
+@router.patch("/{list_id}/slot", response_model=schemas.ConditionStateOut)
+def patch_slot(list_id: UUID, body: schemas.SlotPatchIn, principal: Principal = Depends(optional_principal)) -> schemas.ConditionStateOut:
+    with get_conn() as conn:
+        return schemas.ConditionStateOut(**session_service.patch_slot(conn, list_id, body.field, body.value, principal))
 
 
 @router.post("/{list_id}/message", response_model=schemas.ConditionStateOut)
-def message(list_id: str, body: schemas.MessageIn) -> schemas.ConditionStateOut:
-    raise NotImplementedError
-
+def message(list_id: UUID, body: schemas.MessageIn, principal: Principal = Depends(optional_principal)) -> schemas.ConditionStateOut:
+    raise NotImplementedError("message slot extraction is not implemented")
 
 @router.post("/{list_id}/answer", response_model=schemas.ConditionStateOut)
-def answer(list_id: str, body: schemas.AnswerIn) -> schemas.ConditionStateOut:
-    raise NotImplementedError
-
-
-@router.patch("/{list_id}/slot", response_model=schemas.ConditionStateOut)
-def patch_slot(list_id: str, body: schemas.SlotPatchIn) -> schemas.ConditionStateOut:
-    raise NotImplementedError
-
+def answer(list_id: UUID, body: schemas.AnswerIn, principal: Principal = Depends(optional_principal)) -> schemas.ConditionStateOut:
+    raise NotImplementedError("answer mapping is not implemented")
 
 @router.post("/{list_id}/recommend", response_model=schemas.RecommendResultOut)
-def recommend(list_id: str) -> schemas.RecommendResultOut:
-    """엔진 파이프라인 트리거. required_inputs 미충족이면 422."""
-    raise NotImplementedError
-
+def recommend(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.RecommendResultOut:
+    raise NotImplementedError("DB candidate selection is not implemented")
 
 @router.get("/{list_id}/result", response_model=schemas.RecommendResultOut)
-def result(list_id: str) -> schemas.RecommendResultOut:
-    """S4 폴링. (SSE 스트리밍 vs 폴링은 프론트와 확정 — 기획서 §18-1)"""
-    raise NotImplementedError
+def result(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.RecommendResultOut:
+    raise NotImplementedError("stored recommendation result mapping is not implemented")
