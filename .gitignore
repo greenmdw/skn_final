@@ -35,6 +35,7 @@ htmlcov/
 
 # ── DB (로컬) ──
 db/pgdata/
+db/pgenv/
 /pgdata/
 /pgenv/
 db/*.log

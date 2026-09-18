@@ -44,7 +44,29 @@ def _review_axis(cand: Candidate) -> tuple[float, list[str]]:
     return _REVIEW_CLEAR, [OBS_FLAG_OBSERVED]
 
 
-def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int) -> Candidate:
+def _compat_margin(cand: Candidate, slot: str, target: dict) -> float:
+    """[2]가 계산해 둔 슬롯 자체의 전력 예산(tdp_budget_w/tgp_budget_w/wattage_min)
+    대비 후보 실측값의 여유. 이 시점엔 다른 슬롯이 뭘 뽑을지 몰라 "최종 상대 부품과의
+    여유"는 계산 못 한다 — target이 들고 있는 기준치와의 여유만 본다. 정보가 없으면
+    판정하지 않고 중립값 0.5(점수에 영향 없음)로 둔다."""
+    if slot in ("CPU", "GPU"):
+        budget_w = target.get("tdp_budget_w") if slot == "CPU" else target.get("tgp_budget_w")
+        actual_w = cand.specs.get("tdp_w") if slot == "CPU" else cand.specs.get("power_w")
+        if not budget_w or actual_w is None:
+            return 0.5
+        # 예산보다 적게 먹을수록 여유(=다른 부품에 남길 전력 헤드룸)가 크다.
+        return max(0.0, min(1.0, 1 - actual_w / max(budget_w, 1)))
+    if slot == "파워":
+        req_w, actual_w = target.get("wattage_min"), cand.specs.get("wattage_w")
+        if not req_w or actual_w is None:
+            return 0.5
+        # PSU는 반대 방향 — 요구보다 용량이 넉넉할수록 여유가 크다. 넉넉함이 100%를
+        # 넘어가면(과대 용량) 더 좋아지진 않게 1.0에서 캡한다.
+        return max(0.0, min(1.0, (actual_w - req_w) / max(req_w, 1)))
+    return 0.5
+
+
+def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int, slot: str, target: dict) -> Candidate:
     tier = float(cand.specs.get("perf_tier", 5))
     price = cand.price or 1
     review, review_flags = _review_axis(cand)
@@ -53,7 +75,7 @@ def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int) -> Candi
         "성능": min(1.0, tier / 10),
         "밸런스": (1 - abs(tier - ideal_tier) / 4) if ideal_tier else 0.5,
         "리뷰": review,
-        "호환여유": 0.5,       # TODO: 파워·길이 마진
+        "호환여유": _compat_margin(cand, slot, target),
     }
     raw = sum(_WEIGHTS[k] * v for k, v in b.items())
     if cand.verdict == "Pending":
@@ -79,7 +101,8 @@ def run(hf: HardFilterResult, spec: RequirementSpec, slots: Slots, log: LogFn) -
     for slot, cands in hf.slots.items():
         ideal = ideals.get(slot)
         slot_budget = int(total * alloc.get(slot, 0.1)) if total else 1
-        scored = sorted((_score(c, ideal, slot_budget) for c in cands),
+        target = spec.targets.get(slot, {})
+        scored = sorted((_score(c, ideal, slot_budget, slot, target) for c in cands),
                         key=lambda c: c.score, reverse=True)
         n = TOP_N_IMPACT if slot in _IMPACT_SLOTS else TOP_N_DEFAULT
         top = [c.model_copy(update={"rank": i + 1}) for i, c in enumerate(scored[:n])]

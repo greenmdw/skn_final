@@ -12,15 +12,36 @@ get_baby_candidates(conn, requirements, *, corpus) 은 [3-0]의 유아 경로 �
 """
 from __future__ import annotations
 
+import os
+
 from src.dto import BabyCandidate, BabyRequirement, Candidate, RequirementSpec
 from src.engine import LogFn
-from src.repo.catalog_repo import load_candidates_by_slot
+from src.repo.catalog_repo import load_candidates_by_slot, load_candidates_by_slot_from_db
 from src.repo.product_repo import ProductRepo
 
 
 def run(spec: RequirementSpec, log: LogFn) -> dict[str, list[Candidate]]:
     log("[3-0] 후보 수집 ...")
     if spec.category == "computer":
+        # CATALOG_SOURCE=mock — 실제 DB 카탈로그를 건너뛰고 합성 카탈로그만 쓴다
+        # (DB 없이 빠르게 돌리고 싶을 때, 테스트에서 DB 상태에 기대지 않으려 할 때).
+        # 그 외(기본값)에는 실제 수집 카탈로그(0015_pc_parts_category_specs.sql)를
+        # 먼저 시도하고, DB에 접속 못 하면(DATABASE_URL 미설정·연결 실패 등) 조용히
+        # 실패로 죽지 않고 합성 카탈로그로 자동 강등한다 — 팀원 각자 로컬 DB를 항상
+        # 띄워두는 건 아니라서, 기본 데모가 DB 유무에 깨지면 안 된다.
+        if os.environ.get("CATALOG_SOURCE") != "mock":
+            try:
+                from src.db import get_conn
+
+                with get_conn() as conn:
+                    by_slot = load_candidates_by_slot_from_db(conn)
+                if any(by_slot.values()):
+                    summary = " / ".join(f"{s} {len(c)}" for s, c in by_slot.items())
+                    log(f"      [DB] 실제 수집 카탈로그 로드 → 슬롯별 후보: {summary}")
+                    return by_slot
+                log("      [DB] 실제 카탈로그가 비어 있음 → 합성 카탈로그로 대체")
+            except Exception as e:  # noqa: BLE001 — DB 미가용은 데모를 막을 이유가 아니다
+                log(f"      [DB] 접속/조회 실패({type(e).__name__}) → 합성 카탈로그로 대체")
         by_slot = load_candidates_by_slot()
         summary = " / ".join(f"{s} {len(c)}" for s, c in by_slot.items())
         log(f"      [MOCK] 합성 카탈로그 로드 → 슬롯별 후보: {summary}")

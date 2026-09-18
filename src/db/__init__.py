@@ -16,10 +16,16 @@ _pool: ConnectionPool | None = None  # 지연 초기화
 
 
 def get_pool() -> ConnectionPool:
-    """전역 커넥션 풀 반환 (최초 호출 시 생성)."""
+    """전역 커넥션 풀 반환 (최초 호출 시 생성).
+
+    connect_timeout=5 — DB가 아예 없거나 호스트가 안 뜬 경우(로컬 DB를 안 띄워둔
+    팀원, CATALOG_SOURCE 기본 폴백 경로 등) 기본 풀 타임아웃(30초)까지 기다리지
+    않고 몇 초 안에 실패해, 호출자가 빨리 대체 경로로 넘어갈 수 있게 한다. 실제로
+    떠 있는 DB(로컬이든 RDS든) 연결은 보통 1초 안에 끝나 영향이 없다."""
     global _pool
     if _pool is None:
-        _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=10, open=True)
+        _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=10, open=True, timeout=3,
+                               kwargs={"connect_timeout": 2})
     return _pool
 
 

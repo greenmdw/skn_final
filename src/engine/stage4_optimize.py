@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import time
 import math
-from itertools import product as iproduct
 from typing import Any
 from uuid import uuid4
 
@@ -72,13 +71,12 @@ def _compat_filter(pool: list[Candidate], key: str, wanted: str) -> list[Candida
     return kept or pool
 
 
-def _mainboard_compat_filter(pools: dict[str, list[Candidate]]) -> None:
-    """메인보드를 호환 기준점으로 삼아 CPU(소켓)·RAM(메모리 타입)·케이스(폼팩터) 풀을
-    좁힌다(요청 R1). 완전탐색·전력/물리 가지치기는 아직 없다 — 이 세 축만 고정."""
-    mb_pool = pools.get("메인보드") or []
-    if not mb_pool:
-        return
-    mb = mb_pool[0]
+def _apply_mainboard_compat(pools: dict[str, list[Candidate]], mb: Candidate) -> None:
+    """실제로 확정된 메인보드 mb를 호환 기준점으로 삼아 CPU(소켓)·RAM(메모리 타입)·
+    케이스(폼팩터) 풀을 좁힌다(요청 R1).
+
+    호출자는 반드시 "이번 빌드에서 실제로 선택될" 후보를 넘겨야 한다 — 랭킹 1위가
+    아니라 예산에 맞는 실제 픽이어야 하는 이유는 build_computer의 버그 설명 참고."""
     socket, mem_type, form = mb.specs.get("socket"), mb.specs.get("mem_type"), mb.specs.get("form_factor")
     if socket and "CPU" in pools:
         pools["CPU"] = _compat_filter(pools["CPU"], "socket", socket)
@@ -87,6 +85,92 @@ def _mainboard_compat_filter(pools: dict[str, list[Candidate]]) -> None:
     if form and "케이스" in pools:
         pools["케이스"] = [c for c in pools["케이스"]
                           if form in (c.specs.get("supports_form_factors") or [form])] or pools["케이스"]
+
+
+def _pick_cheapest_fit(pool: list[Candidate], budget: int, running: int) -> Candidate:
+    """풀의 랭킹 1위를 기본으로, 예산 안에 들어오는 첫 후보로 대체한다(공용 그리디 픽)."""
+    cand = pool[0]
+    for c in pool:
+        if budget == 0 or running + c.price <= budget:
+            return c
+    return cand
+
+
+def _is_definite_mismatch(pool: list[Candidate], key: str, wanted: str) -> bool:
+    """wanted가 있고, pool 안에 key값이 알려진 후보가 하나 이상 있는데 전부 wanted와
+    다르면 True(확정 비호환). key값을 아는 후보가 하나도 없으면 판단 보류(False) —
+    정보 없음을 비호환으로 단정하지 않는다는 _compat_filter와 같은 원칙."""
+    if not wanted:
+        return False
+    known = [c for c in pool if c.specs.get(key)]
+    return bool(known) and all(c.specs.get(key) != wanted for c in known)
+
+
+def _pick_mainboard(pools: dict[str, list[Candidate]], budget: int, running: int) -> Candidate:
+    """예산에 맞는 후보 중, CPU 풀([3-B] 랭킹으로 이미 top-N만 남은 상태)과 확실히
+    소켓이 안 맞는 보드는 건너뛰고 고른다.
+
+    stage3b_rank.py가 카테고리별로 top-N만 남긴 뒤에 이 함수가 호출되기 때문에,
+    "이 보드에 맞는 CPU가 원래는 있지만 랭킹 상위 N개에는 안 들었다" 같은 경우까지
+    다 구해주진 못한다 — 그런 보드는 여기서도 건너뛴다(둘 다 top-N 안에서 서로 맞는
+    조합을 찾는 것까지가 이 근사의 한계). 맞는 보드가 하나도 없으면(전부 확정
+    비호환이거나 정보 없음) 예산에 맞는 첫 후보로 되돌아간다 — 빈 슬롯보다는 낫다."""
+    mb_pool = pools.get("메인보드") or []
+    cpu_pool = pools.get("CPU") or []
+    fallback: Candidate | None = None
+    for c in mb_pool:
+        if not (budget == 0 or running + c.price <= budget):
+            continue
+        if fallback is None:
+            fallback = c
+        if _is_definite_mismatch(cpu_pool, "socket", c.specs.get("socket")):
+            continue
+        return c
+    return fallback if fallback is not None else mb_pool[0]
+
+
+def _pick_with_limit(pool: list[Candidate], budget: int, running: int, *,
+                     key: str, limit: float | None, max_allowed: bool) -> Candidate:
+    """예산에 맞는 후보 중, limit(있으면)을 확실히 어기는 건 건너뛰고 고른다.
+
+    max_allowed=True: 후보의 key값이 limit 이하여야 통과(예: GPU 길이 <= 케이스
+    허용 길이). max_allowed=False: key값이 limit 이상이어야 통과(예: PSU 용량 >=
+    필요 전력). 둘 중 하나라도 값을 모르면 위반으로 단정하지 않는다(그냥 통과)."""
+    fallback: Candidate | None = None
+    for c in pool:
+        if not (budget == 0 or running + c.price <= budget):
+            continue
+        if fallback is None:
+            fallback = c
+        value = c.specs.get(key)
+        if limit is not None and value is not None:
+            violates = (value > limit) if max_allowed else (value < limit)
+            if violates:
+                continue
+        return c
+    return fallback if fallback is not None else pool[0]
+
+
+def _pick_cooler(pools: dict[str, list[Candidate]], budget: int, running: int,
+                 max_height_mm: float | None, cpu_socket: str | None) -> Candidate:
+    """케이스 허용 높이 + CPU 소켓, 두 축 다 확실히 어기지 않는 쿨러를 고른다.
+    쿨러의 supported_socket은 "LGA1700/1200/115x, AM5/AM4"처럼 여러 소켓을 한
+    문자열에 나열해서 정확 일치가 아니라 부분 문자열 포함으로 봐야 한다."""
+    pool = pools.get("쿨러") or []
+    fallback: Candidate | None = None
+    for c in pool:
+        if not (budget == 0 or running + c.price <= budget):
+            continue
+        if fallback is None:
+            fallback = c
+        height = c.specs.get("height_mm")
+        if max_height_mm is not None and height is not None and height > max_height_mm:
+            continue
+        supported = c.specs.get("supported_socket")
+        if cpu_socket and supported and cpu_socket not in supported:
+            continue
+        return c
+    return fallback if fallback is not None else pool[0]
 
 
 def build_computer(
@@ -102,30 +186,92 @@ def build_computer(
     slots = list(spec.targets.keys())
     pools = {s: [c for c in _ranked(rank, s) if (s, c.product_key) not in exclude] for s in slots}
     pools = {s: (cs or _ranked(rank, s)) for s, cs in pools.items()}  # 비면 원복
-    _mainboard_compat_filter(pools)
 
     budget = spec.budget.get("total", 0)
     combos = 1
     for cs in pools.values():
         combos *= max(1, len(cs))
 
-    # TODO: 전력(PSU 용량)·GPU 길이·쿨러 높이 가지치기와 완전탐색 목적함수는 아직 없다.
-    #       소켓·메모리 타입·폼팩터는 위 _mainboard_compat_filter가 먼저 풀을 좁혀 둔다(R1).
-    #       지금은 그 좁혀진 풀에서 각 슬롯 1위(예산 초과 시 다음 순위)로 근사.
-    picked: list[BuildItem] = []
-    running = 0
-    for s in slots:
-        cand = pools[s][0]
-        for c in pools[s]:
-            if budget == 0 or running + c.price <= budget:
-                cand = c
-                break
-        running += cand.price
-        picked.append(BuildItem(
+    # TODO: 완전탐색 목적함수는 아직 없다 — 지금은 좁혀진 풀에서 각 슬롯 1위
+    #       (예산 초과 시 다음 순위)로 근사한다. 다만 순서는 임의가 아니다: 뒤에서
+    #       필요한 실측값을 앞에서 먼저 확정해야 확정 비호환을 건너뛸 수 있다.
+    #         메인보드(소켓/메모리타입/폼팩터 기준) → 케이스(GPU길이·쿨러높이 기준
+    #         제공) → CPU(소켓) → GPU(케이스 길이 제한) → 쿨러(케이스 높이 제한 +
+    #         CPU 소켓) → 파워(CPU+GPU 실측 전력) → 나머지(RAM/저장장치).
+    #       예전엔 이 순서가 없어서 메인보드는 랭킹 1위 기준으로 미리 필터링해두고
+    #       정작 최종 픽은 예산 제약으로 다른 보드가 나오는 버그가 있었다(소켓 불일치
+    #       조합이 통과됨). GPU 길이·쿨러 높이·전력도 같은 이유로 사후 탐지만 하고
+    #       있었는데, 여기서부터는 애초에 안 뽑도록 한다.
+    def _make_item(s: str, cand: Candidate) -> BuildItem:
+        return BuildItem(
             slot=s, product_key=cand.product_key, name=cand.name, price=cand.price,
             perf_tier=float(cand.specs.get("perf_tier", 0)), score=cand.score,
             rank_from_3b=cand.rank or 1,
-        ))
+        )
+
+    by_slot: dict[str, BuildItem] = {}
+    running = 0
+
+    mb_slot = "메인보드"
+    mb_specs: dict = {}
+    if mb_slot in pools and pools[mb_slot]:
+        mb_cand = _pick_mainboard(pools, budget, running)
+        running += mb_cand.price
+        by_slot[mb_slot] = _make_item(mb_slot, mb_cand)
+        mb_specs = mb_cand.specs
+        _apply_mainboard_compat(pools, mb_cand)
+
+    case_slot = "케이스"
+    case_specs: dict = {}
+    if case_slot in pools and pools[case_slot]:
+        case_cand = _pick_cheapest_fit(pools[case_slot], budget, running)
+        running += case_cand.price
+        by_slot[case_slot] = _make_item(case_slot, case_cand)
+        case_specs = case_cand.specs
+
+    cpu_slot = "CPU"
+    cpu_specs: dict = {}
+    if cpu_slot in pools and pools[cpu_slot]:
+        cpu_cand = _pick_cheapest_fit(pools[cpu_slot], budget, running)
+        running += cpu_cand.price
+        by_slot[cpu_slot] = _make_item(cpu_slot, cpu_cand)
+        cpu_specs = cpu_cand.specs
+
+    gpu_slot = "GPU"
+    gpu_specs: dict = {}
+    if gpu_slot in pools and pools[gpu_slot]:
+        gpu_cand = _pick_with_limit(pools[gpu_slot], budget, running, key="length_mm",
+                                    limit=case_specs.get("max_gpu_len_mm"), max_allowed=True)
+        running += gpu_cand.price
+        by_slot[gpu_slot] = _make_item(gpu_slot, gpu_cand)
+        gpu_specs = gpu_cand.specs
+
+    cooler_slot = "쿨러"
+    if cooler_slot in pools and pools[cooler_slot]:
+        cooler_cand = _pick_cooler(pools, budget, running,
+                                   case_specs.get("max_cooler_height_mm"), cpu_specs.get("socket"))
+        running += cooler_cand.price
+        by_slot[cooler_slot] = _make_item(cooler_slot, cooler_cand)
+
+    psu_slot = "파워"
+    if psu_slot in pools and pools[psu_slot]:
+        cpu_w, gpu_w = cpu_specs.get("tdp_w"), gpu_specs.get("power_w")
+        # link_rules: "sum(power) <= psu.wattage * 0.9" — 실측이 둘 다 있으면 그걸로,
+        # 없으면 [2]가 미리 계산해 둔 target.wattage_min으로 대체한다.
+        required_w = ((cpu_w + gpu_w) / 0.9) if (cpu_w is not None and gpu_w is not None) \
+            else spec.targets.get(psu_slot, {}).get("wattage_min")
+        psu_cand = _pick_with_limit(pools[psu_slot], budget, running, key="wattage_w",
+                                    limit=required_w, max_allowed=False)
+        running += psu_cand.price
+        by_slot[psu_slot] = _make_item(psu_slot, psu_cand)
+
+    for s in slots:
+        if s in by_slot:
+            continue
+        cand = _pick_cheapest_fit(pools[s], budget, running)
+        running += cand.price
+        by_slot[s] = _make_item(s, cand)
+    picked: list[BuildItem] = [by_slot[s] for s in slots]
 
     total = sum(i.price for i in picked)
     used_pct = round(total / budget * 100, 1) if budget else 0.0
@@ -136,14 +282,45 @@ def build_computer(
     log(f"      총액 {total:,}원 / 예산 {used_pct}% / GPU tier {gpu_t} · CPU tier {cpu_t}")
 
     valid = max(1, combos // 8)
-    cpu_item = next((i for i in picked if i.slot == "CPU"), None)
-    mb_item = next((i for i in picked if i.slot == "메인보드"), None)
-    cpu_socket = next((c.specs.get("socket") for c in pools.get("CPU", []) if cpu_item and c.product_key == cpu_item.product_key), None)
-    mb_socket = next((c.specs.get("socket") for c in pools.get("메인보드", []) if mb_item and c.product_key == mb_item.product_key), None)
+
+    def _picked_specs(slot: str) -> dict:
+        """slot에 뽑힌 후보의 specs — 정보 없는 부품(합성 카탈로그·override 미기재)은
+        빈 dict, 즉 아래 각 체크가 "정보 없음 → 근사"로 자연 강등한다."""
+        item = next((i for i in picked if i.slot == slot), None)
+        if item is None:
+            return {}
+        return next((c.specs for c in pools.get(slot, []) if c.product_key == item.product_key), {})
+
+    cpu_specs, mb_specs = _picked_specs("CPU"), _picked_specs("메인보드")
+    gpu_specs, case_specs = _picked_specs("GPU"), _picked_specs("케이스")
+    cooler_specs, psu_specs = _picked_specs("쿨러"), _picked_specs("파워")
+
+    cpu_socket, mb_socket = cpu_specs.get("socket"), mb_specs.get("socket")
     if cpu_socket and mb_socket:
         socket_status = "ok" if cpu_socket == mb_socket else "fail"
     else:
         socket_status = "ok (근사)"  # 호환 데이터가 없는 부품 — 아직 확인 안 됨, 위반 확정 아님
+
+    gpu_len, max_gpu_len = gpu_specs.get("length_mm"), case_specs.get("max_gpu_len_mm")
+    if gpu_len is not None and max_gpu_len is not None:
+        gpu_len_status = "ok" if gpu_len <= max_gpu_len else "fail"
+    else:
+        gpu_len_status = "ok (근사)"
+
+    cooler_h, max_cooler_h = cooler_specs.get("height_mm"), case_specs.get("max_cooler_height_mm")
+    if cooler_h is not None and max_cooler_h is not None:
+        cooler_status = "ok" if cooler_h <= max_cooler_h else "fail"
+    else:
+        cooler_status = "ok (근사)"
+
+    # link_rules: "sum(power) <= psu.wattage * 0.9" — CPU/GPU 소비전력 실측이 둘 다
+    # 있을 때만 판정한다(한쪽만 있으면 합이 실제보다 낮게 나와 거짓 통과가 될 수 있어서).
+    cpu_w, gpu_w, psu_w = cpu_specs.get("tdp_w"), gpu_specs.get("power_w"), psu_specs.get("wattage_w")
+    if cpu_w is not None and gpu_w is not None and psu_w is not None:
+        power_status = "ok" if (cpu_w + gpu_w) <= psu_w * 0.9 else "fail"
+    else:
+        power_status = "ok (근사)"
+
     return BuildResult(
         list_id=spec.list_id,
         items=picked,
@@ -151,8 +328,8 @@ def build_computer(
             sum(i.score for i in picked) / max(1, len(picked)), 3)},
         budget={"max": budget, "used": total, "used_pct": used_pct,
                 "slack": (budget - total) if budget else 0},
-        link_check={"socket": socket_status, "power": "ok (근사)", "gpu_len": "ok",
-                    "cooler_height": "ok", "bios": "ok"},
+        link_check={"socket": socket_status, "power": power_status, "gpu_len": gpu_len_status,
+                    "cooler_height": cooler_status, "bios": "ok (근사)"},
         balance={"gpu_tier": gpu_t, "cpu_tier": cpu_t,
                  "verdict": "균형" if abs(gpu_t - cpu_t) <= 3 else "불균형"},
         alternatives={"considered": combos, "valid": valid},

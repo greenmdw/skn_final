@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import re
 from functools import lru_cache
 
 from src.config import DATA_DIR
@@ -119,4 +120,163 @@ def load_candidates_by_slot() -> dict[str, list[Candidate]]:
             specs={"perf_tier": _mock_tier(pk), **_compat_specs(pk)},   # TODO: 실제 스펙으로 교체
         )
         out.setdefault(slot, []).append(cand)
+    return out
+
+
+# ── 실제 수집 카탈로그(catalog.*_spec, 0015_pc_parts_category_specs.sql) 경로 ──────
+# CATALOG_SOURCE=db 일 때만 stage3_0_candidates.run()이 이 경로를 탄다(기본은 위
+# load_candidates_by_slot()의 합성 카탈로그 그대로 — 팀 합의 전까지 기존 데모/테스트를
+# 건드리지 않는다). specs 딕셔너리 키는 stage4_optimize.py의 _apply_mainboard_compat와
+# build_computer()가 참조하는 이름(socket/mem_type/form_factor/supports_form_factors 및
+# 물리·전력 체크용 length_mm/max_gpu_len_mm/height_mm/max_cooler_height_mm/tdp_w/power_w/
+# wattage_w)에 맞춘다 — perf_tier는 실측이 없어 의도적으로 채우지 않는다(0으로 자연 강등,
+# 없는 정보를 있는 것처럼 지어내지 않는다는 기존 _compat_filter 철학과 동일).
+
+_DB_TYPE_TO_SLOT = {
+    "cpu": "CPU", "gpu": "GPU", "ram": "RAM", "motherboard": "메인보드",
+    "ssd": "저장장치", "psu": "파워", "case": "케이스", "cooler": "쿨러",
+}
+
+# (스펙 컬럼 목록, 스펙 테이블) — WHERE/가격 조인은 _build_query가 공통으로 붙인다.
+_SPEC_QUERIES: dict[str, tuple[str, str]] = {
+    "cpu": ("s.socket, s.tdp_w, s.memory_type", "catalog.cpu_spec"),
+    "motherboard": ("s.socket, s.memory_type, s.form_factor", "catalog.mainboard_spec"),
+    "ram": ("s.memory_type, s.total_capacity_gb, s.speed_mts", "catalog.ram_spec"),
+    "gpu": ("s.length_mm, s.power_w, s.vram_gb", "catalog.gpu_spec"),
+    "ssd": ("s.interface, s.protocol, s.form_factor, s.capacity_options", "catalog.ssd_spec"),
+    "psu": ("s.wattage_w, s.efficiency_rating", "catalog.psu_spec"),
+    "case": ("s.gpu_max_length_mm, s.cpu_cooler_height_mm, s.supported_motherboard", "catalog.case_spec"),
+    "cooler": ("s.cooler_height_mm, s.supported_socket", "catalog.cooler_spec"),
+}
+
+
+def _build_query(product_type: str, spec_cols: str, spec_table: str) -> str:
+    return f"""
+        SELECT p.id, p.brand, p.model, obs.price, {spec_cols}
+        FROM catalog.product p
+        JOIN {spec_table} s ON s.product_id = p.id
+        JOIN catalog.product_variant v ON v.product_id = p.id AND v.variant_key = 'default'
+        JOIN catalog.offer o ON o.variant_id = v.id AND o.status = 'active'
+        JOIN LATERAL (
+            SELECT price FROM catalog.offer_observation
+            WHERE offer_id = o.id AND quality_status = 'valid'
+            ORDER BY observed_at DESC LIMIT 1
+        ) obs ON true
+        WHERE p.product_type = %(product_type)s
+    """
+
+
+def _parse_max_number(text) -> float | None:
+    """"8 / 16" 같은 라인업 표기에서 가장 큰 숫자를 뽑는다(하드필터는 "이 라인업 중
+    최대치가 요구를 만족하는가"로 본다 — 정확한 SKU까지는 모르니 관대하게)."""
+    if text is None:
+        return None
+    if isinstance(text, (int, float)):
+        return float(text)
+    nums = re.findall(r"\d+(?:\.\d+)?", str(text))
+    return max(float(n) for n in nums) if nums else None
+
+
+def _parse_max_capacity_gb(text) -> float | None:
+    """"1TB / 2TB / 4TB" 같은 지원 용량 표기에서 최대 용량을 GB 단위로 뽑는다."""
+    if not text:
+        return None
+    best: float | None = None
+    for num, unit in re.findall(r"(\d+(?:\.\d+)?)\s*(TB|GB)", str(text), re.IGNORECASE):
+        gb = float(num) * (1000 if unit.upper() == "TB" else 1)
+        best = gb if best is None else max(best, gb)
+    return best
+
+
+def _specs_from_row(product_type: str, row: dict) -> dict:
+    """DB 행 -> stage4 호환 체크가 읽는 specs 키. 없는 값은 아예 안 넣는다(=정보 없음,
+    _compat_filter가 이미 그렇게 "통과"로 처리하는 것과 동일한 관례)."""
+    specs: dict = {}
+    if product_type == "cpu":
+        if row.get("socket"):
+            specs["socket"] = row["socket"]
+        if row.get("memory_type"):
+            specs["mem_type"] = row["memory_type"]
+        if row.get("tdp_w") is not None:
+            specs["tdp_w"] = row["tdp_w"]
+    elif product_type == "motherboard":
+        if row.get("socket"):
+            specs["socket"] = row["socket"]
+        if row.get("memory_type"):
+            specs["mem_type"] = row["memory_type"]
+        if row.get("form_factor"):
+            specs["form_factor"] = row["form_factor"]
+    elif product_type == "ram":
+        if row.get("memory_type"):
+            specs["mem_type"] = row["memory_type"]
+        if row.get("total_capacity_gb") is not None:
+            specs["capacity_gb"] = row["total_capacity_gb"]
+        if row.get("speed_mts") is not None:
+            specs["speed_mts"] = row["speed_mts"]
+    elif product_type == "gpu":
+        if row.get("length_mm") is not None:
+            specs["length_mm"] = row["length_mm"]
+        if row.get("power_w") is not None:
+            specs["power_w"] = row["power_w"]
+        vram = _parse_max_number(row.get("vram_gb"))  # "8 / 16" 라인업 표기 대응
+        if vram is not None:
+            specs["vram_gb"] = vram
+    elif product_type == "ssd":
+        if row.get("interface"):
+            specs["interface"] = row["interface"]
+        if row.get("protocol"):
+            specs["protocol"] = row["protocol"]
+        if row.get("form_factor"):
+            specs["form_factor"] = row["form_factor"]
+        capacity = _parse_max_capacity_gb(row.get("capacity_options"))
+        if capacity is not None:
+            specs["capacity_gb"] = capacity
+    elif product_type == "psu":
+        if row.get("wattage_w") is not None:
+            specs["wattage_w"] = row["wattage_w"]
+        if row.get("efficiency_rating"):
+            specs["efficiency_rating"] = row["efficiency_rating"]
+    elif product_type == "case":
+        if row.get("gpu_max_length_mm") is not None:
+            specs["max_gpu_len_mm"] = row["gpu_max_length_mm"]
+        if row.get("cpu_cooler_height_mm") is not None:
+            specs["max_cooler_height_mm"] = row["cpu_cooler_height_mm"]
+        supported = (row.get("supported_motherboard") or "").strip()
+        if supported:
+            # "ATX / mATX" 같은 원본 표기를 _apply_mainboard_compat가 읽는 리스트로.
+            specs["supports_form_factors"] = [x.strip() for x in supported.split("/") if x.strip()]
+    elif product_type == "cooler":
+        if row.get("cooler_height_mm") is not None:
+            specs["height_mm"] = row["cooler_height_mm"]
+        if row.get("supported_socket"):
+            specs["supported_socket"] = row["supported_socket"]
+    return specs
+
+
+def load_candidates_by_slot_from_db(conn) -> dict[str, list[Candidate]]:
+    """실제 수집 카탈로그(0015_pc_parts_category_specs.sql)에서 슬롯별 후보를 읽는다.
+    가격 관측이 없는(quality_status='valid' 행이 없는) 상품은 후보에서 빠진다 —
+    가격 없이 추천에 올리지 않는다는 기존 원칙(get_baby_candidates)과 동일하게 맞춘다."""
+    from psycopg.rows import dict_row
+
+    out: dict[str, list[Candidate]] = {}
+    with conn.cursor(row_factory=dict_row) as cur:
+        for product_type, (spec_cols, spec_table) in _SPEC_QUERIES.items():
+            slot = _DB_TYPE_TO_SLOT[product_type]
+            cur.execute(_build_query(product_type, spec_cols, spec_table),
+                        {"product_type": product_type})
+            rows = cur.fetchall()
+            for row in rows:
+                price = row.get("price")
+                if price is None:
+                    continue
+                pk = f"{product_type}:{row['brand']}:{row['model']}".lower().replace(" ", "-")
+                out.setdefault(slot, []).append(Candidate(
+                    product_key=pk,
+                    slot=slot,
+                    name=f"{row['brand']} {row['model']}",
+                    brand=row["brand"],
+                    price=int(price),
+                    specs=_specs_from_row(product_type, row),
+                ))
     return out
