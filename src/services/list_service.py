@@ -181,7 +181,8 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
             "qty": 1, "timing": "now",
             "review": review_by_item_id.get(str(row["id"])), "evidence_text": row["reason"] or "",
             "product": {
-                "product_key": row["product_key"], "name": row["product_name"],
+                "product_key": (item_view or {}).get("product", {}).get("product_key") or row["product_key"],
+                "name": row["product_name"],
                 "image_url": row["image_url"], "purchase_url": row["purchase_url"],
             },
         }
@@ -245,8 +246,11 @@ def get_report(conn, list_id: UUID, principal: Principal, *, locale: Locale = "k
             watch, int(revision["target_amount"]) if revision["target_amount"] is not None else None
         ),
         "care_guide": care_guide,
-        "data_notice": ("Products, prices and reviews are synthetic demo data." if lang == "en"
-                        else "상품·가격·리뷰는 합성 데이터입니다."),
+        "data_notice": (("PC products and prices come from an imported file, not a live feed. Review summaries are synthetic."
+                         if lang == "en" else "PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. 리뷰 요약은 합성 데이터입니다.")
+                        if revision["category"] == "computer" else
+                        ("Products, prices and reviews are synthetic demo data." if lang == "en"
+                         else "상품·가격·리뷰는 합성 데이터입니다.")),
     }
 
 

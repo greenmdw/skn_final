@@ -130,7 +130,7 @@ function tfCleansingSummaryHtml(review, english) {
  let body = tfReviewPlainBody(plain, english);
  if (footer) body += '<p class="review-footer">' + esc(footer) + '</p>';
  if (!body) return '';
- return '<div class="evidence review-signals"><h4>Review Cleansing Summary</h4><div class="evidence-card review-plain">' + body + '</div></div>';
+ return '<div class="evidence review-signals"><h4>' + (english ? 'Review observations' : '리뷰 관측 요약') + '</h4><div class="evidence-card review-plain">' + body + '</div></div>';
 }
 function tfShowCartReviewSlide(itemId){
  const item=tfFindItem(itemId);if(!item)return;
@@ -163,7 +163,22 @@ function resultsPage({preserve=false,scrollChat=false}={}){if(!tfPlan.listId)ret
  const toolbarButtons='<button class="btn" data-action="conditions">'+(english?'← Edit conditions':'← 조건 수정')+'</button><button class="btn" data-action="logs">'+(english?'View recommendation process':'추천 과정 보기')+'</button><button class="btn" type="button" data-plan-rerun="alternative">'+(english?'View another build':'다른 구성 보기')+'</button>';
  const feed='<div class="conversation-feed">'+tfResultChatTurn('system',tfResultSummaryHtml(sortedResult))+tfPlan.resultMessages.map(m=>tfResultChatTurn(m.role,esc(m.text))).join('')+'</div>';
  const composer='<div class="conversation-current"><form id="tf-result-chat-form"><div class="chat-compose-grid no-file"><textarea id="tf-result-chat-input" name="message" rows="1" maxlength="300" aria-label="'+(english?'Ask about your recommendation':'추천 결과에 대해 물어보세요')+'" placeholder="'+esc(config.composerPlaceholder)+'" required></textarea><button class="btn strong" type="submit">'+(english?'Send →':'전송 →')+'</button></div><p id="tf-result-chat-error" class="error" role="alert"></p></form></div>';
- const body='<div class="result-toolbar"><div><span class="condition-kicker">03 / YOUR BASKET</span><h1 tabindex="-1">'+(english?'Review your recommended build.':'추천 구성을 확인해 보세요.')+'</h1><p class="muted">'+esc(result.conditions_summary||'')+'</p></div><div class="row">'+toolbarButtons+'</div></div>'+tfResultLanguageNotice(result)+(result.totals?.over_budget?'<div class="demo-note">'+(english?'The current build is over budget. Remove an item or select an alternative.':'현재 선택한 구성이 예산을 초과합니다. 품목을 빼거나 대체 후보를 선택해 주세요.')+'</div>':'')+tfResultInsights(result)+'<div class="result-board"><div class="result-board-main"><section class="condition-card conversation-card result-chat-panel"><h2>'+esc(config.heading)+'</h2>'+feed+composer+'</section></div>'+tfResultCart(sortedResult)+'</div>';
+ const insights = tfResultInsights(result);
+ const body = '<div class="result-toolbar"><div><span class="condition-kicker">03 / YOUR BASKET</span>'
+  + '<h1 tabindex="-1">' + (english ? 'Review your recommended build.' : '추천 구성을 확인해 보세요.') + '</h1>'
+  + '<p class="muted">' + esc(result.conditions_summary || '') + '</p></div><div class="row">' + toolbarButtons + '</div></div>'
+  + tfResultLanguageNotice(result)
+  + (result.totals?.over_budget ? '<div class="demo-note">'
+   + (english ? 'The current build is over budget. Remove an item or select an alternative.' : '현재 선택한 구성이 예산을 초과합니다. 품목을 빼거나 대체 후보를 선택해 주세요.')
+   + '</div>' : '')
+  + '<div class="result-board' + (insights ? ' has-evidence' : '') + '">'
+  + '<div class="result-board-main"><section class="condition-card conversation-card result-chat-panel"><h2>'
+  + esc(config.heading) + '</h2>' + feed + composer + '</section></div>'
+  + tfResultCart(sortedResult)
+  + (insights ? '<aside class="result-evidence-pane"><span class="condition-kicker">'
+   + (english ? 'WHY THIS BUILD' : '추천 근거') + '</span><h2>'
+   + (english ? 'Why these products?' : '이 구성을 추천한 이유') + '</h2>' + insights + '</aside>' : '')
+  + '</div>';
  shell(body,2);
  if(tfOpenReviewItemId&&tfFindItem(tfOpenReviewItemId))tfShowCartReviewSlide(tfOpenReviewItemId);
  if(preserve){

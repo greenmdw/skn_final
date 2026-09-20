@@ -10,10 +10,11 @@ author_ref/review_posted_at은 이 합성 데이터에 작성자·게시시각�
 이 값들은 실제 온라인 리뷰 수집 경로가 채울 몫이다). 원문 보관 정책과도 맞다 — 여기 들어가는
 summary는 이미 합성 문장이지 실제 리뷰 원문이 아니다.
 
-카탈로그(db/seed_catalog.py)가 먼저 적재돼 있어야 한다 — product_key로 매칭 못 하면 건너뛴다.
-멱등(ON CONFLICT DO NOTHING) — 여러 번 실행해도 중복 안 쌓인다.
+PC 데이터는 db/seed_pc_parts_specs.py로 새 카탈로그를 먼저 적재한다. 확인된
+data/review_catalog_map.csv 대응만 연결하고 나머지는 건너뛴다. 충돌한 기존 요약은
+subject_id를 새 상품으로 옮겨 재실행도 멱등으로 처리한다.
 
-    DATABASE_URL=... python db/seed_catalog.py   # 먼저
+    DATABASE_URL=... python db/seed_pc_parts_specs.py   # 먼저
     DATABASE_URL=... python db/seed_review_summaries.py
     DATABASE_URL=... python db/seed_review_summaries.py --input data/baby/review_summaries.json
 """
@@ -31,6 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.db import get_conn  # noqa: E402
 from src.repo.product_repo import ProductRepo  # noqa: E402
+from src.repo.review_repo import load_review_catalog_map  # noqa: E402
 
 DATA_PATH = Path(__file__).resolve().parent.parent / "data" / "review_summaries.json"
 _PROCESSING_VERSION = "gen_review_summaries-v1"
@@ -81,15 +83,26 @@ def main() -> int:
     entries = json.loads(args.input.read_text(encoding="utf-8"))
     with get_conn() as conn:
         repo = ProductRepo(conn)
+        is_pc = args.input.resolve() == DATA_PATH.resolve()
+        legacy_to_current = {legacy: current for current, legacy in load_review_catalog_map().items()} if is_pc else {}
+        product_by_key = {}
+        for row in repo._all("SELECT id, product_type, brand, model FROM catalog.product"):
+            if not row["brand"] or not row["model"]:
+                continue
+            key = f"{row['product_type']}:{row['brand']}:{row['model']}".lower().replace(" ", "-")
+            if key in product_by_key and product_by_key[key] != row["id"]:
+                raise ValueError(f"카탈로그 product_key 중복: {key}")
+            product_by_key[key] = row["id"]
         product_by_slug = {
             _slug(row["model"]): row["id"]
             for row in repo._all("SELECT id, model FROM catalog.product")
         }
         source_ids = {t: _source_id(repo, name) for t, name in _SOURCE_NAME_BY_TYPE.items()}
 
-        inserted = skipped_products = 0
+        written = skipped_products = 0
         for entry in entries:
-            product_id = product_by_slug.get(_slug(entry["product_key"]))
+            product_id = (product_by_key.get(legacy_to_current.get(entry["product_key"])) if is_pc
+                          else product_by_slug.get(_slug(entry["product_key"])))
             if product_id is None:
                 skipped_products += 1
                 continue
@@ -99,20 +112,22 @@ def main() -> int:
                 external_key = f"{entry['product_key']}:{i}"
                 collected_at = datetime.strptime(s["collected_at"], "%Y-%m-%d").replace(tzinfo=timezone.utc)
                 row = repo._one(
-                    """INSERT INTO evidence.review_summary
+                    """INSERT INTO evidence.review_summary AS target
                     (subject_id, source_id, origin, external_review_key, original_url,
                      summary, collected_at, processing_version, cleaning_status)
                     VALUES (%s, %s, 'external', %s, %s, %s, %s, %s, 'retained')
                     ON CONFLICT (source_id, external_review_key, processing_version)
-                    WHERE external_review_key IS NOT NULL DO NOTHING
+                    WHERE external_review_key IS NOT NULL DO UPDATE
+                    SET subject_id=EXCLUDED.subject_id, updated_at=now()
+                    WHERE target.subject_id IS DISTINCT FROM EXCLUDED.subject_id
                     RETURNING id""",
                     (subject_id, source_id, external_key, s.get("source_url"), s["text"],
                      collected_at, _PROCESSING_VERSION),
                 )
                 if row is not None:
-                    inserted += 1
-        print(f"seed_review_summaries: {inserted}개 요약 적재, "
-              f"카탈로그 미매칭으로 건너뜬 상품 {skipped_products}개")
+                    written += 1
+        print(f"seed_review_summaries: {written}개 요약 신규/재연결, "
+              f"카탈로그 미매칭 상품 {skipped_products}개")
     return 0
 
 

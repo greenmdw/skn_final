@@ -39,11 +39,47 @@ from src.dto import BabyRequirement, RequirementSpec, Slots
 from src.engine import LogFn
 
 _RULES_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "baby_requirement_rules.yaml"
+_COMPUTER_RULES_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "computer_verification_rules.yaml"
 _TIMING_RANK = {"now": 0, "soon": 1, "later": 2}
 
 
 class RequirementRuleError(ValueError):
     """config/baby_requirement_rules.yaml 이 없거나 형식이 잘못됨."""
+
+
+@lru_cache(maxsize=8)
+def _load_computer_rules(path: Path) -> dict:
+    if not path.is_file():
+        raise RequirementRuleError(f"PC 규칙 파일 없음: {path}")
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or data.get("schema_version") != 1:
+        raise RequirementRuleError("PC 규칙 schema_version 오류")
+    if not data.get("rule_set_version"):
+        raise RequirementRuleError("PC 규칙 rule_set_version 없음")
+    req, verification, ranking = (data.get(k) for k in ("requirements", "verification", "ranking"))
+    if not all(isinstance(v, dict) for v in (req, verification, ranking)):
+        raise RequirementRuleError("PC 규칙 섹션 누락")
+    if req.get("default_resolution") not in (req.get("game_tiers") or {}):
+        raise RequirementRuleError("PC 기본 해상도 규칙 없음")
+    if not verification.get("link_rules") or not 0 < verification.get("power", {}).get("psu_capacity_factor", 0) <= 1:
+        raise RequirementRuleError("PC 호환성 규칙 오류")
+    power = req.get("estimated_power_w") or {}
+    watts = req.get("psu_standard_wattages") or []
+    multiplier = req.get("psu_headroom_multiplier")
+    if (not all(k in power for k in ("cpu", "gpu", "other")) or not isinstance(multiplier, (int, float))
+            or multiplier <= 0 or not watts or watts != sorted(set(watts))
+            or watts[-1] < int(sum(power[k] for k in ("cpu", "gpu", "other")) * multiplier)):
+        raise RequirementRuleError("PC PSU 요구/표준 용량 규칙 오류")
+    if abs(sum((req.get("budget_allocation") or {}).values()) - 1) > 1e-9:
+        raise RequirementRuleError("PC 예산 배분 합계가 1이 아님")
+    if abs(sum((ranking.get("weights") or {}).values()) - 1) > 1e-9:
+        raise RequirementRuleError("PC 랭킹 가중치 합계가 1이 아님")
+    return data
+
+
+def load_computer_rules(path: Path | None = None) -> dict:
+    """버전 있는 PC 규칙 문서. 테스트는 별도 경로를 넘겨 정책 변경을 검증한다."""
+    return _load_computer_rules(Path(path or _COMPUTER_RULES_PATH).resolve())
 
 
 @lru_cache(maxsize=1)
@@ -316,9 +352,17 @@ def persist_baby_requirements(conn, revision_id, requirements: list[BabyRequirem
         # only the baby_requirement key is ours to overwrite.
         match_spec = {**existing_spec, "schema_version": 3,
                       "baby_requirement": persisted.model_dump(mode="json")}
+        # planning.requirement.quantity has CHECK(quantity > 0) — a data_gap rule
+        # (e.g. clothing_data_gap_v1, config/baby_requirement_rules.yaml) legitimately
+        # declares required_qty=0 ("no catalog for this need"), which would otherwise
+        # crash set_requirement_totals with psycopg.errors.CheckViolation and turn
+        # into an unhandled 500 on POST /recommend. The DB column is never read back
+        # (load_persisted_baby_requirements() reconstructs required_qty from
+        # match_spec.baby_requirement, not this column — see its own docstring), so a
+        # placeholder value here is safe; the real 0 stays intact in match_spec.
         repo.set_requirement_totals(
-            requirement_id, quantity=r.required_qty, unit_code=r.unit_code,
-            required=r.mandatory, match_spec=match_spec,
+            requirement_id, quantity=(r.required_qty if r.required_qty > 0 else 1),
+            unit_code=r.unit_code, required=r.mandatory, match_spec=match_spec,
         )
         out.append(persisted)
 
@@ -354,46 +398,35 @@ def load_persisted_baby_requirements(conn, revision_id) -> list[BabyRequirement]
     return out
 
 
-# TODO: 실제 룩업 테이블로 교체 (data/game_requirements.csv, balance_profiles 등)
-_GAME_TIER = {  # (해상도) → (gpu_tier_min, cpu_tier_min, ram_gb, vram_gb)
-    "FHD_144": (6, 6, 16, 8),
-    "QHD_165": (7, 5, 16, 12),
-    "4K": (9, 5, 32, 16),
-}
-_PSU_K = 1.5
-
-
 def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
-    res = slots.values.get("resolution", "FHD_144")
-    gpu_t, cpu_t, ram_gb, vram = _GAME_TIER.get(res, _GAME_TIER["FHD_144"])
+    rules = load_computer_rules()
+    req = rules["requirements"]
+    res = slots.values.get("resolution") or req["default_resolution"]
+    tier = req["game_tiers"].get(res, req["game_tiers"][req["default_resolution"]])
+    gpu_t, cpu_t, ram_gb, vram = (tier[k] for k in ("gpu", "cpu", "ram_gb", "vram_gb"))
     brand = slots.values.get("brand_pref", "none")
-    socket_in = {"intel": ["LGA1851"], "amd": ["AM5"], "none": ["LGA1851", "AM5"]}[brand]
+    socket_in = req["sockets_by_brand"][brand]
 
     # PSU 헤드룸: (cpu_tdp + gpu_tgp + 표준부하) * K → 표준 용량
-    est_cpu_tdp, est_gpu_tgp = 125, 300  # TODO: 실제 후보 스펙에서
-    required_w = int((est_cpu_tdp + est_gpu_tgp + 75) * _PSU_K)
-    wattage_min = next(w for w in (550, 650, 750, 850, 1000, 1200) if w >= required_w)
+    power = req["estimated_power_w"]
+    est_cpu_tdp, est_gpu_tgp = power["cpu"], power["gpu"]  # 후보 실측값은 [4]에서 확인
+    required_w = int((est_cpu_tdp + est_gpu_tgp + power["other"]) * req["psu_headroom_multiplier"])
+    wattage_min = next(w for w in req["psu_standard_wattages"] if w >= required_w)
 
     targets = {
         "CPU": {"perf_tier_min": cpu_t, "socket_in": socket_in, "tdp_budget_w": est_cpu_tdp},
         "GPU": {"perf_tier_min": gpu_t, "vram_gb_min": vram, "tgp_budget_w": est_gpu_tgp},
-        "RAM": {"type": "DDR5", "capacity_gb_min": ram_gb},
-        "메인보드": {"socket_in": socket_in, "form_in": ["ATX", "mATX"], "mem_type": "DDR5"},
-        "저장장치": {"interface": "NVMe", "capacity_gb_min": 1000},
-        "파워": {"wattage_min": wattage_min, "plus_rating_min": "Gold"},
-        "케이스": {"form": "ATX_mid"},          # 데모 고정
+        "RAM": {"type": req["ram_type"], "capacity_gb_min": ram_gb},
+        "메인보드": {"socket_in": socket_in, "form_in": req["motherboard_form_factors"], "mem_type": req["ram_type"]},
+        "저장장치": {"interface": req["storage_protocol"], "capacity_gb_min": req["storage_capacity_gb_min"]},
+        "파워": {"wattage_min": wattage_min, "plus_rating_min": req["psu_efficiency_min"]},
+        "케이스": {"form": req["case_form"]},
         "쿨러": {"tdp_capacity_w_min": est_cpu_tdp},
     }
-    link_rules = [
-        "cpu.socket == mainboard.socket",
-        "ram.type == mainboard.mem_type",
-        "gpu.length_mm <= case.max_gpu_len_mm",
-        "cooler.height_mm <= case.max_cooler_height_mm",
-        "sum(power) <= psu.wattage * 0.9",
-    ]
+    link_rules = [rule.format(psu_capacity_factor=rules["verification"]["power"]["psu_capacity_factor"])
+                  for rule in rules["verification"]["link_rules"]]
     budget_total = slots.values.get("budget_max") or 0
-    alloc = {"GPU": 0.40, "CPU": 0.18, "메인보드": 0.10, "RAM": 0.08,
-             "저장장치": 0.07, "파워": 0.08, "케이스": 0.05, "쿨러": 0.04}
+    alloc = dict(req["budget_allocation"])
     feasibility = "ok"  # TODO: est_total vs budget 예비 판정
 
     flags = []
@@ -401,7 +434,7 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
         flags.append("resolution_assumed")
 
     log(f"      게임 요구: GPU tier≥{gpu_t}, CPU tier≥{cpu_t}, RAM {ram_gb}GB, VRAM {vram}GB")
-    log(f"      PSU 헤드룸: 필요 {required_w}W → 최소 {wattage_min}W (K={_PSU_K})")
+    log(f"      PSU 헤드룸: 필요 {required_w}W → 최소 {wattage_min}W (K={req['psu_headroom_multiplier']})")
     log(f"      link_rules {len(link_rules)}개 기록 · 예산배분 가이드 · feasibility={feasibility}")
 
     return RequirementSpec(

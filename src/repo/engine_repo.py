@@ -93,7 +93,7 @@ class EngineRepo(Repo):
         return row is not None
     def get_candidates(self, run_id: UUID) -> list[dict]:
         return self._all("""
-        SELECT c.*, p.model AS product_key, v.id AS variant_id, v.variant_key,
+        SELECT c.*, p.model AS product_key, p.product_type, v.id AS variant_id, v.variant_key,
                p.name AS product_name, p.brand, p.attributes, p.image_url,
                of.id AS offer_id, of.purchase_url, o.price, o.observed_at,
                n.template_key AS slot, n.name AS slot_label

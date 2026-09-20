@@ -1,0 +1,349 @@
+/* TF-DEV: source-inspired presentation for the existing API-backed planner.
+   Scoped to the five flow pages; the landing, accounts and category page retain
+   their established design. No mockup sample values or behavior are imported. */
+body.tf-mockup-flow {
+  color-scheme: dark;
+  --tf-bg: #071016;
+  --tf-surface: #0d1a23;
+  --tf-soft: #111f29;
+  --tf-soft-sage: #102622;
+  --tf-soft-warm: #0a171e;
+  --tf-border: #29404b;
+  --tf-text: #f4f7f7;
+  --tf-muted: #a1b3bd;
+  --tf-primary: #60edc0;
+  --tf-primary-hover: #8bf5d1;
+  --tf-secondary: #59b99b;
+  --tf-on-primary: #062019;
+  --tf-warning: #ffbd66;
+  --tf-warning-soft: #302516;
+  --tf-danger: #ff8a96;
+  --tf-danger-soft: #34202b;
+  --tf-overlay: #03080cba;
+  --tf-shadow-soft: #00000040;
+  --tf-shadow: #00000080;
+  --tf-surface-translucent: #0d1a23ed;
+  background: var(--tf-bg);
+}
+
+.tf-mockup-flow .flow,
+.tf-mockup-flow .planner-work {
+  background: var(--tf-bg);
+}
+.tf-mockup-flow .planner-shell {
+  grid-template-columns: 205px minmax(0, 1fr);
+}
+.tf-mockup-flow .planner-shell:has(.planner-sidebar.is-collapsed) {
+  grid-template-columns: 78px minmax(0, 1fr);
+}
+.tf-mockup-flow .planner-sidebar {
+  background: linear-gradient(160deg, #09181d, #071318);
+  border-right: 1px solid var(--tf-border);
+}
+.tf-mockup-flow .planner-work {
+  padding: 24px clamp(18px, 2.2vw, 36px) 62px;
+}
+.tf-mockup-flow .planner-work .flow-wrap {
+  max-width: 1450px;
+}
+.tf-mockup-flow .flow-top {
+  min-height: 45px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--tf-border);
+}
+.tf-mockup-flow .flow-steps {
+  gap: 7px;
+  margin: 16px 0 24px;
+}
+.tf-mockup-flow .flow-steps li {
+  flex: 1 1 140px;
+}
+.tf-mockup-flow .flow-steps a,
+.tf-mockup-flow .flow-steps span {
+  border: 1px solid var(--tf-border);
+  border-radius: 10px;
+  padding: 11px 14px;
+  background: #0b1820;
+  color: var(--tf-muted);
+  font-weight: 700;
+}
+.tf-mockup-flow .flow-steps li.active a,
+.tf-mockup-flow .flow-steps li.active span {
+  border-color: #328b71;
+  background: #12362e;
+  color: var(--tf-primary);
+}
+.tf-mockup-flow .flow-steps li.disabled span {
+  opacity: .55;
+}
+.tf-mockup-flow .flow h1,
+.tf-mockup-flow .flow h2,
+.tf-mockup-flow .flow h3 {
+  font-family: 'IBM Plex Sans KR', 'Malgun Gothic', sans-serif;
+  letter-spacing: -.04em;
+}
+.tf-mockup-flow .flow h1 {
+  font-size: clamp(27px, 2.6vw, 39px);
+}
+.tf-mockup-flow .condition-card,
+.tf-mockup-flow .condition-summary,
+.tf-mockup-flow .panel,
+.tf-mockup-flow .result-cart,
+.tf-mockup-flow .result-chatbox {
+  border: 1px solid var(--tf-border);
+  border-radius: 17px;
+  box-shadow: 0 18px 60px #0000002b;
+}
+.tf-mockup-flow .condition-card {
+  padding: clamp(22px, 2.5vw, 38px);
+  background: linear-gradient(145deg, #0b1a21, #081219);
+}
+.tf-mockup-flow .condition-card h1 {
+  margin: 6px 0 28px;
+}
+.tf-mockup-flow .condition-summary {
+  width: 100%;
+  padding: 24px;
+  background: linear-gradient(160deg, #0b1b22, #0a151c);
+}
+.tf-mockup-flow .condition-layout {
+  grid-template-columns: minmax(0, 1fr) minmax(270px, 310px);
+  gap: 12px;
+}
+.tf-mockup-flow .condition-layout.is-start {
+  grid-template-columns: minmax(0, 1fr);
+}
+.tf-mockup-flow .condition-layout.is-start .condition-main {
+  max-width: 940px;
+}
+.tf-mockup-flow .conversation-turn {
+  max-width: min(88%, 680px);
+}
+.tf-mockup-flow .conversation-bubble {
+  border-radius: 13px 13px 13px 4px;
+  box-shadow: none;
+}
+.tf-mockup-flow .conversation-turn.user .conversation-bubble {
+  border-radius: 13px 13px 4px 13px;
+}
+.tf-mockup-flow .conversation-current {
+  border-radius: 13px;
+  padding: 18px;
+  background: #0b1920;
+}
+.tf-mockup-flow .conversation-option,
+.tf-mockup-flow .result-chat-panel .chip-btn {
+  border-radius: 999px;
+  background: #10252b;
+}
+.tf-mockup-flow .flow .btn,
+.tf-mockup-flow .flow input:not([type=checkbox]),
+.tf-mockup-flow .flow textarea,
+.tf-mockup-flow .flow select {
+  border-radius: 10px;
+}
+.tf-mockup-flow .flow .btn.strong,
+.tf-mockup-flow .conversation-option.primary-option {
+  background: var(--tf-primary);
+  border-color: var(--tf-primary);
+  color: var(--tf-on-primary);
+  font-weight: 800;
+}
+.tf-mockup-flow .flow .btn.strong:hover {
+  background: var(--tf-primary-hover);
+}
+
+/* The mockup's chat / plan / evidence rhythm, fed only by current result data. */
+.tf-mockup-flow .result-toolbar {
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+.tf-mockup-flow .result-toolbar .row {
+  justify-content: flex-end;
+}
+.tf-mockup-flow .result-board {
+  grid-template-columns: minmax(280px, .85fr) minmax(385px, 1.25fr);
+  gap: 12px;
+}
+.tf-mockup-flow .result-board.has-evidence {
+  grid-template-columns: minmax(280px, .9fr) minmax(385px, 1.2fr) minmax(245px, .72fr);
+}
+.tf-mockup-flow .result-chat-panel {
+  position: sticky;
+  top: 16px;
+  padding: 22px;
+}
+.tf-mockup-flow .result-chat-panel h2 {
+  font-size: 19px;
+  margin-bottom: 18px;
+}
+.tf-mockup-flow .result-cart {
+  top: 16px;
+  padding: 22px;
+  background: linear-gradient(145deg, #0b1921, #08131a);
+}
+.tf-mockup-flow .result-cart-item {
+  border-radius: 11px;
+  background: #101f28;
+}
+.tf-mockup-flow .result-cart-item:hover,
+.tf-mockup-flow .candidate-card:hover {
+  border-color: var(--tf-secondary);
+  background: #132a31;
+}
+.tf-mockup-flow .result-evidence-pane {
+  position: sticky;
+  top: 16px;
+  min-width: 0;
+  border: 1px solid var(--tf-border);
+  border-radius: 17px;
+  padding: 22px;
+  background: linear-gradient(160deg, #0b1921, #09141c);
+}
+.tf-mockup-flow .result-evidence-pane h2 {
+  margin: 8px 0 16px;
+  font-size: 19px;
+}
+.tf-mockup-flow .result-evidence-pane .notice {
+  margin: 0 !important;
+  border: 1px solid var(--tf-border);
+  background: #10252b;
+  overflow-wrap: anywhere;
+}
+.tf-mockup-flow .result-overlay {
+  border: 1px solid var(--tf-border);
+  border-radius: 18px;
+  background: #0b1820;
+  color: var(--tf-text);
+}
+.tf-mockup-flow .result-overlay-head {
+  background: #0e2029;
+}
+.tf-mockup-flow .candidate-card {
+  border-radius: 12px;
+  background: #102029;
+}
+.tf-mockup-flow .candidate-card.current {
+  border-color: var(--tf-primary);
+  background: #102922;
+}
+.tf-mockup-flow .candidate-card .candidate-price,
+.tf-mockup-flow .candidate-card .candidate-action {
+  color: var(--tf-primary);
+}
+.tf-mockup-flow .cart-review-slide {
+  background: #0b1922;
+}
+.tf-mockup-flow .review-slide-body .evidence-card {
+  background: #10252b;
+}
+
+/* Save and report screens keep their API-controlled forms and values. */
+.tf-mockup-flow .flow-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 14px;
+}
+.tf-mockup-flow .flow-grid > .panel {
+  background: linear-gradient(145deg, #0b1921, #08131a);
+}
+.tf-mockup-flow .flow-grid .sticky {
+  top: 16px;
+}
+.tf-mockup-flow .report-banner {
+  border: 1px solid #2d665c;
+  background: linear-gradient(155deg, #11443a, #091f1d);
+  color: var(--tf-text);
+}
+.tf-mockup-flow .report-banner .muted {
+  color: #c6e3d9 !important;
+}
+.tf-mockup-flow .report-product-table th {
+  background: #10252b;
+  color: var(--tf-muted);
+}
+.tf-mockup-flow .report-product-table td {
+  background: #0b1921;
+}
+.tf-mockup-flow .report-product-table tfoot th,
+.tf-mockup-flow .report-product-table tfoot td {
+  background: #12362e;
+}
+.tf-mockup-flow .report-total-price,
+.tf-mockup-flow .report-product-link {
+  color: var(--tf-primary);
+}
+
+@media (max-width: 1390px) {
+  .tf-mockup-flow .result-board.has-evidence {
+    grid-template-columns: minmax(290px, .8fr) minmax(385px, 1.2fr);
+  }
+  .tf-mockup-flow .result-evidence-pane {
+    grid-column: 1 / -1;
+    position: static;
+  }
+}
+@media (max-width: 1100px) {
+  .tf-mockup-flow .condition-layout,
+  .tf-mockup-flow .result-board,
+  .tf-mockup-flow .result-board.has-evidence,
+  .tf-mockup-flow .flow-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tf-mockup-flow .condition-summary,
+  .tf-mockup-flow .result-chat-panel,
+  .tf-mockup-flow .result-cart,
+  .tf-mockup-flow .flow-grid .sticky {
+    position: static;
+  }
+  .tf-mockup-flow .result-evidence-pane {
+    grid-column: auto;
+  }
+}
+@media (max-width: 700px) {
+  .tf-mockup-flow .planner-shell,
+  .tf-mockup-flow .planner-shell:has(.planner-sidebar.is-collapsed) {
+    display: block;
+  }
+  .tf-mockup-flow .planner-work {
+    padding: 18px 12px 42px;
+  }
+  .tf-mockup-flow .flow-steps {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+  .tf-mockup-flow .flow-steps li {
+    flex: 0 0 auto;
+  }
+  .tf-mockup-flow .result-toolbar .row {
+    justify-content: flex-start;
+  }
+  .tf-mockup-flow .conversation-turn {
+    max-width: 100%;
+  }
+  .tf-mockup-flow .condition-card,
+  .tf-mockup-flow .condition-summary,
+  .tf-mockup-flow .result-cart,
+  .tf-mockup-flow .result-evidence-pane {
+    padding: 18px;
+  }
+}
+@media print {
+  body.tf-mockup-flow {
+    color-scheme: light;
+    --tf-bg: #fff;
+    --tf-surface: #fff;
+    --tf-soft: #f5f6f5;
+    --tf-soft-sage: #edf2ef;
+    --tf-border: #bfc8c3;
+    --tf-text: #151a18;
+    --tf-muted: #44514c;
+    --tf-primary: #1f5c4d;
+  }
+  .tf-mockup-flow .report-product-table th,
+  .tf-mockup-flow .report-product-table td,
+  .tf-mockup-flow .report-product-table tfoot th,
+  .tf-mockup-flow .report-product-table tfoot td {
+    background: #fff !important;
+    color: #151a18 !important;
+  }
+}

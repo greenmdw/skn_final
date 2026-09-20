@@ -232,10 +232,9 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
     """백그라운드 태스크 — 엔진 [2]~[5] 실행 + 저장 + run 종료. 자체 커넥션을 연다."""
     from src.db import get_conn
     from src.engine import stage2_requirement, stage3a_hardfilter, stage3b_rank, stage3c_verify, stage4_optimize, stage5_explain
-    from src.repo.catalog_repo import load_candidates_by_slot
+    from src.repo.catalog_repo import load_candidates_by_slot_from_db
     from src.repo.engine_repo import EngineRepo
     from src.repo.plan_repo import PlanRepo
-    from src.repo.product_repo import ProductRepo
     from src.repo.review_repo import is_obs_flag, parse_obs_flag
     from src.rag.care_guides import search_care_guide
     from src.services import review_service
@@ -248,7 +247,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
     # 두 블록(=두 트랜잭션)으로 쪼개야 부품표가 [5] 완료 전에 실제로 보인다.
     try:
         with get_conn() as conn:
-            prepo, erepo, prodrepo = PlanRepo(conn), EngineRepo(conn), ProductRepo(conn)
+            prepo, erepo = PlanRepo(conn), EngineRepo(conn)
             run_row = erepo.get_run(run_id)
             input_snapshot = (run_row.get("input_snapshot") if run_row else {}) or {}
             response_locale = normalize_locale(input_snapshot.get("response_locale"))
@@ -273,7 +272,13 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
                 node_id = prepo.ensure_node(revision_id, slot, slot)
                 req_id_by_slot[slot] = prepo.ensure_requirement(revision_id, node_id, spec.targets[slot])
 
-            by_slot = load_candidates_by_slot()
+            by_slot = load_candidates_by_slot_from_db(conn)
+            missing_slots = [slot for slot in spec.targets if not by_slot.get(slot)]
+            if missing_slots:
+                raise ValidationFailed(
+                    f"가격이 확인된 PC 후보가 없는 슬롯: {', '.join(missing_slots)}",
+                    field="catalog", code="catalog_incomplete",
+                )
             hf = stage3a_hardfilter.run(spec, by_slot, noop)
             rank = stage3b_rank.run(hf, spec, slots, noop)
             build = stage4_optimize.run(rank, spec, noop)
@@ -289,10 +294,12 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
             # reason=None 으로 저장한다 — add_candidate가 자동으로 reason_status='pending' 처리.
             candidate_id_by_slot: dict[str, UUID] = {}
             for item in build.items:
-                variant_id = prodrepo.variant_id_by_model(item.name)
-                if variant_id is None:
-                    continue  # 카탈로그 미적재 — 이 슬롯은 저장 못 함, 나머지는 계속 진행
-                offer_observation_id = prodrepo.offer_observation_id_by_variant(variant_id)
+                if item.variant_id is None:
+                    raise ValidationFailed("추천 후보의 DB 상품 ID가 없습니다.", field="catalog", code="catalog_incomplete")
+                variant_id = UUID(item.variant_id)
+                if item.offer_observation_id is None:
+                    raise ValidationFailed("추천 후보의 가격 관측 ID가 없습니다.", field="catalog", code="catalog_incomplete")
+                offer_observation_id = UUID(item.offer_observation_id)
                 candidate_id_by_slot[item.slot] = erepo.add_candidate(
                     run_id, req_id_by_slot[item.slot], variant_id, result="selected",
                     score=item.score, score_method_version="v1", reason=None,
@@ -784,6 +791,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
     from src.repo.engine_repo import EngineRepo
     from src.repo.plan_repo import PlanRepo
     from src.repo.product_repo import ProductRepo
+    from src.repo.catalog_repo import PC_TYPE_TO_SLOT, pc_catalog_key
     from src.services import review_service
 
     erepo, prepo, prodrepo = EngineRepo(conn), PlanRepo(conn), ProductRepo(conn)
@@ -819,7 +827,11 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
         "verification": {"status": "pending", "confidence": None, "issues": []},
         "explanation": {"status": "pending", "text": None},
         "reasoning_log": run.get("reasoning_log") or [],
-        "data_notice": L(lang, "상품·가격·리뷰는 합성 데이터입니다.", "Products, prices and reviews are synthetic demo data."),
+        "data_notice": (L(lang,
+            "PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. 리뷰 요약은 합성 데이터입니다.",
+            "PC products and prices come from an imported file, not a live feed. Review summaries are synthetic.")
+            if category == "computer" else L(lang,
+                "상품·가격·리뷰는 합성 데이터입니다.", "Products, prices and reviews are synthetic demo data.")),
     }
     if status == "failed":
         result["error"] = {"code": "recommend_failed", "message": L(lang, "추천을 만드는 중 오류가 발생했어요.", "Something went wrong while building the recommendation.")}
@@ -830,6 +842,9 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
     candidates_by_slot = prodrepo.candidates_by_slot()
     items = []
     for row in erepo.get_candidates(run["id"]):
+        product_key = (pc_catalog_key(row["product_type"], row["brand"], row["product_key"])
+                       if category == "computer" and row["product_type"] in PC_TYPE_TO_SLOT
+                       else row["product_key"])
         attrs = row.get("attributes") or {}
         spec_summary = ((f"Performance tier {attrs['perf_tier']}" if content_language == "en-US"
                          else f"성능 티어 {attrs['perf_tier']}")
@@ -840,15 +855,15 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
         items.append({
             "item_id": str(row["id"]), "slot": row["slot"], "slot_label": slot_label(row["slot_label"], lang),
             "product": {
-                "product_key": row["product_key"], "variant_id": str(row["variant_id"]),
+                "product_key": product_key, "variant_id": str(row["variant_id"]),
                 "name": row["product_name"], "brand": row["brand"] or "",
                 "spec_summary": spec_summary, "image_url": row["image_url"],
                 "purchase_url": row["purchase_url"],
             },
-            "price": price, "price_source": "synthetic",
+            "price": price, "price_source": "observed" if category == "computer" else "synthetic",
             "price_observed_at": row["observed_at"].isoformat() if row["observed_at"] else None,
             "qty": row["qty"], "selected": row["selected"], "timing": row["timing"], "budget_share": None,
-            "review": review_service.review_brief(row["product_key"], lang),
+            "review": review_service.review_brief(product_key, lang),
             "reason": {"status": row["reason_status"], "text": row["reason"]},
             "checks": {"status": row["checks_status"], "text": row["checks"]},
             "alternatives_count": alternatives_count,
@@ -937,7 +952,6 @@ def patch_item(conn, revision_id: UUID, item_id: UUID, *, selected: bool | None,
     erepo, run = _require_done_run(conn, revision_id)
     current = _find_candidate(erepo.get_candidates(run["id"]), item_id)
     if selected is True:
-        from src.repo.plan_repo import PlanRepo
         values = {r["condition_key"]: r["value"].get("value")
                   for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
         if values.get("category") == "baby":
@@ -966,16 +980,19 @@ def patch_item(conn, revision_id: UUID, item_id: UUID, *, selected: bool | None,
 
 
 def _alternative_out(row: dict, *, current: bool, current_price: int, lang: str = "ko") -> dict:
+    from src.repo.catalog_repo import PC_TYPE_TO_SLOT, pc_catalog_key
     price = int(row["price"]) if row.get("price") is not None else 0
     delta = price - current_price
     label = (L(lang, "현재 선택", "Current pick") if current else
              L(lang, "절약형 후보", "Budget pick") if delta < 0 else
              L(lang, "프리미엄 후보", "Premium pick") if delta > 0 else L(lang, "동급 후보", "Same-price pick"))
     attrs = row.get("attributes") or {}
+    product_key = (pc_catalog_key(row["product_type"], row["brand"], row["product_key"])
+                   if row.get("product_type") in PC_TYPE_TO_SLOT else row.get("product_key") or str(row["product_id"]))
     return {
         "candidate_id": str(row["variant_id"]), "label": label, "current": current,
         "product": {
-            "product_key": row.get("product_key") or str(row["product_id"]),
+            "product_key": product_key,
             "variant_id": str(row["variant_id"]), "name": row["name"], "brand": row.get("brand") or "",
             "spec_summary": L(lang, f"성능 티어 {attrs['perf_tier']}", f"Performance tier {attrs['perf_tier']}") if attrs.get("perf_tier") is not None else None,
             "image_url": row.get("image_url"), "purchase_url": row.get("purchase_url"),

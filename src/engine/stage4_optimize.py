@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import time
 import math
+from itertools import product
 from typing import Any
 from uuid import uuid4
 
 from src.dto import (BabyRequirement, BasketDecision, BasketItem, BuildItem, BuildResult, Candidate,
                      CandidateCheck, RankedCandidates, RankResult, RequirementSpec, ScoredCandidate)
 from src.engine import LogFn
+from src.engine.stage2_requirement import load_computer_rules
 
 # Requirements/candidate pools this size or smaller get an exact branch-and-bound
 # search over every valid candidate. Above it, only the top-N ranked candidates per
@@ -77,14 +79,17 @@ def _apply_mainboard_compat(pools: dict[str, list[Candidate]], mb: Candidate) ->
 
     호출자는 반드시 "이번 빌드에서 실제로 선택될" 후보를 넘겨야 한다 — 랭킹 1위가
     아니라 예산에 맞는 실제 픽이어야 하는 이유는 build_computer의 버그 설명 참고."""
-    socket, mem_type, form = mb.specs.get("socket"), mb.specs.get("mem_type"), mb.specs.get("form_factor")
+    rules = load_computer_rules()["verification"]
+    socket = mb.specs.get(rules["socket"]["mainboard_spec"])
+    mem_type = mb.specs.get(rules["memory"]["mainboard_spec"])
+    form = mb.specs.get(rules["motherboard_case"]["mainboard_spec"])
     if socket and "CPU" in pools:
-        pools["CPU"] = _compat_filter(pools["CPU"], "socket", socket)
+        pools["CPU"] = _compat_filter(pools["CPU"], rules["socket"]["cpu_spec"], socket)
     if mem_type and "RAM" in pools:
-        pools["RAM"] = _compat_filter(pools["RAM"], "mem_type", mem_type)
+        pools["RAM"] = _compat_filter(pools["RAM"], rules["memory"]["ram_spec"], mem_type)
     if form and "케이스" in pools:
         pools["케이스"] = [c for c in pools["케이스"]
-                          if form in (c.specs.get("supports_form_factors") or [form])] or pools["케이스"]
+                          if form in (c.specs.get(rules["motherboard_case"]["case_spec"]) or [form])] or pools["케이스"]
 
 
 def _pick_cheapest_fit(pool: list[Candidate], budget: int, running: int) -> Candidate:
@@ -117,13 +122,14 @@ def _pick_mainboard(pools: dict[str, list[Candidate]], budget: int, running: int
     비호환이거나 정보 없음) 예산에 맞는 첫 후보로 되돌아간다 — 빈 슬롯보다는 낫다."""
     mb_pool = pools.get("메인보드") or []
     cpu_pool = pools.get("CPU") or []
+    socket_rule = load_computer_rules()["verification"]["socket"]
     fallback: Candidate | None = None
     for c in mb_pool:
         if not (budget == 0 or running + c.price <= budget):
             continue
         if fallback is None:
             fallback = c
-        if _is_definite_mismatch(cpu_pool, "socket", c.specs.get("socket")):
+        if _is_definite_mismatch(cpu_pool, socket_rule["cpu_spec"], c.specs.get(socket_rule["mainboard_spec"])):
             continue
         return c
     return fallback if fallback is not None else mb_pool[0]
@@ -157,20 +163,154 @@ def _pick_cooler(pools: dict[str, list[Candidate]], budget: int, running: int,
     쿨러의 supported_socket은 "LGA1700/1200/115x, AM5/AM4"처럼 여러 소켓을 한
     문자열에 나열해서 정확 일치가 아니라 부분 문자열 포함으로 봐야 한다."""
     pool = pools.get("쿨러") or []
+    rules = load_computer_rules()["verification"]
     fallback: Candidate | None = None
     for c in pool:
         if not (budget == 0 or running + c.price <= budget):
             continue
         if fallback is None:
             fallback = c
-        height = c.specs.get("height_mm")
+        height = c.specs.get(rules["cooler_height"]["cooler_spec"])
         if max_height_mm is not None and height is not None and height > max_height_mm:
             continue
-        supported = c.specs.get("supported_socket")
+        supported = c.specs.get(rules["cooler_socket"]["cooler_spec"])
         if cpu_socket and supported and cpu_socket not in supported:
             continue
         return c
     return fallback if fallback is not None else pool[0]
+
+
+def _pc_known_failures(chosen: dict[str, Candidate], spec: RequirementSpec, rules: dict) -> set[str]:
+    """선택된 부품 사이에서 *확정된* 비호환만 돌려준다. 모르는 스펙은 보류한다."""
+    def value(slot: str, key: str):
+        candidate = chosen.get(slot)
+        return candidate.specs.get(key) if candidate else None
+
+    failures: set[str] = set()
+    socket = rules["socket"]
+    cpu_socket = value("CPU", socket["cpu_spec"])
+    board_socket = value("메인보드", socket["mainboard_spec"])
+    if cpu_socket and board_socket and cpu_socket != board_socket:
+        failures.add("socket")
+
+    memory = rules["memory"]
+    ram_type = value("RAM", memory["ram_spec"])
+    board_memory = value("메인보드", memory["mainboard_spec"])
+    if ram_type and board_memory and ram_type != board_memory:
+        failures.add("memory")
+
+    board_case = rules["motherboard_case"]
+    board_form = value("메인보드", board_case["mainboard_spec"])
+    case_forms = value("케이스", board_case["case_spec"])
+    if board_form and case_forms and board_form not in case_forms:
+        failures.add("motherboard_case")
+
+    gpu_length = rules["gpu_length"]
+    gpu_mm = value("GPU", gpu_length["gpu_spec"])
+    case_gpu_mm = value("케이스", gpu_length["case_spec"])
+    if gpu_mm is not None and case_gpu_mm is not None and gpu_mm > case_gpu_mm:
+        failures.add("gpu_len")
+
+    cooler_height = rules["cooler_height"]
+    cooler_mm = value("쿨러", cooler_height["cooler_spec"])
+    case_cooler_mm = value("케이스", cooler_height["case_spec"])
+    if cooler_mm is not None and case_cooler_mm is not None and cooler_mm > case_cooler_mm:
+        failures.add("cooler_height")
+
+    cooler_socket = rules["cooler_socket"]
+    supported = value("쿨러", cooler_socket["cooler_spec"])
+    if cpu_socket and supported and cpu_socket not in supported:
+        failures.add("cooler_socket")
+
+    power = rules["power"]
+    cpu_w = value("CPU", power["cpu_spec"])
+    gpu_w = value("GPU", power["gpu_spec"])
+    psu_w = value("파워", power["psu_spec"])
+    required_w = ((cpu_w + gpu_w) / power["psu_capacity_factor"]
+                  if cpu_w is not None and gpu_w is not None
+                  else spec.targets.get("파워", {}).get("wattage_min"))
+    if psu_w is not None and required_w is not None and psu_w < required_w:
+        failures.add("power")
+    return failures
+
+
+def _search_pc_build(
+    pools: dict[str, list[Candidate]], slots: list[str], budget: int,
+    spec: RequirementSpec, rules: dict,
+) -> tuple[dict[str, Candidate], dict[str, int], bool]:
+    """Search the supplied (already top-N) pools exactly for maximum total score.
+
+    A compatible over-budget set is retained only as a diagnostic fallback. When
+    none is compatible, a least-bad set is returned and explicitly marked failed.
+    """
+    order = [s for s in ("메인보드", "케이스", "CPU", "RAM", "GPU", "쿨러", "파워", "저장장치") if s in pools]
+    order.extend(s for s in slots if s not in order)
+    counts = {"considered": math.prod(len(pools[s]) for s in slots), "valid": 0,
+              "visited": 0, "pruned_budget": 0, "pruned_compat": 0,
+              "pruned_score": 0, "feasible": 0, "compatible": 0}
+    if not all(pools[s] for s in slots):
+        return {}, counts, False
+
+    min_price = [0] * (len(order) + 1)
+    max_score = [0.0] * (len(order) + 1)
+    for i in range(len(order) - 1, -1, -1):
+        pool = pools[order[i]]
+        min_price[i] = min_price[i + 1] + min(c.price for c in pool)
+        max_score[i] = max_score[i + 1] + max(c.score for c in pool)
+
+    best: dict[str, Candidate] = {}
+    best_key: tuple | None = None
+    chosen: dict[str, Candidate] = {}
+
+    def key(score: float, price: int) -> tuple:
+        return (-score, price, tuple(chosen[s].product_key for s in slots))
+
+    def visit(i: int, price: int, score: float) -> None:
+        nonlocal best, best_key
+        counts["visited"] += 1
+        if budget and price + min_price[i] > budget:
+            counts["pruned_budget"] += 1
+            return
+        if best_key is not None and score + max_score[i] < -best_key[0] - 1e-9:
+            counts["pruned_score"] += 1
+            return
+        if i == len(order):
+            counts["valid"] += 1
+            candidate_key = key(score, price)
+            if best_key is None or candidate_key < best_key:
+                best, best_key = chosen.copy(), candidate_key
+            return
+        slot = order[i]
+        for candidate in pools[slot]:
+            chosen[slot] = candidate
+            if _pc_known_failures(chosen, spec, rules):
+                counts["pruned_compat"] += 1
+            else:
+                visit(i + 1, price + candidate.price, score + candidate.score)
+            del chosen[slot]
+
+    visit(0, 0, 0.0)
+    if best:
+        counts["feasible"] = counts["compatible"] = 1
+        return best, counts, True
+
+    # No feasible solution: distinguish budget shortage from incompatible pools.
+    # This bounded diagnostic pass cannot be mistaken for a successful solution.
+    fallback_key: tuple | None = None
+    compatible = False
+    for combination in product(*(pools[s] for s in slots)):
+        option = dict(zip(slots, combination))
+        failures = _pc_known_failures(option, spec, rules)
+        price = sum(c.price for c in combination)
+        score = sum(c.score for c in combination)
+        option_key = (len(failures), 0 if not budget or price <= budget else 1,
+                      price if not failures else -score, -score, price,
+                      tuple(c.product_key for c in combination))
+        if fallback_key is None or option_key < fallback_key:
+            fallback_key, best = option_key, option
+            compatible = not failures
+    counts["compatible"] = int(compatible)
+    return best, counts, compatible
 
 
 def build_computer(
@@ -182,106 +322,33 @@ def build_computer(
     round_no: int = 1,
 ) -> BuildResult:
     log(f"[4] 세트 최적화 ... (라운드 {round_no})")
+    rules = load_computer_rules()["verification"]
     exclude = exclude or set()
     slots = list(spec.targets.keys())
     pools = {s: [c for c in _ranked(rank, s) if (s, c.product_key) not in exclude] for s in slots}
-    pools = {s: (cs or _ranked(rank, s)) for s, cs in pools.items()}  # 비면 원복
-
     budget = spec.budget.get("total", 0)
-    combos = 1
-    for cs in pools.values():
-        combos *= max(1, len(cs))
+    selected, search, compatible = _search_pc_build(pools, slots, budget, spec, rules)
 
-    # TODO: 완전탐색 목적함수는 아직 없다 — 지금은 좁혀진 풀에서 각 슬롯 1위
-    #       (예산 초과 시 다음 순위)로 근사한다. 다만 순서는 임의가 아니다: 뒤에서
-    #       필요한 실측값을 앞에서 먼저 확정해야 확정 비호환을 건너뛸 수 있다.
-    #         메인보드(소켓/메모리타입/폼팩터 기준) → 케이스(GPU길이·쿨러높이 기준
-    #         제공) → CPU(소켓) → GPU(케이스 길이 제한) → 쿨러(케이스 높이 제한 +
-    #         CPU 소켓) → 파워(CPU+GPU 실측 전력) → 나머지(RAM/저장장치).
-    #       예전엔 이 순서가 없어서 메인보드는 랭킹 1위 기준으로 미리 필터링해두고
-    #       정작 최종 픽은 예산 제약으로 다른 보드가 나오는 버그가 있었다(소켓 불일치
-    #       조합이 통과됨). GPU 길이·쿨러 높이·전력도 같은 이유로 사후 탐지만 하고
-    #       있었는데, 여기서부터는 애초에 안 뽑도록 한다.
     def _make_item(s: str, cand: Candidate) -> BuildItem:
         return BuildItem(
             slot=s, product_key=cand.product_key, name=cand.name, price=cand.price,
+            variant_id=cand.variant_id,
+            offer_observation_id=cand.offer_observation_id,
             perf_tier=float(cand.specs.get("perf_tier", 0)), score=cand.score,
             rank_from_3b=cand.rank or 1,
         )
 
-    by_slot: dict[str, BuildItem] = {}
-    running = 0
-
-    mb_slot = "메인보드"
-    mb_specs: dict = {}
-    if mb_slot in pools and pools[mb_slot]:
-        mb_cand = _pick_mainboard(pools, budget, running)
-        running += mb_cand.price
-        by_slot[mb_slot] = _make_item(mb_slot, mb_cand)
-        mb_specs = mb_cand.specs
-        _apply_mainboard_compat(pools, mb_cand)
-
-    case_slot = "케이스"
-    case_specs: dict = {}
-    if case_slot in pools and pools[case_slot]:
-        case_cand = _pick_cheapest_fit(pools[case_slot], budget, running)
-        running += case_cand.price
-        by_slot[case_slot] = _make_item(case_slot, case_cand)
-        case_specs = case_cand.specs
-
-    cpu_slot = "CPU"
-    cpu_specs: dict = {}
-    if cpu_slot in pools and pools[cpu_slot]:
-        cpu_cand = _pick_cheapest_fit(pools[cpu_slot], budget, running)
-        running += cpu_cand.price
-        by_slot[cpu_slot] = _make_item(cpu_slot, cpu_cand)
-        cpu_specs = cpu_cand.specs
-
-    gpu_slot = "GPU"
-    gpu_specs: dict = {}
-    if gpu_slot in pools and pools[gpu_slot]:
-        gpu_cand = _pick_with_limit(pools[gpu_slot], budget, running, key="length_mm",
-                                    limit=case_specs.get("max_gpu_len_mm"), max_allowed=True)
-        running += gpu_cand.price
-        by_slot[gpu_slot] = _make_item(gpu_slot, gpu_cand)
-        gpu_specs = gpu_cand.specs
-
-    cooler_slot = "쿨러"
-    if cooler_slot in pools and pools[cooler_slot]:
-        cooler_cand = _pick_cooler(pools, budget, running,
-                                   case_specs.get("max_cooler_height_mm"), cpu_specs.get("socket"))
-        running += cooler_cand.price
-        by_slot[cooler_slot] = _make_item(cooler_slot, cooler_cand)
-
-    psu_slot = "파워"
-    if psu_slot in pools and pools[psu_slot]:
-        cpu_w, gpu_w = cpu_specs.get("tdp_w"), gpu_specs.get("power_w")
-        # link_rules: "sum(power) <= psu.wattage * 0.9" — 실측이 둘 다 있으면 그걸로,
-        # 없으면 [2]가 미리 계산해 둔 target.wattage_min으로 대체한다.
-        required_w = ((cpu_w + gpu_w) / 0.9) if (cpu_w is not None and gpu_w is not None) \
-            else spec.targets.get(psu_slot, {}).get("wattage_min")
-        psu_cand = _pick_with_limit(pools[psu_slot], budget, running, key="wattage_w",
-                                    limit=required_w, max_allowed=False)
-        running += psu_cand.price
-        by_slot[psu_slot] = _make_item(psu_slot, psu_cand)
-
-    for s in slots:
-        if s in by_slot:
-            continue
-        cand = _pick_cheapest_fit(pools[s], budget, running)
-        running += cand.price
-        by_slot[s] = _make_item(s, cand)
-    picked: list[BuildItem] = [by_slot[s] for s in slots]
+    picked: list[BuildItem] = [_make_item(s, selected[s]) for s in slots if s in selected]
 
     total = sum(i.price for i in picked)
     used_pct = round(total / budget * 100, 1) if budget else 0.0
     gpu_t = next((i.perf_tier for i in picked if i.slot == "GPU"), 0)
     cpu_t = next((i.perf_tier for i in picked if i.slot == "CPU"), 0)
 
-    log(f"      완전탐색 {combos:,} 조합 (가지치기 근사) → 세트 1개")
+    log(f"      상위 후보 {search['considered']:,} 조합 분기한정 탐색 "
+        f"({search['visited']:,} 노드, 예산 적합 {search['valid']:,}개)"
+        + ("" if search["feasible"] else " → 적합 세트 없음"))
     log(f"      총액 {total:,}원 / 예산 {used_pct}% / GPU tier {gpu_t} · CPU tier {cpu_t}")
-
-    valid = max(1, combos // 8)
 
     def _picked_specs(slot: str) -> dict:
         """slot에 뽑힌 후보의 specs — 정보 없는 부품(합성 카탈로그·override 미기재)은
@@ -295,44 +362,58 @@ def build_computer(
     gpu_specs, case_specs = _picked_specs("GPU"), _picked_specs("케이스")
     cooler_specs, psu_specs = _picked_specs("쿨러"), _picked_specs("파워")
 
-    cpu_socket, mb_socket = cpu_specs.get("socket"), mb_specs.get("socket")
+    cpu_socket = cpu_specs.get(rules["socket"]["cpu_spec"])
+    mb_socket = mb_specs.get(rules["socket"]["mainboard_spec"])
     if cpu_socket and mb_socket:
         socket_status = "ok" if cpu_socket == mb_socket else "fail"
     else:
         socket_status = "ok (근사)"  # 호환 데이터가 없는 부품 — 아직 확인 안 됨, 위반 확정 아님
 
-    gpu_len, max_gpu_len = gpu_specs.get("length_mm"), case_specs.get("max_gpu_len_mm")
+    gpu_len = gpu_specs.get(rules["gpu_length"]["gpu_spec"])
+    max_gpu_len = case_specs.get(rules["gpu_length"]["case_spec"])
     if gpu_len is not None and max_gpu_len is not None:
         gpu_len_status = "ok" if gpu_len <= max_gpu_len else "fail"
     else:
         gpu_len_status = "ok (근사)"
 
-    cooler_h, max_cooler_h = cooler_specs.get("height_mm"), case_specs.get("max_cooler_height_mm")
+    cooler_h = cooler_specs.get(rules["cooler_height"]["cooler_spec"])
+    max_cooler_h = case_specs.get(rules["cooler_height"]["case_spec"])
     if cooler_h is not None and max_cooler_h is not None:
         cooler_status = "ok" if cooler_h <= max_cooler_h else "fail"
     else:
         cooler_status = "ok (근사)"
 
-    # link_rules: "sum(power) <= psu.wattage * 0.9" — CPU/GPU 소비전력 실측이 둘 다
+    # CPU/GPU 소비전력 실측이 둘 다
     # 있을 때만 판정한다(한쪽만 있으면 합이 실제보다 낮게 나와 거짓 통과가 될 수 있어서).
-    cpu_w, gpu_w, psu_w = cpu_specs.get("tdp_w"), gpu_specs.get("power_w"), psu_specs.get("wattage_w")
+    power_rule = rules["power"]
+    cpu_w = cpu_specs.get(power_rule["cpu_spec"])
+    gpu_w = gpu_specs.get(power_rule["gpu_spec"])
+    psu_w = psu_specs.get(power_rule["psu_spec"])
     if cpu_w is not None and gpu_w is not None and psu_w is not None:
-        power_status = "ok" if (cpu_w + gpu_w) <= psu_w * 0.9 else "fail"
+        power_status = "ok" if (cpu_w + gpu_w) <= psu_w * power_rule["psu_capacity_factor"] else "fail"
     else:
         power_status = "ok (근사)"
+
+    link_check = {"socket": socket_status, "power": power_status, "gpu_len": gpu_len_status,
+                  "cooler_height": cooler_status, "bios": "ok (근사)"}
+    for failure in _pc_known_failures(selected, spec, rules):
+        link_check[failure] = "fail"
+    if not compatible or len(picked) != len(slots):
+        link_check["set"] = "fail"
+    if budget and total > budget:
+        link_check["budget"] = "fail"
 
     return BuildResult(
         list_id=spec.list_id,
         items=picked,
-        totals={"price": total, "power_w": 420, "avg_score": round(
+        totals={"price": total, "power_w": (cpu_w + gpu_w) if cpu_w is not None and gpu_w is not None else None, "avg_score": round(
             sum(i.score for i in picked) / max(1, len(picked)), 3)},
         budget={"max": budget, "used": total, "used_pct": used_pct,
                 "slack": (budget - total) if budget else 0},
-        link_check={"socket": socket_status, "power": power_status, "gpu_len": gpu_len_status,
-                    "cooler_height": cooler_status, "bios": "ok (근사)"},
+        link_check=link_check,
         balance={"gpu_tier": gpu_t, "cpu_tier": cpu_t,
-                 "verdict": "균형" if abs(gpu_t - cpu_t) <= 3 else "불균형"},
-        alternatives={"considered": combos, "valid": valid},
+                 "verdict": "균형" if abs(gpu_t - cpu_t) <= rules["balance_max_tier_gap"] else "불균형"},
+        alternatives=search,
         round=round_no,
     )
 

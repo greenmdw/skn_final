@@ -314,10 +314,12 @@ class ProductRepo(Repo):
         return None if row is None else row["id"]
 
     def candidates_by_slot(self) -> dict[str, list[dict]]:
-        """슬롯별 최신 유효가 후보 (variant.attributes.slot 기준). [3-0] DB 경로가 사용."""
+        """슬롯별 최신 유효가 후보. 기존 slot 속성과 새 PC product_type을 모두 읽는다."""
+        from src.repo.catalog_repo import PC_TYPE_TO_SLOT
         rows = self._all(
             """
             SELECT v.id AS variant_id, p.id AS product_id, p.model AS product_key,
+                   p.product_type,
                    p.name, p.brand, p.attributes, p.image_url,
                    o.purchase_url, obs.id AS offer_observation_id, obs.price
             FROM catalog.product_variant v
@@ -332,7 +334,7 @@ class ProductRepo(Repo):
         )
         out: dict[str, list[dict]] = {}
         for r in rows:
-            slot = (r["attributes"] or {}).get("slot")
+            slot = (r["attributes"] or {}).get("slot") or PC_TYPE_TO_SLOT.get(r["product_type"])
             if not slot:
                 continue
             out.setdefault(slot, []).append(r)

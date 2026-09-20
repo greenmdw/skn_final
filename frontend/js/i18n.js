@@ -197,8 +197,8 @@
   "컴퓨터는 조합 전체를, 유아용품은 각 품목을 기준으로 필요한 조건을 살펴봅니다.":"For computers we review the whole build; for baby gear we review each item against its own conditions.",
   "근거를 확인할 수 있게":"So the evidence is checkable",
   "문서 출처와 조회 시점을 함께 제공합니다. 정보가 없으면 검증 불가로 표시합니다.":"Document sources and lookup dates are provided together. When information is unavailable, it is marked as not verifiable.",
-  "리뷰는 어떻게 클렌징하나요?":"How are reviews cleansed?",
-  "조작이 의심되거나 중복된 리뷰를 제외하고, 클렌징 전후 평점과 평점 분포를 비교해 보여드립니다.":"Suspected manipulated or duplicate reviews are removed, and ratings and rating distributions before and after cleansing are compared.",
+  "리뷰에서는 무엇을 보나요?":"What do review observations show?",
+  "자료가 있는 상품은 리뷰가 짧은 기간에 몰렸는지 등 확인 가능한 관측값을 보여드립니다. 개별 리뷰의 진위는 판정하거나 제외하지 않습니다.":"Where data is available, we show observable patterns such as reviews clustered in a short period. We do not judge or exclude individual reviews as fake.",
 
   /* landing: FAQ */
   "시작 전에 알아두세요.":"Before you start.",

@@ -10,8 +10,7 @@ from __future__ import annotations
 from src.config import TOP_N_DEFAULT
 from src.dto import Candidate, HardFilterResult, RequirementSpec
 from src.engine import LogFn
-
-_RATING_ORDER = {"standard": 0, "bronze": 1, "silver": 2, "gold": 3, "platinum": 4, "titanium": 5}
+from src.engine.stage2_requirement import load_computer_rules
 
 
 def _rating_rank(text: str | None) -> int | None:
@@ -19,7 +18,8 @@ def _rating_rank(text: str | None) -> int | None:
     if not text:
         return None
     t = text.strip().lower()
-    for name, rank in _RATING_ORDER.items():
+    for rank, label in enumerate(load_computer_rules()["verification"]["efficiency_order"]):
+        name = label.lower()
         if name in t:
             return rank
     return None

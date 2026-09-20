@@ -1,0 +1,64 @@
+# PC requirement, ranking, and set-compatibility policy. Change schema_version when
+# the structure changes; change rule_set_version when policy values change.
+schema_version: 1
+rule_set_version: computer-rules-v1
+
+requirements:
+  default_resolution: FHD_144
+  game_tiers:  # resolution: GPU tier, CPU tier, RAM GB, VRAM GB
+    FHD_144: {gpu: 6, cpu: 6, ram_gb: 16, vram_gb: 8}
+    QHD_165: {gpu: 7, cpu: 5, ram_gb: 16, vram_gb: 12}
+    4K: {gpu: 9, cpu: 5, ram_gb: 32, vram_gb: 16}
+  sockets_by_brand:
+    intel: [LGA1851]
+    amd: [AM5]
+    none: [LGA1851, AM5]
+  estimated_power_w: {cpu: 125, gpu: 300, other: 75}
+  psu_headroom_multiplier: 1.5
+  psu_standard_wattages: [550, 650, 750, 850, 1000, 1200]
+  ram_type: DDR5
+  motherboard_form_factors: [ATX, mATX]
+  storage_protocol: NVMe
+  storage_capacity_gb_min: 1000
+  psu_efficiency_min: Gold
+  case_form: ATX_mid
+  budget_allocation:
+    GPU: 0.40
+    CPU: 0.18
+    메인보드: 0.10
+    RAM: 0.08
+    저장장치: 0.07
+    파워: 0.08
+    케이스: 0.05
+    쿨러: 0.04
+
+verification:
+  efficiency_order: [Standard, Bronze, Silver, Gold, Platinum, Titanium]
+  # The strings remain part of RequirementSpec for the existing API/log contract.
+  link_rules:
+    - cpu.socket == mainboard.socket
+    - ram.type == mainboard.mem_type
+    - gpu.length_mm <= case.max_gpu_len_mm
+    - cooler.height_mm <= case.max_cooler_height_mm
+    - sum(power) <= psu.wattage * {psu_capacity_factor}
+  socket: {mainboard_spec: socket, cpu_spec: socket}
+  memory: {mainboard_spec: mem_type, ram_spec: mem_type}
+  motherboard_case: {mainboard_spec: form_factor, case_spec: supports_form_factors}
+  gpu_length: {gpu_spec: length_mm, case_spec: max_gpu_len_mm}
+  cooler_height: {cooler_spec: height_mm, case_spec: max_cooler_height_mm}
+  cooler_socket: {cooler_spec: supported_socket, cpu_spec: socket}
+  power:
+    cpu_spec: tdp_w
+    gpu_spec: power_w
+    psu_spec: wattage_w
+    psu_capacity_factor: 0.9
+  balance_max_tier_gap: 3
+
+ranking:
+  impact_slots: [GPU, CPU]
+  ideal_tiers:
+    game:
+      FHD_144: {GPU: 6.0, CPU: 6.0}
+      QHD_165: {GPU: 7.5, CPU: 5.5}
+      4K: {GPU: 9.0, CPU: 5.5}
+  weights: {가격: 0.35, 성능: 0.25, 밸런스: 0.15, 리뷰: 0.20, 호환여유: 0.05}

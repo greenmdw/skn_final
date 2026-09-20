@@ -1,5 +1,7 @@
 # TrueFit — Purpose-Driven Shopping Planner
 
+> Current development scope: PC recommendations. The baby-products backend is retained as a reference implementation, not an active domain; legacy baby UI/API entry points have not yet been removed. Older two-domain examples below describe the project's history.
+
 **English** · [한국어](README.ko.md)
 
 > *"A quiet gaming PC for around $1,500."* — *"Everything an 8-month-old needs for going out."*

@@ -124,18 +124,23 @@ def load_candidates_by_slot() -> dict[str, list[Candidate]]:
 
 
 # ── 실제 수집 카탈로그(catalog.*_spec, 0015_pc_parts_category_specs.sql) 경로 ──────
-# CATALOG_SOURCE=db 일 때만 stage3_0_candidates.run()이 이 경로를 탄다(기본은 위
-# load_candidates_by_slot()의 합성 카탈로그 그대로 — 팀 합의 전까지 기존 데모/테스트를
-# 건드리지 않는다). specs 딕셔너리 키는 stage4_optimize.py의 _apply_mainboard_compat와
+# 웹 추천은 이 DB 경로를 직접 사용한다. 콘솔 stage3_0_candidates.run()은
+# CATALOG_SOURCE=mock 설정일 때 위 합성 카탈로그를 사용할 수 있다.
+# specs 딕셔너리 키는 stage4_optimize.py의 _apply_mainboard_compat와
 # build_computer()가 참조하는 이름(socket/mem_type/form_factor/supports_form_factors 및
 # 물리·전력 체크용 length_mm/max_gpu_len_mm/height_mm/max_cooler_height_mm/tdp_w/power_w/
 # wattage_w)에 맞춘다 — perf_tier는 실측이 없어 의도적으로 채우지 않는다(0으로 자연 강등,
 # 없는 정보를 있는 것처럼 지어내지 않는다는 기존 _compat_filter 철학과 동일).
 
-_DB_TYPE_TO_SLOT = {
+PC_TYPE_TO_SLOT = {
     "cpu": "CPU", "gpu": "GPU", "ram": "RAM", "motherboard": "메인보드",
     "ssd": "저장장치", "psu": "파워", "case": "케이스", "cooler": "쿨러",
 }
+
+
+def pc_catalog_key(product_type: str, brand: str, model: str) -> str:
+    """The stable key shared by imported candidates and the reviewed catalog map."""
+    return f"{product_type}:{brand}:{model}".lower().replace(" ", "-")
 
 # (스펙 컬럼 목록, 스펙 테이블) — WHERE/가격 조인은 _build_query가 공통으로 붙인다.
 _SPEC_QUERIES: dict[str, tuple[str, str]] = {
@@ -152,13 +157,14 @@ _SPEC_QUERIES: dict[str, tuple[str, str]] = {
 
 def _build_query(product_type: str, spec_cols: str, spec_table: str) -> str:
     return f"""
-        SELECT p.id, p.brand, p.model, obs.price, {spec_cols}
+        SELECT p.id, v.id AS variant_id, p.brand, p.model,
+               obs.id AS offer_observation_id, obs.price, {spec_cols}
         FROM catalog.product p
         JOIN {spec_table} s ON s.product_id = p.id
         JOIN catalog.product_variant v ON v.product_id = p.id AND v.variant_key = 'default'
         JOIN catalog.offer o ON o.variant_id = v.id AND o.status = 'active'
         JOIN LATERAL (
-            SELECT price FROM catalog.offer_observation
+            SELECT id, price FROM catalog.offer_observation
             WHERE offer_id = o.id AND quality_status = 'valid'
             ORDER BY observed_at DESC LIMIT 1
         ) obs ON true
@@ -262,7 +268,7 @@ def load_candidates_by_slot_from_db(conn) -> dict[str, list[Candidate]]:
     out: dict[str, list[Candidate]] = {}
     with conn.cursor(row_factory=dict_row) as cur:
         for product_type, (spec_cols, spec_table) in _SPEC_QUERIES.items():
-            slot = _DB_TYPE_TO_SLOT[product_type]
+            slot = PC_TYPE_TO_SLOT[product_type]
             cur.execute(_build_query(product_type, spec_cols, spec_table),
                         {"product_type": product_type})
             rows = cur.fetchall()
@@ -270,11 +276,13 @@ def load_candidates_by_slot_from_db(conn) -> dict[str, list[Candidate]]:
                 price = row.get("price")
                 if price is None:
                     continue
-                pk = f"{product_type}:{row['brand']}:{row['model']}".lower().replace(" ", "-")
+                pk = pc_catalog_key(product_type, row["brand"], row["model"])
                 out.setdefault(slot, []).append(Candidate(
                     product_key=pk,
                     slot=slot,
                     name=f"{row['brand']} {row['model']}",
+                    variant_id=str(row["variant_id"]),
+                    offer_observation_id=str(row["offer_observation_id"]),
                     brand=row["brand"],
                     price=int(price),
                     specs=_specs_from_row(product_type, row),

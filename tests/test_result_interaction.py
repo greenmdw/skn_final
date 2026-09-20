@@ -92,7 +92,9 @@ def test_patch_item_rejects_unknown_item(ctx):
 def test_alternatives_and_swap_keep_item_id_stable(ctx):
     revision_id, _ = ctx.build_recommended_list()
     result = recommendation_service.get_stored_result(ctx.conn, revision_id)
+    assert len(result["items"]) == 8
     item = next(i for i in result["items"] if i["alternatives_count"] > 0)
+    assert ":" in item["product"]["product_key"]
     item_id = uuid.UUID(item["item_id"])
 
     alts = recommendation_service.list_alternatives(ctx.conn, revision_id, item_id)

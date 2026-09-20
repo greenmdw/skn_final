@@ -13,19 +13,9 @@ from src.config import CONFIG_DIR, PENDING_SCORE_PENALTY, REVIEW_AXIS_EXCESS, TO
 from src.dto import (BabyCandidate, CandidateCheck, Candidate, HardFilterResult, RankedCandidates, RankResult,
                      RequirementSpec, ScoredCandidate, Slots)
 from src.engine import LogFn
+from src.engine.stage2_requirement import load_computer_rules
 from src.repo.review_repo import (OBS_FLAG_OBSERVED, RISK_STORE_OK, default_risk_store, format_obs_flag,
                                  risk_store_note, risk_store_reason)
-
-_IMPACT_SLOTS = {"GPU", "CPU"}
-
-# TODO: data/balance_profiles.csv 로 교체 (purpose × resolution → ideal tier)
-_IDEAL_TIER = {
-    ("game", "FHD_144"): {"GPU": 6.0, "CPU": 6.0},
-    ("game", "QHD_165"): {"GPU": 7.5, "CPU": 5.5},
-    ("game", "4K"): {"GPU": 9.0, "CPU": 5.5},
-}
-
-_WEIGHTS = {"가격": 0.35, "성능": 0.25, "밸런스": 0.15, "리뷰": 0.20, "호환여유": 0.05}
 
 # ── 리뷰축: 관계·행동 축의 관측 사실을 랭킹 신호로만 쓴다 (docs/decisions/0001 §3) ──
 # 세 단계뿐이다. 관측 없음 0.5(모름) · 관측됨·중앙값의 REVIEW_AXIS_EXCESS 배를 넘는 지표 없음 0.75 ·
@@ -77,7 +67,8 @@ def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int, slot: st
         "리뷰": review,
         "호환여유": _compat_margin(cand, slot, target),
     }
-    raw = sum(_WEIGHTS[k] * v for k, v in b.items())
+    weights = load_computer_rules()["ranking"]["weights"]
+    raw = sum(weights[k] * v for k, v in b.items())
     if cand.verdict == "Pending":
         raw -= PENDING_SCORE_PENALTY
     return cand.model_copy(update={"score": round(raw, 3), "breakdown": {k: round(v, 3) for k, v in b.items()},
@@ -91,10 +82,11 @@ def run(hf: HardFilterResult, spec: RequirementSpec, slots: Slots, log: LogFn) -
     reason = risk_store_reason()
     if reason != RISK_STORE_OK:
         log(f"      ⚠ 리뷰축 비활성 — {risk_store_note()} (리뷰 관측 0건으로 계산)")
-    rr = RankResult(weights_used=dict(_WEIGHTS))
+    ranking = load_computer_rules()["ranking"]
+    rr = RankResult(weights_used=dict(ranking["weights"]))
     purpose = slots.values.get("purpose", "game")
-    res = slots.values.get("resolution", "FHD_144")
-    ideals = _IDEAL_TIER.get((purpose, res), {})
+    res = slots.values.get("resolution") or load_computer_rules()["requirements"]["default_resolution"]
+    ideals = ranking["ideal_tiers"].get(purpose, {}).get(res, {})
     alloc = spec.budget.get("alloc", {})
     total = spec.budget.get("total", 0)
 
@@ -104,7 +96,7 @@ def run(hf: HardFilterResult, spec: RequirementSpec, slots: Slots, log: LogFn) -
         target = spec.targets.get(slot, {})
         scored = sorted((_score(c, ideal, slot_budget, slot, target) for c in cands),
                         key=lambda c: c.score, reverse=True)
-        n = TOP_N_IMPACT if slot in _IMPACT_SLOTS else TOP_N_DEFAULT
+        n = TOP_N_IMPACT if slot in ranking["impact_slots"] else TOP_N_DEFAULT
         top = [c.model_copy(update={"rank": i + 1}) for i, c in enumerate(scored[:n])]
 
         hint = None

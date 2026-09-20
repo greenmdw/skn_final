@@ -21,7 +21,7 @@ conda create -p ./pgenv -c conda-forge postgresql=16 pgvector -y
 
 ## 실행
 
-**한 번에 (추천)** — 마이그레이션 + 기준 데이터 + 카탈로그를 순서대로 전부 적용:
+**한 번에 (추천)** — 마이그레이션 + 기준 데이터 + PC/부속기기 카탈로그 + 매칭된 리뷰 요약을 순서대로 적용:
 ```bash
 DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/setup_all.py
 ```
@@ -31,7 +31,9 @@ DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/setup
 # 방법 B(Docker)라면 먼저: docker compose up -d
 DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/migrate.py up
 DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed.py
-DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed_catalog.py
+DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed_pc_parts_specs.py
+DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed_peripherals.py
+DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed_review_summaries.py
 
 # 현황
 python db/migrate.py status

@@ -9,13 +9,35 @@ P0 v3: review/review_revision, pc_build/pc_build_version 은 community.review �
 """
 from __future__ import annotations
 
+import csv
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
 from src.db.base import Repo
 from psycopg.types.json import Jsonb
+
+
+REVIEW_CATALOG_MAP = Path(__file__).resolve().parents[2] / "data" / "review_catalog_map.csv"
+
+
+def load_review_catalog_map(path: str | Path = REVIEW_CATALOG_MAP) -> dict[str, str]:
+    """확인된 새 카탈로그 키 → 기존 리뷰 키. 빈 대상은 의도적으로 연결하지 않는다."""
+    mapping: dict[str, str] = {}
+    seen_legacy: set[str] = set()
+    if not Path(path).exists():
+        return mapping
+    with open(path, encoding="utf-8", newline="") as f:
+        for row in csv.DictReader(f):
+            legacy = (row.get("legacy_key") or "").strip()
+            current = (row.get("catalog_product_key") or "").strip()
+            if not current:
+                continue
+            if not legacy or legacy in seen_legacy or current in mapping:
+                raise ValueError(f"중복 또는 잘못된 리뷰 카탈로그 매핑: {current}")
+            mapping[current] = legacy
+            seen_legacy.add(legacy)
+    return mapping
 
 
 class ReviewSubjectRepo(Repo):
@@ -235,6 +257,11 @@ class ProductRiskStore:
                             self.alias[k] = r["asin"]
                         else:
                             self.map_notes[k] = r.get("note") or ""
+        for current, legacy in load_review_catalog_map().items():
+            if legacy in self.alias:
+                self.alias[current] = self.alias[legacy]
+            elif legacy in self.map_notes:
+                self.map_notes[current] = self.map_notes[legacy]
 
     def resolve(self, key: str) -> str:
         return self.alias.get(key, key)
@@ -516,6 +543,9 @@ class ReviewSummaryDemoFile:
             for r in json.loads(p.read_text(encoding="utf-8")):
                 self.rows[r["product_key"]] = r
                 self.rows[r["product_name"].lower().replace(" ", "-")] = r
+        for current, legacy in load_review_catalog_map().items():
+            if legacy in self.rows:
+                self.rows[current] = self.rows[legacy]
 
     def get(self, product_key: str) -> dict | None:
         return self.rows.get(product_key)
@@ -544,7 +574,8 @@ class SuspectCountFile:
         self.products: dict = data.get("products", {})
 
     def get(self, product_key: str) -> dict | None:
-        return self.products.get(product_key)
+        legacy = load_review_catalog_map().get(product_key, product_key)
+        return self.products.get(legacy)
 
     def sentence(self, product_key: str, lang: str = "ko") -> str | None:
         """검토자가 읽을 한 줄. 없으면 None."""

@@ -56,6 +56,8 @@ class Candidate(BaseModel):
     product_key: str
     slot: str
     name: str
+    variant_id: str | None = None
+    offer_observation_id: str | None = None
     brand: str = ""
     price: int = 0
     specs: dict[str, Any] = Field(default_factory=dict)
@@ -83,6 +85,8 @@ class BuildItem(BaseModel):
     slot: str
     product_key: str
     name: str
+    variant_id: str | None = None
+    offer_observation_id: str | None = None
     price: int
     perf_tier: float = 0.0
     score: float = 0.0
