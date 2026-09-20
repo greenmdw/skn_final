@@ -76,3 +76,7 @@ generated/
 
 # ── 외부 데이터셋 파생물 (Amazon Reviews'23 엣지 표 · 라이선스 미확인) ──
 data/amazon23/
+
+# ── 팀 전달 원본 카탈로그 (로컬에서만 보관) ──
+/data/*.xlsx
+/data/peripherals/*.csv

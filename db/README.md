@@ -21,6 +21,11 @@ conda create -p ./pgenv -c conda-forge postgresql=16 pgvector -y
 
 ## 실행
 
+`data/parts_list_modify.xlsx`와 `data/peripherals/{mouse,monitor,speaker,keyboard}_processed.csv`는
+팀 전달 원본이므로 Git에 포함하지 않습니다. PC·부속기기 시더나 `setup_all.py`를 실행하기 전에
+해당 파일을 로컬의 위 경로에 별도로 준비해야 합니다. 파일이 없는 새 체크아웃에서
+`setup_all.py`는 카탈로그 적재 단계에서 완료되지 않습니다.
+
 **한 번에 (추천)** — 마이그레이션 + 기준 데이터 + PC/부속기기 카탈로그 + 매칭된 리뷰 요약을 순서대로 적용:
 ```bash
 DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/setup_all.py
