@@ -131,6 +131,11 @@ def test_confirm_then_report_round_trip(ctx):
     )
     assert report["total"] > 0
     assert report["items"]
+    # 확정 때 붙인 이름이 리포트와 목록 양쪽에 같이 나온다(전엔 리포트가 기본 이름으로 남았다).
+    assert report["name"] == "나의 첫 컴퓨터"
+    assert list_service.get_report(ctx.conn, uuid.UUID(list_id), principal)["name"] == "나의 첫 컴퓨터"
+    assert any(item["list_id"] == list_id and item["name"] == "나의 첫 컴퓨터"
+               for item in list_service.list_conversations(ctx.conn, principal))
     assert report["price_watch"] == {
         "enabled": False, "target_amount": 1400000, "status": "waiting",
         "latest_total": None, "observed_at": None,

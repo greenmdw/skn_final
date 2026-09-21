@@ -161,7 +161,7 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
 
     ok = prepo.confirm_revision(
         revision["id"], confirmed_total=stored["totals"]["selected_price"],
-        planned_purchase_at=purchase_at, target_amount=target_amount, memo=memo,
+        planned_purchase_at=purchase_at, target_amount=target_amount, memo=memo, name=name,
     )
     if not ok:
         raise Conflict("이미 확정된 목록입니다.")

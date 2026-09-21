@@ -104,13 +104,17 @@ class PlanRepo(Repo):
         )
 
     def confirm_revision(self, revision_id: UUID, *, confirmed_total, planned_purchase_at,
-                         target_amount, memo: str) -> bool:
-        """draft → confirmed. 이미 confirmed면 아무것도 안 하고 False."""
+                         target_amount, memo: str, name: str | None = None) -> bool:
+        """draft → confirmed. 이미 confirmed면 아무것도 안 하고 False.
+
+        name 을 주면 name_snapshot 도 그 이름으로 굳힌다 — 리포트(get_report)가 읽는 이름이라, 안 바꾸면
+        확정 때 사용자가 붙인 이름이 목록(plan.name)에는 있고 리포트에는 기본 이름으로 남는다."""
         row = self._one(
             "UPDATE planning.plan_revision SET state='confirmed', confirmed_at=now(), "
-            "confirmed_total=%s, planned_purchase_at=%s, target_amount=%s, memo=%s, updated_at=now() "
+            "confirmed_total=%s, planned_purchase_at=%s, target_amount=%s, memo=%s, "
+            "name_snapshot=COALESCE(%s, name_snapshot), updated_at=now() "
             "WHERE id=%s AND state='draft' RETURNING id",
-            (confirmed_total, planned_purchase_at, target_amount, memo, revision_id),
+            (confirmed_total, planned_purchase_at, target_amount, memo, name, revision_id),
         )
         return row is not None
 
