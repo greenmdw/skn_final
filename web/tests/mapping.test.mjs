@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  currentSpecsFromRows, itemFromWire, planFromResult, priorityFromText, purposeFromText, resolutionFromText,
+  checksFromWire, compatChecksFromWire, compatFromWire, partExplanation, suggestionFromPlan, wantsPartExplanation, currentSpecsFromRows, gamesFromText, itemFromWire, planFromResult, priorityFromText, purposeFromText, resolutionFromText,
   setupFromReport, slotKey, upgradePartsFromText,
 } from '../src/api/http/mapping.ts'
 
@@ -124,4 +124,76 @@ test('확정 리포트 → 저장한 구성: 서버 값 + 화면 전용 값, 없
   assert.equal(setup.desk.deskUnlocked, false)
   assert.deepEqual(setup.checkDraft.rows, [])
   assert.equal(setup.plan.mode, 'new')
+})
+
+test('문장에서 게임 제목을 찾는다 — 백엔드 요구사양 표가 아는 이름으로', () => {
+  assert.deepEqual(gamesFromText('QHD로 사이버펑크 2077이랑 엘든링 할 거예요'), ['엘든링', '사이버펑크 2077'])
+  assert.deepEqual(gamesFromText('롤이랑 발로란트, 배그'), ['발로란트', '리그 오브 레전드', '배틀그라운드'])
+  assert.deepEqual(gamesFromText('Black Myth Wukong and LoL'), ['리그 오브 레전드', '검은 신화: 오공'])
+  assert.deepEqual(gamesFromText('롤러코스터 타이쿤'), [])   // 한글 안의 "롤" 은 게임이 아니다
+  assert.deepEqual(gamesFromText('사무용 PC 추천'), [])
+})
+
+test('구매 전 확인: 준비된 문장만 " · " 로 나눠 보이고, 준비 전·실패는 빈 목록', () => {
+  const ready = { status: 'ready', text: '사용 가이드: 소켓을 확인하세요. · 파워 용량: 스펙이 부족해 확인하지 못했습니다.' }
+  assert.deepEqual(checksFromWire(ready), ['사용 가이드: 소켓을 확인하세요.', '파워 용량: 스펙이 부족해 확인하지 못했습니다.'])
+  assert.deepEqual(checksFromWire({ status: 'pending', text: null }), [])
+  assert.deepEqual(checksFromWire({ status: 'failed', text: null }), [])
+  assert.deepEqual(checksFromWire(undefined), [])
+  assert.deepEqual(itemFromWire(wireItem({ checks: ready })).checks, checksFromWire(ready))
+})
+
+test('세트 검증 → 호환 안내: major 는 문제, minor 는 확인 못 한 항목', () => {
+  const verification = {
+    status: 'ready',
+    issues: [
+      { axis: 'socket', severity: 'major', text: 'CPU·메인보드 소켓: 관측값 fail' },
+      { axis: 'bios', severity: 'minor', text: '메인보드 BIOS 지원 버전: 확인하지 못했습니다.' },
+    ],
+  }
+  assert.deepEqual(compatFromWire(verification), {
+    problems: ['CPU·메인보드 소켓: 관측값 fail'], unchecked: ['메인보드 BIOS 지원 버전: 확인하지 못했습니다.'],
+  })
+  assert.equal(compatFromWire({ status: 'pending', issues: [] }), undefined)
+  assert.equal(compatFromWire(undefined), undefined)
+})
+
+test('부품 근거를 묻는 말은 화면에서 답하고, 바꾸라는 말이 섞이면 서버로 보낸다', () => {
+  assert.equal(wantsPartExplanation('이 부품 왜 추천했어?'), true)
+  assert.equal(wantsPartExplanation('근거 자세히 알려줘'), true)
+  assert.equal(wantsPartExplanation('그래픽카드 이유는 알겠고 더 저렴한 걸로 바꿔줘'), false)
+  assert.equal(wantsPartExplanation('케이스 흰색으로 교체해줘'), false)
+  assert.equal(wantsPartExplanation('안녕하세요'), false)
+  const part = itemFromWire(wireItem())
+  assert.equal(partExplanation(part), ['AMD Ryzen 5 7600', 'CPU 추천 이유', '게임 성능 대비 가격이 좋습니다.', '가격: 221,750원'].join('\n'))
+})
+
+test('서버 업그레이드 추천 → 점검 화면 제안 카드: 서버가 계산하지 않은 값은 비운다', () => {
+  const draft = { question: 'GPU만 바꾸면 될까요?', budget: '1,000,000원', rows: [{ part: 'GPU', original: 'RTX 4070 SUPER', originalNote: '', matched: 'x', matchedNote: '', state: 'ok', stateLabel: '' }] }
+  const item = itemFromWire(wireItem({ slot: 'GPU', slot_label: 'GPU', price: 498990, qty: 1, product: { name: 'NVIDIA GeForce RTX 3060 (12GB)', brand: 'NVIDIA', spec_summary: '성능 티어 7' } }))
+  const plan = { id: 'p', mode: 'upgrade', items: [item], budget: 1000000, conditions: { intent: '', performance: '', quiet: '' }, checkSnapshot: draft,
+    compat: { problems: [], unchecked: ['a', 'b'] } }
+  const s = suggestionFromPlan(plan, draft)
+  assert.equal(s.part, 'GPU')
+  assert.equal(s.productName, 'NVIDIA GeForce RTX 3060 (12GB)')
+  assert.equal(s.extraCost, 498990)
+  assert.equal(s.currentNote, '현재 입력: RTX 4070 SUPER')
+  assert.equal(s.performance, '')
+  assert.equal(s.power, '')
+  assert.match(s.checkConditions, /확인하지 못한 항목 2개/)
+  assert.match(suggestionFromPlan({ ...plan, compat: { problems: ['CPU·메인보드 소켓: 관측값 fail'], unchecked: [] } }, draft).checkConditions, /소켓/)
+  assert.equal(suggestionFromPlan({ ...plan, items: [] }, draft), null)
+})
+
+test('호환 검사 상세: 화면 목록으로 바꾸고, 모르는 상태는 unknown 으로 본다', () => {
+  const wire = [
+    { axis: 'socket', label: 'CPU·메인보드 소켓', state: 'ok', detail: 'CPU (AM5) = 메인보드 (AM5)' },
+    { axis: 'bios', label: 'BIOS', state: 'skipped', detail: '건너뜀' },
+    { axis: 'x', label: '새 검사', state: '처음 보는 상태', detail: '?' },
+  ]
+  const checks = compatChecksFromWire(wire)
+  assert.deepEqual(checks.map(c => c.state), ['ok', 'skipped', 'unknown'])
+  assert.equal(checks[0].detail, 'CPU (AM5) = 메인보드 (AM5)')
+  assert.equal(compatChecksFromWire([]), undefined)
+  assert.equal(compatChecksFromWire(undefined), undefined)
 })

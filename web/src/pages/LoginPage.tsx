@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useToast } from '../state/ToastContext'
+import { setAuthUser } from '../state/authStore'
 import { api, errorMessage, isMockApi } from '../api'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { safeNext } from '../utils/redirect'
@@ -23,7 +24,7 @@ export function LoginPage() {
     setError('')
     setSubmitting(true)
     try {
-      await api.auth.login({ email: cleanEmail, password })
+      setAuthUser(await api.auth.login({ email: cleanEmail, password }))
     } catch (err) {
       setError(errorMessage(err, '로그인하지 못했습니다. 잠시 후 다시 시도해 주세요.'))
       setSubmitting(false)

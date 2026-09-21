@@ -37,7 +37,7 @@ def build_guide_fallback(ordered_items: list[dict]) -> str:
     lines = []
     for i, it in enumerate(ordered_items, start=1):
         name = it["product"]["name"]
-        hits = search_care_guide(f"{it['slot']} {name} 조립 시 확인할 점", k=1)
+        hits = search_care_guide(f"{it['slot']} {name} 조립 시 확인할 점", k=1, slot=it["slot"])
         note = hits[0]["text"] if hits else "특별히 확인할 점은 없습니다."
         lines.append(f"{i}. {it['slot']} — {name}\n   {note}")
     return "\n".join(lines)

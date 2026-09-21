@@ -62,15 +62,34 @@ def _load_guides() -> tuple[tuple[dict, ...], tuple[tuple[float, ...], ...]]:
     return docs, embeddings
 
 
-def search_care_guide(query: str, k: int = 1) -> list[dict]:
-    """query와 가장 관련 있는 사용 가이드 k개. 각 dict: {id, text, score}. 문서가 없으면 빈 리스트."""
+# 슬롯이 알려진 질의는 그 슬롯의 가이드 안에서만 고른다. 실제 임베딩으로 전 문서를 검색하면 부품명이
+# 들어간 짧은 질의에서 유사도가 0.3~0.4대로 몰려 RAM 에 SSD 발열 가이드, GPU 에 케이스 여유 가이드가
+# 붙었다(2026-09-21 실호출 확인). 슬롯 안에서는 의미 유사도로 고른다.
+SLOT_GUIDE_IDS: dict[str, tuple[str, ...]] = {
+    "CPU": ("cpu_cooler_socket", "cpu_thermal_paste"),
+    "GPU": ("gpu_power", "gpu_thermal", "gpu_length_clearance"),
+    "RAM": ("ram_dual_channel", "ram_xmp"),
+    "메인보드": ("mainboard_bios", "mainboard_esd"),
+    "저장장치": ("storage_thermal", "storage_backup"),
+    "파워": ("psu_rating", "psu_cabling"),
+    "케이스": ("case_airflow", "case_spec_clearance"),
+    "쿨러": ("cooler_height_clearance", "cpu_cooler_socket"),
+}
+
+
+def search_care_guide(query: str, k: int = 1, slot: str | None = None) -> list[dict]:
+    """query와 가장 관련 있는 사용 가이드 k개. 각 dict: {id, text, score}. 문서가 없으면 빈 리스트.
+
+    slot 을 주면(SLOT_GUIDE_IDS 에 있는 슬롯) 그 슬롯의 가이드 안에서만 찾는다.
+    """
     docs, embeddings = _load_guides()
     if not docs:
         return []
+    allowed = SLOT_GUIDE_IDS.get(slot) if slot else None
     q = _embed([query])[0]
     scored = sorted(
         ({"id": d["id"], "text": d["text"], "score": round(_cosine(q, e), 4)}
-         for d, e in zip(docs, embeddings)),
+         for d, e in zip(docs, embeddings) if allowed is None or d["id"] in allowed),
         key=lambda h: h["score"], reverse=True,
     )
     return scored[:k]

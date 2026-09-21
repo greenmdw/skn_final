@@ -1,4 +1,4 @@
-import type { Api, AuthUser } from '../types'
+import { ApiError, type Api, type AuthUser } from '../types'
 import { request } from './client'
 import type { WireUser } from './wire'
 
@@ -16,5 +16,17 @@ export const auth: Api['auth'] = {
     return toUser(await request<WireUser>('POST', '/auth/signup', {
       email, password, display_name: name, terms_agreed: true, privacy_agreed: true, marketing_agreed: marketingConsent,
     }))
+  },
+  // 로그인하지 않았으면 서버가 401 을 준다 — 오류가 아니라 "아직 로그인 안 함"이다.
+  async me() {
+    try {
+      return toUser(await request<WireUser>('GET', '/auth/me'))
+    } catch (error) {
+      if (error instanceof ApiError && error.code !== 'NETWORK' && /^(AUTH_REQUIRED|unauthorized|HTTP_401)$/.test(error.code)) return null
+      throw error
+    }
+  },
+  async logout() {
+    await request<void>('POST', '/auth/logout')
   },
 }

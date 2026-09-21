@@ -2,7 +2,7 @@ import type { Api } from '../types'
 import { ApiError } from '../types'
 import { request, sleep } from './client'
 import {
-  currentSpecsFromRows, planFromResult, priorityFromText, purposeFromText, resolutionFromText, upgradePartsFromText,
+  currentSpecsFromRows, gamesFromText, planFromResult, priorityFromText, purposeFromText, resolutionFromText, upgradePartsFromText,
 } from './mapping'
 import type { WireResult, WireSessionState } from './wire'
 
@@ -63,6 +63,8 @@ export const plans: Api['plans'] = {
       budget_max: budget,
       priority: priorityFromText(mode === 'upgrade' ? intent : conditions.quiet),
     }
+    const games = slots.purpose === 'game' ? gamesFromText(intent) : []
+    if (games.length) slots.games = games
     const resolution = resolutionFromText(conditions.performance)
     if (resolution) slots.resolution = resolution
     if (mode === 'upgrade') {

@@ -1,16 +1,16 @@
 {
  "session_state": {
-  "list_id": "208fdc69-b86f-4974-8cc3-3b9f1f901538",
+  "list_id": "460d7af0-f0f8-41ca-bf55-cceb3b2da208",
   "category": "computer",
   "mode": "build",
-  "revision_id": "5362d87c-79be-43c8-8abe-c180f91fc4de",
+  "revision_id": "6aaea57d-ff43-4315-812e-71871b5eb3e9",
   "lock_version": 6,
   "messages": [
    {
-    "id": "756d02e5-1a38-40a1-8d6d-5c5ab4a4dd47",
+    "id": "be019e8b-d4f5-4a20-b412-0a7db33d9b14",
     "role": "assistant",
     "text": "주로 어떤 용도로 쓰실 건가요?",
-    "created_at": "2026-09-21T11:58:55.606606+09:00"
+    "created_at": "2026-09-22T00:57:17.929793+09:00"
    }
   ],
   "fields": [
@@ -39,14 +39,6 @@
     "editable": true
    },
    {
-    "key": "currency",
-    "label": "통화",
-    "value": null,
-    "display": null,
-    "status": "missing",
-    "editable": true
-   },
-   {
     "key": "priority",
     "label": "우선순위",
     "value": "quiet",
@@ -60,12 +52,11 @@
   "accepts_spec_file": false
  },
  "result": {
-  "list_id": "208fdc69-b86f-4974-8cc3-3b9f1f901538",
-  "revision_id": "5362d87c-79be-43c8-8abe-c180f91fc4de",
+  "list_id": "460d7af0-f0f8-41ca-bf55-cceb3b2da208",
+  "revision_id": "6aaea57d-ff43-4315-812e-71871b5eb3e9",
   "lock_version": 6,
-  "run_id": "388c18dc-3dd7-487f-9bb8-88b502ff7b2f",
+  "run_id": "06de33f0-d338-44d6-a3d9-0d514c9dc7bc",
   "status": "done",
-  "content_language": "ko-KR",
   "progress": [
    {
     "step": "conditions",
@@ -83,12 +74,12 @@
   "budget_max": 2000000,
   "items": [
    {
-    "item_id": "d82ea582-d1c4-4b45-9739-ce5065ee62e4",
+    "item_id": "d78123b1-a815-4446-b1a2-cf95d6cf07e9",
     "slot": "CPU",
     "slot_label": "CPU",
     "product": {
      "product_key": "cpu:amd:ryzen-5-7600",
-     "variant_id": "d690c0c2-7be2-428b-9cbc-a532cea6241d",
+     "variant_id": "f1540ca6-e4d1-48a3-9c14-4752c2fe3d3b",
      "name": "AMD Ryzen 5 7600",
      "brand": "AMD",
      "spec_summary": null,
@@ -97,7 +88,7 @@
     },
     "price": 221750,
     "price_source": "observed",
-    "price_observed_at": "2026-09-21T10:39:22.985718+09:00",
+    "price_observed_at": "2026-09-21T21:01:08.088198+09:00",
     "qty": 1,
     "selected": true,
     "timing": "now",
@@ -126,17 +117,17 @@
     },
     "checks": {
      "status": "ready",
-     "text": "사용 가이드: SSD는 물리적 충격에는 강하지만 갑작스러운 전원 차단 시 데이터 손상 위험이 있습니다. 중요 데이터는 별도로 백업하세요. · [bios] [MOCK] 관측값과 근거를 그대로 옮긴 쟁점 문장입니다."
+     "text": "사용 가이드: CPU 쿨러를 장착하기 전에 소켓 규격(예: LGA1700, AM5)이 메인보드와 일치하는지 반드시 확인하세요. 규격이 다르면 장착 자체가 불가능합니다. · 이 부품에 걸린 세트 검증 쟁점 없음"
     },
     "alternatives_count": 39
    },
    {
-    "item_id": "9ef9b9f9-fd16-40f0-9517-24d0c8b2bb27",
+    "item_id": "372a1fd6-90b1-406c-8986-23a768c49b7a",
     "slot": "GPU",
     "slot_label": "GPU",
     "product": {
      "product_key": "gpu:nvidia:geforce-rtx-4060-ti",
-     "variant_id": "30853f80-0ffa-4771-8bf7-0352877b44de",
+     "variant_id": "dd7e8dee-ff68-4d94-9915-c28e99eaca8f",
      "name": "NVIDIA GeForce RTX 4060 Ti",
      "brand": "NVIDIA",
      "spec_summary": null,
@@ -145,7 +136,7 @@
     },
     "price": 654210,
     "price_source": "observed",
-    "price_observed_at": "2026-09-21T10:39:23.111378+09:00",
+    "price_observed_at": "2026-09-21T21:01:08.247247+09:00",
     "qty": 1,
     "selected": true,
     "timing": "now",
@@ -179,12 +170,12 @@
     "alternatives_count": 42
    },
    {
-    "item_id": "9537afaf-76e4-4612-a3de-306c326bc88a",
+    "item_id": "38a98e7b-8cd7-4a5b-b8e6-2f25d51934ad",
     "slot": "RAM",
     "slot_label": "RAM",
     "product": {
      "product_key": "ram:essencore:ddr5-5600-에센코어-klevv-(16gb)",
-     "variant_id": "6cdfa600-2ece-40e0-9ac9-a420975db491",
+     "variant_id": "3a8fb2bf-1172-4903-b4e3-ea4d5aafbdf3",
      "name": "ESSENCORE DDR5-5600 에센코어 KLEVV (16GB)",
      "brand": "ESSENCORE",
      "spec_summary": null,
@@ -193,7 +184,7 @@
     },
     "price": 335960,
     "price_source": "observed",
-    "price_observed_at": "2026-09-21T10:39:23.052045+09:00",
+    "price_observed_at": "2026-09-21T21:01:08.164534+09:00",
     "qty": 1,
     "selected": true,
     "timing": "now",
@@ -222,17 +213,17 @@
     },
     "checks": {
      "status": "ready",
-     "text": "사용 가이드: SSD는 물리적 충격에는 강하지만 갑작스러운 전원 차단 시 데이터 손상 위험이 있습니다. 중요 데이터는 별도로 백업하세요. · 이 부품에 걸린 세트 검증 쟁점 없음"
+     "text": "사용 가이드: 메모리는 2개 이상 장착 시 메인보드 설명서의 듀얼 채널 슬롯 순서(보통 A2/B2)를 지켜야 성능을 온전히 활용할 수 있습니다. · 이 부품에 걸린 세트 검증 쟁점 없음"
     },
     "alternatives_count": 38
    },
    {
-    "item_id": "406c95b9-e4c5-476c-9056-621a98c1ff0f",
+    "item_id": "9408df89-6629-4754-ae57-9cb5b4ca335e",
     "slot": "메인보드",
     "slot_label": "메인보드",
     "product": {
      "product_key": "motherboard:gigabyte:a620m-h",
-     "variant_id": "8cb2cc39-34b2-4278-87ea-5c05047584ea",
+     "variant_id": "03cfc6e6-2359-4ea1-9dbc-3b3d86d53c4d",
      "name": "GIGABYTE A620M H",
      "brand": "GIGABYTE",
      "spec_summary": null,
@@ -241,7 +232,7 @@
     },
     "price": 88500,
     "price_source": "observed",
-    "price_observed_at": "2026-09-21T10:39:23.022294+09:00",
+    "price_observed_at": "2026-09-21T21:01:08.130927+09:00",
     "qty": 1,
     "selected": true,
     "timing": "now",
@@ -270,17 +261,17 @@
     },
     "checks": {
      "status": "ready",
-     "text": "사용 가이드: 쿨러·파워서플라이 팬 소음이 걱정되면 제품 스펙의 소음 수준(dBA) 항목을 비교하세요. 낮을수록 조용합니다. · [bios] [MOCK] 관측값과 근거를 그대로 옮긴 쟁점 문장입니다."
+     "text": "사용 가이드: 새로 출시된 CPU를 사용하려면 메인보드 바이오스가 해당 CPU를 지원하는 버전으로 업데이트돼 있어야 할 수 있습니다. 구매 전 제조사 지원 목록을 확인하세요. · 이 부품에 걸린 세트 검증 쟁점 없음"
     },
     "alternatives_count": 39
    },
    {
-    "item_id": "81ab4832-e07b-48c7-ad85-16943abfdbf8",
+    "item_id": "478cf5ad-e00f-4844-929d-d9072ca40bc2",
     "slot": "저장장치",
     "slot_label": "저장장치",
     "product": {
      "product_key": "ssd:teamgroup:mp44l",
-     "variant_id": "d326b648-fddd-412b-91b1-57100927a477",
+     "variant_id": "505fbc3a-2434-4ba8-94ed-c69df608d990",
      "name": "TeamGroup MP44L",
      "brand": "TeamGroup",
      "spec_summary": null,
@@ -289,7 +280,7 @@
     },
     "price": 53860,
     "price_source": "observed",
-    "price_observed_at": "2026-09-21T10:39:23.192218+09:00",
+    "price_observed_at": "2026-09-21T21:01:08.352888+09:00",
     "qty": 1,
     "selected": true,
     "timing": "now",
@@ -323,12 +314,12 @@
     "alternatives_count": 39
    },
    {
-    "item_id": "c36094ce-9a22-410c-8079-e1e3c0b63e60",
+    "item_id": "2fd430d1-14d5-47ee-af0b-8ee98f4756ca",
     "slot": "파워",
     "slot_label": "파워",
     "product": {
      "product_key": "psu:gigabyte:ud750gm-pcie5",
-     "variant_id": "212267f3-b9b9-4003-9fec-675d1d08e322",
+     "variant_id": "2a854ad4-75c6-49ee-b4cb-10dfff0764cd",
      "name": "GIGABYTE UD750GM PCIE5",
      "brand": "GIGABYTE",
      "spec_summary": null,
@@ -337,7 +328,7 @@
     },
     "price": 85090,
     "price_source": "observed",
-    "price_observed_at": "2026-09-21T10:39:23.215583+09:00",
+    "price_observed_at": "2026-09-21T21:01:08.385979+09:00",
     "qty": 1,
     "selected": true,
     "timing": "now",
@@ -366,17 +357,17 @@
     },
     "checks": {
      "status": "ready",
-     "text": "사용 가이드: 쿨러·파워서플라이 팬 소음이 걱정되면 제품 스펙의 소음 수준(dBA) 항목을 비교하세요. 낮을수록 조용합니다. · 이 부품에 걸린 세트 검증 쟁점 없음"
+     "text": "사용 가이드: 모듈러 파워서플라이는 필요한 케이블만 연결해 케이스 내부 공간과 통풍을 확보할 수 있습니다. 비모듈러 제품은 케이블 정리에 더 신경 써야 합니다. · 이 부품에 걸린 세트 검증 쟁점 없음"
     },
     "alternatives_count": 39
    },
    {
-    "item_id": "0bd7c798-36ff-4777-b50f-7db67422fed0",
+    "item_id": "e7e5238f-a6e5-4d56-a1c5-9d9dd7f926d3",
     "slot": "케이스",
     "slot_label": "케이스",
     "product": {
      "product_key": "case:다크플래쉬:dlm21-rgb-mesh",
-     "variant_id": "36ab070e-241f-4c5a-9cdb-bfb644acc5c2",
+     "variant_id": "ee4ed21c-924f-4fc8-ae01-77f3058e2b43",
      "name": "다크플래쉬 DLM21 RGB Mesh",
      "brand": "다크플래쉬",
      "spec_summary": null,
@@ -385,7 +376,7 @@
     },
     "price": 55828,
     "price_source": "observed",
-    "price_observed_at": "2026-09-21T10:39:23.259105+09:00",
+    "price_observed_at": "2026-09-21T21:01:08.440035+09:00",
     "qty": 1,
     "selected": true,
     "timing": "now",
@@ -414,17 +405,17 @@
     },
     "checks": {
      "status": "ready",
-     "text": "사용 가이드: 메모리는 2개 이상 장착 시 메인보드 설명서의 듀얼 채널 슬롯 순서(보통 A2/B2)를 지켜야 성능을 온전히 활용할 수 있습니다. · 이 부품에 걸린 세트 검증 쟁점 없음"
+     "text": "사용 가이드: 케이스 스펙에 적힌 최대 그래픽카드 길이·CPU 쿨러 높이·파워서플라이 길이 허용치를 조립 전에 미리 확인하면 부품 간 간섭을 피할 수 있습니다. · 이 부품에 걸린 세트 검증 쟁점 없음"
     },
     "alternatives_count": 39
    },
    {
-    "item_id": "b5a29f40-7c4d-470e-911d-c62c3d0897a8",
+    "item_id": "5e69d064-6111-4e62-9495-e4459a6c22d7",
     "slot": "쿨러",
     "slot_label": "쿨러",
     "product": {
      "product_key": "cooler:thermalright:peerless-assassin-120-se",
-     "variant_id": "f3394d84-79aa-4141-9bce-0d5eee0eebc0",
+     "variant_id": "53fb4780-d681-4f27-abfa-662743c52006",
      "name": "Thermalright Peerless Assassin 120 SE",
      "brand": "Thermalright",
      "spec_summary": null,
@@ -433,7 +424,7 @@
     },
     "price": 38200,
     "price_source": "observed",
-    "price_observed_at": "2026-09-21T10:39:23.328279+09:00",
+    "price_observed_at": "2026-09-21T21:01:08.527699+09:00",
     "qty": 1,
     "selected": true,
     "timing": "now",
@@ -510,24 +501,118 @@
   },
   "verification": {
    "status": "ready",
-   "confidence": 94,
-   "issues": [
-    {
-     "axis": "bios",
-     "severity": "minor",
-     "text": "[MOCK] 관측값과 근거를 그대로 옮긴 쟁점 문장입니다."
-    }
-   ],
-   "synthetic_verification_only": null,
-   "synthetic_notice": null
+   "confidence": 100,
+   "issues": []
   },
+  "compat_checks": [
+   {
+    "axis": "socket",
+    "label": "CPU·메인보드 소켓",
+    "state": "ok",
+    "detail": "CPU AMD Ryzen 5 7600(AM5) = 메인보드 GIGABYTE A620M H(AM5)"
+   },
+   {
+    "axis": "memory",
+    "label": "메모리 규격",
+    "state": "ok",
+    "detail": "RAM DDR5 = 메인보드 DDR5"
+   },
+   {
+    "axis": "motherboard_case",
+    "label": "메인보드 크기와 케이스 지원 크기",
+    "state": "ok",
+    "detail": "메인보드 mATX → 케이스가 지원 mATX"
+   },
+   {
+    "axis": "gpu_len",
+    "label": "그래픽카드 길이",
+    "state": "ok",
+    "detail": "GPU 길이 244mm ≤ 케이스 허용 330mm"
+   },
+   {
+    "axis": "cooler_height",
+    "label": "쿨러 높이",
+    "state": "ok",
+    "detail": "쿨러 높이 155mm ≤ 케이스 허용 160mm"
+   },
+   {
+    "axis": "cooler_socket",
+    "label": "쿨러 소켓",
+    "state": "ok",
+    "detail": "CPU 소켓 AM5 ∈ 쿨러 지원 소켓 LGA1700/1200/115x, AM5/AM4"
+   },
+   {
+    "axis": "bios",
+    "label": "메인보드의 CPU 지원 계열(BIOS)",
+    "state": "ok",
+    "detail": "CPU AMD Ryzen 5 7600 ∈ 메인보드 지원 계열 Ryzen 7000 / 8000G / 9000 계열 (출고 BIOS 버전은 데이터에 없어 확인하지 않음)"
+   },
+   {
+    "axis": "power",
+    "label": "파워 용량",
+    "state": "ok",
+    "detail": "CPU 65W + GPU 160W = 225W ≤ 파워 750W × 0.9 = 675W"
+   },
+   {
+    "axis": "psu_form",
+    "label": "파워 크기와 케이스 지원 크기",
+    "state": "ok",
+    "detail": "파워 ATX → 케이스가 지원 ATX"
+   },
+   {
+    "axis": "gpu_connector",
+    "label": "GPU 전원 커넥터와 파워 제공 커넥터",
+    "state": "ok",
+    "detail": "GPU 1× 8-pin — 필요 PCIe 커넥터 1개 ≤ 파워 제공 4개"
+   },
+   {
+    "axis": "psu_length",
+    "label": "파워 길이와 케이스 허용 길이",
+    "state": "unknown",
+    "detail": "파워 길이: 140 · 케이스 허용 파워 길이: 정보 없음 — 스펙 정보가 부족해 확인하지 못했습니다."
+   },
+   {
+    "axis": "gpu_slots",
+    "label": "GPU 두께와 케이스 확장 슬롯",
+    "state": "unknown",
+    "detail": "GPU 두께: 2.0 · 케이스 확장 슬롯: 정보 없음 — 스펙 정보가 부족해 확인하지 못했습니다."
+   },
+   {
+    "axis": "radiator",
+    "label": "수랭 라디에이터와 케이스 장착 크기",
+    "state": "skipped",
+    "detail": "공랭 쿨러라 라디에이터 검사를 하지 않았습니다."
+   },
+   {
+    "axis": "ram_slots",
+    "label": "RAM 개수·용량과 메인보드 슬롯",
+    "state": "unknown",
+    "detail": "RAM 모듈 구성: 16GB × 1 · 메인보드 DIMM 슬롯: 정보 없음 — 스펙 정보가 부족해 확인하지 못했습니다."
+   },
+   {
+    "axis": "ram_speed",
+    "label": "RAM 속도와 메인보드 지원 속도",
+    "state": "unknown",
+    "detail": "RAM 속도: 5600 · 메인보드 최대 메모리 속도: 정보 없음 — 스펙 정보가 부족해 확인하지 못했습니다."
+   },
+   {
+    "axis": "m2",
+    "label": "M.2 SSD와 메인보드 슬롯",
+    "state": "unknown",
+    "detail": "SSD 폼팩터: M.2 2280 · 메인보드 M.2 슬롯: 정보 없음 — 스펙 정보가 부족해 확인하지 못했습니다."
+   },
+   {
+    "axis": "budget",
+    "label": "예산",
+    "state": "ok",
+    "detail": "선택한 구성 합계 1,533,398원 ≤ 예산 2,000,000원"
+   }
+  ],
   "explanation": {
    "status": "ready",
    "headline": "예산 2,000,000원 중 1,533,398원 사용.",
    "text": "8개 부품, 예산 2,000,000원 중 1,533,398원을 썼습니다. 비중이 가장 큰 슬롯은 GPU(654,210원)입니다. 부품별 선택 이유는 각 항목에서 볼 수 있습니다."
   },
-  "feasible": true,
-  "missing_requirements": [],
   "reasoning_log": [
    {
     "step": "조건 정리",
@@ -556,16 +641,16 @@
    }
   ],
   "data_notice": "PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. 리뷰 요약은 합성 데이터입니다.",
-  "memo_suggestion": "[조건] 새 컴퓨터 · 게임 · 2,000,000원 · 저소음\n[구성] 8개 부품 1,533,398원, 예산 잔여 466,602원 — CPU AMD Ryzen 5 7600, GPU NVIDIA GeForce RTX 4060 Ti, RAM ESSENCORE DDR5-5600 에센코어 KLEVV (16GB), 메인보드 GIGABYTE A620M H, 저장장치 TeamGroup MP44L, 파워 GIGABYTE UD750GM PCIE5, 케이스 다크플래쉬 DLM21 RGB Mesh, 쿨러 Thermalright Peerless Assassin 120 SE\n[요약] 예산 2,000,000원 중 1,533,398원 사용.\n[확인] 세트 검증 쟁점 있음 — 추천 과정 보기에서 확인",
+  "memo_suggestion": "[조건] 새 컴퓨터 · 게임 · 2,000,000원 · 저소음\n[구성] 8개 부품 1,533,398원, 예산 잔여 466,602원 — CPU AMD Ryzen 5 7600, GPU NVIDIA GeForce RTX 4060 Ti, RAM ESSENCORE DDR5-5600 에센코어 KLEVV (16GB), 메인보드 GIGABYTE A620M H, 저장장치 TeamGroup MP44L, 파워 GIGABYTE UD750GM PCIE5, 케이스 다크플래쉬 DLM21 RGB Mesh, 쿨러 Thermalright Peerless Assassin 120 SE\n[요약] 예산 2,000,000원 중 1,533,398원 사용.",
   "error": null
  },
  "signup": {
   "user": {
-   "id": "c1c9b0ff-e9cd-4a6a-a3eb-56e815482f77",
-   "email": "contract_4b649756@example.com",
+   "id": "e736e9aa-64b6-422c-8554-08a6bf8d631f",
+   "email": "contract_0c73f3a7@example.com",
    "display_name": "계약",
    "marketing_agreed": false,
-   "created_at": "2026-09-21T11:58:56.106073+09:00"
+   "created_at": "2026-09-22T00:57:18.820739+09:00"
   }
  },
  "unauth_confirm": {
@@ -579,7 +664,7 @@
   }
  },
  "confirm": {
-  "list_id": "208fdc69-b86f-4974-8cc3-3b9f1f901538",
+  "list_id": "460d7af0-f0f8-41ca-bf55-cceb3b2da208",
   "name": "계약 리스트",
   "category": "computer",
   "owner_display_name": "계약",
@@ -587,7 +672,7 @@
   "target_amount": 1533398,
   "memo": "계약 테스트",
   "total": 1533398,
-  "confirmed_at": "2026-09-21T11:58:56.228746+09:00",
+  "confirmed_at": "2026-09-22T00:57:19.051674+09:00",
   "items": [
    {
     "slot": "CPU",
@@ -890,23 +975,23 @@
   },
   "care_guide": {
    "status": "ready",
-   "text": "1. 케이스 — 다크플래쉬 DLM21 RGB Mesh\n   케이스 스펙에 적힌 최대 그래픽카드 길이·CPU 쿨러 높이·파워서플라이 길이 허용치를 조립 전에 미리 확인하면 부품 간 간섭을 피할 수 있습니다.\n2. 파워 — GIGABYTE UD750GM PCIE5\n   쿨러·파워서플라이 팬 소음이 걱정되면 제품 스펙의 소음 수준(dBA) 항목을 비교하세요. 낮을수록 조용합니다.\n3. 메인보드 — GIGABYTE A620M H\n   쿨러·파워서플라이 팬 소음이 걱정되면 제품 스펙의 소음 수준(dBA) 항목을 비교하세요. 낮을수록 조용합니다.\n4. CPU — AMD Ryzen 5 7600\n   SSD는 물리적 충격에는 강하지만 갑작스러운 전원 차단 시 데이터 손상 위험이 있습니다. 중요 데이터는 별도로 백업하세요.\n5. 쿨러 — Thermalright Peerless Assassin 120 SE\n   공랭 CPU 쿨러를 선택할 때는 쿨러 높이가 케이스가 허용하는 최대 쿨러 높이를 넘지 않는지 확인하세요. 넘으면 케이스 옆판을 닫을 수 없습니다.\n6. RAM — ESSENCORE DDR5-5600 에센코어 KLEVV (16GB)\n   SSD는 물리적 충격에는 강하지만 갑작스러운 전원 차단 시 데이터 손상 위험이 있습니다. 중요 데이터는 별도로 백업하세요.\n7. 저장장치 — TeamGroup MP44L\n   SSD는 물리적 충격에는 강하지만 갑작스러운 전원 차단 시 데이터 손상 위험이 있습니다. 중요 데이터는 별도로 백업하세요.\n8. GPU — NVIDIA GeForce RTX 4060 Ti\n   그래픽카드는 시스템에서 가장 많은 전력을 소비하는 부품입니다. 파워서플라이 정격 용량이 그래픽카드 권장 전력보다 최소 20% 이상 여유가 있는지 확인하세요."
+   "text": "1. 케이스 — 다크플래쉬 DLM21 RGB Mesh\n   케이스 스펙에 적힌 최대 그래픽카드 길이·CPU 쿨러 높이·파워서플라이 길이 허용치를 조립 전에 미리 확인하면 부품 간 간섭을 피할 수 있습니다.\n2. 파워 — GIGABYTE UD750GM PCIE5\n   모듈러 파워서플라이는 필요한 케이블만 연결해 케이스 내부 공간과 통풍을 확보할 수 있습니다. 비모듈러 제품은 케이블 정리에 더 신경 써야 합니다.\n3. 메인보드 — GIGABYTE A620M H\n   새로 출시된 CPU를 사용하려면 메인보드 바이오스가 해당 CPU를 지원하는 버전으로 업데이트돼 있어야 할 수 있습니다. 구매 전 제조사 지원 목록을 확인하세요.\n4. CPU — AMD Ryzen 5 7600\n   CPU 쿨러를 장착하기 전에 소켓 규격(예: LGA1700, AM5)이 메인보드와 일치하는지 반드시 확인하세요. 규격이 다르면 장착 자체가 불가능합니다.\n5. 쿨러 — Thermalright Peerless Assassin 120 SE\n   공랭 CPU 쿨러를 선택할 때는 쿨러 높이가 케이스가 허용하는 최대 쿨러 높이를 넘지 않는지 확인하세요. 넘으면 케이스 옆판을 닫을 수 없습니다.\n6. RAM — ESSENCORE DDR5-5600 에센코어 KLEVV (16GB)\n   메모리는 2개 이상 장착 시 메인보드 설명서의 듀얼 채널 슬롯 순서(보통 A2/B2)를 지켜야 성능을 온전히 활용할 수 있습니다.\n7. 저장장치 — TeamGroup MP44L\n   SSD는 물리적 충격에는 강하지만 갑작스러운 전원 차단 시 데이터 손상 위험이 있습니다. 중요 데이터는 별도로 백업하세요.\n8. GPU — NVIDIA GeForce RTX 4060 Ti\n   그래픽카드는 시스템에서 가장 많은 전력을 소비하는 부품입니다. 파워서플라이 정격 용량이 그래픽카드 권장 전력보다 최소 20% 이상 여유가 있는지 확인하세요."
   },
   "data_notice": "PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. 리뷰 요약은 합성 데이터입니다."
  },
  "lists": {
   "items": [
    {
-    "list_id": "208fdc69-b86f-4974-8cc3-3b9f1f901538",
+    "list_id": "460d7af0-f0f8-41ca-bf55-cceb3b2da208",
     "name": "계약 리스트",
     "category": "computer",
     "stage": "report",
-    "updated_at": "2026-09-21T11:58:56.228746+09:00"
+    "updated_at": "2026-09-22T00:57:19.051674+09:00"
    }
   ]
  },
  "report": {
-  "list_id": "208fdc69-b86f-4974-8cc3-3b9f1f901538",
+  "list_id": "460d7af0-f0f8-41ca-bf55-cceb3b2da208",
   "name": "계약 리스트",
   "category": "computer",
   "owner_display_name": "계약",
@@ -914,7 +999,7 @@
   "target_amount": 1533398,
   "memo": "계약 테스트",
   "total": 1533398,
-  "confirmed_at": "2026-09-21T11:58:56.228746+09:00",
+  "confirmed_at": "2026-09-22T00:57:19.051674+09:00",
   "items": [
    {
     "slot": "CPU",
@@ -1217,8 +1302,608 @@
   },
   "care_guide": {
    "status": "ready",
-   "text": "1. 케이스 — 다크플래쉬 DLM21 RGB Mesh\n   케이스 스펙에 적힌 최대 그래픽카드 길이·CPU 쿨러 높이·파워서플라이 길이 허용치를 조립 전에 미리 확인하면 부품 간 간섭을 피할 수 있습니다.\n2. 파워 — GIGABYTE UD750GM PCIE5\n   쿨러·파워서플라이 팬 소음이 걱정되면 제품 스펙의 소음 수준(dBA) 항목을 비교하세요. 낮을수록 조용합니다.\n3. 메인보드 — GIGABYTE A620M H\n   쿨러·파워서플라이 팬 소음이 걱정되면 제품 스펙의 소음 수준(dBA) 항목을 비교하세요. 낮을수록 조용합니다.\n4. CPU — AMD Ryzen 5 7600\n   SSD는 물리적 충격에는 강하지만 갑작스러운 전원 차단 시 데이터 손상 위험이 있습니다. 중요 데이터는 별도로 백업하세요.\n5. 쿨러 — Thermalright Peerless Assassin 120 SE\n   공랭 CPU 쿨러를 선택할 때는 쿨러 높이가 케이스가 허용하는 최대 쿨러 높이를 넘지 않는지 확인하세요. 넘으면 케이스 옆판을 닫을 수 없습니다.\n6. RAM — ESSENCORE DDR5-5600 에센코어 KLEVV (16GB)\n   SSD는 물리적 충격에는 강하지만 갑작스러운 전원 차단 시 데이터 손상 위험이 있습니다. 중요 데이터는 별도로 백업하세요.\n7. 저장장치 — TeamGroup MP44L\n   SSD는 물리적 충격에는 강하지만 갑작스러운 전원 차단 시 데이터 손상 위험이 있습니다. 중요 데이터는 별도로 백업하세요.\n8. GPU — NVIDIA GeForce RTX 4060 Ti\n   그래픽카드는 시스템에서 가장 많은 전력을 소비하는 부품입니다. 파워서플라이 정격 용량이 그래픽카드 권장 전력보다 최소 20% 이상 여유가 있는지 확인하세요."
+   "text": "1. 케이스 — 다크플래쉬 DLM21 RGB Mesh\n   케이스 스펙에 적힌 최대 그래픽카드 길이·CPU 쿨러 높이·파워서플라이 길이 허용치를 조립 전에 미리 확인하면 부품 간 간섭을 피할 수 있습니다.\n2. 파워 — GIGABYTE UD750GM PCIE5\n   모듈러 파워서플라이는 필요한 케이블만 연결해 케이스 내부 공간과 통풍을 확보할 수 있습니다. 비모듈러 제품은 케이블 정리에 더 신경 써야 합니다.\n3. 메인보드 — GIGABYTE A620M H\n   새로 출시된 CPU를 사용하려면 메인보드 바이오스가 해당 CPU를 지원하는 버전으로 업데이트돼 있어야 할 수 있습니다. 구매 전 제조사 지원 목록을 확인하세요.\n4. CPU — AMD Ryzen 5 7600\n   CPU 쿨러를 장착하기 전에 소켓 규격(예: LGA1700, AM5)이 메인보드와 일치하는지 반드시 확인하세요. 규격이 다르면 장착 자체가 불가능합니다.\n5. 쿨러 — Thermalright Peerless Assassin 120 SE\n   공랭 CPU 쿨러를 선택할 때는 쿨러 높이가 케이스가 허용하는 최대 쿨러 높이를 넘지 않는지 확인하세요. 넘으면 케이스 옆판을 닫을 수 없습니다.\n6. RAM — ESSENCORE DDR5-5600 에센코어 KLEVV (16GB)\n   메모리는 2개 이상 장착 시 메인보드 설명서의 듀얼 채널 슬롯 순서(보통 A2/B2)를 지켜야 성능을 온전히 활용할 수 있습니다.\n7. 저장장치 — TeamGroup MP44L\n   SSD는 물리적 충격에는 강하지만 갑작스러운 전원 차단 시 데이터 손상 위험이 있습니다. 중요 데이터는 별도로 백업하세요.\n8. GPU — NVIDIA GeForce RTX 4060 Ti\n   그래픽카드는 시스템에서 가장 많은 전력을 소비하는 부품입니다. 파워서플라이 정격 용량이 그래픽카드 권장 전력보다 최소 20% 이상 여유가 있는지 확인하세요."
   },
   "data_notice": "PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. 리뷰 요약은 합성 데이터입니다."
+ },
+ "chat_swap": {
+  "text": "그래픽카드 더 저렴한 걸로 바꿔줘",
+  "before_total": 1533398,
+  "response": {
+   "reply": "GPU를 더 저렴한 'NVIDIA GeForce RTX 3060 (12GB)'(으)로 바꿨어요.",
+   "result": {
+    "list_id": "c1433719-d1a9-402b-8c26-6add2c15cc8b",
+    "revision_id": "95aa9001-d667-4d5a-96bc-e519bab0978f",
+    "lock_version": 6,
+    "run_id": "14760642-61ff-4bd0-8ad4-62145b879cf6",
+    "status": "done",
+    "progress": [
+     {
+      "step": "conditions",
+      "label": "조건 정리",
+      "status": "done"
+     },
+     {
+      "step": "candidates",
+      "label": "후보 수집",
+      "status": "done"
+     }
+    ],
+    "category": "computer",
+    "conditions_summary": "새 컴퓨터 · 게임 · 2,000,000원 · 저소음",
+    "budget_max": 2000000,
+    "items": [
+     {
+      "item_id": "3a98ade0-6a87-4fc3-8107-865f780e7853",
+      "slot": "CPU",
+      "slot_label": "CPU",
+      "product": {
+       "product_key": "cpu:amd:ryzen-5-7600",
+       "variant_id": "f1540ca6-e4d1-48a3-9c14-4752c2fe3d3b",
+       "name": "AMD Ryzen 5 7600",
+       "brand": "AMD",
+       "spec_summary": null,
+       "image_url": "https://www.amd.com/content/dam/amd/en/images/products/processors/ryzen/3056700-ryzen-5-7000-series-pib.jpg",
+       "purchase_url": "https://www.amd.com/en/products/processors/desktops/ryzen/7000-series/amd-ryzen-5-7600.html"
+      },
+      "price": 221750,
+      "price_source": "observed",
+      "price_observed_at": "2026-09-21T21:01:08.088198+09:00",
+      "qty": 1,
+      "selected": true,
+      "timing": "now",
+      "budget_share": 0.161,
+      "review": {
+       "total_count": null,
+       "excluded_ratio": null,
+       "rating_refined": null,
+       "signals": null,
+       "cleansing_summary": {
+        "status": "ready",
+        "text": "리뷰가 올라온 '모양'만 본 결과예요. 어떤 리뷰가 진짜인지는 판단하지 않아요."
+       },
+       "plain": {
+        "headline": "리뷰가 충분하지 않아요. (30건보다 적어요.)",
+        "points": [],
+        "details": [],
+        "sources": [],
+        "verify_url": null,
+        "reason": "below_threshold"
+       }
+      },
+      "reason": {
+       "status": "ready",
+       "text": "AMD Ryzen 5 7600 — 조건 충족, 1순위, 221,750원"
+      },
+      "checks": {
+       "status": "ready",
+       "text": "사용 가이드: CPU 쿨러를 장착하기 전에 소켓 규격(예: LGA1700, AM5)이 메인보드와 일치하는지 반드시 확인하세요. 규격이 다르면 장착 자체가 불가능합니다. · 이 부품에 걸린 세트 검증 쟁점 없음"
+      },
+      "alternatives_count": 39
+     },
+     {
+      "item_id": "52b01be0-2e75-4dae-b0d9-33458de3ce23",
+      "slot": "GPU",
+      "slot_label": "GPU",
+      "product": {
+       "product_key": "gpu:nvidia:geforce-rtx-3060-(12gb)",
+       "variant_id": "8aa11e72-0269-499b-ba9f-a31d24fba141",
+       "name": "NVIDIA GeForce RTX 3060 (12GB)",
+       "brand": "NVIDIA",
+       "spec_summary": null,
+       "image_url": "https://img.danuri.io/catalog-image/254/512/013/4ee972b934504924825d049479ebdaf9.jpg?shrink=330:*&_v=20260918105749",
+       "purchase_url": "https://www.nvidia.com/ko-kr/geforce/graphics-cards/30-series/rtx-3060-3060ti/"
+      },
+      "price": 498990,
+      "price_source": "observed",
+      "price_observed_at": "2026-09-21T21:01:08.247247+09:00",
+      "qty": 1,
+      "selected": true,
+      "timing": "now",
+      "budget_share": 0.362,
+      "review": {
+       "total_count": null,
+       "excluded_ratio": null,
+       "rating_refined": null,
+       "signals": null,
+       "cleansing_summary": {
+        "status": "ready",
+        "text": "리뷰가 올라온 '모양'만 본 결과예요. 어떤 리뷰가 진짜인지는 판단하지 않아요."
+       },
+       "plain": {
+        "headline": "리뷰 데이터가 없어요.",
+        "points": [],
+        "details": [],
+        "sources": [],
+        "verify_url": null,
+        "reason": "unmapped"
+       }
+      },
+      "reason": {
+       "status": "ready",
+       "text": "사용자 요청으로 교체한 부품입니다 — 자동 추천은 'NVIDIA GeForce RTX 4060 Ti'(654,210원)였고 이 후보는 -155,220원입니다. 순위는 교체 전 구성 기준이고, 호환 점검은 교체 후 구성으로 다시 했습니다."
+      },
+      "checks": {
+       "status": "ready",
+       "text": "사용 가이드: 그래픽카드는 시스템에서 가장 많은 전력을 소비하는 부품입니다. 파워서플라이 정격 용량이 그래픽카드 권장 전력보다 최소 20% 이상 여유가 있는지 확인하세요. · 이 부품에 걸린 세트 검증 쟁점 없음 · 교체한 부품 — 호환 점검은 교체 후 구성 기준입니다"
+      },
+      "alternatives_count": 42
+     },
+     {
+      "item_id": "176af6f3-ad5e-4836-9446-05d97ecec34e",
+      "slot": "RAM",
+      "slot_label": "RAM",
+      "product": {
+       "product_key": "ram:essencore:ddr5-5600-에센코어-klevv-(16gb)",
+       "variant_id": "3a8fb2bf-1172-4903-b4e3-ea4d5aafbdf3",
+       "name": "ESSENCORE DDR5-5600 에센코어 KLEVV (16GB)",
+       "brand": "ESSENCORE",
+       "spec_summary": null,
+       "image_url": "https://www.klevv.com/kimg/prd_details/memory/UDIMM/DDR5/D5_UDIMM_banner_pad.png",
+       "purchase_url": "https://www.klevv.com/kko/products_details/memory/D5_UDIMM"
+      },
+      "price": 335960,
+      "price_source": "observed",
+      "price_observed_at": "2026-09-21T21:01:08.164534+09:00",
+      "qty": 1,
+      "selected": true,
+      "timing": "now",
+      "budget_share": 0.244,
+      "review": {
+       "total_count": null,
+       "excluded_ratio": null,
+       "rating_refined": null,
+       "signals": null,
+       "cleansing_summary": {
+        "status": "ready",
+        "text": "리뷰가 올라온 '모양'만 본 결과예요. 어떤 리뷰가 진짜인지는 판단하지 않아요."
+       },
+       "plain": {
+        "headline": "리뷰 데이터가 없어요.",
+        "points": [],
+        "details": [],
+        "sources": [],
+        "verify_url": null,
+        "reason": "unmapped"
+       }
+      },
+      "reason": {
+       "status": "ready",
+       "text": "ESSENCORE DDR5-5600 에센코어 KLEVV (16GB) — 조건 충족, 3순위, 335,960원"
+      },
+      "checks": {
+       "status": "ready",
+       "text": "사용 가이드: 메모리는 2개 이상 장착 시 메인보드 설명서의 듀얼 채널 슬롯 순서(보통 A2/B2)를 지켜야 성능을 온전히 활용할 수 있습니다. · 이 부품에 걸린 세트 검증 쟁점 없음"
+      },
+      "alternatives_count": 38
+     },
+     {
+      "item_id": "57acfa29-e158-4b3e-8627-85b6fa01de24",
+      "slot": "메인보드",
+      "slot_label": "메인보드",
+      "product": {
+       "product_key": "motherboard:gigabyte:a620m-h",
+       "variant_id": "03cfc6e6-2359-4ea1-9dbc-3b3d86d53c4d",
+       "name": "GIGABYTE A620M H",
+       "brand": "GIGABYTE",
+       "spec_summary": null,
+       "image_url": "https://static.gigabyte.com/StaticFile/Image/Global/630d69c72b1ae0303adcb55d15ecb65d/ProductRemoveBg/35191/webp/900",
+       "purchase_url": "https://gigabyte.com/Motherboard/A620M-H-rev-10"
+      },
+      "price": 88500,
+      "price_source": "observed",
+      "price_observed_at": "2026-09-21T21:01:08.130927+09:00",
+      "qty": 1,
+      "selected": true,
+      "timing": "now",
+      "budget_share": 0.064,
+      "review": {
+       "total_count": null,
+       "excluded_ratio": null,
+       "rating_refined": null,
+       "signals": null,
+       "cleansing_summary": {
+        "status": "ready",
+        "text": "리뷰가 올라온 '모양'만 본 결과예요. 어떤 리뷰가 진짜인지는 판단하지 않아요."
+       },
+       "plain": {
+        "headline": "리뷰 데이터가 없어요.",
+        "points": [],
+        "details": [],
+        "sources": [],
+        "verify_url": null,
+        "reason": "unmapped"
+       }
+      },
+      "reason": {
+       "status": "ready",
+       "text": "GIGABYTE A620M H — 조건 충족, 1순위, 88,500원"
+      },
+      "checks": {
+       "status": "ready",
+       "text": "사용 가이드: 새로 출시된 CPU를 사용하려면 메인보드 바이오스가 해당 CPU를 지원하는 버전으로 업데이트돼 있어야 할 수 있습니다. 구매 전 제조사 지원 목록을 확인하세요. · 이 부품에 걸린 세트 검증 쟁점 없음"
+      },
+      "alternatives_count": 39
+     },
+     {
+      "item_id": "e2f91bb4-3d73-40d8-b42c-fd7e8b527247",
+      "slot": "저장장치",
+      "slot_label": "저장장치",
+      "product": {
+       "product_key": "ssd:teamgroup:mp44l",
+       "variant_id": "505fbc3a-2434-4ba8-94ed-c69df608d990",
+       "name": "TeamGroup MP44L",
+       "brand": "TeamGroup",
+       "spec_summary": null,
+       "image_url": "https://images.teamgroupinc.com/products/ssd/m2/mp44l/2tb_01.jpg",
+       "purchase_url": "https://www.teamgroupinc.com/en/product-detail/ssd/TEAMGROUP/mp44l/mp44l-TM8FPK002T0C101/"
+      },
+      "price": 53860,
+      "price_source": "observed",
+      "price_observed_at": "2026-09-21T21:01:08.352888+09:00",
+      "qty": 1,
+      "selected": true,
+      "timing": "now",
+      "budget_share": 0.039,
+      "review": {
+       "total_count": null,
+       "excluded_ratio": null,
+       "rating_refined": null,
+       "signals": null,
+       "cleansing_summary": {
+        "status": "ready",
+        "text": "리뷰가 올라온 '모양'만 본 결과예요. 어떤 리뷰가 진짜인지는 판단하지 않아요."
+       },
+       "plain": {
+        "headline": "리뷰 데이터가 없어요.",
+        "points": [],
+        "details": [],
+        "sources": [],
+        "verify_url": null,
+        "reason": "unmapped"
+       }
+      },
+      "reason": {
+       "status": "ready",
+       "text": "TeamGroup MP44L — 조건 충족, 1순위, 53,860원"
+      },
+      "checks": {
+       "status": "ready",
+       "text": "사용 가이드: SSD는 물리적 충격에는 강하지만 갑작스러운 전원 차단 시 데이터 손상 위험이 있습니다. 중요 데이터는 별도로 백업하세요. · 이 부품에 걸린 세트 검증 쟁점 없음"
+      },
+      "alternatives_count": 39
+     },
+     {
+      "item_id": "b75a6429-97b8-4f5a-b378-812cbfa0ad6a",
+      "slot": "파워",
+      "slot_label": "파워",
+      "product": {
+       "product_key": "psu:gigabyte:ud750gm-pcie5",
+       "variant_id": "2a854ad4-75c6-49ee-b4cb-10dfff0764cd",
+       "name": "GIGABYTE UD750GM PCIE5",
+       "brand": "GIGABYTE",
+       "spec_summary": null,
+       "image_url": "https://img.danuri.io/catalog-image/294/687/092/bbdcc978b48542e0832a39d47f946c3d.jpg",
+       "purchase_url": "https://www.gigabyte.com/kr/Power-Supply/GP-UD750GM-PG5"
+      },
+      "price": 85090,
+      "price_source": "observed",
+      "price_observed_at": "2026-09-21T21:01:08.385979+09:00",
+      "qty": 1,
+      "selected": true,
+      "timing": "now",
+      "budget_share": 0.062,
+      "review": {
+       "total_count": null,
+       "excluded_ratio": null,
+       "rating_refined": null,
+       "signals": null,
+       "cleansing_summary": {
+        "status": "ready",
+        "text": "리뷰가 올라온 '모양'만 본 결과예요. 어떤 리뷰가 진짜인지는 판단하지 않아요."
+       },
+       "plain": {
+        "headline": "리뷰 데이터가 없어요.",
+        "points": [],
+        "details": [],
+        "sources": [],
+        "verify_url": null,
+        "reason": "unmapped"
+       }
+      },
+      "reason": {
+       "status": "ready",
+       "text": "GIGABYTE UD750GM PCIE5 — 조건 충족, 1순위, 85,090원"
+      },
+      "checks": {
+       "status": "ready",
+       "text": "사용 가이드: 모듈러 파워서플라이는 필요한 케이블만 연결해 케이스 내부 공간과 통풍을 확보할 수 있습니다. 비모듈러 제품은 케이블 정리에 더 신경 써야 합니다. · 이 부품에 걸린 세트 검증 쟁점 없음"
+      },
+      "alternatives_count": 39
+     },
+     {
+      "item_id": "80985d11-da01-4620-9bd0-0e764ca0c31c",
+      "slot": "케이스",
+      "slot_label": "케이스",
+      "product": {
+       "product_key": "case:다크플래쉬:dlm21-rgb-mesh",
+       "variant_id": "ee4ed21c-924f-4fc8-ae01-77f3058e2b43",
+       "name": "다크플래쉬 DLM21 RGB Mesh",
+       "brand": "다크플래쉬",
+       "spec_summary": null,
+       "image_url": "https://darkflash-image-cloud.s3.us-west-2.amazonaws.com/cdn/product/cover/000000000000156/202403030012663.png",
+       "purchase_url": "https://www.darkflash.com/product/dlm21mesh"
+      },
+      "price": 55828,
+      "price_source": "observed",
+      "price_observed_at": "2026-09-21T21:01:08.440035+09:00",
+      "qty": 1,
+      "selected": true,
+      "timing": "now",
+      "budget_share": 0.041,
+      "review": {
+       "total_count": null,
+       "excluded_ratio": null,
+       "rating_refined": null,
+       "signals": null,
+       "cleansing_summary": {
+        "status": "ready",
+        "text": "리뷰가 올라온 '모양'만 본 결과예요. 어떤 리뷰가 진짜인지는 판단하지 않아요."
+       },
+       "plain": {
+        "headline": "리뷰 데이터가 없어요.",
+        "points": [],
+        "details": [],
+        "sources": [],
+        "verify_url": null,
+        "reason": "unmapped"
+       }
+      },
+      "reason": {
+       "status": "ready",
+       "text": "다크플래쉬 DLM21 RGB Mesh — 조건 충족, 1순위, 55,828원"
+      },
+      "checks": {
+       "status": "ready",
+       "text": "사용 가이드: 케이스 스펙에 적힌 최대 그래픽카드 길이·CPU 쿨러 높이·파워서플라이 길이 허용치를 조립 전에 미리 확인하면 부품 간 간섭을 피할 수 있습니다. · 이 부품에 걸린 세트 검증 쟁점 없음"
+      },
+      "alternatives_count": 39
+     },
+     {
+      "item_id": "2bacecc9-8834-4249-aed2-22d87d9a1046",
+      "slot": "쿨러",
+      "slot_label": "쿨러",
+      "product": {
+       "product_key": "cooler:thermalright:peerless-assassin-120-se",
+       "variant_id": "53fb4780-d681-4f27-abfa-662743c52006",
+       "name": "Thermalright Peerless Assassin 120 SE",
+       "brand": "Thermalright",
+       "spec_summary": null,
+       "image_url": "https://www.thermalright.com/wp-content/uploads/2026/08/peerless-assassin-120-se.png",
+       "purchase_url": "https://www.thermalright.com/product/peerless-assassin-120-se/"
+      },
+      "price": 38200,
+      "price_source": "observed",
+      "price_observed_at": "2026-09-21T21:01:08.527699+09:00",
+      "qty": 1,
+      "selected": true,
+      "timing": "now",
+      "budget_share": 0.028,
+      "review": {
+       "total_count": 55,
+       "excluded_ratio": null,
+       "rating_refined": null,
+       "signals": {
+        "rating5_share": {
+         "ratio": 0.8182,
+         "median": 0.6667
+        },
+        "burst7": {
+         "count": 6,
+         "ratio": 0.1091,
+         "launch_week": false,
+         "median": 0.0549
+        },
+        "suspect_2plus": {
+         "count": 4,
+         "ratio": 0.0727,
+         "baseline": 0.031
+        },
+        "shared_reviewers": {
+         "count": 51,
+         "linked_products": 374,
+         "median_count": 60,
+         "median_linked_products": 903
+        }
+       },
+       "cleansing_summary": {
+        "status": "ready",
+        "text": "리뷰가 올라온 '모양'만 본 결과예요. 어떤 리뷰가 진짜인지는 판단하지 않아요."
+       },
+       "plain": {
+        "headline": "리뷰 55건 · 비슷한 부품들과 다른 점 없음",
+        "points": [],
+        "details": [
+         "리뷰 6건(약 11%)이 같은 일주일에 몰려 올라왔어요. 비슷한 부품은 보통 리뷰의 5% 정도가 같은 일주일에 몰려요.",
+         "리뷰어 중 4%가 리뷰를 30건 넘게 쓴 계정이에요. 비슷한 부품은 보통 리뷰어 중 11%가 30건 넘게 리뷰를 썼어요.",
+         "리뷰 55건 중 4건(약 7%)은 '계정 활동이 짧음 · 같은 일주일에 몰림' 같은 특징이 둘 이상 겹쳐요. 리뷰가 55건뿐이라 이 숫자는 참고만 하세요.",
+         "리뷰어 중 7%가 이 리뷰 하나만 남긴 계정이에요. 비슷한 부품은 보통 10%예요.",
+         "리뷰어 중 20%가 활동 기간이 30일 이하인 계정이에요. 비슷한 부품은 보통 8%예요.",
+         "리뷰 중 93%에 구매 확인 표시가 있어요. 비슷한 부품은 보통 95%에 구매 확인 표시가 있어요. (체험단·증정 리뷰는 표시가 없을 수 있어요)",
+         "리뷰 중 82%가 5점 리뷰예요. 비슷한 부품은 보통 67%가 5점 리뷰예요."
+        ],
+        "sources": [
+         "리뷰 55건 중 6건(10.9%)이 7일 안에 몰림 — 전체 상품 중앙값 5.5%",
+         "리뷰어 51명이 다른 상품에서도 함께 나타남 (연결 상품 374개) — 중앙값 60명 / 903개",
+         "5점 비율 82% — 중앙값 67%",
+         "리뷰 55건 중 4건(7.3%)이 의심 지표 2개 이상에 걸림 (데모 상품 전체 3.1%) — 95% 신뢰구간 [2.0, 17.6] · 기준선과 구별되지 않음"
+        ],
+        "verify_url": "https://www.amazon.com/dp/B09YTL3JT5",
+        "reason": null
+       }
+      },
+      "reason": {
+       "status": "ready",
+       "text": "Thermalright Peerless Assassin 120 SE — 조건 충족, 1순위, 38,200원"
+      },
+      "checks": {
+       "status": "ready",
+       "text": "사용 가이드: 공랭 CPU 쿨러를 선택할 때는 쿨러 높이가 케이스가 허용하는 최대 쿨러 높이를 넘지 않는지 확인하세요. 넘으면 케이스 옆판을 닫을 수 없습니다. · 이 부품에 걸린 세트 검증 쟁점 없음"
+      },
+      "alternatives_count": 39
+     }
+    ],
+    "totals": {
+     "selected_price": 1378178,
+     "selected_units": 8,
+     "budget_remaining": 621822,
+     "over_budget": false
+    },
+    "verification": {
+     "status": "ready",
+     "confidence": 100,
+     "issues": []
+    },
+    "compat_checks": [
+     {
+      "axis": "socket",
+      "label": "CPU·메인보드 소켓",
+      "state": "ok",
+      "detail": "CPU AMD Ryzen 5 7600(AM5) = 메인보드 GIGABYTE A620M H(AM5)"
+     },
+     {
+      "axis": "memory",
+      "label": "메모리 규격",
+      "state": "ok",
+      "detail": "RAM DDR5 = 메인보드 DDR5"
+     },
+     {
+      "axis": "motherboard_case",
+      "label": "메인보드 크기와 케이스 지원 크기",
+      "state": "ok",
+      "detail": "메인보드 mATX → 케이스가 지원 mATX"
+     },
+     {
+      "axis": "gpu_len",
+      "label": "그래픽카드 길이",
+      "state": "ok",
+      "detail": "GPU 길이 242mm ≤ 케이스 허용 330mm"
+     },
+     {
+      "axis": "cooler_height",
+      "label": "쿨러 높이",
+      "state": "ok",
+      "detail": "쿨러 높이 155mm ≤ 케이스 허용 160mm"
+     },
+     {
+      "axis": "cooler_socket",
+      "label": "쿨러 소켓",
+      "state": "ok",
+      "detail": "CPU 소켓 AM5 ∈ 쿨러 지원 소켓 LGA1700/1200/115x, AM5/AM4"
+     },
+     {
+      "axis": "bios",
+      "label": "메인보드의 CPU 지원 계열(BIOS)",
+      "state": "ok",
+      "detail": "CPU AMD Ryzen 5 7600 ∈ 메인보드 지원 계열 Ryzen 7000 / 8000G / 9000 계열 (출고 BIOS 버전은 데이터에 없어 확인하지 않음)"
+     },
+     {
+      "axis": "power",
+      "label": "파워 용량",
+      "state": "ok",
+      "detail": "CPU 65W + GPU 170W = 235W ≤ 파워 750W × 0.9 = 675W"
+     },
+     {
+      "axis": "psu_form",
+      "label": "파워 크기와 케이스 지원 크기",
+      "state": "ok",
+      "detail": "파워 ATX → 케이스가 지원 ATX"
+     },
+     {
+      "axis": "gpu_connector",
+      "label": "GPU 전원 커넥터와 파워 제공 커넥터",
+      "state": "ok",
+      "detail": "GPU 1× 8-pin — 필요 PCIe 커넥터 1개 ≤ 파워 제공 4개"
+     },
+     {
+      "axis": "psu_length",
+      "label": "파워 길이와 케이스 허용 길이",
+      "state": "unknown",
+      "detail": "파워 길이: 140 · 케이스 허용 파워 길이: 정보 없음 — 스펙 정보가 부족해 확인하지 못했습니다."
+     },
+     {
+      "axis": "gpu_slots",
+      "label": "GPU 두께와 케이스 확장 슬롯",
+      "state": "unknown",
+      "detail": "GPU 두께: 2.0 · 케이스 확장 슬롯: 정보 없음 — 스펙 정보가 부족해 확인하지 못했습니다."
+     },
+     {
+      "axis": "radiator",
+      "label": "수랭 라디에이터와 케이스 장착 크기",
+      "state": "skipped",
+      "detail": "공랭 쿨러라 라디에이터 검사를 하지 않았습니다."
+     },
+     {
+      "axis": "ram_slots",
+      "label": "RAM 개수·용량과 메인보드 슬롯",
+      "state": "unknown",
+      "detail": "RAM 모듈 구성: 16GB × 1 · 메인보드 DIMM 슬롯: 정보 없음 — 스펙 정보가 부족해 확인하지 못했습니다."
+     },
+     {
+      "axis": "ram_speed",
+      "label": "RAM 속도와 메인보드 지원 속도",
+      "state": "unknown",
+      "detail": "RAM 속도: 5600 · 메인보드 최대 메모리 속도: 정보 없음 — 스펙 정보가 부족해 확인하지 못했습니다."
+     },
+     {
+      "axis": "m2",
+      "label": "M.2 SSD와 메인보드 슬롯",
+      "state": "unknown",
+      "detail": "SSD 폼팩터: M.2 2280 · 메인보드 M.2 슬롯: 정보 없음 — 스펙 정보가 부족해 확인하지 못했습니다."
+     },
+     {
+      "axis": "budget",
+      "label": "예산",
+      "state": "ok",
+      "detail": "선택한 구성 합계 1,378,178원 ≤ 예산 2,000,000원"
+     }
+    ],
+    "explanation": {
+     "status": "ready",
+     "headline": "예산 2,000,000원 중 1,533,398원 사용.",
+     "text": "8개 부품, 예산 2,000,000원 중 1,533,398원을 썼습니다. 비중이 가장 큰 슬롯은 GPU(654,210원)입니다. 부품별 선택 이유는 각 항목에서 볼 수 있습니다.\n\n※ 이후 GPU를 'NVIDIA GeForce RTX 3060 (12GB)'(으)로 교체했습니다(-155,220원). 이 요약은 교체 전 구성 기준입니다."
+    },
+    "reasoning_log": [
+     {
+      "step": "조건 정리",
+      "title": "조건 정리",
+      "detail": "카테고리 computer, 예산 2,000,000원"
+     },
+     {
+      "step": "후보 수집",
+      "title": "후보 수집",
+      "detail": "세트 8개 부품"
+     },
+     {
+      "step": "리뷰 관측",
+      "title": "리뷰 관측 1/8 슬롯",
+      "detail": "쿨러 리뷰 55건 관측 — 대조군 중앙값 대비 특이 없음"
+     },
+     {
+      "step": "리뷰 관측 · 쿨러",
+      "title": "쿨러 관측 사실 4건 (점수 아님)",
+      "detail": "리뷰 55건 중 6건(10.9%)이 7일 안에 몰림 — 전체 상품 중앙값 5.5% · 리뷰어 51명이 다른 상품에서도 함께 나타남 (연결 상품 374개) — 중앙값 60명 / 903개 · 5점 비율 82% — 중앙값 67% · 리뷰 55건 중 4건(7.3%)이 의심 지표 2개 이상에 걸림 (데모 상품 전체 3.1%) — 95% 신뢰구간 [2.0, 17.6] · 기준선과 구별되지 않음 — 확인: https://www.amazon.com/dp/B09YTL3JT5"
+     },
+     {
+      "step": "설명 생성",
+      "title": "설명 생성",
+      "detail": "예산 2,000,000원 중 1,533,398원 사용."
+     }
+    ],
+    "data_notice": "PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. 리뷰 요약은 합성 데이터입니다.",
+    "memo_suggestion": "[조건] 새 컴퓨터 · 게임 · 2,000,000원 · 저소음\n[구성] 8개 부품 1,378,178원, 예산 잔여 621,822원 — CPU AMD Ryzen 5 7600, GPU NVIDIA GeForce RTX 3060 (12GB), RAM ESSENCORE DDR5-5600 에센코어 KLEVV (16GB), 메인보드 GIGABYTE A620M H, 저장장치 TeamGroup MP44L, 파워 GIGABYTE UD750GM PCIE5, 케이스 다크플래쉬 DLM21 RGB Mesh, 쿨러 Thermalright Peerless Assassin 120 SE\n[직접 바꾼 것] GPU NVIDIA GeForce RTX 4060 Ti → NVIDIA GeForce RTX 3060 (12GB) (-155,220원) — 호환 점검은 교체 후 구성 기준\n[요약] 예산 2,000,000원 중 1,533,398원 사용.",
+    "error": null
+   }
+  }
  }
 }

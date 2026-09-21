@@ -10,8 +10,9 @@
   순위는 그대로 엔진 몫이고 에이전트는 무엇을 부를지만 고른다.
 - 판정 금지 — "이 리뷰 조작인가", "이 부품이 더 좋은가" 를 에이전트가 정하지 않는다(결정 0001).
   `explain` 은 관측·쟁점·저장된 이유를 그대로 옮긴다.
-- 교체 뒤 호환·검증은 재실행되지 않는다. 지금 엔진의 link_check 는 고정값이라(stage4) 코드도 못 하므로
-  도구 결과에 그 사실을 적어 모델이 사용자에게 말하게 한다. 재계산은 화면의 "다른 구성 보기".
+- 교체·담기/빼기·수량 변경 뒤에는 서비스가 세트 전체의 호환 점검을 다시 돌린다(`reverify_set`). 도구 결과에
+  그 점검이 찾은 문제(소켓·전력·크기·예산)를 적어 모델이 그대로 전하게 한다. 순위·요약 문장은 다시 만들지
+  않으니 전체 재구성은 화면의 "다른 구성 보기".
 - 도구는 순차 실행(`SequentialToolExecutor`) — 요청 스레드의 psycopg 연결 하나를 같이 쓴다.
 - 대화 이력은 프로세스 메모리(run_id 별 최근 N턴)에만 둔다. 결과 화면 채팅은 서버에 저장되지 않는
   계약이라 재시작하면 사라진다. "두 번째 걸로" 같은 이어 말하기는 이 이력으로 통한다.
@@ -129,7 +130,14 @@ class ResultSession:
             f"{it['slot']} 교체: {before[0]} {_won(before[1])} → {after['product']['name']} {_won(after['price'])}"
             f" · 총액 {_won(t['selected_price'])} · 예산 잔여 {_won(t['budget_remaining'])}"
             + (" · ⚠ 예산 초과" if t["over_budget"] else "")
-            + " · 호환·검증은 재실행되지 않음(재계산은 화면의 '다른 구성 보기')"))
+            + self._compat_note()))
+
+    def _compat_note(self) -> str:
+        """교체 뒤 다시 돌린 호환 점검이 찾은 문제(major)를 도구 결과에 싣는다 — 없으면 그 사실만."""
+        majors = [i["text"] for i in (self.result.get("verification") or {}).get("issues", []) if i.get("severity") == "major"]
+        if majors:
+            return " · ⚠ 호환 점검 문제: " + " / ".join(majors)
+        return " · 호환 점검을 교체 후 구성으로 다시 했고 확정된 문제는 없음(스펙을 모르는 부품은 확인 못 함)"
 
     def set_item(self, slot: str, selected: str = "", qty: str = "", timing: str = "") -> str:
         from src.services.recommendation_service import patch_item
@@ -157,7 +165,8 @@ class ResultSession:
         return self._record(call, (
             f"{it['slot']}: selected={after['selected']} qty={after['qty']} timing={after['timing']}"
             f" · 총액 {_won(t['selected_price'])} · 예산 잔여 {_won(t['budget_remaining'])}"
-            + (" · ⚠ 예산 초과" if t["over_budget"] else "")))
+            + (" · ⚠ 예산 초과" if t["over_budget"] else "")
+            + self._compat_note()))
 
     def explain(self, slot: str) -> str:
         from src.services import review_service
@@ -307,8 +316,8 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "4. '왜 이거?', '이유가 뭐야?', '이거 괜찮아?', '믿을 만해?' 처럼 근거를 묻는 말에는 **반드시 explain 을 먼저 부르고** 그 내용만 전합니다. "
         "explain 을 부르기 전에 '이유를 확인할 수 없다'고 답하지 않습니다. 저장된 추천 이유가 없어도 explain 이 준 가격·예산 비중·검증 쟁점·리뷰 관측은 전합니다. "
         "부품의 좋고 나쁨, 리뷰의 진위, 호환 여부를 스스로 판정하지 않고, explain 에 없는 수치·사실을 만들지 않습니다.",
-        "5. 답변은 3문장 이내. 바뀐 것과 총액·예산 잔여를 말하고, 도구 결과에 '예산 초과'나 '호환·검증은 재실행되지 않음' 이 있으면 그것도 한 번 언급합니다. "
-        "호환·검증에 대해 '문제 없다'고 단정하지 않습니다 — 재실행 여부만 말합니다.",
+        "5. 답변은 3문장 이내. 바뀐 것과 총액·예산 잔여를 말하고, 도구 결과에 '예산 초과'나 '호환 점검 문제' 가 있으면 그것도 한 번 언급합니다. "
+        "호환에 대해 '문제 없다'고 단정하지 않습니다 — 도구가 알려 준 문제만 말합니다.",
         "6. 전체를 다시 짜 달라는 요청('처음부터', '다른 구성')은 도구가 없습니다 — 화면의 '다른 구성 보기' 버튼을 안내합니다.",
         "7. 구성표에 없는 슬롯이나 상품을 만들지 않습니다. '죄송'·'확인할 수 없다' 로 시작하지 않습니다 — 아는 사실부터 말합니다.",
         *(["", "사용자 질문에 대해 미리 조회한 근거 (이걸로 답합니다. 더 필요하면 explain):", prefetched] if prefetched else []),

@@ -49,6 +49,10 @@ class EngineRepo(Repo):
     def add_validation(self, run_id: UUID, *, rule_key: str, rule_version: str, executor_version: str, status: str, severity: str, measured_values: dict, threshold: dict, message: str, checked_at, issues: list | None = None) -> UUID:
         row=self._one("""INSERT INTO engine.validation_result (run_id,rule_key,rule_version,executor_version,status,severity,measured_values,threshold,message,checked_at,issues)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",(run_id,rule_key,rule_version,executor_version,status,severity,Jsonb(measured_values),Jsonb(threshold),message,checked_at,Jsonb(issues or []))); return row["id"]
+    def delete_validations(self, run_id: UUID) -> int:
+        """run 의 검증 결과를 지운다. 세트 재검증(교체·담기 뒤)이 규칙 스캐폴드 결과를 통째로 다시 쓸 때 쓴다.
+        근거·대상 표(validation_evidence/target)는 0012 에서 없어졌고 이 행을 가리키는 것이 없다."""
+        return self.conn.execute("DELETE FROM engine.validation_result WHERE run_id=%s", (run_id,)).rowcount
     def link_validation_evidence(self, validation_result_id: UUID, evidence_id: UUID) -> None:
         self._exec("INSERT INTO engine.validation_evidence (validation_result_id,evidence_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",(validation_result_id,evidence_id))
     def set_explanation(self, run_id: UUID, *, headline: str, text: str, reasoning_log: list) -> None:

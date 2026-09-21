@@ -154,3 +154,21 @@ def test_spec_file_rejects_bad_extension(ctx):
     with pytest.raises(ValidationFailed) as exc:
         session_service.attach_spec_file(ctx.conn, list_uuid, "virus.exe", "hello", principal)
     assert exc.value.code == "unsupported_file"
+
+
+def test_result_message_swaps_one_step_not_to_the_extreme(ctx):
+    """"더 저렴한/더 좋은"은 바로 옆 단계다 — 최저가·최고가로 뛰지 않는다."""
+    revision_id, _ = ctx.build_recommended_list()
+    before = recommendation_service.get_stored_result(ctx.conn, revision_id)
+    gpu = next(i for i in before["items"] if i["slot"] == "GPU")
+    alts = recommendation_service.list_alternatives(ctx.conn, revision_id, uuid.UUID(gpu["item_id"]))["items"]
+    cheaper = [a["price"] for a in alts if a["price"] < gpu["price"]]
+    pricier = [a["price"] for a in alts if a["price"] > gpu["price"]]
+    assert cheaper and pricier, "이 카탈로그에서 GPU 위아래 후보가 모두 있어야 이 테스트가 의미가 있다"
+
+    down = recommendation_service.handle_result_message(ctx.conn, revision_id, "그래픽카드를 더 저렴한 걸로 바꿔줘")
+    assert next(i for i in down["result"]["items"] if i["slot"] == "GPU")["price"] == max(cheaper)
+
+    up = recommendation_service.handle_result_message(ctx.conn, revision_id, "그래픽카드를 더 좋은 걸로 바꿔줘")
+    now = next(i for i in up["result"]["items"] if i["slot"] == "GPU")["price"]
+    assert now == min(p for p in [a["price"] for a in alts] + [gpu["price"]] if p > max(cheaper))

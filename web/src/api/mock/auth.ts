@@ -8,4 +8,8 @@ export const auth: Api['auth'] = {
   async signup({ name, email }) {
     return { name, email } satisfies AuthUser
   },
+  async me() {
+    return null
+  },
+  async logout() {},
 }

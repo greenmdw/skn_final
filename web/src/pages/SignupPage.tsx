@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useToast } from '../state/ToastContext'
+import { setAuthUser } from '../state/authStore'
 import { api, errorMessage, isMockApi } from '../api'
 import { TermsModal } from '../components/layout/TermsModal'
 import { termsOfService, privacyPolicy } from '../data/termsContent'
@@ -35,7 +36,7 @@ export function SignupPage() {
     setError('')
     setSubmitting(true)
     try {
-      await api.auth.signup({ name: name.trim(), email: email.trim(), password, marketingConsent: agreeMarketing })
+      setAuthUser(await api.auth.signup({ name: name.trim(), email: email.trim(), password, marketingConsent: agreeMarketing }))
     } catch (err) {
       setError(errorMessage(err, '회원가입하지 못했습니다. 잠시 후 다시 시도해 주세요.'))
       setSubmitting(false)

@@ -20,7 +20,7 @@ def _cand(key: str, slot: str, price: int, **specs) -> Candidate:
 
 def test_default_yaml_preserves_pc_requirement_contract():
     rules = stage2_requirement.load_computer_rules()
-    assert rules["rule_set_version"] == "computer-rules-v5"
+    assert rules["rule_set_version"] == "computer-rules-v10"
     spec = stage2_requirement.run(_slots(resolution="QHD_165", brand_pref="amd", budget_max=2_000_000), {}, lambda _: None)
     assert spec.targets["GPU"]["vram_gb_min"] == 12
     assert spec.targets["CPU"]["socket_in"] == ["AM5"]

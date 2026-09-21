@@ -37,16 +37,16 @@ def test_item_checks_maps_axes_to_slots_and_flags_swaps(monkeypatch):
     gpu = rs._item_checks(_item("GPU"), validations)
     ram = rs._item_checks(_item("RAM"), validations)
     swapped = rs._item_checks(_item("GPU", reason_text=rs._SWAP_REASON_PREFIX + " — …"), validations)
-    assert gpu["status"] == "ready" and "[power] 상시부하 420W 관측" in gpu["text"]
+    assert gpu["status"] == "ready" and "파워 용량: 상시부하 420W 관측" in gpu["text"]
     assert "쟁점 없음" in ram["text"]
     # 리뷰 관측·세트 신뢰도 문장은 여기서 뺐다(요청 B) — 03 리뷰 패널이 ReviewBriefOut.signals로 따로 받는다.
     assert "신뢰도" not in ram["text"] and "리뷰" not in gpu["text"]
-    assert "교체한 부품 — 호환·검증은 재실행되지 않았습니다" in swapped["text"] and "교체한 부품" not in gpu["text"]
+    assert "교체한 부품 — 호환 점검은 교체 후 구성 기준입니다" in swapped["text"] and "교체한 부품" not in gpu["text"]
 
 
 def test_item_checks_unknown_axis_applies_to_all_slots():
     out = rs._item_checks(_item("케이스"), [{"rule_key": "예산", "message": "110% 초과"}])
-    assert "[예산] 110% 초과" in out["text"]
+    assert "예산: 110% 초과" in out["text"]
 
 
 def test_memo_suggestion_collects_facts_only():
@@ -57,7 +57,7 @@ def test_memo_suggestion_collects_facts_only():
         "conditions_summary": "새 컴퓨터 · 게임 · 1,500,000원 · 가성비", "budget_max": 1_500_000,
         "items": [
             item("CPU", "Intel 265K", 255_000),
-            item("GPU", "RTX 5090", 609_000, reason="사용자 요청으로 교체한 부품입니다 — 자동 추천은 'RX 7600'(525,000원)였고 이 후보는 +84,000원입니다. 순위·검증 점수는 교체 전 구성 기준입니다."),
+            item("GPU", "RTX 5090", 609_000, reason="사용자 요청으로 교체한 부품입니다 — 자동 추천은 'RX 7600'(525,000원)였고 이 후보는 +84,000원입니다. 순위는 교체 전 구성 기준이고, 호환 점검은 교체 후 구성으로 다시 했습니다."),
             item("케이스", "NR200P", 69_000, timing="later"),
             item("쿨러", "AK400", 45_000, selected=False),
             item("저장장치", "MX500", 93_000, qty=2),
@@ -71,7 +71,7 @@ def test_memo_suggestion_collects_facts_only():
     assert "[구성] 4개 부품 1,119,000원, 예산 잔여 381,000원 — " in memo
     assert "케이스 NR200P (나중에)" in memo and "저장장치 MX500 ×2" in memo and "쿨러" not in memo.split("[뺀 것]")[0]
     assert "[뺀 것] 쿨러" in memo
-    assert "[직접 바꾼 것] GPU RX 7600 → RTX 5090 (+84,000원) — 호환·검증은 교체 전 구성 기준" in memo
+    assert "[직접 바꾼 것] GPU RX 7600 → RTX 5090 (+84,000원) — 호환 점검은 교체 후 구성 기준" in memo
     assert "[요약] 게임용 구성, 신뢰도 94점." in memo
     # 신뢰도 점수는 메모에 넣지 않는다(docs/decisions/0003) — 쟁점이 있다는 사실만
     assert "[확인] 추가 요청 미반영: 흰색 케이스 — 직접 확인 · 세트 검증 쟁점 있음 — 추천 과정 보기에서 확인" in memo

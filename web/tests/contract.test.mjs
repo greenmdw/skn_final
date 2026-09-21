@@ -66,3 +66,38 @@ test('리포트 → 저장한 구성: 서버가 확정한 값이 그대로 보�
   assert.equal(setup.plan.items.reduce((sum, item) => sum + item.price, 0), report.total)
   assert.ok(Number.isFinite(Date.parse(setup.savedAt)), 'savedAt 이 날짜로 읽혀야 함(화면 검증기)')
 })
+
+test('추천 결과: 구매 전 확인과 세트 검증이 화면 변환을 통과한다', () => {
+  const plan = planFromResult(flow.result, { mode: 'new', budget: 2000000, conditions, checkSnapshot: null })
+  assert.ok(plan.compat, '세트 검증이 준비된 결과인데 compat 가 없음')
+  assert.equal(plan.compat.problems.length, 0)                       // 처음 추천에는 확정된 비호환이 없다
+  assert.ok(Array.isArray(plan.compat.unchecked))                    // 스펙을 몰라 확인 못 한 항목(없을 수도 있다 — 신규 조립은 대개 비어 있다)
+  for (const item of plan.items) {
+    assert.ok(item.checks.length > 0, item.type + ': 구매 전 확인이 비어 있음')
+    assert.ok(item.checks.every(text => !/^\[[a-z_]+\]/.test(text)), '내부 축 이름([bios] 등)이 그대로 보임')
+  }
+})
+
+test('후속 질문(부품 교체) 응답: 바뀐 구성이 화면 구성으로 바뀌고 총액이 서버와 같다', () => {
+  const { text, before_total: beforeTotal, response } = flow.chat_swap
+  assert.ok(text && response.reply.includes('GPU'))
+  const plan = planFromResult(response.result, { mode: 'new', budget: 2000000, conditions, checkSnapshot: null })
+  assert.equal(plan.items.length, 8)
+  const total = plan.items.reduce((sum, item) => sum + item.price, 0)
+  assert.equal(total, response.result.totals.selected_price)
+  assert.ok(total < beforeTotal, '더 저렴한 것으로 바꿨는데 총액이 줄지 않음')
+  assert.ok(plan.compat, '교체 뒤에도 세트 검증이 화면 구성에 실린다')
+})
+
+test('추천 결과: 호환 검사 상세가 서버 응답 그대로 화면 구성에 실린다', () => {
+  const plan = planFromResult(flow.result, { mode: 'new', budget: 2000000, conditions, checkSnapshot: null })
+  const checks = plan.compatChecks
+  assert.ok(checks && checks.length >= 10, '검사 상세가 없음')
+  for (const c of checks) {
+    assert.ok(['ok', 'unknown', 'fail', 'skipped'].includes(c.state), c.axis + ': ' + c.state)
+    assert.ok(c.label && c.detail, c.axis + ': 라벨·설명이 비어 있음')
+  }
+  const axes = checks.map(c => c.axis)
+  for (const axis of ['socket', 'memory', 'gpu_len', 'cooler_socket', 'bios', 'power', 'psu_form', 'gpu_connector']) assert.ok(axes.includes(axis), axis + ' 검사가 없음')
+  assert.equal(checks.filter(c => c.state === 'fail').length, 0)       // 처음 추천에는 확정된 비호환이 없다
+})

@@ -619,6 +619,16 @@
 .budget-editor input { min-width: 0; flex: 1; }
 .budget-editor button { flex-shrink: 0; }
 .transferred-conditions { padding: 18px; overflow-wrap: anywhere; }
+.compat-notice { margin: 0 0 14px; padding: 14px 16px; border: 1px solid #253943; border-radius: 12px; background: #12222b; color: #c6d0d5; font-size: .78rem; overflow-wrap: anywhere; }
+.compat-notice h2 { margin: 0 0 8px; font-size: .86rem; }
+.compat-notice ul { margin: 6px 0 0; padding-left: 18px; }
+.compat-notice li { margin: 3px 0; }
+.compat-notice summary { cursor: pointer; color: #8499a5; }
+.compat-notice.ok p { margin: 0; color: #60edc0; }
+.compat-notice.problem { border-color: #f87186; }
+.compat-notice .compat-problems { color: #ffb0bc; }
+.checks-card ul { margin: 8px 0 0; padding-left: 18px; color: #c6d0d5; font-size: .74rem; }
+.checks-card li { margin: 5px 0; }
 .setup-item { flex-direction: column; cursor: default; }
 .setup-select { display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 0; text-align: left; background: transparent; border: 0; color: inherit; cursor: pointer; }
 .setup-item-actions { display: flex; gap: 12px; align-items: center; }
@@ -646,3 +656,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
   .report-table-wrap { overscroll-behavior-x: contain; }
 }
 .report-table td:nth-child(3), .report-table tfoot td { white-space: nowrap; }
+.compat-detail { margin-top: 8px; }
+.compat-detail summary { cursor: pointer; color: #9fb3bd; }
+.compat-rows { list-style: none; margin: 8px 0 0; padding: 0; }
+.compat-row { display: flex; gap: 10px; align-items: flex-start; margin: 6px 0; }
+.compat-mark { flex: 0 0 18px; text-align: center; font-weight: 700; color: #60edc0; }
+.compat-row.unknown .compat-mark { color: #ffb84d; }
+.compat-row.fail .compat-mark { color: #f87186; }
+.compat-row.skipped .compat-mark { color: #5f7078; }
+.compat-row.skipped { opacity: .65; }
+.compat-body { display: flex; flex-direction: column; min-width: 0; }
+.compat-body strong { font-size: .76rem; }
+.compat-body small { color: #8499a5; font-size: .7rem; overflow-wrap: anywhere; }

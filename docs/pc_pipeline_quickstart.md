@@ -53,7 +53,7 @@ psql -c "create database truefit_test" postgresql://truefit:truefit@localhost:54
 DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test python db/setup_all.py
 ```
 
-`setup_all.py`는 마이그레이션(0000~0016) → 기준 데이터 → PC 카탈로그 → 부속기기 → 리뷰 요약을 순서대로 적용한다.
+`setup_all.py`는 마이그레이션(0000~0018) → 기준 데이터 → PC 카탈로그 → 부속기기 → 리뷰 요약을 순서대로 적용한다.
 성공하면 마지막 줄이 `전부 완료`다. 적재 후 카탈로그의 PC 부품 수(2026-09-21 기준):
 
 | CPU | GPU | RAM | 메인보드 | 저장장치 | 파워 | 케이스 | 쿨러 |
@@ -106,7 +106,7 @@ TEST_DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test uv ru
 TEST_DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test uv run pytest -q
 ```
 
-- 2026-09-21 기준(새 DB, 시드는 `computer`만): **622 passed, 7 failed, 6 skipped** (약 30초). 실패 7건은 전부 인증 강화 수용 테스트다
+- 2026-09-21 기준(새 DB, 시드는 `computer`만): **747 passed, 7 failed, 6 skipped** (약 30초). 실패 7건은 전부 인증 강화 수용 테스트다
   ([test_status.md](test_status.md)). `d6_iat_boundary…`는 초 경계에 따라 통과할 수도 있어 6~7건으로 나온다.
   `data/amazon23/pcparts_product_risk.json`이 없는 새 체크아웃에서는 리뷰 원본을 읽는 2건이 skip 된다.
 - 같은 테스트 DB에서 반복 실행해도 결과가 같다(인증 테스트는 시작 시 사용자 표를 비운다 — 일회용 DB에서만).

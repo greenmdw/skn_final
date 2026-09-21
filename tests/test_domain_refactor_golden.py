@@ -65,3 +65,15 @@ def test_combined_penalties_can_drop_below_threshold():
     assert t.passed is False and t.confidence < CONFIDENCE_THRESHOLD
     assert {i.axis for i in t.issues} == {"socket", "cooler_height", "예산"}
 
+
+
+def test_approx_axis_uses_fixed_sentence_without_llm(monkeypatch):
+    """근사 축은 LLM 을 부르지 않고 정해진 안내 문장을 쓴다(실호출에서 "근거는 제공되지 않았습니다"만 되풀이됨)."""
+    def boom(*_a, **_k):
+        raise AssertionError("근사 축 문장에 LLM 을 부르면 안 된다")
+    monkeypatch.setattr(s3c, "call_llm", boom)
+    r = s3c.verify_build(_build(link_check={"bios": "ok (근사)", "gpu_len": "ok (근사)"}), "computer", _noop)
+    texts = {i.axis: i.text for i in r.targets[0].issues}
+    assert "BIOS" in texts["bios"] and "확인하지 못했습니다" in texts["bios"]
+    assert texts["gpu_len"].startswith("그래픽카드 길이:")
+    assert all("근거는 제공되지" not in t and "gpu_len" not in t for t in texts.values())

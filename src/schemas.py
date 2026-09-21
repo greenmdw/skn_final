@@ -314,6 +314,14 @@ class RecommendErrorOut(BaseModel):
     message: str
 
 
+class CompatCheckOut(BaseModel):
+    """호환 검사 1건 — 무엇을 무엇과 비교했고 결과가 어땠는지(화면의 "호환성 점검 상세")."""
+    axis: str                 # socket | memory | motherboard_case | gpu_len | cooler_height | cooler_socket | bios | power | psu_form | gpu_connector | budget
+    label: str
+    state: str                # ok | unknown(스펙을 몰라 확인 못 함) | fail(확정 비호환) | skipped(이번 견적에서 바뀌지 않는 부품이라 보지 않음)
+    detail: str
+
+
 class RecommendResultOut(BaseModel):
     """저장된 추천 실행 결과의 공개 API 계약 (docs/frontend_외부수정요청.md §D-4-2)."""
 
@@ -329,6 +337,7 @@ class RecommendResultOut(BaseModel):
     items: list[ItemOut] = Field(default_factory=list)
     totals: TotalsOut | None = None
     verification: VerificationOut = Field(default_factory=lambda: VerificationOut(status="pending"))
+    compat_checks: list[CompatCheckOut] = Field(default_factory=list)     # PC 호환 검사별 상세 (done 일 때만)
     explanation: ExplanationOut = Field(default_factory=lambda: ExplanationOut(status="pending"))
     reasoning_log: list[dict] = Field(default_factory=list)
     data_notice: str = "상품·가격·리뷰는 합성 데이터입니다."

@@ -29,7 +29,12 @@ export interface ChatReplyRequest {
   selectedPart: PartKey
   plan: CurrentPlan | null
 }
-export interface ChatReply { text: string; choices?: ChatChoice[] }
+export interface ChatReply {
+  text: string
+  choices?: ChatChoice[]
+  /** 답하면서 구성이 바뀌었을 때(부품 교체 등) 바뀐 구성. 화면이 현재 구성을 이것으로 바꾼다 */
+  plan?: CurrentPlan
+}
 
 export interface ReviewChatRequest {
   /** config: 확인된 PC 구성 수정 채팅, answer: 업그레이드 답변에 대한 추가 질문 */
@@ -72,6 +77,9 @@ export interface Api {
   auth: {
     login(request: LoginRequest): Promise<AuthUser>
     signup(request: SignupRequest): Promise<AuthUser>
+    /** 지금 로그인한 사용자. 로그인하지 않았으면 null */
+    me(): Promise<AuthUser | null>
+    logout(): Promise<void>
   }
   chat: {
     reply(request: ChatReplyRequest): Promise<ChatReply>

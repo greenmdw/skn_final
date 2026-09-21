@@ -284,6 +284,47 @@ def _josa(word: str, with_batchim: str, without: str) -> str:
     return word + (with_batchim if has else without)
 
 
+def current_part_tiers(current_specs: Any, by_slot: dict[str, list[Candidate]],
+                       target_slots: Iterable[str]) -> dict[str, dict[str, Any]]:
+    """교체 대상 CPU·GPU 중 사용자가 적은 현재 부품이 카탈로그에 대응되고 성능 등급을 아는 것만
+    → {슬롯: {"name", "tier", "keys"(대응된 카탈로그 product_key)}}.
+
+    업그레이드 추천이 지금 부품보다 낮은 것을 고르지 않게 하한으로 쓰고, 지금 부품 자체를 다시 추천하지
+    않게 빼고, 그래도 못 넘긴 경우를 알리는 데 쓴다.
+    카탈로그에 없거나 모호하게 대응되면(여러 등급) 모르는 것으로 두어 하한을 걸지 않는다."""
+    if not isinstance(current_specs, dict):
+        return {}
+    given = {(normalize_pc_slot(k) or str(k).strip()): v for k, v in current_specs.items()}
+    found: dict[str, dict[str, Any]] = {}
+    for slot in target_slots:
+        text = str(given.get(slot) or "").strip()
+        if slot not in ("CPU", "GPU") or not text:
+            continue
+        matches = _match_catalog(text, by_slot.get(slot, []))
+        tiers = {float(m.specs["perf_tier"]) for m in matches if m.specs.get("perf_tier") is not None}
+        if matches and len(tiers) == 1:
+            found[slot] = {"name": matches[0].name if len(matches) == 1 else text, "tier": tiers.pop(),
+                           "keys": [m.product_key for m in matches]}
+    return found
+
+
+def upgrade_tier_notes(current: dict[str, dict[str, Any]], items: Iterable[Any]) -> list[str]:
+    """추천한 부품이 지금 부품보다 나아졌는지 — 등급이 같거나 낮으면 "확인이 필요한 것"에 그 사실을 적는다.
+    등급은 제조사 라인업 등급(거친 눈금)이라 같은 등급은 "향상 폭을 알 수 없음"이지 "향상 없음"이 아니다."""
+    notes: list[str] = []
+    for item in items:
+        if item.slot not in current:
+            continue
+        name, tier = current[item.slot]["name"], current[item.slot]["tier"]
+        if item.perf_tier < tier:
+            notes.append(f"추천한 {item.slot}({item.name})은 현재 {name}보다 성능 등급이 낮아요 — 예산·호환 조건을 만족하는 "
+                         "더 높은 후보가 없었어요. 교체해도 성능이 오르지 않을 수 있어요.")
+        elif item.perf_tier == tier:
+            notes.append(f"추천한 {item.slot}({item.name})은 현재 {name}과(와) 성능 등급이 같아요 — "
+                         "등급이 거친 눈금이라 향상 폭은 알 수 없어요. 교체 효과가 작을 수 있어요.")
+    return notes
+
+
 def upgrade_scope_note(target_slots: Iterable[str]) -> str:
     """이번 견적에 무엇이 들어 있고 무엇이 빠졌는지 — 요약이 새 컴퓨터 한 대처럼 읽히지 않게."""
     slots = list(target_slots)

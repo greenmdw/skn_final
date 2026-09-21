@@ -102,6 +102,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
     from src.repo.plan_repo import PlanRepo
     from src.repo.review_repo import is_obs_flag, parse_obs_flag
     from src.rag.care_guides import search_care_guide
+    from src.engine.owned_parts import upgrade_tier_notes
     from src.services import review_service
 
     noop = lambda _m: None  # noqa: E731
@@ -122,6 +123,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
             cat_def = load_category(category)
             slots = _slots_from_conditions(category, cat_def, values)
 
+            current_tiers: dict = {}
             spec = stage2_requirement.run(slots, cat_def, noop)
             spec.list_id = str(revision_id)
             if spec.mode == "upgrade" and not spec.targets:
@@ -136,9 +138,13 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
             by_slot = load_candidates_by_slot_from_db(conn)
             if spec.mode == "upgrade":
                 # 사용자가 그대로 쓰는 부품은 견적에 넣지 않고, 적어 준 것만 호환성 검사에 쓴다.
-                from src.engine.owned_parts import constrain_targets, owned_for_conditions
+                from src.engine.owned_parts import constrain_targets, current_part_tiers, owned_for_conditions
                 spec.owned = owned_for_conditions(values, by_slot, spec.targets, cat_def.get("slot_structure", []))
                 constrain_targets(spec)
+                # 지금 쓰는 CPU·GPU 보다 낮은 등급은 "업그레이드"가 아니다 — 알면 그 등급을 하한으로 건다.
+                current_tiers = current_part_tiers(values.get("current_specs"), by_slot, spec.targets)
+                for slot, info in current_tiers.items():
+                    spec.targets[slot]["perf_tier_min"] = max(spec.targets[slot].get("perf_tier_min", 0), info["tier"])
             missing_slots = [slot for slot in spec.targets if not by_slot.get(slot)]
             if missing_slots:
                 raise ValidationFailed(
@@ -147,7 +153,9 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
                 )
             hf = stage3a_hardfilter.run(spec, by_slot, noop)
             rank = stage3b_rank.run(hf, spec, slots, noop)
-            build = stage4_optimize.run(rank, spec, noop)
+            # 지금 쓰는 부품 자체를 다시 추천하지 않는다(같은 제품으로 '교체'하는 견적이 나왔다).
+            already_owned = {(slot, key) for slot, info in current_tiers.items() for key in info["keys"]}
+            build = stage4_optimize.run(rank, spec, noop, exclude=already_owned)
             build.list_id = str(revision_id)
             verification = stage3c_verify.verify_build(
                 build,
@@ -171,15 +179,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
                     offer_observation_id=offer_observation_id,
                 )
 
-            for issue in verification.targets[0].issues if verification.targets else []:
-                erepo.add_validation(
-                    run_id, rule_key=issue.axis, rule_version="v1", executor_version="v1",
-                    status="fail" if issue.penalty >= 15 else "unknown",
-                    severity="warning" if issue.penalty >= 15 else "info",
-                    measured_values={"penalty": issue.penalty, "confidence": verification.targets[0].confidence},
-                    threshold={}, message=issue.text or issue.judge or issue.axis,
-                    checked_at=datetime.now(timezone.utc),
-                )
+            _store_validations(erepo, run_id, verification)
 
             erepo.complete_run(run_id)
 
@@ -213,7 +213,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
                 noop,
                 rank=rank,
                 conditions=values,
-                **_upgrade_explanation_extras(spec),
+                **_explanation_extras(spec, tier_notes=upgrade_tier_notes(current_tiers, build.items)),
             )
 
             for it in explanation.items:
@@ -227,7 +227,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
                 candidate_id = candidate_id_by_slot.get(it.slot)
                 if candidate_id is None:
                     continue
-                hits = search_care_guide(f"{it.slot} {it.name} 사용 시 확인할 점", k=1)
+                hits = search_care_guide(f"{it.slot} {it.name} 사용 시 확인할 점", k=1, slot=it.slot)
                 if hits:
                     erepo.update_candidate_checks(candidate_id, hits[0]["text"])
 
@@ -238,6 +238,9 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
                 ("후보 수집", f"세트 {len(build.items)}개 부품"),
                 ("설명 생성", explanation.headline),
             ]
+            games_row = _games_trace_row(spec)
+            if games_row is not None:
+                trace_rows.insert(1, games_row)
             trace = [{"step": s, "title": s, "detail": d} for s, d in trace_rows]
             # 관측 문장(7일 몰림 · 공유 리뷰어 · 5점 비율)은 슬롯별 evidence 에 있다.
             # 그것까지 실어야 검토자가 확인·반박할 수 있다 — 요약만으로는 못 한다.
@@ -276,6 +279,93 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
 
 
 
+
+
+def _store_validations(erepo, run_id: UUID, verification) -> None:
+    """세트 검증 쟁점을 engine.validation_result 행으로 저장한다(결과 화면의 verification·구매 전 확인이 읽는다)."""
+    for issue in verification.targets[0].issues if verification.targets else []:
+        erepo.add_validation(
+            run_id, rule_key=issue.axis, rule_version="v1", executor_version="v1",
+            status="fail" if issue.penalty >= 15 else "unknown",
+            severity="warning" if issue.penalty >= 15 else "info",
+            measured_values={"penalty": issue.penalty, "confidence": verification.targets[0].confidence},
+            threshold={}, message=issue.text or issue.judge or issue.axis,
+            checked_at=datetime.now(timezone.utc),
+        )
+
+
+def _current_set(conn, revision_id: UUID, cvals: dict, stored: list[dict]):
+    """저장된 후보 행 → 지금 선택된 부품({슬롯: Candidate})과 유지 부품이 든 RequirementSpec. 재검증과 상세 조회가 같이 쓴다."""
+    from src.engine.owned_parts import owned_for_conditions
+    from src.repo.catalog_repo import load_candidates_by_slot_from_db
+
+    pool = load_candidates_by_slot_from_db(conn)
+    by_variant = {c.variant_id: c for cands in pool.values() for c in cands}
+    picked = [row for row in stored if row.get("selected") is not False]
+    chosen = {row["slot"]: by_variant[str(row["variant_id"])] for row in picked if str(row["variant_id"]) in by_variant}
+    spec = RequirementSpec(
+        list_id=str(revision_id), category="computer",
+        mode="upgrade" if cvals.get("mode") == "upgrade" else "build",
+        owned=owned_for_conditions(cvals, pool, {r["slot"] for r in stored},
+                                   load_category("computer").get("slot_structure", [])),
+    )
+    return chosen, spec
+
+
+def compat_checks(conn, revision_id: UUID, cvals: dict, stored: list[dict]) -> list[dict]:
+    """결과 화면의 "호환성 점검 상세" — 검사별로 무엇을 비교했고 결과가 어땠는지(PC 만). 저장하지 않고 지금 선택된
+    부품으로 그때그때 계산해서, 교체·담기 뒤에도 항상 현재 구성을 따라간다."""
+    if cvals.get("category") != "computer" or not stored:
+        return []
+    from src.engine.stage2_requirement import load_computer_rules
+    from src.engine.stage4_optimize import pc_compat_details
+
+    chosen, spec = _current_set(conn, revision_id, cvals, stored)
+    rows = pc_compat_details(chosen, spec, load_computer_rules()["verification"])
+    if cvals.get("budget_max"):
+        total = sum((int(r["price"]) if r["price"] is not None else 0) * int(r["qty"] or 1)
+                    for r in stored if r.get("selected") is not False)
+        over = total > cvals["budget_max"]
+        rows.append({"axis": "budget", "label": "예산", "state": "fail" if over else "ok",
+                     "detail": f"선택한 구성 합계 {fmt_money(total)} {'>' if over else '≤'} 예산 {fmt_money(cvals['budget_max'])}"})
+    return rows
+
+
+def reverify_set(conn, revision_id: UUID, run: dict) -> None:
+    """교체·담기/빼기·수량 변경 뒤 세트 전체를 다시 점검해 저장된 검증을 바꾼다(PC 만).
+
+    처음 추천은 [4] 가 고른 세트를 점검했고, 이후 사용자가 바꾼 세트는 그 결과와 달라진다 — 소켓·전력·크기가
+    안 맞는 부품으로 바꿔도 화면은 "문제 없음"으로 남았다. 같은 점검(stage4.pc_link_check)과 같은 문장화
+    (stage3c.verify_build)를 지금 선택된 부품으로 다시 돌린다. 순위·설명 문장은 다시 만들지 않는다.
+    """
+    from src.engine import stage3c_verify
+    from src.engine.owned_parts import owned_for_conditions
+    from src.engine.stage2_requirement import load_computer_rules
+    from src.engine.stage4_optimize import pc_link_check
+    from src.dto import BuildResult
+    from src.repo.catalog_repo import load_candidates_by_slot_from_db
+    from src.repo.engine_repo import EngineRepo
+    from src.repo.plan_repo import PlanRepo
+
+    cvals = {r["condition_key"]: r["value"].get("value") for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
+    if cvals.get("category") != "computer":
+        return
+    erepo = EngineRepo(conn)
+    stored = erepo.get_candidates(run["id"])
+    picked = [row for row in stored if row.get("selected") is not False]
+    chosen, spec = _current_set(conn, revision_id, cvals, stored)
+    link_check = pc_link_check(chosen, spec, load_computer_rules()["verification"])
+
+    budget_max = cvals.get("budget_max") or 0
+    total = sum((int(r["price"]) if r["price"] is not None else 0) * int(r["qty"] or 1) for r in picked)
+    if budget_max and total > budget_max:
+        link_check["budget"] = "fail"
+    build = BuildResult(list_id=str(revision_id), link_check=link_check,
+                        budget={"max": budget_max, "used": total,
+                                "used_pct": round(total / budget_max * 100, 1) if budget_max else 0.0})
+    verification = stage3c_verify.verify_build(build, "computer")
+    erepo.delete_validations(run["id"])
+    _store_validations(erepo, run["id"], verification)
 
 
 def _conditions_summary(cat_def: dict, values: dict) -> str:
@@ -321,7 +411,7 @@ def memo_suggestion(result: dict, values: dict) -> str:
             swapped.append(f"{it['slot']} {sw.group(1)} → {it['product']['name']} ({sw.group(3)})")
     if swapped:
         lines.append("[직접 바꾼 것] " + "; ".join(swapped)
-                     + " — 호환·검증은 교체 전 구성 기준")
+                     + " — 호환 점검은 교체 후 구성 기준")
     headline = (result.get("explanation") or {}).get("headline")
     if headline:
         lines.append("[요약] " + headline)
@@ -351,6 +441,10 @@ def explanation_text(summary: str, caveats: list[str]) -> str:
 _AXIS_SLOTS: dict[str, tuple[str, ...]] = {
     "socket": ("CPU", "메인보드"), "bios": ("CPU", "메인보드"),
     "power": ("파워", "GPU", "CPU"), "gpu_len": ("GPU", "케이스"), "cooler_height": ("쿨러", "케이스"),
+    "memory": ("RAM", "메인보드"), "motherboard_case": ("메인보드", "케이스"), "cooler_socket": ("CPU", "쿨러"),
+    "psu_form": ("파워", "케이스"), "gpu_connector": ("GPU", "파워"), "psu_length": ("파워", "케이스"),
+    "gpu_slots": ("GPU", "케이스"), "radiator": ("쿨러", "케이스"), "ram_slots": ("RAM", "메인보드"),
+    "ram_speed": ("RAM", "메인보드"), "m2": ("저장장치", "메인보드"),
 }
 _SWAP_REASON_PREFIX = "사용자 요청으로 교체한 부품입니다"
 
@@ -370,12 +464,15 @@ def _item_checks(item: dict, validations: list[dict], guide: dict | None = None)
     hit = [v for v in validations
            if slot in _AXIS_SLOTS.get(v["rule_key"], ()) or v["rule_key"] not in _AXIS_SLOTS]
     if hit:
-        parts += [f"[{v['rule_key']}] {v['message']}" for v in hit]
+        from src.engine.stage3c_verify import axis_label
+        for v in hit:
+            label, message = axis_label(v["rule_key"]), v["message"]
+            parts.append(message if message.startswith(label) else f"{label}: {message}")
     else:
         parts.append("이 부품에 걸린 세트 검증 쟁점 없음")
     reason_text = (item.get("reason") or {}).get("text") or ""
     if reason_text.startswith(_SWAP_REASON_PREFIX):
-        parts.append("교체한 부품 — 호환·검증은 재실행되지 않았습니다 (재계산은 '다른 구성 보기')")
+        parts.append("교체한 부품 — 호환 점검은 교체 후 구성 기준입니다")
     return {"status": "ready", "text": " · ".join(parts)}
 
 
@@ -429,7 +526,8 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
 
     candidates_by_slot = prodrepo.candidates_by_slot()
     items = []
-    for row in erepo.get_candidates(run["id"]):
+    candidate_rows = erepo.get_candidates(run["id"])
+    for row in candidate_rows:
         product_key = (pc_catalog_key(row["product_type"], row["brand"], row["product_key"])
                        if category == "computer" and row["product_type"] in PC_TYPE_TO_SLOT
                        else row["product_key"])
@@ -483,6 +581,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
         "headline": run.get("explanation_headline"),
         "text": run.get("explanation_text"),
     }
+    result["compat_checks"] = compat_checks(conn, revision_id, values, candidate_rows)
     result["memo_suggestion"] = memo_suggestion(result, values)
     return result
 
@@ -516,6 +615,8 @@ def patch_item(conn, revision_id: UUID, item_id: UUID, *, selected: bool | None,
         values = {r["condition_key"]: r["value"].get("value")
                   for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
     erepo.update_candidate_state(item_id, selected=selected, qty=qty, timing=timing)
+    if selected is not None or qty is not None:
+        reverify_set(conn, revision_id, run)      # 빼거나 수량을 바꾸면 총액(예산)·점검 대상 부품이 달라진다
 
     # P8 FB03: selected true→false는 "이 항목을 뺐다" — 담아 두는 동안의 수량/시점 조정은
     # 그 자체로 이벤트가 아니다(빈 것을 담았다 뺐다 하는 게 아니라, 실제로 제외했을 때만).
@@ -589,14 +690,42 @@ def _drop_incompatible_alternatives(conn, stored: list[dict], current: dict, var
     return kept
 
 
-def _upgrade_explanation_extras(spec) -> dict:
-    """업그레이드 결과에 코드가 붙이는 안내: 견적 범위(요약 뒤)와 미확인 항목(확인이 필요한 것)."""
-    if spec.mode != "upgrade" or not spec.targets:
-        return {}
-    from src.engine.owned_parts import upgrade_notes, upgrade_scope_note
+def _unknown_games(spec) -> list[str]:
+    return [u["value"] for u in spec.unresolved if u.get("key") == "games"]
 
-    return {"extra_caveats": upgrade_notes(list(spec.targets), spec.owned),
-            "scope_note": upgrade_scope_note(spec.targets)}
+
+def _explanation_extras(spec, tier_notes: list[str] | None = None) -> dict:
+    """결과에 코드가 붙이는 안내: 업그레이드의 견적 범위(요약 뒤)·미확인 항목, 요구사양 표에 없는 게임."""
+    caveats: list[str] = []
+    out: dict = {}
+    if spec.mode == "upgrade" and spec.targets:
+        from src.engine.owned_parts import upgrade_notes, upgrade_scope_note
+
+        caveats += upgrade_notes(list(spec.targets), spec.owned)
+        caveats += tier_notes or []
+        out["scope_note"] = upgrade_scope_note(spec.targets)
+    unknown = _unknown_games(spec)
+    if unknown:
+        caveats.append(f"게임 {', '.join(repr(g) for g in unknown)}은(는) 요구사양 표에 없어 해상도 기준으로 구성했습니다 — "
+                       "해당 게임의 권장 사양을 직접 확인해 주세요.")
+    if caveats:
+        out["extra_caveats"] = caveats
+    return out
+
+
+def _games_trace_row(spec) -> tuple[str, str] | None:
+    """게임 제목이 요구 사양에 반영됐으면 추론 과정에 한 줄 — 화면 "분석 과정"에서 근거로 보인다."""
+    if "games_applied" not in spec.flags:
+        return None
+    gpu = (spec.targets.get("GPU") or {}).get("perf_tier_min")
+    cpu = (spec.targets.get("CPU") or {}).get("perf_tier_min")
+    detail = "입력한 게임의 권장 사양을 반영해 최소 등급을 정했습니다"
+    if gpu is not None and cpu is not None:
+        detail += f" (GPU 등급 {gpu} 이상, CPU 등급 {cpu} 이상)"
+    unknown = _unknown_games(spec)
+    if unknown:
+        detail += f". 표에 없는 게임: {', '.join(unknown)}"
+    return ("게임 요구사양", detail)
 
 
 def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
@@ -640,7 +769,8 @@ def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID) -> dic
     cvals = {r["condition_key"]: r["value"].get("value") for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
     delta = fmt_money(new_price - old_price, signed=True)
     erepo.update_candidate_reason(item_id, (f"사용자 요청으로 교체한 부품입니다 — 자동 추천은 '{current['product_name']}'({fmt_money(old_price)})였고 "
-        f"이 후보는 {delta}입니다. 순위·검증 점수는 교체 전 구성 기준입니다."))
+        f"이 후보는 {delta}입니다. 순위는 교체 전 구성 기준이고, 호환 점검은 교체 후 구성으로 다시 했습니다."))
+    reverify_set(conn, revision_id, run)
     # 요약(explanation)도 교체 전 구성 기준이다. [5] 를 다시 돌릴 수 없으니 그 사실을 본문 끝에 적는다.
     if run.get("explanation_status") == "ready" and run.get("explanation_text"):
         note = f"※ 이후 {current['slot']}를 '{target['name']}'(으)로 교체했습니다({delta}). 이 요약은 교체 전 구성 기준입니다."
@@ -754,6 +884,8 @@ def handle_result_message(
     from src.repo.product_repo import ProductRepo
     slot_variants = ProductRepo(conn).candidates_by_slot().get(slot, [])
     others = [r for r in slot_variants if r["variant_id"] != current["variant_id"] and r["price"] is not None]
+    # 지금 구성과 확정적으로 안 맞는 후보(소켓·크기·전력 …)는 채팅으로도 고르지 않는다 — 대안 목록과 같은 기준.
+    others = _drop_incompatible_alternatives(conn, rows, current, others, values)
     # "더 저렴한"/"더 좋은"은 방향이 있는 요청이다 — 후보가 있어도 그 방향으로 안 가면
     # (지금이 이미 최저가/최고가) 엉뚱한 방향으로 바꾸지 않고 그렇다고 말한다.
     candidates = [r for r in others if r["price"] < current_price] if cheaper \
@@ -762,7 +894,9 @@ def handle_result_message(
         state = "가장 저렴해요" if cheaper else "가장 고급이에요"
         return {"reply": f"지금 선택된 {slot}가 이미 {state}. 더 {'저렴한' if cheaper else '좋은'} 후보가 없어요.",
                 "result": get_stored_result(conn, revision_id)}
-    target = min(candidates, key=lambda r: r["price"]) if cheaper else max(candidates, key=lambda r: r["price"])
+    # 한 단계: "더 저렴한"은 지금보다 싼 것 중 가장 비싼 것, "더 좋은"은 지금보다 비싼 것 중 가장 싼 것.
+    # (전에는 최저가/최고가로 바로 뛰어서 "더 좋은 걸로"가 목록에서 가장 비싼 부품이 됐다.)
+    target = max(candidates, key=lambda r: r["price"]) if cheaper else min(candidates, key=lambda r: r["price"])
     # swap_item 을 거쳐야 교체 기록 reason 이 같이 적힌다 (직접 update_candidate_variant 하면 pending 으로 남는다)
     result = swap_item(conn, revision_id, current["id"], target["variant_id"])
     tier = "더 저렴한" if cheaper else "더 좋은"

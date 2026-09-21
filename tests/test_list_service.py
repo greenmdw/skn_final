@@ -1,7 +1,7 @@
 """리스트 확정·리포트·가격 알림 통합 테스트 (docs/frontend_외부수정요청.md §D-4-3).
 
 실제 로컬 PostgreSQL(DATABASE_URL, db/setup_all.py로 준비)이 필요하다. 컴퓨터 카탈로그가
-seed되어 있어야 한다(db/setup_all.py가 seed_catalog.py까지 실행한다).
+seed되어 있어야 한다(db/setup_all.py가 seed_pc_parts_specs.py까지 실행한다).
 
 tests/test_auth.py와 같은 이유로 autocommit 연결을 쓴다(각 서비스 호출이 실제 요청처럼
 독립 커밋되어야 password_updated_at/now() 등이 제대로 갈린다). 계정은 탈퇴(익명화)로

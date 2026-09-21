@@ -1,7 +1,7 @@
 # PC requirement, ranking, and set-compatibility policy. Change schema_version when
 # the structure changes; change rule_set_version when policy values change.
 schema_version: 1
-rule_set_version: computer-rules-v5
+rule_set_version: computer-rules-v10
 
 requirements:
   default_resolution: FHD_144
@@ -9,6 +9,27 @@ requirements:
     FHD_144: {gpu: 6, cpu: 6, ram_gb: 16, vram_gb: 8}
     QHD_165: {gpu: 7, cpu: 5, ram_gb: 16, vram_gb: 12}
     4K: {gpu: 9, cpu: 5, ram_gb: 32, vram_gb: 16}
+  # 게임 제목별 권장 사양 하한(용도가 game 일 때만). 위 game_tiers(해상도)와 같은 1~10 눈금이며, 해상도 요구와
+  # 요소별 큰 값을 취한다 — 가벼운 게임은 해상도 요구가 이미 넘으므로 결과가 바뀌지 않고, 무거운 게임만 올린다.
+  # 잠정값: 배급사 권장 사양(1080p 고옵션 기준)을 lineup 등급 눈금에 거칠게 옮긴 것이며 팀 확인 전이다.
+  # 표에 없는 제목은 해상도 기준 그대로 구성하고 그 사실을 화면 안내에 남긴다. aliases 는 공백·대소문자를
+  # 무시하고 비교한다(2글자 이하 별칭은 완전 일치만).
+  game_titles:
+    valorant:      {aliases: [발로란트, valorant], tier: {gpu: 3, cpu: 6, ram_gb: 8, vram_gb: 2}}
+    lol:           {aliases: [리그오브레전드, 롤, lol, leagueoflegends], tier: {gpu: 3, cpu: 5, ram_gb: 8, vram_gb: 2}}
+    overwatch2:    {aliases: [오버워치, 오버워치2, overwatch], tier: {gpu: 4, cpu: 5, ram_gb: 8, vram_gb: 4}}
+    maplestory:    {aliases: [메이플스토리, 메이플, maplestory], tier: {gpu: 3, cpu: 4, ram_gb: 8, vram_gb: 2}}
+    lostark:       {aliases: [로스트아크, lostark], tier: {gpu: 5, cpu: 5, ram_gb: 16, vram_gb: 4}}
+    minecraft:     {aliases: [마인크래프트, 마크, minecraft], tier: {gpu: 3, cpu: 5, ram_gb: 8, vram_gb: 2}}
+    pubg:          {aliases: [배틀그라운드, 배그, pubg], tier: {gpu: 5, cpu: 6, ram_gb: 16, vram_gb: 6}}
+    eldenring:     {aliases: [엘든링, 엘든 링, eldenring], tier: {gpu: 5, cpu: 5, ram_gb: 16, vram_gb: 8}}
+    diablo4:       {aliases: [디아블로4, 디아블로 4, diablo4], tier: {gpu: 5, cpu: 5, ram_gb: 16, vram_gb: 8}}
+    warzone:       {aliases: [워존, 콜오브듀티, callofdutywarzone, warzone], tier: {gpu: 6, cpu: 6, ram_gb: 16, vram_gb: 8}}
+    bg3:           {aliases: [발더스게이트3, baldursgate3, bg3], tier: {gpu: 6, cpu: 6, ram_gb: 16, vram_gb: 8}}
+    cyberpunk:     {aliases: [사이버펑크, 사이버펑크2077, cyberpunk2077, cyberpunk], tier: {gpu: 7, cpu: 6, ram_gb: 16, vram_gb: 8}}
+    wukong:        {aliases: [검은신화오공, 검은신화, 블랙미스오공, blackmythwukong], tier: {gpu: 7, cpu: 6, ram_gb: 16, vram_gb: 8}}
+    monsterhunter: {aliases: [몬스터헌터와일즈, 몬헌와일즈, 몬헌, monsterhunterwilds], tier: {gpu: 7, cpu: 6, ram_gb: 16, vram_gb: 8}}
+    starfield:     {aliases: [스타필드, starfield], tier: {gpu: 7, cpu: 7, ram_gb: 16, vram_gb: 8}}
   # DB 카탈로그에는 CPU/GPU 성능 실측이 없어, 수집된 제조사 등급(lineup)을 임시 티어로 쓴다.
   # game_tiers/ideal_tiers 와 같은 1~10 눈금이다. 같은 등급 안의 세대·모델 차이는 구분하지
   # 못하는 거친 대용품이며, 벤치마크 수집 뒤 실측 티어로 교체한다. 표에 없는 등급(GPU의
@@ -91,8 +112,36 @@ verification:
     - ram.type == mainboard.mem_type
     - gpu.length_mm <= case.max_gpu_len_mm
     - cooler.height_mm <= case.max_cooler_height_mm
+    - cpu.socket in cooler.supported_socket
+    - cpu.family in mainboard.supported_cpu_family
+    - psu.form_factor fits case.psu_form_factor
+    - gpu.power_connector provided by psu.gpu_power_connector (종류와 개수)
+    - psu.length_mm <= case.max_psu_length_mm
+    - ceil(gpu.slot_thickness) <= case.expansion_slots
+    - cooler.radiator_mm in case.radiator_front/top/rear_mm
+    - ram.module_count <= mainboard.dimm_slots and ram.capacity_gb <= mainboard.max_memory_gb
+    - m2 ssd requires mainboard.m2_slots >= 1
     - sum(power) <= psu.wattage * {psu_capacity_factor}
   socket: {mainboard_spec: socket, cpu_spec: socket}
+  # BIOS 축: CPU 이름에서 읽은 세대·계열(compat_parse.cpu_family)이 메인보드의 지원 CPU 계열 표기에 있는가.
+  bios: {mainboard_spec: supported_cpu_family}
+  # 파워 폼팩터(ATX·SFX·SFX-L)가 케이스가 지원하는 파워 크기에 들어가는가. 더 큰 파워는 확정 비호환, 더 작은 파워는 어댑터가 필요하다.
+  psu_form: {psu_spec: form_factor, case_spec: psu_form_factor}
+  # GPU 보조 전원 커넥터(8핀·16핀)를 파워가 제공하는가. 16핀 GPU + 8핀 파워는 동봉 어댑터가 필요하다(확정 비호환 아님).
+  gpu_connector: {gpu_spec: power_connector, aux_spec: aux_power, psu_spec: gpu_power_connector,
+                  psu_pcie_count_spec: pcie_8pin_count, psu_16_count_spec: connector_12v2x6_count}
+  # 파워 길이 ≤ 케이스가 허용하는 파워 길이.
+  psu_length: {psu_spec: length_mm, case_spec: max_psu_length_mm}
+  # GPU 두께(슬롯 수, 올림) ≤ 케이스 확장 슬롯 수.
+  gpu_slots: {gpu_spec: slot_thickness, case_spec: expansion_slots}
+  # 수랭(AIO) 라디에이터 크기가 케이스의 전면·상단·후면 중 한 곳에는 들어가는가.
+  radiator: {cooler_spec: radiator_mm, case_specs: [radiator_front_mm, radiator_top_mm, radiator_rear_mm]}
+  # RAM 모듈 수 ≤ 메인보드 DIMM 슬롯 수, RAM 총용량 ≤ 메인보드 최대 메모리 용량.
+  ram_slots: {ram_module_spec: module_config, ram_capacity_spec: capacity_gb, board_slots_spec: dimm_slots, board_max_capacity_spec: max_memory_gb}
+  # RAM 속도가 메인보드가 명시한 최대 속도를 넘으면 낮은 속도로 동작한다(비호환은 아니라 확인 필요로만 표시).
+  ram_speed: {ram_spec: speed_mts, board_spec: max_memory_speed_mts}
+  # M.2 SSD 는 메인보드에 M.2 슬롯이 있어야 하고, SSD 의 PCIe 세대가 슬롯보다 높으면 낮은 속도로 동작한다.
+  m2: {ssd_form_spec: form_factor, ssd_interface_spec: interface, board_slots_spec: m2_slots, board_gen_spec: m2_pcie_gen}
   memory: {mainboard_spec: mem_type, ram_spec: mem_type}
   motherboard_case: {mainboard_spec: form_factor, case_spec: supports_form_factors}
   gpu_length: {gpu_spec: length_mm, case_spec: max_gpu_len_mm}
@@ -100,6 +149,8 @@ verification:
   cooler_socket: {cooler_spec: supported_socket, cpu_spec: socket}
   power:
     cpu_spec: tdp_w
+    # 최대 패키지 전력(Intel MTP/PL2, AMD PPT). 있으면 TDP 대신 쓴다(K 모델 등은 TDP 의 두 배 가까이 쓴다).
+    cpu_peak_spec: max_power_w
     gpu_spec: power_w
     psu_spec: wattage_w
     psu_capacity_factor: 0.9
@@ -126,6 +177,17 @@ ranking:
     performance: {가격: 0.10, 성능: 0.55, 밸런스: 0.10, 리뷰: 0.20, 호환여유: 0.05, 소음: 0.0}
     value: {가격: 0.50, 성능: 0.15, 밸런스: 0.10, 리뷰: 0.20, 호환여유: 0.05, 소음: 0.0}
     quiet: {가격: 0.25, 성능: 0.15, 밸런스: 0.10, 리뷰: 0.20, 호환여유: 0.05, 소음: 0.25}
+  # 검사에 필요한 스펙이 비어 있는 후보는 점수를 조금 깎는다. "정보 없음"은 비호환이 아니라 통과로 취급하는데(엔진 원칙),
+  # 그러면 데이터가 빈 싼 부품이 검사를 피해 계속 뽑힌다(케이스가 늘 가장 싼 한 종으로 고정됐던 원인). 값이 하나라도 채워진
+  # 슬롯에서만 적용해서, 아직 아무 값도 없는 카탈로그(합성·시드 전)의 점수는 바뀌지 않는다. 채워지는 만큼 자동으로 사라진다.
+  data_gap:
+    penalty_per_key: 0.10      # 비어 있는 스펙 1개당 감점
+    max_penalty: 0.20          # 한 후보의 감점 상한
+    specs:
+      케이스: [max_psu_length_mm, expansion_slots, max_gpu_len_mm, max_cooler_height_mm]
+      파워: [length_mm, pcie_8pin_count]
+      메인보드: [dimm_slots, max_memory_gb, m2_slots]
+      GPU: [length_mm, slot_thickness]
   # noise_sensitive=true 이면 소음 가중치를 최소 이만큼 보장한다(나머지 축은 비율대로 줄인다).
   noise_sensitive_min_weight: 0.15
   # 소음은 직접 측정값(dBA)도 리뷰 관점 정보도 없어 물리적 대용값으로 잡는다 — 휴리스틱이다.

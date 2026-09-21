@@ -96,8 +96,19 @@ def _compat_margin(cand: Candidate, slot: str, target: dict) -> float:
     return 0.5
 
 
+def _data_gap_keys(cands: list[Candidate], slot: str, gap: dict) -> list[str]:
+    """검사용 스펙 중, 이 슬롯 후보 가운데 하나라도 값이 있는 것. 아무도 값이 없는 열은 "데이터가 아직 없는 것"이지
+    후보 간 차이가 아니므로 감점 대상에서 뺀다(빈 카탈로그의 점수가 바뀌지 않게)."""
+    return [k for k in (gap.get("specs") or {}).get(slot, []) if any(c.specs.get(k) is not None for c in cands)]
+
+
+def _data_gap_penalty(cand: Candidate, gap_keys: list[str], gap: dict) -> float:
+    missing = sum(1 for k in gap_keys if cand.specs.get(k) is None)
+    return min(missing * gap.get("penalty_per_key", 0.0), gap.get("max_penalty", 0.0))
+
+
 def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int, slot: str, target: dict,
-           weights: dict[str, float] | None = None) -> Candidate:
+           weights: dict[str, float] | None = None, gap_penalty: float = 0.0) -> Candidate:
     tier = float(cand.specs.get("perf_tier", 5))
     price = cand.price or 1
     review, review_flags = _review_axis(cand)
@@ -115,6 +126,7 @@ def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int, slot: st
     raw = sum(weights.get(k, 0.0) * v for k, v in b.items())
     if cand.verdict == "Pending":
         raw -= PENDING_SCORE_PENALTY
+    raw -= gap_penalty
     return cand.model_copy(update={"score": round(raw, 3), "breakdown": {k: round(v, 3) for k, v in b.items()},
                                    "flags": list(cand.flags) + review_flags})
 
@@ -142,8 +154,13 @@ def run(hf: HardFilterResult, spec: RequirementSpec, slots: Slots, log: LogFn) -
         ideal = ideals.get(slot)
         slot_budget = int(total * alloc.get(slot, 0.1)) if total else 1
         target = spec.targets.get(slot, {})
-        scored = sorted((_score(c, ideal, slot_budget, slot, target, weights) for c in cands),
-                        key=lambda c: c.score, reverse=True)
+        gap = ranking.get("data_gap") or {}
+        gap_keys = _data_gap_keys(cands, slot, gap)
+        penalties = {c.product_key: _data_gap_penalty(c, gap_keys, gap) for c in cands} if gap_keys else {}
+        scored = sorted((_score(c, ideal, slot_budget, slot, target, weights, penalties.get(c.product_key, 0.0))
+                         for c in cands), key=lambda c: c.score, reverse=True)
+        if any(penalties.values()):
+            log(f"      {slot}: 검사용 스펙({', '.join(gap_keys)})이 빈 후보 {sum(1 for v in penalties.values() if v)}/{len(cands)}개 감점")
         n = TOP_N_IMPACT if slot in ranking["impact_slots"] else TOP_N_DEFAULT
         ranked_all = [c.model_copy(update={"rank": i + 1}) for i, c in enumerate(scored)]
         top = ranked_all[:n]

@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import re
 import uuid
 from functools import lru_cache
 from pathlib import Path
@@ -64,6 +65,28 @@ def _check_ranking_priority(ranking: dict) -> None:
         raise RequirementRuleError("PC 소음 대용값 표 오류: cooler_type")
 
 
+_TIER_KEYS = ("gpu", "cpu", "ram_gb", "vram_gb")
+
+
+def _check_game_titles(titles) -> None:
+    if titles is None:
+        return
+    if not isinstance(titles, dict):
+        raise RequirementRuleError("PC 게임 요구사양 표 오류")
+    seen: dict[str, str] = {}
+    for key, entry in titles.items():
+        tier = entry.get("tier") if isinstance(entry, dict) else None
+        aliases = entry.get("aliases") if isinstance(entry, dict) else None
+        if (not isinstance(tier, dict) or set(tier) != set(_TIER_KEYS)
+                or not all(isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 for v in tier.values())
+                or not aliases or not all(isinstance(a, str) and _norm_game(a) for a in aliases)):
+            raise RequirementRuleError(f"PC 게임 요구사양 오류: {key}")
+        for alias in aliases:
+            other = seen.setdefault(_norm_game(alias), key)
+            if other != key:
+                raise RequirementRuleError(f"PC 게임 별칭 중복: {alias} ({other}, {key})")
+
+
 def _check_purpose_profile(purpose: str, profile, req: dict, verification: dict) -> None:
     """용도 프로필은 기본 요구 위에 덮어쓰는 값이므로, 덮어쓴 결과가 그대로 유효한지 본다."""
     where = f"용도 프로필 {purpose}: "
@@ -109,12 +132,42 @@ def _load_computer_rules(path: Path) -> dict:
             raise RequirementRuleError(f"PC 등급-티어 표 오류: {part}")
     for purpose, profile in (req.get("purpose_profiles") or {}).items():
         _check_purpose_profile(purpose, profile, req, verification)
+    _check_game_titles(req.get("game_titles"))
     return data
 
 
 def load_computer_rules(path: Path | None = None) -> dict:
     """버전 있는 PC 규칙 문서. 테스트는 별도 경로를 넘겨 정책 변경을 검증한다."""
     return _load_computer_rules(Path(path or _COMPUTER_RULES_PATH).resolve())
+
+
+def _norm_game(text) -> str:
+    """게임 제목 비교용: 소문자로, 한글·영문·숫자만 남긴다(공백·구두점·'·' 무시)."""
+    return re.sub(r"[^0-9a-z가-힣]", "", str(text).casefold())
+
+
+def match_games(raw, rules: dict | None = None) -> tuple[list[str], list[dict], list[str]]:
+    """games 조건(리스트 또는 쉼표 문자열) -> (인식한 표 키, 그 요구 tier 목록, 표에 없는 입력).
+
+    2글자 이하 별칭은 완전 일치만, 그보다 길면 입력 안에 별칭이 들어 있으면 일치로 본다
+    ("엘든링 하고 싶어요" → eldenring). 같은 게임을 두 번 말해도 한 번만 센다.
+    """
+    titles = ((rules or load_computer_rules())["requirements"].get("game_titles")) or {}
+    items = re.split(r"[,\n]", raw) if isinstance(raw, str) else list(raw or [])
+    keys: list[str] = []
+    unknown: list[str] = []
+    for item in items:
+        text = _norm_game(item)
+        if not text:
+            continue
+        hit = next((key for key, entry in titles.items()
+                    if any(text == _norm_game(a) or (len(_norm_game(a)) > 2 and _norm_game(a) in text)
+                           for a in entry["aliases"])), None)
+        if hit is None:
+            unknown.append(str(item).strip())
+        elif hit not in keys:
+            keys.append(hit)
+    return keys, [titles[k]["tier"] for k in keys], unknown
 
 
 # 업그레이드 대상 부품 표기(칩 값·자유 표기)를 슬롯 이름으로. 표에 없으면 unresolved 로 남긴다.
@@ -157,7 +210,13 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
     req = {**base, **{k: v for k, v in profile.items() if k != "tier"}}
     res = slots.values.get("resolution") or base["default_resolution"]
     tier = profile.get("tier") or base["game_tiers"].get(res, base["game_tiers"][base["default_resolution"]])
-    gpu_t, cpu_t, ram_gb, vram = (tier[k] for k in ("gpu", "cpu", "ram_gb", "vram_gb"))
+    # 게임 제목이 있으면(용도 프로필이 없을 때만) 해상도 요구와 요소별로 큰 값을 취한다.
+    game_keys: list[str] = []
+    unknown_games: list[str] = []
+    if not profile and slots.values.get("games"):
+        game_keys, game_tiers, unknown_games = match_games(slots.values["games"], rules)
+        tier = {k: max([tier[k], *(t[k] for t in game_tiers)]) for k in _TIER_KEYS}
+    gpu_t, cpu_t, ram_gb, vram = (tier[k] for k in _TIER_KEYS)
     brand = slots.values.get("brand_pref", "none")
     socket_in = req["sockets_by_brand"][brand]
 
@@ -195,9 +254,16 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
         log(f"      업그레이드 대상: {', '.join(targets) or '(없음)'}")
     if "resolution" in slots.assumed_keys and not profile:
         flags.append("resolution_assumed")
+    if game_keys:
+        flags.append("games_applied")
+    for name in unknown_games:
+        unresolved.append({"key": "games", "value": name, "reason": "요구사양 표에 없는 게임"})
 
     log(f"      {slots.values.get('purpose') if profile else '게임'} 요구: "
         f"GPU tier≥{gpu_t}, CPU tier≥{cpu_t}, RAM {ram_gb}GB, VRAM {vram}GB")
+    if game_keys or unknown_games:
+        log(f"      게임 요구 반영: {', '.join(game_keys) or '(없음)'}"
+            + (f" · 표에 없음: {', '.join(unknown_games)}" if unknown_games else ""))
     log(f"      PSU 헤드룸: 필요 {required_w}W → 최소 {wattage_min}W (K={req['psu_headroom_multiplier']})")
     log(f"      link_rules {len(link_rules)}개 기록 · 예산배분 가이드 · feasibility={feasibility}")
 

@@ -30,11 +30,40 @@ def _contains_verdict(text: str) -> bool:
     return any(word in text for word in _BANNED_KOREAN_VERDICTS)
 
 
+# 화면에 나가는 축 이름. 엔진 내부 키(socket, gpu_len …)를 그대로 보이지 않는다.
+_AXIS_LABEL = {
+    "socket": "CPU·메인보드 소켓", "power": "파워 용량", "gpu_len": "그래픽카드 길이",
+    "cooler_height": "쿨러 높이", "bios": "메인보드의 CPU 지원 계열(BIOS)", "budget": "예산", "예산": "예산",
+    "set": "세트 구성", "memory": "메모리 규격", "form_factor": "메인보드·케이스 크기",
+    "cooler_socket": "쿨러 소켓",
+    "psu_form": "파워 크기와 케이스 지원 크기", "psu_length": "파워 길이와 케이스 허용 길이", "gpu_slots": "GPU 두께와 케이스 확장 슬롯",
+    "radiator": "수랭 라디에이터와 케이스 장착 크기", "ram_slots": "RAM 개수·용량과 메인보드 슬롯",
+    "ram_speed": "RAM 속도와 메인보드 지원 속도", "m2": "M.2 SSD와 메인보드 슬롯", "motherboard_case": "메인보드 크기와 케이스 지원 크기", "gpu_connector": "GPU 전원 커넥터와 파워 제공 커넥터",
+}
+
+
+def axis_label(axis: str) -> str:
+    return _AXIS_LABEL.get(axis, axis)
+
+
 def _rule_sentence(axis: str, tool_result: str) -> str:
     """LLM 없이 쓰는 기본 문장. 관측값만 옮기고 해석하지 않는다."""
     if tool_result:
-        return f"{axis}: 관측값 {tool_result}"
-    return f"{axis}: 관측값이 기록되지 않았습니다"
+        return f"{axis_label(axis)}: 관측값 {tool_result}"
+    return f"{axis_label(axis)}: 관측값이 기록되지 않았습니다"
+
+
+def _approx_sentence(axis: str) -> str:
+    """정밀 검사를 못 한 축("ok (근사)")의 안내 문장.
+
+    실호출에서 이 축들을 LLM 에 맡기면 "근거는 제공되지 않았습니다" 만 되풀이하는 문장이 나왔다.
+    서술할 내용이 "부품 스펙 데이터가 없어 정확히 확인하지 못했다" 하나뿐이라 코드가 쓴다.
+    """
+    if axis == "bios":
+        return ("메인보드의 CPU 지원 계열(BIOS): 선택한 CPU의 세대·계열이 메인보드의 지원 목록에 있는지 확인하지 못했습니다. "
+                "구매 전 메인보드 제조사의 CPU 지원 목록을 확인해 주세요.")
+    return (f"{axis_label(axis)}: 부품 스펙 데이터가 부족해 정확히 확인하지 못했습니다. "
+            "구매 전 제조사 스펙으로 확인해 주세요.")
 
 
 def _issue_sentence(axis: str, tool_result: str, evidence: list[dict]) -> str:
@@ -124,7 +153,7 @@ def verify_build(
                                 tool_result=state, judge="위반", penalty=20))
             penalty += 20
         elif "pending" in s or "근사" in s:
-            issues.append(Issue(axis=axis, text=_issue_sentence(axis, state, []),
+            issues.append(Issue(axis=axis, text=_approx_sentence(axis),
                                 tool_result=state, judge="확인 필요", penalty=6))
             penalty += 6
 

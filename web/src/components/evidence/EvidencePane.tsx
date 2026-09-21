@@ -96,6 +96,12 @@ function PartEvidence() {
         <div className="reason-tags">{p.tags.map(tag => <span key={tag}>{tag}</span>)}</div>
         <div className="reason-basis"><span>설명 근거</span><strong>사용자 목적 · 공식 스펙 · 가격</strong></div>
       </section>
+      {p.checks && p.checks.length > 0 && (
+      <section className="evidence-card checks-card">
+        <div className="card-label"><span>호환성 · 구매 전 확인</span><span>{p.type}</span></div>
+        <ul>{p.checks.map(text => <li key={text}>{text}</li>)}</ul>
+      </section>
+      )}
       <section className="evidence-card review-card">
         <div className="card-label"><span>리뷰</span><span>{p.type}</span></div>
         <div className="review-score"><strong>{p.rating}<small> / 5</small></strong><span>총 리뷰 수<br />{p.reviews}</span></div>

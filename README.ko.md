@@ -163,7 +163,7 @@ DB 표준 문서는 [`db/README.md`](db/README.md)(Docker 없이 conda로 하는
 | 리뷰 | 데모 부품 51개 중 25개의 관계 축 관측이 순위·설명·`GET /reviews/summary`에 | 리뷰 *작성*은 데모 범위 밖. 실제 소스 수집기 없음 |
 | 데이터 | 스키마 10 / 테이블 38, 원샷 셋업, RDS 호환 SQL | 실시간 가격·스펙 연동 없음. 알림·학습 워커는 스텁 |
 
-새 시드 DB·목 모델에서 테스트 **622 passed, 7 failed, 6 skipped**(30초). 실패 7건은 아래 인증 강화 수용 테스트입니다. 같은 날 손으로 확인: PC HTTP 흐름(`scripts/e2e_smoke.py` 39/39)과 새 웹 앱의 로그인 직전까지.
+새 시드 DB·목 모델에서 테스트 **747 passed, 7 failed, 6 skipped**(30초). 실패 7건은 아래 인증 강화 수용 테스트입니다. 같은 날 손으로 확인: PC HTTP 흐름(`scripts/e2e_smoke.py` 39/39)과 새 웹 앱의 로그인 직전까지.
 
 <details>
 <summary>실패 7건의 원인</summary>

@@ -71,7 +71,12 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     const askApi = (topic: ChatTopic) => {
       const mine = epoch.current
       api.chat.reply({ topic, text: clean, selectedPart: current.selectedPart, plan: current.currentPlan })
-        .then(reply => { if (mine === epoch.current) addMessage('bot', reply.text, reply.choices) })
+        .then(reply => {
+          if (mine !== epoch.current) return
+          // 후속 질문으로 부품이 바뀌었으면 그 구성으로 화면을 바꾼다(예산은 화면에서 고친 값을 그대로 둔다)
+          if (reply.plan) updateState(prev => ({ ...prev, currentPlan: { ...reply.plan!, budget: prev.currentPlan?.budget ?? reply.plan!.budget } }))
+          addMessage('bot', reply.text, reply.choices)
+        })
         .catch(error => { if (mine === epoch.current) addMessage('bot', errorMessage(error, '답변을 받지 못했습니다. 잠시 후 다시 시도해주세요.')) })
     }
     if (current.stage === 0) {
@@ -88,14 +93,14 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     } else askApi('followup')
   }, [addMessage, updateState])
   const handleChoice = useCallback((value: string) => handleInput(value), [handleInput])
-  const startAnalysis = useCallback(() => {
+  // 현재 조건(예산 포함)으로 서버 추천을 새로 받는다. 처음 시작할 때와, 구성이 나온 뒤 예산을 바꿨을 때 같이 쓴다.
+  const runAnalysis = useCallback((intro: string) => {
     const current = stateRef.current
-    if (current.stage !== 2 || !current.quiet) return
     cancelPending()
     const mine = epoch.current
     updateState(prev => ({ ...prev, stage: 3, currentPlan: null }))
     setAnalyzingIndex(0)
-    addMessage('bot', isMockApi ? '입력 조건을 보관하고 샘플 구성을 준비합니다. 실제 분석은 아직 연결되지 않았습니다.' : '입력한 조건으로 부품 후보와 가격, 호환성을 분석합니다. 잠시만 기다려주세요.')
+    addMessage('bot', intro)
     // 진행 표시는 화면에서 시간에 맞춰 넘기고, 구성은 API 응답이 오면 바로 보여줍니다.
     for (let index = 1; index <= 3; index++) later(() => setAnalyzingIndex(index), index * 650)
     api.plans.recommend({
@@ -113,11 +118,22 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       addMessage('bot', errorMessage(error, '구성을 만들지 못했습니다.') + ' 조건을 확인한 뒤 AI 구성 분석 시작 버튼을 다시 눌러주세요.')
     })
   }, [cancelPending, clearTimers, later, addMessage, updateState])
+  const startAnalysis = useCallback(() => {
+    const current = stateRef.current
+    if (current.stage !== 2 || !current.quiet) return
+    runAnalysis(isMockApi ? '입력 조건을 보관하고 샘플 구성을 준비합니다. 실제 분석은 아직 연결되지 않았습니다.' : '입력한 조건으로 부품 후보와 가격, 호환성을 분석합니다. 잠시만 기다려주세요.')
+  }, [runAnalysis])
   const selectPart = useCallback((key: PartKey) => updateState(prev => ({ ...prev, selectedPart: key })), [updateState])
   const setBudget = useCallback((budget: number | null) => {
     if (budget !== null && (!Number.isSafeInteger(budget) || budget < 1 || budget > 100000000)) return
+    const before = stateRef.current
     updateState(prev => ({ ...prev, budget, currentPlan: prev.currentPlan ? { ...prev.currentPlan, budget } : null }))
-  }, [updateState])
+    // 서버는 조건이 바뀌면 그 추천을 낡은 것으로 보고 확정을 거절한다(stale_recommendation). 그래서 서버 추천이 나온 뒤에
+    // 예산을 바꾸면 새 예산으로 다시 추천받는다 — 직접 바꾼 부품은 새 구성으로 초기화된다. 목업은 서버가 없어 화면 값만 바꾼다.
+    if (!isMockApi && before.stage === 4 && before.currentPlan && budget !== before.budget) {
+      runAnalysis('예산을 바꿔서 새 예산으로 구성을 다시 계산합니다. 직접 바꾼 부품은 새 구성으로 초기화돼요.')
+    }
+  }, [updateState, runAnalysis])
   const setDesk = useCallback((width: number, depth: number, height: number) => {
     if (![width, depth, height].every(Number.isFinite) || width < 800 || width > 3000 || depth < 400 || depth > 1500 || height < 500 || height > 1300) return false
     updateState(prev => ({ ...prev, deskWidth: width, deskDepth: depth, deskHeight: height, deskUnlocked: true }))

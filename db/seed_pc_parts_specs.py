@@ -41,6 +41,10 @@ _SHEET_SPECS: dict[str, tuple[str, str, dict[str, str]]] = {
         "제품 라인업": "lineup", "크기": "size_note", "무게": "weight_note",
         "지원 URL": "spec_url", "판매 상태": "sale_status",
         "상태 확인일": "status_checked_at", "비고": "note",
+        # 0018: 호환·성능 확장 열(원본에 없으면 NULL)
+        "최대 패키지 전력/PL2(PPT)(W)": "max_power_w", "CPU 계열(정규)": "family",
+        "전력·계열 출처 URL": "power_family_source_url",
+        "성능 점수": "perf_score", "성능 점수 출처 URL": "perf_score_source_url",
     }),
     "MainBoard": ("motherboard", "catalog.mainboard_spec", {
         "소켓 규격": "socket", "칩셋": "chipset", "폼팩터": "form_factor",
@@ -48,6 +52,10 @@ _SHEET_SPECS: dict[str, tuple[str, str, dict[str, str]]] = {
         "지원 CPU 계열": "supported_cpu_family", "BIOS 주의": "bios_note",
         "크기": "size_note", "무게": "weight_note", "CPU 지원 URL": "spec_url",
         "판매 상태": "sale_status", "상태 확인일": "status_checked_at",
+        "DIMM 슬롯 수": "dimm_slots", "최대 메모리 용량(GB)": "max_memory_gb",
+        "최대 메모리 속도(MT/s)": "max_memory_speed_mts", "M.2 슬롯 수": "m2_slots",
+        "M.2 PCIe 세대": "m2_pcie_gen", "SATA 포트 수": "sata_ports",
+        "CPU 세대별 최소 BIOS 버전": "min_bios", "확장 사양 출처 URL": "expansion_source_url",
     }),
     "RAM": ("ram", "catalog.ram_spec", {
         "메모리 규격": "memory_type", "속도(MT/s)": "speed_mts",
@@ -57,6 +65,7 @@ _SHEET_SPECS: dict[str, tuple[str, str, dict[str, str]]] = {
         "ECC": "ecc", "버퍼 방식": "buffer_type", "오버클럭 프로필": "oc_profile",
         "방열판": "heatsink", "RGB": "rgb", "크기": "size_note", "무게": "weight_note",
         "설명서 URL": "spec_url", "비고": "note",
+        "방열판 포함 높이(mm)": "height_mm", "높이 출처 URL": "height_source_url",
     }),
     "GPU": ("gpu", "catalog.gpu_spec", {
         "GPU 분류": "gpu_class", "VRAM(GB)": "vram_gb", "메모리 종류": "memory_type",
@@ -66,6 +75,8 @@ _SHEET_SPECS: dict[str, tuple[str, str, dict[str, str]]] = {
         "전원 커넥터": "power_connector", "보조전원": "aux_power", "ECC": "ecc",
         "제품 라인업": "lineup", "사양 기준": "spec_basis", "크기": "size_note",
         "무게": "weight_note", "드라이버 URL": "spec_url",
+        "물리 규격 출처 URL": "dimension_source_url", "물리 규격 미확인 사유": "dimension_gap_reason",
+        "성능 점수": "perf_score", "성능 점수 출처 URL": "perf_score_source_url",
     }),
     "SSD": ("ssd", "catalog.ssd_spec", {
         "인터페이스": "interface", "프로토콜": "protocol", "폼팩터": "form_factor",
@@ -81,6 +92,8 @@ _SHEET_SPECS: dict[str, tuple[str, str, dict[str, str]]] = {
         "모듈러": "modular", "크기": "size_note", "무게": "weight_note",
         "지원 URL": "spec_url", "판매 상태": "sale_status",
         "상태 확인일": "status_checked_at", "비고": "note",
+        "길이(mm)": "length_mm", "PCIe 8핀 개수": "pcie_8pin_count",
+        "12V-2x6 개수": "connector_12v2x6_count", "길이·커넥터 출처 URL": "dimension_source_url",
     }),
     "Case": ("case", "catalog.case_spec", {
         "지원 메인보드": "supported_motherboard", "CPU 쿨러 높이(mm)": "cpu_cooler_height_mm",
@@ -88,6 +101,9 @@ _SHEET_SPECS: dict[str, tuple[str, str, dict[str, str]]] = {
         "케이스 분류": "case_type", "크기": "size_note", "무게": "weight_note",
         "지원 URL": "spec_url", "판매 상태": "sale_status",
         "상태 확인일": "status_checked_at", "비고": "note",
+        "최대 파워 길이(mm)": "max_psu_length_mm", "확장 슬롯 수": "expansion_slots",
+        "라디에이터 전면(mm)": "radiator_front_mm", "라디에이터 상단(mm)": "radiator_top_mm",
+        "라디에이터 후면(mm)": "radiator_rear_mm", "색상": "color", "확장 사양 출처 URL": "expansion_source_url",
     }),
     "Cooler": ("cooler", "catalog.cooler_spec", {
         "냉각 방식": "cooling_type", "지원 소켓": "supported_socket",
@@ -97,6 +113,16 @@ _SHEET_SPECS: dict[str, tuple[str, str, dict[str, str]]] = {
         "상태 확인일": "status_checked_at", "비고": "note",
     }),
 }
+
+
+# 원본에서 숫자로 읽히기 쉽지만 DB 열은 text 인 것(예: 라디에이터 '360' 하나만 있으면 엑셀이 숫자로 준다)
+_TEXT_COLUMNS = {"radiator_front_mm", "radiator_top_mm", "radiator_rear_mm", "m2_pcie_gen", "min_bios", "color", "family"}
+
+
+def _as_text(value):
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return str(value)
 
 
 def _clean(value):
@@ -111,7 +137,10 @@ def _upsert_spec(conn, table: str, product_id, row: dict, header_to_col: dict[st
     vals = [product_id]
     for header, col in header_to_col.items():
         cols.append(col)
-        vals.append(_clean(row.get(header)))
+        value = _clean(row.get(header))
+        if col in _TEXT_COLUMNS and value is not None and not isinstance(value, str):
+            value = _as_text(value)
+        vals.append(value)
     placeholders = ", ".join(["%s"] * len(cols))
     update_clause = ", ".join(f"{c} = EXCLUDED.{c}" for c in cols if c != "product_id")
     sql = (

@@ -10,6 +10,8 @@ from itertools import product
 
 from src.dto import BuildItem, BuildResult, Candidate, RankResult, RequirementSpec
 from src.engine import LogFn
+from src.engine.compat_parse import (cpu_supported, gpu_connector_fit, gpu_power_count_fit, parse_module_count, parse_pcie_gens,
+                                     parse_size_list, psu_fits_case, slots_needed, socket_supported)
 from src.engine.stage2_requirement import load_computer_rules
 
 # Requirements/candidate pools this size or smaller get an exact branch-and-bound
@@ -165,8 +167,8 @@ def _pick_with_limit(pool: list[Candidate], budget: int, running: int, *,
 def _pick_cooler(pools: dict[str, list[Candidate]], budget: int, running: int,
                  max_height_mm: float | None, cpu_socket: str | None) -> Candidate:
     """케이스 허용 높이 + CPU 소켓, 두 축 다 확실히 어기지 않는 쿨러를 고른다.
-    쿨러의 supported_socket은 "LGA1700/1200/115x, AM5/AM4"처럼 여러 소켓을 한
-    문자열에 나열해서 정확 일치가 아니라 부분 문자열 포함으로 봐야 한다."""
+    쿨러의 supported_socket은 "LGA1851/1700/1200/115x, AM5/AM4"처럼 여러 소켓을 약어로 한
+    문자열에 나열해서 compat_parse.socket_supported 로 풀어서 비교한다(부분 문자열 포함은 오판한다)."""
     pool = pools.get("쿨러") or []
     rules = load_computer_rules()["verification"]
     fallback: Candidate | None = None
@@ -179,7 +181,7 @@ def _pick_cooler(pools: dict[str, list[Candidate]], budget: int, running: int,
         if max_height_mm is not None and height is not None and height > max_height_mm:
             continue
         supported = c.specs.get(rules["cooler_socket"]["cooler_spec"])
-        if cpu_socket and supported and cpu_socket not in supported:
+        if socket_supported(cpu_socket, supported) is False:
             continue
         return c
     return fallback if fallback is not None else pool[0]
@@ -249,11 +251,23 @@ def _pc_known_failures(chosen: dict[str, Candidate], spec: RequirementSpec, rule
 
     cooler_socket = rules["cooler_socket"]
     supported = value("쿨러", cooler_socket["cooler_spec"])
-    if cpu_socket and supported and cpu_socket not in supported:
+    if socket_supported(cpu_socket, supported) is False:
         failures.add("cooler_socket")
 
+    # BIOS 축: CPU 이름의 세대·계열이 메인보드의 지원 계열 목록에 없으면 확정된 비호환이다(예: Ryzen 2000 번대를
+    # A520/B550 보드에). 목록에 있어도 보드가 출고 때 그 BIOS 를 싣는지는 데이터에 없다 — 그건 보드 사용 가이드가 맡는다.
+    # 소켓이 이미 안 맞으면 계열도 안 맞기 마련이라 같은 원인을 두 번 세지 않는다.
+    if "socket" not in failures and \
+            cpu_supported(_cpu_name(chosen, spec), value("메인보드", rules["bios"]["mainboard_spec"])) is False:
+        failures.add("bios")
+
+    # 파워 폼팩터: ATX 파워는 SFX 전용 케이스에 물리적으로 안 들어간다(더 작은 파워를 큰 케이스에 넣는 건 어댑터가 있으면 된다).
+    psu_case = rules["psu_form"]
+    if psu_fits_case(value("파워", psu_case["psu_spec"]), value("케이스", psu_case["case_spec"])) == "fail":
+        failures.add("psu_form")
+
     power = rules["power"]
-    cpu_w = value("CPU", power["cpu_spec"])
+    cpu_w = value("CPU", power.get("cpu_peak_spec", "")) or value("CPU", power["cpu_spec"])   # 최대 전력(PL2/PPT)이 있으면 그것으로
     gpu_w = value("GPU", power["gpu_spec"])
     psu_w = value("파워", power["psu_spec"])
     required_w = ((cpu_w + gpu_w) / power["psu_capacity_factor"]
@@ -267,6 +281,44 @@ def _pc_known_failures(chosen: dict[str, Candidate], spec: RequirementSpec, rule
         recommended = value("GPU", "recommended_psu_w")
         if recommended and psu_w is not None and psu_w < recommended:
             failures.add("power")
+
+    # ── 아래는 원본 엑셀의 확장 열(0018)이 채워진 만큼만 판정한다. 값이 없으면 보류(통과로도 실패로도 세지 않는다).
+    gc = rules["gpu_connector"]
+    count_state, _ = gpu_power_count_fit(value("GPU", gc["gpu_spec"]), value("GPU", gc["aux_spec"]),
+                                        value("파워", gc["psu_pcie_count_spec"]), value("파워", gc["psu_16_count_spec"]))
+    if count_state == "fail":
+        failures.add("gpu_connector")
+
+    r = rules["psu_length"]
+    length, limit = value("파워", r["psu_spec"]), value("케이스", r["case_spec"])
+    if length is not None and limit is not None and length > limit:
+        failures.add("psu_length")
+
+    r = rules["gpu_slots"]
+    need, have = slots_needed(value("GPU", r["gpu_spec"])), value("케이스", r["case_spec"])
+    if need is not None and have is not None and need > have:
+        failures.add("gpu_slots")
+
+    r = rules["radiator"]
+    radiator = value("쿨러", r["cooler_spec"])
+    if radiator is not None and "liquid" in str(value("쿨러", "cooling_type") or "").lower():
+        sizes = {n for key in r["case_specs"] for n in parse_size_list(value("케이스", key))}
+        if sizes and int(radiator) not in sizes:
+            failures.add("radiator")
+
+    r = rules["ram_slots"]
+    modules, dimm = parse_module_count(value("RAM", r["ram_module_spec"])), value("메인보드", r["board_slots_spec"])
+    capacity, max_capacity = value("RAM", r["ram_capacity_spec"]), value("메인보드", r["board_max_capacity_spec"])
+    if (modules is not None and dimm is not None and modules > dimm) or \
+            (capacity is not None and max_capacity is not None and capacity > max_capacity):
+        failures.add("ram_slots")
+
+    r = rules["m2"]
+    ssd_form = str(value("저장장치", r["ssd_form_spec"]) or "")
+    if "M.2" in ssd_form and "SATA" not in ssd_form.upper():
+        m2_slots = value("메인보드", r["board_slots_spec"])
+        if m2_slots is not None and m2_slots == 0:
+            failures.add("m2")
     return failures
 
 
@@ -431,6 +483,296 @@ def _search_pc_build(
     return best, counts, compatible
 
 
+def _cpu_name(chosen: dict[str, Candidate], spec: RequirementSpec) -> str | None:
+    """견적에 넣은 CPU 의 이름, 없으면 사용자가 그대로 쓰는 CPU(업그레이드)가 적은 이름."""
+    cand = chosen.get("CPU")
+    return cand.name if cand is not None else (spec.owned.get("CPU") or {}).get("name")
+
+
+def _chosen_specs(chosen: dict[str, Candidate], spec: RequirementSpec, slot: str) -> dict:
+    """slot 에 뽑힌 후보의 specs — 없으면 사용자가 그대로 쓰는 부품(업그레이드)의 specs.
+    정보 없는 부품(합성 카탈로그·override 미기재)은 빈 dict, 즉 호환 체크가 "정보 없음 → 근사"로 자연 강등한다."""
+    cand = chosen.get(slot)
+    if cand is None:
+        return dict((spec.owned.get(slot) or {}).get("specs") or {})
+    return cand.specs
+
+
+_STATE_TEXT = {"ok": "ok", "unknown": "ok (근사)", "fail": "fail"}
+# 0018 확장 열로 새로 생긴 검사 — 원본 엑셀에 값이 아직 없어서 못 본 경우는 감점·"확인 못 한 항목"으로 세지 않는다(화면 검사 상세에는 남는다).
+# 값이 채워지면 자동으로 판정이 되고, 값이 있어서 나온 경고(속도 초과 등)는 그대로 센다.
+_QUIET_WHEN_DATA_MISSING = {"psu_length", "gpu_slots", "radiator", "ram_slots", "ram_speed", "m2"}
+
+
+def _show(value) -> str:
+    if value is None or value == "" or value == []:
+        return "정보 없음"
+    return " / ".join(str(v) for v in value) if isinstance(value, (list, tuple)) else str(value)
+
+
+def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules: dict) -> list[dict]:
+    """호환 검사별 결과 — 무엇을 무엇과 비교했고 결과가 어땠는지. 화면의 "호환성 점검 상세"와 pc_link_check 가 같이 쓴다.
+
+    각 항목: {axis, label, state, detail}. state 는 ok(통과) / unknown(스펙을 몰라 확인 못 함) / fail(확정된 비호환) /
+    skipped(이번 견적에서 바뀌는 부품이 없어 보지 않음 — 업그레이드에서 GPU 만 바꾸는데 CPU 소켓을 묻지 않는다).
+    상세 문장은 코드가 아는 값만 옮긴다. `rules` 는 규칙 문서의 verification 절.
+    """
+    from src.engine.stage3c_verify import axis_label
+
+    specs_of = lambda slot: _chosen_specs(chosen, spec, slot)  # noqa: E731
+
+    def name_of(slot: str) -> str:
+        cand = chosen.get(slot)
+        return cand.name if cand is not None else ((spec.owned.get(slot) or {}).get("name") or f"현재 {slot}")
+
+    rows: list[dict] = []
+
+    def add(axis: str, slots: tuple[str, ...], state: str, detail: str, data_missing: bool = False) -> None:
+        # data_missing: 스펙 데이터가 비어 있어 못 본 것 — pc_link_check 가 이 중 확장 열 검사는 감점·이슈로 세지 않는다.
+        if not any(s in chosen for s in slots):
+            state, detail = "skipped", "이번 견적에서 바뀌는 부품이 아니라 확인하지 않았습니다."
+            data_missing = False
+        rows.append({"axis": axis, "label": axis_label(axis), "state": state, "detail": detail, "data_missing": data_missing})
+
+    def missing(*pairs: tuple[str, object]) -> str:
+        return " · ".join(f"{name}: {_show(value)}" for name, value in pairs) + " — 스펙 정보가 부족해 확인하지 못했습니다."
+
+    # 소켓
+    r = rules["socket"]
+    cs, bs = specs_of("CPU").get(r["cpu_spec"]), specs_of("메인보드").get(r["mainboard_spec"])
+    if cs and bs:
+        add("socket", ("CPU", "메인보드"), "ok" if cs == bs else "fail",
+            f"CPU {name_of('CPU')}({cs}) {'=' if cs == bs else '≠'} 메인보드 {name_of('메인보드')}({bs})")
+    else:
+        add("socket", ("CPU", "메인보드"), "unknown", missing(("CPU 소켓", cs), ("메인보드 소켓", bs)))
+    socket_failed = bool(cs and bs and cs != bs)
+
+    # 메모리 규격
+    r = rules["memory"]
+    rt, bm = specs_of("RAM").get(r["ram_spec"]), specs_of("메인보드").get(r["mainboard_spec"])
+    if rt and bm:
+        add("memory", ("RAM", "메인보드"), "ok" if rt == bm else "fail",
+            f"RAM {rt} {'=' if rt == bm else '≠'} 메인보드 {bm}")
+    else:
+        add("memory", ("RAM", "메인보드"), "unknown", missing(("RAM 규격", rt), ("메인보드 메모리", bm)))
+
+    # 메인보드 ↔ 케이스 크기
+    r = rules["motherboard_case"]
+    bf, cf = specs_of("메인보드").get(r["mainboard_spec"]), specs_of("케이스").get(r["case_spec"])
+    fits = _form_fits(bf, cf) if bf and cf else None
+    if fits is None:
+        add("motherboard_case", ("메인보드", "케이스"), "unknown", missing(("메인보드 크기", bf), ("케이스 지원 크기", cf)))
+    else:
+        add("motherboard_case", ("메인보드", "케이스"), "ok" if fits else "fail",
+            f"메인보드 {bf} {'→ 케이스가 지원' if fits else '은(는) 케이스가 지원하지 않는'} {_show(cf)}")
+
+    # GPU 길이
+    r = rules["gpu_length"]
+    gl, mg = specs_of("GPU").get(r["gpu_spec"]), specs_of("케이스").get(r["case_spec"])
+    if gl is not None and mg is not None:
+        add("gpu_len", ("GPU", "케이스"), "ok" if gl <= mg else "fail",
+            f"GPU 길이 {gl}mm {'≤' if gl <= mg else '>'} 케이스 허용 {mg}mm")
+    else:
+        add("gpu_len", ("GPU", "케이스"), "unknown", missing(("GPU 길이", gl), ("케이스 허용 길이", mg)))
+
+    # 쿨러 높이
+    r = rules["cooler_height"]
+    ch, mc = specs_of("쿨러").get(r["cooler_spec"]), specs_of("케이스").get(r["case_spec"])
+    if ch is not None and mc is not None:
+        add("cooler_height", ("쿨러", "케이스"), "ok" if ch <= mc else "fail",
+            f"쿨러 높이 {ch}mm {'≤' if ch <= mc else '>'} 케이스 허용 {mc}mm")
+    elif ch is None and "liquid" in str(specs_of("쿨러").get("cooling_type") or "").lower():
+        add("cooler_height", ("쿨러", "케이스"), "unknown",
+            "수랭(AIO) 쿨러는 높이 대신 라디에이터 크기로 확인해야 하는데 케이스의 라디에이터 지원 정보가 없어 확인하지 못했습니다.")
+    else:
+        add("cooler_height", ("쿨러", "케이스"), "unknown", missing(("쿨러 높이", ch), ("케이스 허용 높이", mc)))
+
+    # 쿨러 지원 소켓
+    r = rules["cooler_socket"]
+    sup = specs_of("쿨러").get(r["cooler_spec"])
+    ok_socket = socket_supported(cs, sup)
+    if ok_socket is None:
+        add("cooler_socket", ("CPU", "쿨러"), "unknown", missing(("CPU 소켓", cs), ("쿨러 지원 소켓", sup)))
+    else:
+        add("cooler_socket", ("CPU", "쿨러"), "ok" if ok_socket else "fail",
+            f"CPU 소켓 {cs} {'∈' if ok_socket else '∉'} 쿨러 지원 소켓 {sup}")
+
+    # CPU 계열 ↔ 메인보드 지원 계열(BIOS)
+    board_family = specs_of("메인보드").get(rules["bios"]["mainboard_spec"])
+    family_ok = cpu_supported(_cpu_name(chosen, spec), board_family)
+    if socket_failed:
+        add("bios", ("CPU", "메인보드"), "skipped", "소켓이 맞지 않아 계열은 따로 보지 않았습니다.")
+    elif family_ok is None:
+        add("bios", ("CPU", "메인보드"), "unknown",
+            missing(("CPU", _cpu_name(chosen, spec)), ("메인보드 지원 CPU 계열", board_family))
+            .replace("스펙 정보가 부족해", "CPU 이름의 세대·계열을 읽지 못했거나 보드의 지원 목록이 없어"))
+    else:
+        add("bios", ("CPU", "메인보드"), "ok" if family_ok else "fail",
+            f"CPU {_cpu_name(chosen, spec)} {'∈' if family_ok else '∉'} 메인보드 지원 계열 {board_family}"
+            + (" (출고 BIOS 버전은 데이터에 없어 확인하지 않음)" if family_ok else ""))
+
+    # 전력
+    r = rules["power"]
+    peak = specs_of("CPU").get(r.get("cpu_peak_spec", ""))
+    cw = peak if peak is not None else specs_of("CPU").get(r["cpu_spec"])       # 최대 전력(PL2/PPT)이 있으면 그것으로
+    cpu_label = "CPU 최대" if peak is not None else "CPU"
+    gw, pw = specs_of("GPU").get(r["gpu_spec"]), specs_of("파워").get(r["psu_spec"])
+    factor = r["psu_capacity_factor"]
+    recommended = specs_of("GPU").get("recommended_psu_w")
+    one_side = ("GPU" in chosen) != ("파워" in chosen)
+    if cw is not None and gw is not None and pw is not None:
+        total, limit = cw + gw, pw * factor
+        add("power", ("CPU", "GPU", "파워"), "ok" if total <= limit else "fail",
+            f"{cpu_label} {cw}W + GPU {gw}W = {total}W {'≤' if total <= limit else '>'} 파워 {pw}W × {factor} = {limit:.0f}W")
+    elif r.get("use_gpu_recommended_psu", True) and one_side and recommended and pw is not None:
+        # 권장 파워를 넘으면 실패는 아니지만 CPU 전력을 몰라 완전한 확인은 아니다 — "근사"로 남긴다(실패면 확정 비호환).
+        add("power", ("CPU", "GPU", "파워"), "unknown" if pw >= recommended else "fail",
+            f"제조사 권장 파워 {recommended}W {'≤' if pw >= recommended else '>'} 파워 {pw}W"
+            + (" — 그러나 CPU 전력을 몰라 전체 소비전력은 확인하지 못했습니다." if pw >= recommended else ""))
+    elif pw is not None and (spec.targets.get("파워") or {}).get("wattage_min") and pw < spec.targets["파워"]["wattage_min"]:
+        add("power", ("CPU", "GPU", "파워"), "fail", f"파워 {pw}W < 요구 최소 {spec.targets['파워']['wattage_min']}W")
+    else:
+        add("power", ("CPU", "GPU", "파워"), "unknown", missing(("CPU 전력", cw), ("GPU 전력", gw), ("파워 용량", pw)))
+
+    # 파워 폼팩터 ↔ 케이스
+    r = rules["psu_form"]
+    pf, cpf = specs_of("파워").get(r["psu_spec"]), specs_of("케이스").get(r["case_spec"])
+    verdict = psu_fits_case(pf, cpf)
+    if verdict is None:
+        add("psu_form", ("파워", "케이스"), "unknown", missing(("파워 크기", pf), ("케이스 지원 파워", cpf)))
+    elif verdict == "adapter":
+        add("psu_form", ("파워", "케이스"), "unknown",
+            f"파워 {pf}은(는) 케이스 지원 {cpf}보다 작아 어댑터 브래킷이 있어야 들어갑니다.")
+    else:
+        add("psu_form", ("파워", "케이스"), verdict,
+            f"파워 {pf} {'→ 케이스가 지원' if verdict == 'ok' else '은(는) 케이스가 지원하는 가장 큰 크기보다 큽니다'} {cpf}")
+
+    # GPU 전원 커넥터 ↔ 파워 — 종류와 개수. 개수 데이터(파워 PCIe 8핀·16핀 개수)가 있으면 개수까지, 없으면 표기(종류)만 본다.
+    r = rules["gpu_connector"]
+    gc, ga = specs_of("GPU").get(r["gpu_spec"]), specs_of("GPU").get(r["aux_spec"])
+    pc = specs_of("파워").get(r["psu_spec"])
+    n_pcie, n_16 = specs_of("파워").get(r["psu_pcie_count_spec"]), specs_of("파워").get(r["psu_16_count_spec"])
+    count_state, count_detail = gpu_power_count_fit(gc, ga, n_pcie, n_16)
+    if count_state in ("ok", "fail"):
+        add("gpu_connector", ("GPU", "파워"), count_state, f"GPU {gc} — {count_detail}")
+    elif count_state == "adapter":
+        add("gpu_connector", ("GPU", "파워"), "unknown", f"GPU {gc} — {count_detail}")
+    else:
+        verdict = gpu_connector_fit(gc, ga, pc)
+        if verdict is None:
+            add("gpu_connector", ("GPU", "파워"), "unknown", missing(("GPU 전원 커넥터", gc), ("파워 제공 커넥터", pc)))
+        elif verdict == "adapter":
+            add("gpu_connector", ("GPU", "파워"), "unknown",
+                f"GPU는 {gc}인데 파워는 {pc}만 제공합니다 — GPU에 동봉된 어댑터로 연결해야 합니다.")
+        else:
+            need = "보조 전원 불필요" if (str(ga or "").upper() == "X" or "슬롯" in str(gc)) else f"GPU {gc} ← 파워 {pc}"
+            add("gpu_connector", ("GPU", "파워"), "ok", need + " (파워의 커넥터 개수 데이터가 없어 개수는 확인하지 않음)")
+
+    # 파워 길이 ↔ 케이스
+    r = rules["psu_length"]
+    pl, cl = specs_of("파워").get(r["psu_spec"]), specs_of("케이스").get(r["case_spec"])
+    if pl is not None and cl is not None:
+        add("psu_length", ("파워", "케이스"), "ok" if pl <= cl else "fail",
+            f"파워 길이 {pl}mm {'≤' if pl <= cl else '>'} 케이스 허용 {cl}mm")
+    else:
+        add("psu_length", ("파워", "케이스"), "unknown", missing(("파워 길이", pl), ("케이스 허용 파워 길이", cl)), data_missing=True)
+
+    # GPU 두께 ↔ 케이스 확장 슬롯
+    r = rules["gpu_slots"]
+    thick, expansion = specs_of("GPU").get(r["gpu_spec"]), specs_of("케이스").get(r["case_spec"])
+    need_slots = slots_needed(thick)
+    if need_slots is not None and expansion is not None:
+        add("gpu_slots", ("GPU", "케이스"), "ok" if need_slots <= expansion else "fail",
+            f"GPU 두께 {thick}슬롯 → {need_slots}칸 {'≤' if need_slots <= expansion else '>'} 케이스 확장 슬롯 {expansion}칸")
+    else:
+        add("gpu_slots", ("GPU", "케이스"), "unknown", missing(("GPU 두께", thick), ("케이스 확장 슬롯", expansion)), data_missing=True)
+
+    # 수랭(AIO) 라디에이터 ↔ 케이스
+    r = rules["radiator"]
+    cool = specs_of("쿨러")
+    cooling = str(cool.get("cooling_type") or "")
+    if cooling and "liquid" not in cooling.lower():
+        rows.append({"axis": "radiator", "label": axis_label("radiator"), "state": "skipped", "data_missing": False,
+                     "detail": "공랭 쿨러라 라디에이터 검사를 하지 않았습니다."})
+    else:
+        rad = cool.get(r["cooler_spec"])
+        places = {name: parse_size_list(specs_of("케이스").get(key)) for name, key in zip(("전면", "상단", "후면"), r["case_specs"])}
+        sizes = {n for v in places.values() for n in v}
+        if rad is not None and sizes:
+            where = [name for name, v in places.items() if int(rad) in v]
+            add("radiator", ("쿨러", "케이스"), "ok" if where else "fail",
+                f"라디에이터 {rad}mm → 케이스 " + (f"{'·'.join(where)} 장착 가능" if where else f"지원 크기 {sorted(sizes)}mm 에 없음"))
+        else:
+            add("radiator", ("쿨러", "케이스"), "unknown",
+                missing(("쿨러 라디에이터", rad), ("케이스 라디에이터 지원", sorted(sizes) or None)), data_missing=True)
+
+    # RAM 모듈 수·총용량 ↔ 메인보드 슬롯·최대 용량
+    r = rules["ram_slots"]
+    modules, dimm = parse_module_count(specs_of("RAM").get(r["ram_module_spec"])), specs_of("메인보드").get(r["board_slots_spec"])
+    capacity, max_capacity = specs_of("RAM").get(r["ram_capacity_spec"]), specs_of("메인보드").get(r["board_max_capacity_spec"])
+    parts, bad = [], False
+    if modules is not None and dimm is not None:
+        parts.append(f"RAM 모듈 {modules}개 {'≤' if modules <= dimm else '>'} 메인보드 DIMM 슬롯 {dimm}개")
+        bad = bad or modules > dimm
+    if capacity is not None and max_capacity is not None:
+        parts.append(f"RAM 총 {capacity}GB {'≤' if capacity <= max_capacity else '>'} 메인보드 최대 {max_capacity}GB")
+        bad = bad or capacity > max_capacity
+    if parts:
+        add("ram_slots", ("RAM", "메인보드"), "fail" if bad else "ok", " · ".join(parts))
+    else:
+        add("ram_slots", ("RAM", "메인보드"), "unknown",
+            missing(("RAM 모듈 구성", specs_of("RAM").get(r["ram_module_spec"])), ("메인보드 DIMM 슬롯", dimm)), data_missing=True)
+
+    # RAM 속도 ↔ 메인보드 최대 속도 (넘어도 비호환이 아니라 낮은 속도로 동작)
+    r = rules["ram_speed"]
+    speed, max_speed = specs_of("RAM").get(r["ram_spec"]), specs_of("메인보드").get(r["board_spec"])
+    if speed is not None and max_speed is not None:
+        if speed <= max_speed:
+            add("ram_speed", ("RAM", "메인보드"), "ok", f"RAM {speed}MT/s ≤ 메인보드 최대 {max_speed}MT/s")
+        else:
+            add("ram_speed", ("RAM", "메인보드"), "unknown",
+                f"RAM {speed}MT/s 가 메인보드 최대 {max_speed}MT/s 를 넘어 낮은 속도로 동작할 수 있습니다.")
+    else:
+        add("ram_speed", ("RAM", "메인보드"), "unknown", missing(("RAM 속도", speed), ("메인보드 최대 메모리 속도", max_speed)), data_missing=True)
+
+    # M.2 SSD ↔ 메인보드 M.2 슬롯·세대
+    r = rules["m2"]
+    ssd = specs_of("저장장치")
+    ssd_form, ssd_iface = str(ssd.get(r["ssd_form_spec"]) or ""), ssd.get(r["ssd_interface_spec"])
+    board = specs_of("메인보드")
+    m2_slots, board_gens = board.get(r["board_slots_spec"]), parse_pcie_gens(board.get(r["board_gen_spec"]))
+    if ssd_form and "M.2" not in ssd_form:
+        rows.append({"axis": "m2", "label": axis_label("m2"), "state": "skipped", "data_missing": False,
+                     "detail": f"SSD({ssd_form})는 M.2 슬롯을 쓰지 않아 검사하지 않았습니다."})
+    elif not ssd_form or m2_slots is None:
+        add("m2", ("저장장치", "메인보드"), "unknown", missing(("SSD 폼팩터", ssd_form or None), ("메인보드 M.2 슬롯", m2_slots)), data_missing=True)
+    elif m2_slots == 0 and "SATA" not in ssd_form.upper():
+        add("m2", ("저장장치", "메인보드"), "fail", f"M.2 SSD({ssd_form})인데 메인보드에 M.2 슬롯이 없습니다.")
+    else:
+        ssd_gens = parse_pcie_gens(ssd_iface)
+        if ssd_gens and board_gens and max(board_gens) < max(ssd_gens):
+            add("m2", ("저장장치", "메인보드"), "unknown",
+                f"SSD는 PCIe {max(ssd_gens):g} 지원인데 메인보드 M.2 는 최대 PCIe {max(board_gens):g} 이라 낮은 속도로 동작합니다.")
+        else:
+            add("m2", ("저장장치", "메인보드"), "ok",
+                f"M.2 슬롯 {m2_slots}개" + (f" · SSD PCIe {max(ssd_gens):g} ≤ 슬롯 최대 {max(board_gens):g}" if ssd_gens and board_gens else ""))
+    return rows
+
+
+def pc_link_check(chosen: dict[str, Candidate], spec: RequirementSpec, rules: dict) -> dict[str, str]:
+    """고른 부품들 사이의 호환 점검 결과 — 검사(axis)별 "ok" / "ok (근사)"(스펙을 몰라 정밀 검사를 못 함) / "fail".
+
+    [4] 최적화가 결과를 만들 때와 교체·담기 뒤 세트 전체를 다시 점검할 때 같은 함수를 쓴다. 이번 견적에서 바뀌는
+    부품이 없는 검사(skipped)는 넣지 않는다. 검사별 상세는 pc_compat_details.
+    """
+    link_check = {row["axis"]: _STATE_TEXT[row["state"]] for row in pc_compat_details(chosen, spec, rules)
+                  if row["state"] != "skipped"
+                  and not (row["state"] == "unknown" and row.get("data_missing") and row["axis"] in _QUIET_WHEN_DATA_MISSING)}
+    for failure in _pc_known_failures(chosen, spec, rules):
+        link_check[failure] = "fail"
+    return link_check
+
+
 def build_computer(
     rank: RankResult,
     spec: RequirementSpec,
@@ -476,54 +818,10 @@ def build_computer(
         + ("" if search["feasible"] else " → 적합 세트 없음"))
     log(f"      총액 {total:,}원 / 예산 {used_pct}% / GPU tier {gpu_t} · CPU tier {cpu_t}")
 
-    def _picked_specs(slot: str) -> dict:
-        """slot에 뽑힌 후보의 specs — 정보 없는 부품(합성 카탈로그·override 미기재)은
-        빈 dict, 즉 아래 각 체크가 "정보 없음 → 근사"로 자연 강등한다."""
-        item = next((i for i in picked if i.slot == slot), None)
-        if item is None:
-            return dict((spec.owned.get(slot) or {}).get("specs") or {})
-        return next((c.specs for c in pools.get(slot, []) if c.product_key == item.product_key), {})
-
-    cpu_specs, mb_specs = _picked_specs("CPU"), _picked_specs("메인보드")
-    gpu_specs, case_specs = _picked_specs("GPU"), _picked_specs("케이스")
-    cooler_specs, psu_specs = _picked_specs("쿨러"), _picked_specs("파워")
-
-    cpu_socket = cpu_specs.get(rules["socket"]["cpu_spec"])
-    mb_socket = mb_specs.get(rules["socket"]["mainboard_spec"])
-    if cpu_socket and mb_socket:
-        socket_status = "ok" if cpu_socket == mb_socket else "fail"
-    else:
-        socket_status = "ok (근사)"  # 호환 데이터가 없는 부품 — 아직 확인 안 됨, 위반 확정 아님
-
-    gpu_len = gpu_specs.get(rules["gpu_length"]["gpu_spec"])
-    max_gpu_len = case_specs.get(rules["gpu_length"]["case_spec"])
-    if gpu_len is not None and max_gpu_len is not None:
-        gpu_len_status = "ok" if gpu_len <= max_gpu_len else "fail"
-    else:
-        gpu_len_status = "ok (근사)"
-
-    cooler_h = cooler_specs.get(rules["cooler_height"]["cooler_spec"])
-    max_cooler_h = case_specs.get(rules["cooler_height"]["case_spec"])
-    if cooler_h is not None and max_cooler_h is not None:
-        cooler_status = "ok" if cooler_h <= max_cooler_h else "fail"
-    else:
-        cooler_status = "ok (근사)"
-
-    # CPU/GPU 소비전력 실측이 둘 다
-    # 있을 때만 판정한다(한쪽만 있으면 합이 실제보다 낮게 나와 거짓 통과가 될 수 있어서).
+    link_check = pc_link_check(selected, spec, rules)
     power_rule = rules["power"]
-    cpu_w = cpu_specs.get(power_rule["cpu_spec"])
-    gpu_w = gpu_specs.get(power_rule["gpu_spec"])
-    psu_w = psu_specs.get(power_rule["psu_spec"])
-    if cpu_w is not None and gpu_w is not None and psu_w is not None:
-        power_status = "ok" if (cpu_w + gpu_w) <= psu_w * power_rule["psu_capacity_factor"] else "fail"
-    else:
-        power_status = "ok (근사)"
-
-    link_check = {"socket": socket_status, "power": power_status, "gpu_len": gpu_len_status,
-                  "cooler_height": cooler_status, "bios": "ok (근사)"}
-    for failure in _pc_known_failures(selected, spec, rules):
-        link_check[failure] = "fail"
+    cpu_w = _chosen_specs(selected, spec, "CPU").get(power_rule["cpu_spec"])
+    gpu_w = _chosen_specs(selected, spec, "GPU").get(power_rule["gpu_spec"])
     if not compatible or len(picked) != len(slots):
         link_check["set"] = "fail"
     if budget and total > budget:

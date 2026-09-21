@@ -145,14 +145,18 @@ def pc_catalog_key(product_type: str, brand: str, model: str) -> str:
 
 # (스펙 컬럼 목록, 스펙 테이블) — WHERE/가격 조인은 _build_query가 공통으로 붙인다.
 _SPEC_QUERIES: dict[str, tuple[str, str]] = {
-    "cpu": ("s.socket, s.tdp_w, s.memory_type, s.lineup", "catalog.cpu_spec"),
-    "motherboard": ("s.socket, s.memory_type, s.form_factor", "catalog.mainboard_spec"),
-    "ram": ("s.memory_type, s.total_capacity_gb, s.speed_mts", "catalog.ram_spec"),
-    "gpu": ("s.length_mm, s.power_w, s.vram_gb, s.lineup, s.recommended_psu_w", "catalog.gpu_spec"),
+    "cpu": ("s.socket, s.tdp_w, s.memory_type, s.lineup, s.max_power_w, s.family", "catalog.cpu_spec"),
+    "motherboard": ("s.socket, s.memory_type, s.form_factor, s.supported_cpu_family, s.dimm_slots, s.max_memory_gb, "
+                    "s.max_memory_speed_mts, s.m2_slots, s.m2_pcie_gen, s.sata_ports, s.min_bios", "catalog.mainboard_spec"),
+    "ram": ("s.memory_type, s.total_capacity_gb, s.speed_mts, s.module_config, s.height_mm", "catalog.ram_spec"),
+    "gpu": ("s.length_mm, s.power_w, s.vram_gb, s.lineup, s.recommended_psu_w, s.power_connector, s.aux_power, "
+            "s.height_mm, s.slot_thickness", "catalog.gpu_spec"),
     "ssd": ("s.interface, s.protocol, s.form_factor, s.capacity_options", "catalog.ssd_spec"),
-    "psu": ("s.wattage_w, s.efficiency_rating", "catalog.psu_spec"),
-    "case": ("s.gpu_max_length_mm, s.cpu_cooler_height_mm, s.supported_motherboard", "catalog.case_spec"),
-    "cooler": ("s.cooler_height_mm, s.supported_socket, s.cooling_type", "catalog.cooler_spec"),
+    "psu": ("s.wattage_w, s.efficiency_rating, s.form_factor, s.gpu_power_connector, s.length_mm, s.pcie_8pin_count, "
+            "s.connector_12v2x6_count", "catalog.psu_spec"),
+    "case": ("s.gpu_max_length_mm, s.cpu_cooler_height_mm, s.supported_motherboard, s.psu_form_factor, s.max_psu_length_mm, "
+             "s.expansion_slots, s.radiator_front_mm, s.radiator_top_mm, s.radiator_rear_mm, s.color", "catalog.case_spec"),
+    "cooler": ("s.cooler_height_mm, s.supported_socket, s.cooling_type, s.radiator_mm", "catalog.cooler_spec"),
 }
 
 
@@ -221,6 +225,10 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
             specs["mem_type"] = row["memory_type"]
         if row.get("tdp_w") is not None:
             specs["tdp_w"] = row["tdp_w"]
+        if row.get("max_power_w") is not None:
+            specs["max_power_w"] = row["max_power_w"]                # Intel MTP/PL2, AMD PPT — 있으면 전력 검사가 TDP 대신 쓴다
+        if row.get("family"):
+            specs["family"] = row["family"]
     elif product_type == "motherboard":
         if row.get("socket"):
             specs["socket"] = row["socket"]
@@ -228,6 +236,14 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
             specs["mem_type"] = row["memory_type"]
         if row.get("form_factor"):
             specs["form_factor"] = row["form_factor"]
+        if row.get("supported_cpu_family"):
+            specs["supported_cpu_family"] = row["supported_cpu_family"]
+        for key in ("dimm_slots", "max_memory_gb", "max_memory_speed_mts", "m2_slots", "sata_ports"):
+            if row.get(key) is not None:
+                specs[key] = row[key]
+        for key in ("m2_pcie_gen", "min_bios"):
+            if row.get(key):
+                specs[key] = row[key]
     elif product_type == "ram":
         if row.get("memory_type"):
             specs["mem_type"] = row["memory_type"]
@@ -235,6 +251,10 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
             specs["capacity_gb"] = row["total_capacity_gb"]
         if row.get("speed_mts") is not None:
             specs["speed_mts"] = row["speed_mts"]
+        if row.get("module_config"):
+            specs["module_config"] = row["module_config"]            # "16GB × 2" — 모듈 개수를 슬롯 수와 비교한다
+        if row.get("height_mm") is not None:
+            specs["height_mm"] = float(row["height_mm"])
     elif product_type == "gpu":
         if row.get("length_mm") is not None:
             specs["length_mm"] = row["length_mm"]
@@ -242,6 +262,15 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
             specs["power_w"] = row["power_w"]
         if row.get("recommended_psu_w") is not None:
             specs["recommended_psu_w"] = row["recommended_psu_w"]   # 제조사 권장 파워 — 유지 파워와 직접 비교
+        if row.get("power_connector"):
+            specs["power_connector"] = row["power_connector"]        # "2× 8-pin", "1× 16-pin (12V-2x6)" …
+        if row.get("aux_power"):
+            specs["aux_power"] = row["aux_power"]                    # O/X — 보조 전원 필요 여부
+        if row.get("height_mm") is not None:
+            specs["height_mm"] = row["height_mm"]
+        thickness = _parse_max_number(row.get("slot_thickness"))     # "2.5" — 차지하는 슬롯 두께
+        if thickness is not None:
+            specs["slot_thickness"] = thickness
         vram = _parse_max_number(row.get("vram_gb"))  # "8 / 16" 라인업 표기 대응
         if vram is not None:
             specs["vram_gb"] = vram
@@ -260,6 +289,13 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
             specs["wattage_w"] = row["wattage_w"]
         if row.get("efficiency_rating"):
             specs["efficiency_rating"] = row["efficiency_rating"]
+        if row.get("form_factor"):
+            specs["form_factor"] = row["form_factor"]                # ATX / SFX-L …
+        if row.get("gpu_power_connector"):
+            specs["gpu_power_connector"] = row["gpu_power_connector"]  # 파워가 제공하는 GPU 커넥터
+        for key in ("length_mm", "pcie_8pin_count", "connector_12v2x6_count"):
+            if row.get(key) is not None:
+                specs[key] = row[key]                                # 길이·PCIe 8핀 커넥터 수·16핀 커넥터 수
     elif product_type == "case":
         if row.get("gpu_max_length_mm") is not None:
             specs["max_gpu_len_mm"] = row["gpu_max_length_mm"]
@@ -269,6 +305,14 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
         if supported:
             # "ATX / mATX" 같은 원본 표기를 _apply_mainboard_compat가 읽는 리스트로.
             specs["supports_form_factors"] = [x.strip() for x in re.split(r"[/,]", supported) if x.strip()]
+        if (row.get("psu_form_factor") or "").strip():
+            specs["psu_form_factor"] = row["psu_form_factor"].strip()   # 케이스가 지원하는 파워 크기
+        for key in ("max_psu_length_mm", "expansion_slots"):
+            if row.get(key) is not None:
+                specs[key] = row[key]
+        for key in ("radiator_front_mm", "radiator_top_mm", "radiator_rear_mm", "color"):
+            if (row.get(key) or "").strip():
+                specs[key] = row[key].strip()                          # 라디에이터는 '120;140;240' 형식
     elif product_type == "cooler":
         if row.get("cooler_height_mm") is not None:
             specs["height_mm"] = row["cooler_height_mm"]
@@ -276,6 +320,8 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
             specs["supported_socket"] = row["supported_socket"]
         if row.get("cooling_type"):
             specs["cooling_type"] = row["cooling_type"]   # 소음 대용값(휴리스틱)이 읽는다
+        if row.get("radiator_mm") is not None:
+            specs["radiator_mm"] = row["radiator_mm"]      # 수랭(AIO) 라디에이터 크기
     return specs
 
 

@@ -2,7 +2,7 @@
 
 ```
 TEST_DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test uv run pytest -q
-→ 622 passed, 7 failed, 6 skipped  (약 30초, 새 DB에 `db/setup_all.py`로 `computer`만 시드한 경우)
+→ 747 passed, 7 failed, 6 skipped  (약 30초, 새 DB에 `db/setup_all.py`로 `computer`만 시드한 경우)
 ```
 
 재현 절차는 [pc_pipeline_quickstart.md](pc_pipeline_quickstart.md).

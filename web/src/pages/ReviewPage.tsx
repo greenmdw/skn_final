@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlan } from '../state/PlanContext'
 import { useToast } from '../state/ToastContext'
-import { api, errorMessage, type UpgradeSuggestion } from '../api'
+import { api, errorMessage, isMockApi, type UpgradeSuggestion } from '../api'
 import { wonFmt } from '../utils/format'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import type { CheckDraft } from '../state/types'
@@ -159,8 +159,8 @@ export function ReviewPage() {
               <section><span className="answer-label">사용자 질문</span><p className="answer-question" style={{ whiteSpace: 'pre-line' }}>{question || '질문이 입력되지 않았습니다.'}</p><p>최대 예산: {budget || '미입력'}</p></section>
               <section>
                 <span className="answer-label mint">TRUEFIT ANSWER</span>
-                <h2>{suggestion ? suggestion.part + ' ' : ''}업그레이드 샘플을 확인하세요.</h2>
-                <p className="answer-copy">질문·예산·수정한 부품은 플래너에 전달됩니다. 아래 제품과 성능 수치는 고정된 예시이며 입력 조건에 맞춰 계산된 결과가 아닙니다.</p>
+                <h2>{suggestion ? suggestion.part + ' ' : ''}업그레이드 {isMockApi ? '샘플을' : '후보를'} 확인하세요.</h2>
+                <p className="answer-copy">{isMockApi ? '질문·예산·수정한 부품은 플래너에 전달됩니다. 아래 제품과 성능 수치는 고정된 예시이며 입력 조건에 맞춰 계산된 결과가 아닙니다.' : '질문·예산·수정한 부품은 플래너에 전달됩니다. 아래 후보는 입력한 조건으로 서버가 계산한 추천이며, 점검 표의 부품 정보는 직접 입력한 값을 그대로 씁니다.'}</p>
                 <div className="answer-tags">{rows.map(row => <span key={row.part}>{row.part}: {row.matched}</span>)}</div>
                 {suggestion ? (
                   <div className="upgrade-box">
@@ -170,7 +170,7 @@ export function ReviewPage() {
                       <div className="upgrade-arrow">→</div>
                       <div className="upgrade-product recommended"><small>추천 후보</small><strong>{suggestion.productName}</strong><small>{suggestion.productNote}</small></div>
                     </div>
-                    <div className="upgrade-metrics"><div>QHD 게임 성능<strong>{suggestion.performance}</strong></div><div>예상 추가 비용<strong>+{wonFmt(suggestion.extraCost)}</strong></div><div>예상 소비전력<strong>{suggestion.power}</strong></div></div>
+                    <div className="upgrade-metrics">{suggestion.performance && <div>QHD 게임 성능<strong>{suggestion.performance}</strong></div>}<div>예상 추가 비용<strong>+{wonFmt(suggestion.extraCost)}</strong></div>{suggestion.power && <div>예상 소비전력<strong>{suggestion.power}</strong></div>}</div>
                     <div className="upgrade-action">
                       <span>{suggestion.disclaimer}</span>
                       <button type="button" disabled={upgradeSelected} onClick={handleChooseUpgrade}>{upgradeSelected ? '선택됨 ✓' : '이 변경만 선택'}</button>
@@ -187,7 +187,7 @@ export function ReviewPage() {
                 <section className="selected-change" aria-live="polite">
                   <h3>선택한 변경안 요약</h3>
                   <div className="selected-change-grid">
-                    <div><span>변경</span><strong>{rows.find(row => row.part === suggestion.part)?.matched || '미입력'} → {suggestion.productName} (샘플)</strong></div>
+                    <div><span>변경</span><strong>{rows.find(row => row.part === suggestion.part)?.matched || '미입력'} → {suggestion.productName}{isMockApi ? ' (샘플)' : ''}</strong></div>
                     <div><span>가격</span><strong>+{wonFmt(suggestion.extraCost)}</strong></div>
                     <div><span>예상 효과</span><strong>{suggestion.effectSummary}</strong></div>
                     <div><span>확인할 조건</span><strong>{suggestion.checkConditions}</strong></div>

@@ -163,7 +163,7 @@ uv run uvicorn src.api:app --reload --port 8000              # http://127.0.0.1:
 | Reviews | Relation-axis facts for 25 of 51 demo parts in ranking, explanation and `GET /reviews/summary` | Review *writing* is out of demo scope; no collector for live sources yet |
 | Data | 10 schemas / 38 tables, one-shot setup, RDS-compatible SQL | No live price or spec feed; notification and learning workers are stubs |
 
-Tests on a fresh seeded DB, mock model: **622 passed, 7 failed, 6 skipped** (30 s); the 7 failures are the auth-hardening acceptance tests below. Verified by hand the same day: the PC flow over HTTP (`scripts/e2e_smoke.py`, 39/39) and the new web app up to the sign-in step.
+Tests on a fresh seeded DB, mock model: **747 passed, 7 failed, 6 skipped** (30 s); the 7 failures are the auth-hardening acceptance tests below. Verified by hand the same day: the PC flow over HTTP (`scripts/e2e_smoke.py`, 39/39) and the new web app up to the sign-in step.
 
 <details>
 <summary>The 7 failures, by cause</summary>

@@ -61,7 +61,7 @@ def test_widens_to_full_pool_when_every_top_n_cooler_is_incompatible():
     result = run({"CPU": [CPU], "쿨러": [COOLER_AM_ONLY]},
                  pool={"쿨러": [COOLER_AM_ONLY, COOLER_LGA]})
     assert keys(result)["쿨러"] == "cooler_lga"
-    assert "cooler_socket" not in result.link_check
+    assert result.link_check.get("cooler_socket") != "fail"
     assert "set" not in result.link_check and "budget" not in result.link_check
     assert result.alternatives["widened"] == 1 and result.alternatives["feasible"] == 1
 
