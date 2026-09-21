@@ -195,6 +195,6 @@ def render(product_key: str, lang: str = "ko") -> dict:
     else:
         headline = L(lang, f"리뷰 {_n(n)}건 · 비슷한 부품들과 다른 점 없음",
                      f"{_n(n)} reviews · nothing stands out compared with similar parts")
-    # 유아용품 합성 산출물은 ASIN 매핑이 없다 — "아마존에서 확인" 링크는 PC 산출물일 때만 낸다.
+    # ASIN 매핑이 없는 산출물이면 "아마존에서 확인" 링크를 내지 않는다.
     verify_url = f"https://www.amazon.com/dp/{store.resolve(key)}" if store is default_risk_store() else None
     return _plain(headline, points=points, details=details, sources=sources, verify_url=verify_url)

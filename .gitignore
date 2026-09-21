@@ -26,7 +26,6 @@ ENV/
 .pytest_tmp/
 node_modules/
 .rag-files/
-.baby-search-index/
 .mypy_cache/
 .ruff_cache/
 .coverage

@@ -207,24 +207,6 @@ class PlanRepo(Repo):
             (revision_id, node_id),
         )
 
-    def set_requirement_totals(self, requirement_id: UUID, *, quantity, unit_code: str,
-                               required: bool, match_spec: dict) -> None:
-        self._exec(
-            "UPDATE planning.requirement SET quantity=%s, unit_code=%s, required=%s, "
-            "match_spec=%s, status='active', updated_at=now() WHERE id=%s",
-            (quantity, unit_code, required, Jsonb(match_spec), requirement_id),
-        )
-
-    def exclude_requirements_not_in(self, revision_id: UUID, keep_slot_keys: list[str]) -> None:
-        self._exec(
-            """UPDATE planning.requirement SET status='excluded', updated_at=now()
-               WHERE revision_id=%s AND status='active' AND match_spec ? 'baby_requirement'
-                 AND node_id IN (
-                   SELECT id FROM planning.plan_node
-                   WHERE revision_id=%s AND NOT (template_key = ANY(%s)))""",
-            (revision_id, revision_id, keep_slot_keys),
-        )
-
     def active_condition(self, revision_id: UUID, condition_key: str) -> dict | None:
         return self._one(
             "SELECT id, value FROM planning.plan_condition WHERE revision_id=%s AND condition_key=%s "

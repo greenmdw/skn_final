@@ -9,7 +9,7 @@ import os
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from src.config import BABY_REVIEW_SUMMARIES_DEMO, REVIEW_SUMMARIES_DEMO
+from src.config import REVIEW_SUMMARIES_DEMO
 from src.errors import NotFound, ValidationFailed
 from src.db import get_conn
 from src.repo.review_repo import ReviewRepo, ReviewSubjectRepo
@@ -34,7 +34,7 @@ def _stores():
     """파일 기반 산출물 — DB 연결 전까지의 자리. 산출 JSON 이 없으면 관측 없이 데모 블록만."""
     global _demo_file
     if _demo_file is None:
-        _demo_file = ReviewSummaryDemoFile([REVIEW_SUMMARIES_DEMO, BABY_REVIEW_SUMMARIES_DEMO])
+        _demo_file = ReviewSummaryDemoFile([REVIEW_SUMMARIES_DEMO])
     return default_risk_store(), _demo_file
 
 
@@ -113,8 +113,8 @@ def get_summary(product_key: str, lang: str = "ko") -> ReviewSummaryOut:
     if facts is not None:
         auth = store.get_review_authenticity(key, lang)
         risk = auth["product_manipulation_risk"]
-        # 유아용품 합성 산출물은 ASIN 매핑이 없다 — resolve()가 키를 그대로 돌려주는데, 이걸
-        # "아마존에서 확인 가능한 참조"로 내면 존재하지 않는 상품 링크가 나간다. PC 산출물일 때만 낸다.
+        # ASIN 매핑이 없는 산출물은 resolve()가 키를 그대로 돌려주는데, 이걸
+        # "아마존에서 확인 가능한 참조"로 내면 존재하지 않는 상품 링크가 나간다. 기본 산출물일 때만 낸다.
         is_pc = store is default_risk_store()
         ref = risk.get("product_ref") if is_pc else None
         risk_out = ProductRiskOut(
@@ -292,8 +292,8 @@ def write_part_review(user_id: UUID, variant_id: UUID, *, rating: int, title: st
     with get_conn() as conn:
         variant = conn.execute("SELECT id FROM catalog.product_variant WHERE id=%s", (variant_id,)).fetchone()
         if variant is None: raise NotFound("리뷰 대상 옵션이 없습니다.", field="variant_id")
-        repo = ReviewRepo(conn); domain = repo.baby_domain_version()
-        if domain is None: raise ValidationFailed("baby domain_version이 준비되지 않았습니다.")
+        repo = ReviewRepo(conn); domain = repo.domain_version("computer")
+        if domain is None: raise ValidationFailed("computer domain_version이 준비되지 않았습니다.")
         subject = ReviewSubjectRepo(conn).get_or_create(variant_id=variant_id)
         review_id = repo.create(user_id, subject)
         revision_id = repo.add_revision(review_id, domain_version_id=domain, rating=rating, title=title.strip(), body=body.strip(), axis_scores=axis_scores, usage_context=usage_context_with_telemetry({}, telemetry))

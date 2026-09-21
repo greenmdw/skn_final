@@ -80,7 +80,7 @@ class SessionOut(BaseModel):
 
 
 class CategoryIn(BaseModel):
-    category: Literal["computer", "baby"]
+    category: Literal["computer"]
     mode: Optional[str] = None
 
 
@@ -274,12 +274,6 @@ class VerificationOut(BaseModel):
     status: str               # pending | ready | failed
     confidence: int | None = None
     issues: list[VerificationIssueOut] = Field(default_factory=list)
-    # P3 full-catalog verification (2026-09-14): true whenever this result's baby
-    # candidates were only checked against synthetic_demo-scope evidence — never a
-    # real product safety certification. False/omitted once a production-scope
-    # result exists (docs/agent-tasks/baby/P3_full_catalog_verification_execution.md).
-    synthetic_verification_only: bool | None = None
-    synthetic_notice: str | None = None
 
 
 class ItemPatchIn(BaseModel):
@@ -337,8 +331,6 @@ class RecommendResultOut(BaseModel):
     totals: TotalsOut | None = None
     verification: VerificationOut = Field(default_factory=lambda: VerificationOut(status="pending"))
     explanation: ExplanationOut = Field(default_factory=lambda: ExplanationOut(status="pending"))
-    feasible: bool = True
-    missing_requirements: list[dict] = Field(default_factory=list)
     reasoning_log: list[dict] = Field(default_factory=list)
     data_notice: str = "상품·가격·리뷰는 합성 데이터입니다."
     # 04 리스트 확정 "메모" 초기값 — 조건·구성·직접 바꾼 것·확인 필요 사항을 코드가 정리한 문장 (done 일 때만)

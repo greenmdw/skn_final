@@ -13,7 +13,7 @@
   ※ 부분집합이 아니라 전량이다. 공유 리뷰어·연결 상품은 엣지 전체가 있어야 나온다.
   ※ 출력물은 외부 데이터셋 파생물이라 커밋하지 않는다 (.gitignore: data/amazon23/).
 
-사용:  python scripts/amazon23_edges.py /path/to/Baby_Products.jsonl [--out data/amazon23]
+사용:  python scripts/amazon23_edges.py /path/to/Electronics.jsonl [--out data/amazon23]
 """
 from __future__ import annotations
 

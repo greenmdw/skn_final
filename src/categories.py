@@ -27,7 +27,7 @@ def load_category(category: str) -> dict:
 
 
 def verify_branch(category: str) -> str:
-    """'set' = [4]→[3-C] (컴퓨터) / 'per_item' = [3-C]→[4] (유아)."""
+    """'set' = [4]→[3-C] (컴퓨터)."""
     return load_category(category)["verify_branch"]
 
 

@@ -1,8 +1,6 @@
 """세션 생성과 조건 대화 서비스 (계약: docs/frontend_외부수정요청.md §D-4-1)."""
 from __future__ import annotations
-import datetime as _dt
 import hashlib, logging, re, secrets
-from typing import TypedDict
 from uuid import UUID
 from src.agent import conditions_agent
 from src.auth.deps import Principal
@@ -26,87 +24,6 @@ def _category(name: str) -> dict:
         return load_category(name)
     except FileNotFoundError:
         raise ValidationFailed("지원하지 않는 카테고리입니다.", field="category") from None
-
-
-class NormalizedConditions(TypedDict, total=False):
-    category: str
-    mode: str | None
-    age_stage: dict | None
-    due_date: str | None
-    needs: list
-    health_skin: list
-    owned_items: list
-    budget_max: int | None
-    weight_kg: float | None
-    independent_sitting: bool | None
-
-
-def normalize_baby_conditions(values: dict) -> NormalizedConditions:
-    """세션 조건을 유아 요구사항 엔진의 고정 입력 형태로 변환한다."""
-    raw_age = values.get("age_months")
-    months = raw_age.get("value") if isinstance(raw_age, dict) else raw_age
-    exact = bool(raw_age.get("exact", True)) if isinstance(raw_age, dict) else True
-    if isinstance(months, dict):
-        # 조건 로딩 경로에 따라 age_months 가 {"value": {"value":.., "exact":..}} 로 한 번 더
-        # 감긴 채 들어올 수 있다 — _field_value 와 같은 방어적 언랩(같은 파일, 위 참고).
-        exact = bool(months.get("exact", True))
-        months = months.get("value")
-    return {
-        "category": "baby", "mode": values.get("mode"),
-        "age_stage": {"months": months, "label": _age_stage_label(months), "exact": exact}
-        if "age_months" in values else None,
-        "due_date": values.get("due_date"), "needs": list(values.get("needs") or []),
-        "health_skin": list(values.get("health_skin") or []),
-        "owned_items": list(values.get("owned_items") or []),
-        "budget_max": values.get("budget_max"), "weight_kg": values.get("weight_kg"),
-        "independent_sitting": values.get("independent_sitting"),
-    }
-
-
-_NEEDS_ALLOWED = {"수유", "이유식·식사", "수면", "외출", "목욕·위생", "기저귀·배변", "의류", "놀이", "안전·건강"}
-
-
-def _validate_baby_value(cat_def: dict, field: str, value, *, mode: str | None, none_token: str | None = None):
-    schema = (cat_def.get("slot_schema") or {}).get(field)
-    if schema is None:
-        raise ValidationFailed("허용되지 않는 필드입니다.", field="field")
-    if schema.get("mode_only") and schema["mode_only"] != mode:
-        raise ValidationFailed(f"{mode} 모드에서는 사용할 수 없는 필드입니다.", field=field)
-    kind = schema["type"]
-    if kind == "int":
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            raise ValidationFailed("0 이상의 정수여야 합니다.", field=field)
-    elif kind == "money":
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value or value <= 0:
-            raise ValidationFailed("0보다 큰 정수 금액이어야 합니다.", field=field)
-        value = int(value)
-    elif kind == "float":
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-            raise ValidationFailed("0보다 큰 숫자여야 합니다.", field=field)
-        value = float(value)
-    elif kind == "bool":
-        if not isinstance(value, bool):
-            raise ValidationFailed("true/false 값이어야 합니다.", field=field)
-    elif kind == "date":
-        try:
-            _dt.date.fromisoformat(value)
-        except (TypeError, ValueError):
-            raise ValidationFailed("날짜 형식이 올바르지 않습니다.", field=field) from None
-    elif kind == "list":
-        if not isinstance(value, list):
-            raise ValidationFailed("목록 형태여야 합니다.", field=field)
-        if not value and schema.get("none_allowed"):
-            return []
-        if not value:
-            raise ValidationFailed("최소 1개 이상 선택해야 합니다.", field=field)
-        if field == "needs" and any(item not in _NEEDS_ALLOWED for item in value):
-            raise ValidationFailed("허용되지 않는 값입니다.", field=field)
-        if none_token and none_token in value:
-            if len(value) != 1:
-                raise ValidationFailed("'없음'은 다른 항목과 함께 선택할 수 없습니다.", field=field)
-            return []
-        value = list(value) if field == "owned_items" else list(dict.fromkeys(value))
-    return value
 
 
 def _owned(repo: PlanRepo, list_id: UUID, principal: Principal) -> dict:
@@ -146,47 +63,7 @@ def create_session(conn, principal: Principal) -> dict:
     return {"list_id": str(plan), "browser_token": None if principal.user_id is not None else token, "reused": reused}
 
 
-# ── ConditionState 조립 ──────────────────────────────────────────────────
-def _age_stage_label(months: int | None, locale: Locale = "ko-KR") -> str:
-    if locale == "en-US":
-        if months is None or months == 0:
-            return "Prenatal"
-        if months <= 3:
-            return "Newborn"
-        if months <= 6:
-            return "Early infancy"
-        if months <= 12:
-            return "Infancy"
-        if months <= 24:
-            return "Early toddlerhood"
-        return "Toddlerhood"
-    if months is None:
-        return "출산 예정"    # 아직 안 물어봤거나 응답 대기 — _build_fields 가 missing 처리
-    if months == 0:
-        return "출산 예정"    # 실제로 확정된 선택값 (q_age 의 값 0)
-    if months <= 3:
-        return "신생아기"
-    if months <= 6:
-        return "영아 초기"
-    if months <= 12:
-        return "영아기"
-    if months <= 24:
-        return "유아 초기"
-    return "유아기"
-
-
 def _field_value(meta: dict, values: dict, locale: Locale = "ko-KR"):
-    if meta.get("computed"):
-        raw = values.get(meta["computed"])
-        months = raw.get("value") if isinstance(raw, dict) else raw
-        # Chip answers are persisted as {value: representative_month, exact:false}.
-        # Accept the older scalar form as well as that structured representation.
-        if isinstance(months, dict):
-            exact = bool(months.get("exact", True))
-            months = months.get("value")
-        else:
-            exact = bool(raw.get("exact", True)) if isinstance(raw, dict) else True
-        return {"months": months, "label": _age_stage_label(months, locale), "exact": exact}
     return values.get(meta["key"])
 
 
@@ -217,25 +94,12 @@ def _display(
     values: dict | None = None,
 ) -> str | None:
     values = values or {}
-    # Baby's explicit “none” answers are intentionally stored as [] so that the
-    # value keeps its list contract.  An empty list is therefore answered data,
-    # while None means the field was cleared or has never been answered.
     if value in (None, ""):
         return None
-    if meta.get("computed"):
-        return value["label"]
     disp_map = _localized(meta, "display", locale)
     if disp_map:
         return disp_map.get(value, disp_map.get(str(value), str(value)))
     if isinstance(value, list):
-        if not value:
-            empty_labels = {
-                "health_skin": ("특이사항 없음", "No health or skin concerns"),
-                "owned_items": ("없음", "None owned"),
-            }
-            label = empty_labels.get(meta.get("key"))
-            if label:
-                return label[1] if locale == "en-US" else label[0]
         labels = option_labels or {}
         none_label = "None" if locale == "en-US" else "없음"
         return " · ".join(none_label if v == "none" else str(labels.get(v, v)) for v in value)
@@ -263,12 +127,7 @@ def _build_fields(cat_def: dict, values: dict, locale: Locale = "ko-KR") -> list
         if meta.get("ask_when") and not _ask_applies(meta, values) and values.get(meta["key"]) is None:
             continue                       # 필요 없는 조건부 필드는 화면 목록에 안 낸다
         value = _field_value(meta, values, locale)
-        raw = values.get(meta["computed"]) if meta.get("computed") else value
-        source_key = meta.get("computed") or meta["key"]
-        status = "confirmed" if source_key in values and raw is not None else "missing"
-        age_answer = raw.get("value") if meta.get("computed") and isinstance(raw, dict) else raw
-        if meta.get("computed") and isinstance(age_answer, dict) and age_answer.get("exact") is False:
-            status = "assumed"
+        status = "confirmed" if meta["key"] in values and value is not None else "missing"
         out.append({
             "key": meta["key"], "label": _localized(meta, "label", locale), "value": value,
             "display": _display(meta, value, locale, _option_label_map(cat_def, meta["key"], locale), values),
@@ -391,7 +250,7 @@ def _state(conn, list_id: UUID, principal: Principal, locale: Locale = "ko-KR") 
     prepo = PlanRepo(conn)
     revision = _owned(prepo, list_id, principal)
     full = prepo.load_full(revision["id"])
-    values = {row["condition_key"]: (row["value"] if row["condition_key"] == "age_months" else row["value"].get("value")) for row in full["conditions"]}
+    values = {row["condition_key"]: row["value"].get("value") for row in full["conditions"]}
     category = values.get("category")
     message_rows = ConversationRepo(conn).messages(revision["conversation_id"])
     if category is None:
@@ -439,7 +298,7 @@ def choose_category(
         raise ValidationFailed("카테고리에 맞지 않는 mode입니다.", field="mode")
     # mode가 question_sets 안에 있으면(예: 컴퓨터의 q_mode) 챗봇이 직접 물어본다 —
     # 여기서 조용히 기본값을 채워버리면 그 질문이 영원히 안 나온다. 그런 질문이
-    # 없는 카테고리(예: 유아용품)만 이전처럼 첫 mode로 즉시 확정한다.
+    # 없는 카테고리만 이전처럼 첫 mode로 즉시 확정한다.
     mode_asked_in_chat = "mode" in cat_def.get("required_inputs", [])
     if mode is None and not mode_asked_in_chat:
         mode = cat_def["modes"][0]
@@ -459,10 +318,6 @@ def choose_category(
         for key in values:
             if key not in {"category", "mode"}:
                 repo.clear_condition(current["id"], key)
-    elif category == "baby" and previous_mode is not None and mode is not None and previous_mode != mode:
-        keys = ("due_date",) if mode == "born" else ("age_months", "weight_kg", "independent_sitting")
-        for key in keys:
-            repo.clear_condition(current["id"], key)
     nq = _next_question(cat_def, {"mode": mode, "language": language}, locale)
     if nq:
         ConversationRepo(conn).add_message(current["conversation_id"], "assistant", nq["text"])
@@ -480,22 +335,13 @@ def patch_slot(
     locale = normalize_locale(locale)
     repo = PlanRepo(conn)
     current = _owned(repo, list_id, principal)
-    values, category = _current_values(repo, current["id"])
-    if category == "baby":
-        cat_def = _category(category)
-        if value is None:
-            if field not in (cat_def.get("slot_schema") or {}):
-                raise ValidationFailed("허용되지 않는 필드입니다.", field="field")
-            repo.clear_condition(current["id"], field)
-            return _state(conn, list_id, principal, locale)
-        value = _validate_baby_value(cat_def, field, value, mode=values.get("mode"))
     repo.upsert_condition(current["id"], field, {"value": value}, "explicit")
     return _state(conn, list_id, principal, locale)
 
 
 def _current_values(repo: PlanRepo, revision_id: UUID) -> tuple[dict, str | None]:
     full = repo.load_full(revision_id)
-    values = {row["condition_key"]: (row["value"] if row["condition_key"] == "age_months" else row["value"].get("value")) for row in full["conditions"]}
+    values = {row["condition_key"]: row["value"].get("value") for row in full["conditions"]}
     return values, values.get("category")
 
 
@@ -581,7 +427,7 @@ def handle_answer(
     key = q["maps_to"]
     none_opt = q.get("none_option")
     if none_opt and list(selected) == [none_opt]:
-        value = [] if category == "baby" else ["none"]
+        value = ["none"]
     elif q["select"] == "multi":
         value = list(selected)
     else:
@@ -593,12 +439,6 @@ def handle_answer(
         "(No selection)" if locale == "en-US" else "(선택 없음)"
     )
     msg_id = convo.add_message(current["conversation_id"], "user", user_text)
-    if category == "baby":
-        value = _validate_baby_value(cat_def, key, value, mode=values.get("mode"), none_token=none_opt)
-        # Question chips represent a range, not a user-entered exact age.  Preserve
-        # that distinction for eligibility and UI disclosure across reloads.
-        if key == "age_months":
-            value = {"value": value, "exact": False}
     repo.upsert_condition(current["id"], key, {"value": value}, "explicit", msg_id)
     values[key] = value
 

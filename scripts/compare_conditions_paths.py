@@ -1,7 +1,7 @@
 """같은 대화를 규칙 추출(slot_rules)과 Strands 에이전트에 각각 넣어 나란히 본다. DB 없음.
 
     uv run python scripts/compare_conditions_paths.py                 # 내장 예시 (컴퓨터)
-    uv run python scripts/compare_conditions_paths.py --category baby "출산 예정이에요" "예산은 50만원"
+    uv run python scripts/compare_conditions_paths.py "발로란트 위주로 할 거예요" "예산은 150만원"
     uv run python scripts/compare_conditions_paths.py --rules-only ...  # 키 없는 환경
 
 에이전트 쪽은 .env 에 MOCK_MODE=0 · LLM_PROVIDER=openai · LLM_MODEL · OPENAI_API_KEY 가 있어야 돈다
@@ -26,10 +26,6 @@ EXAMPLES = {
         "발로란트랑 롤 위주로 할 게임용 PC 맞추려고요. 예산은 150만원 정도",
         "가성비요. 그리고 케이스는 흰색이었으면 좋겠고 RGB는 없었으면 해요",
         "아 예산 180만원까지는 괜찮아요. QHD 165Hz 모니터 쓸 거예요",
-    ],
-    "baby": [
-        "출산 예정이에요. 수유랑 수면 쪽 물품 위주로 준비하려고요",
-        "피부 특이사항은 없고, 아직 가진 건 하나도 없어요. 예산은 50만원",
     ],
 }
 
@@ -74,7 +70,7 @@ def run_agent(category: str, cat_def: dict, turns: list[str]) -> list[dict]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("turns", nargs="*", help="사용자 메시지들 (없으면 내장 예시)")
-    ap.add_argument("--category", default="computer", choices=["computer", "baby"])
+    ap.add_argument("--category", default="computer", choices=["computer"])
     ap.add_argument("--rules-only", action="store_true")
     args = ap.parse_args()
 

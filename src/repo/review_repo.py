@@ -95,8 +95,8 @@ class ReviewRepo(Repo):
     def owned(self, review_id: UUID, user_id: UUID) -> dict | None:
         return self._one("SELECT * FROM community.review WHERE id=%s AND author_user_id=%s", (review_id,user_id))
 
-    def baby_domain_version(self) -> UUID | None:
-        row = self._one("SELECT dv.id FROM config.domain_version dv JOIN config.domain d ON d.id=dv.domain_id WHERE d.code='baby' ORDER BY dv.version_no DESC LIMIT 1")
+    def domain_version(self, code: str) -> UUID | None:
+        row = self._one("SELECT dv.id FROM config.domain_version dv JOIN config.domain d ON d.id=dv.domain_id WHERE d.code=%s ORDER BY dv.version_no DESC LIMIT 1", (code,))
         return None if row is None else row["id"]
 
     # ── 집계·요약 읽기 ([3-B] 리뷰축 / [3-C] 리뷰 진위 / S5, P8 파일 기반 분석) ──
@@ -104,8 +104,7 @@ class ReviewRepo(Repo):
                     source_scope: str = "combined") -> dict | None:
         """검수 승인된(파일 임포트가 만든) 최신 `ready` review_aggregate 한 행.
 
-        domain_version_id를 주면 그 버전으로 좁힌다(유아/PC 집계 분리, schema-v1
-        "domain_version별 분리"). status='ready'만 본다 — stale/revoked는 공개하지 않는다
+        domain_version_id를 주면 그 버전으로 좁힌다(schema-v1 "domain_version별 분리"). status='ready'만 본다 — stale/revoked는 공개하지 않는다
         (P8 IMPLEMENTATION3 "현재 승인된 revision만 공개·집계")."""
         params: list = [subject_id, source_scope]
         where_domain = ""
@@ -433,45 +432,20 @@ def default_risk_store() -> ProductRiskStore | None:
     return _default_store
 
 
-_default_baby_store: ProductRiskStore | None = None
-_default_baby_store_tried = False
-
-
-def default_baby_risk_store() -> ProductRiskStore | None:
-    """config.BABY_REVIEW_RISK_JSON 산출물 — PC와 같은 스키마의 유아용품 합성 데모.
-
-    PC 산출물과 달리 ASIN alias가 없다(product_key를 그대로 키로 쓴다) — 매핑표가 필요 없다.
-    control_scope 일치 검사도 안 한다 — REVIEW_RISK_CONTROL_SCOPE는 PC 전용 값이라 여기 대면 안 된다.
-    """
-    global _default_baby_store, _default_baby_store_tried
-    if not _default_baby_store_tried:
-        _default_baby_store_tried = True
-        from src.config import BABY_REVIEW_RISK_JSON
-        if BABY_REVIEW_RISK_JSON.exists():
-            try:
-                _default_baby_store = ProductRiskStore(BABY_REVIEW_RISK_JSON)
-            except (ValueError, OSError, json.JSONDecodeError):
-                _default_baby_store = None
-    return _default_baby_store
-
-
 def resolve_risk_store(keys: list[str]) -> tuple[ProductRiskStore | None, str | None, dict | None]:
-    """PC 산출물을 먼저, 없으면 유아용품 합성 산출물을 본다 — 매칭된 (store, key, feature dict).
+    """PC 산출물에서 매칭된 (store, key, feature dict).
 
-    아무 산출물에도 없으면 (첫 번째로 로드된 store 또는 None, None, None) — store가 있으면
-    호출자가 `store.coverage(key)`로 "왜 없는지" 이유를 낼 수 있다. 산출물 자체가 하나도 없으면 None.
-    지금까지 `default_risk_store()` 하나만 보던 세 자리(review_service.get_summary·_review_signals,
-    review_plain.render)가 이 함수로 유아용품도 같이 보게 됐다.
+    산출물에 없으면 (store, None, None) — store가 있으면 호출자가 `store.coverage(key)`로
+    "왜 없는지" 이유를 낼 수 있다. 산출물 자체가 없으면 (None, None, None).
     """
-    stores = [s for s in (default_risk_store(), default_baby_risk_store()) if s is not None]
-    if not stores:
+    store = default_risk_store()
+    if store is None:
         return None, None, None
-    for store in stores:
-        for k in keys:
-            f = store.get(k)
-            if f is not None:
-                return store, k, f
-    return stores[0], None, None
+    for k in keys:
+        f = store.get(k)
+        if f is not None:
+            return store, k, f
+    return store, None, None
 
 
 def risk_store_reason() -> str:
@@ -529,7 +503,7 @@ class ReviewSummaryDemoFile:
     `synthetic_demo` 블록에 그대로 둔다 — 화면이 표지를 붙여 보여주는 용도다.
     키는 요약 키(slugify)와 엔진 키(공백→하이픈) 둘 다 받는다.
 
-    `path`에 리스트를 주면 여러 파일(PC·유아용품처럼 카테고리별로 나뉜 산출물)을 합쳐 읽는다 —
+    `path`에 리스트를 주면 여러 파일을 합쳐 읽는다 —
     같은 product_key가 둘 이상의 파일에 있으면 나중 파일이 이긴다. 없는 파일은 조용히 건너뛴다.
     """
 

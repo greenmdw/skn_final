@@ -11,11 +11,9 @@
 GPT-4o 50.0% 인데 확신 85.6, Hidden Persuaders arXiv 2506.13313).
 
     # 1) 엣지 표 (표준 라이브러리)
-    python scripts/amazon23_edges.py /path/Baby_Products.jsonl --cat baby
+    python scripts/amazon23_edges.py /path/Electronics.jsonl --cat electronics
     # 2) 관계·행동 축 (pandas·numpy·scipy — `uv sync --group review-analysis`)
-    #    자원: Baby 6.0M건 ≈ 3GB·25초, Electronics 43.9M건 ≈ 12GB·6분 (엣지 표 전체를 메모리에 올린다)
-    python -m src.workers.review_cleanse_worker data/amazon23/baby_edges.tsv \
-        --out data/amazon23/baby_product_risk.json
+    #    자원: Electronics 43.9M건 ≈ 12GB·6분 (엣지 표 전체를 메모리에 올린다)
     # 3) 대조군을 같은 부류로 좁힌다 — PC 부품 데모가 읽는 파일 (config.REVIEW_RISK_JSON)
     python -m src.workers.review_cleanse_worker data/amazon23/electronics_edges.tsv \
         --meta data/amazon23/electronics_meta.tsv --category "Computer Components|Data Storage" \
@@ -28,8 +26,8 @@ from pathlib import Path
 
 from src.config import DATA_DIR
 
-DEFAULT_EDGES = DATA_DIR / "amazon23" / "baby_edges.tsv"
-DEFAULT_OUT = DATA_DIR / "amazon23" / "baby_product_risk.json"
+DEFAULT_EDGES = DATA_DIR / "amazon23" / "electronics_edges.tsv"
+DEFAULT_OUT = DATA_DIR / "amazon23" / "pcparts_product_risk.json"
 
 
 def run(edges: str | Path = DEFAULT_EDGES, out: str | Path = DEFAULT_OUT, **kw) -> dict:

@@ -1,9 +1,7 @@
 """파이프라인 오케스트레이션 (Truefit).
 
 시나리오 파일(data/scenarios/*.json)을 입력으로 8단계를 순서대로 실행한다.
-카테고리별 검증 분기:
-  computer (verify_branch=set)      : [4] 세트 최적화 → [3-C] 세트 검증  ─(신뢰도<80)⟳
-  baby     (verify_branch=per_item) : [3-C] 품목별 검증 → [4] 예산 배분   (데모 미구현)
+컴퓨터 (verify_branch=set): [4] 세트 최적화 → [3-C] 세트 검증  ─(신뢰도<80)⟳
 
 각 단계 로그는 on_log 콜백으로 흘리고 최종 결과는 PipelineResult(pydantic)로 반환한다.
 """
@@ -12,12 +10,9 @@ from __future__ import annotations
 import json
 from typing import Callable
 
-from typing import Any
-
 from src.categories import load_category, verify_branch
 from src.config import MAX_RESEARCH_ROUNDS, SCENARIO_DIR
-from src.dto import (BabyCandidate, BabyRequirement, BasketDecision, Candidate, CandidateCheck,
-                     PipelineResult, RankedCandidates)
+from src.dto import Candidate, PipelineResult
 from src.engine import stage1_intent, stage2_requirement, stage3_0_candidates
 from src.engine import stage3a_hardfilter, stage3b_rank, stage3c_verify
 from src.engine import stage4_optimize, stage5_explain
@@ -63,8 +58,7 @@ def run_pipeline(scenario_name: str, on_log: LogFn = print) -> PipelineResult:
         log("── 분기: 컴퓨터 → [4] 세트 최적화 먼저, 그다음 [3-C] 세트 검증 ──")
         _run_computer_branch(scenario, result, log)
     else:
-        log("── 분기: 유아 → [3-C] 품목별 검증 먼저, 그다음 [4] 예산 배분 ──")
-        raise NotImplementedError("pipeline: 유아 per_item 분기 미구현 (데이터 확보 후)")
+        raise NotImplementedError(f"pipeline: 지원하지 않는 검증 분기입니다: {branch}")
     log("")
 
     # ── ④ 설명 ─────────────────────────────────────────────────────
@@ -100,23 +94,3 @@ def _run_computer_branch(scenario: dict, result: PipelineResult, log: LogFn) -> 
             log(f"      ! 재탐색 {round_no}회 소진 → best-so-far + '검증 미완료' 표시")
             return
 
-
-def run_baby_optimizer(
-    *, requirements: list[BabyRequirement], candidates: list[BabyCandidate],
-    checks: list[CandidateCheck], owned_items: list[dict[str, Any]] | None = None,
-    budget_max: int | None = None, profile: dict | None = None,
-) -> tuple[RankedCandidates, BasketDecision]:
-    """P4 유아 예산 최적화 경계 (baby computation boundary).
-
-    P2가 만든 BabyRequirement/BabyCandidate와 P3가 만든 CandidateCheck를 받아
-    [3-B baby]/[4 baby]를 실행하는 순수 함수 조합이다 — DB 조회·HTTP 호출·RAG 검색을
-    이 안에서 하지 않는다(OBJECTIVE/CONTRACT). candidate ID를 item ID로 쓰거나
-    qty=1/timing=now/price=0으로 근사하던 이전 `run_baby_db_pipeline` 어댑터를
-    대체한다 — BasketItem/BasketDecision 이 실제 requirement_id·qty·timing·unit_price를
-    가진다. 영속화는 P5 소관(EngineRepo.persist_candidate_check 등)이며 여기서
-    아무 행도 쓰지 않는다.
-    """
-    profile = profile if profile is not None else stage3b_rank.load_baby_optimizer_profile()
-    ranked = stage3b_rank.rank_baby_candidates(requirements, candidates, checks, profile)
-    decision = stage4_optimize.optimize_baby(requirements, ranked, owned_items or [], budget_max)
-    return ranked, decision

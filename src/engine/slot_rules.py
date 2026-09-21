@@ -94,21 +94,6 @@ def _parse_won(text: str) -> int | None:
     return _parse_korean_number(text)          # 숫자 없이 한글 단어로만 말한 금액 (예: 삼백만원)
 
 
-def _parse_months(text: str) -> int | None:
-    m = re.search(r"(\d+)\s*개?\s*월", text)
-    if m:
-        return int(m.group(1))
-    if re.search(r"출산\s*예정|임신|태어나기\s*전", text):
-        return None
-    m = re.search(r"(\d+)\s*(?:months?|mos?|mo)\b", text, re.IGNORECASE)
-    if m:
-        return int(m.group(1))
-    m = re.search(r"(\d+)\s*(?:years?|yrs?|yr)\b", text, re.IGNORECASE)
-    if m:
-        return int(m.group(1)) * 12
-    return None
-
-
 _PURPOSE = [
     ("game", ["게임", "롤", "옵치", "배그", "발로란트", "game", "gaming", "esports"]),
     ("creation", ["작업", "창작", "편집", "영상", "디자인", "3d", "렌더", "creator", "editing", "video", "render", "design"]),
@@ -123,21 +108,6 @@ _PRIORITY = [
     ("value", ["가성비", "저렴", "싸게", "value", "affordable", "cheap"]),
     ("quiet", ["조용", "저소음", "소음", "quiet", "silent", "low noise"]),
 ]
-
-# 키워드 → baby.yaml/CONTRACTS 의 정식 need 라벨(부분 문자열이 아니라 그대로 저장 가능한 값).
-# 영문 키워드는 소문자로 두고 lowered 텍스트에 매칭한다.
-_NEEDS_MAP: list[tuple[str, list[str]]] = [
-    ("수유", ["수유", "젖병", "분유", "feeding", "bottle", "nursing", "formula"]),
-    ("이유식·식사", ["이유식", "식사", "weaning", "solid food", "baby food", "meal"]),
-    ("수면", ["수면", "잠", "재우", "sleep", "crib", "nap"]),
-    ("외출", ["외출", "산책", "유모차", "카시트", "outing", "stroller", "car seat", "carrier", "travel"]),
-    ("목욕·위생", ["목욕", "위생", "샴푸", "bath", "hygiene", "wash", "shampoo"]),
-    ("기저귀·배변", ["기저귀", "배변", "diaper", "potty"]),
-    ("의류", ["의류", "옷", "clothes", "clothing"]),
-    ("놀이", ["놀이", "장난감", "play", "toy"]),
-    ("안전·건강", ["안전", "건강", "safety", "health"]),
-]
-
 
 def _first_match(text: str, table: list[tuple[str, list[str]]]) -> str | None:
     text = text.lower()
@@ -168,37 +138,7 @@ def extract_computer(text: str) -> dict:
     return out
 
 
-def extract_baby(text: str) -> dict:
-    out: dict = {}
-    lowered = text.lower()
-    budget = _parse_won(text)
-    if budget:
-        out["budget_max"] = budget
-    months = _parse_months(text)
-    if months is not None:
-        out["age_months"] = months
-    matched_needs = [label for label, keywords in _NEEDS_MAP if any(k in lowered for k in keywords)]
-    if matched_needs:
-        out["needs"] = matched_needs
-    if re.search(r"아토피|atopic|atopy", lowered):
-        out["health_skin"] = ["아토피"]
-    elif re.search(r"민감|sensitive|eczema", lowered):
-        out["health_skin"] = ["민감성 피부"]
-    # "피부"/"건강"/"특이사항" 이 명시된 맥락에서만 none 으로 판단한다 — "보유 물품이 없어요" 같은
-    # 무관한 문장의 "없어요" 만 보고 건강 상태를 단정하던 버그를 막는다. 영문도 같은 원칙.
-    elif re.search(r"(특이사항|피부|건강|알러지|알레르기).{0,6}(없|괜찮)|no (?:skin |health )?(?:issues?|problems?|allerg\w*)|normal skin", lowered):
-        out["health_skin"] = []
-    if (re.search(r"(보유|가진|갖고\s*있는|물품|아직).{0,8}(없|아직\s*없)", text)
-            or re.fullmatch(r"\s*(아직\s*)?없어요\.?\s*", text)
-            or re.search(r"\b(?:don't|do not) (?:have|own) any|\bno items\b|\bnothing yet\b", lowered)
-            or re.fullmatch(r"\s*(?:none|nothing|not yet)\.?\s*", lowered)):
-        out.setdefault("owned_items", [])
-    return out
-
-
 def extract(category: str, text: str) -> dict:
     if category == "computer":
         return extract_computer(text)
-    if category == "baby":
-        return extract_baby(text)
     return {}

@@ -16,7 +16,7 @@ subject_id를 새 상품으로 옮겨 재실행도 멱등으로 처리한다.
 
     DATABASE_URL=... python db/seed_pc_parts_specs.py   # 먼저
     DATABASE_URL=... python db/seed_review_summaries.py
-    DATABASE_URL=... python db/seed_review_summaries.py --input data/baby/review_summaries.json
+    DATABASE_URL=... python db/seed_review_summaries.py --input data/review_summaries.json
 """
 from __future__ import annotations
 

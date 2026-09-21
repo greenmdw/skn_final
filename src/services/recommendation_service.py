@@ -65,13 +65,13 @@ def start_recommendation(
         raise ValidationFailed("계획 버전을 찾을 수 없습니다.", field="list_id")
     full = prepo.load_full(revision_id)
     values = {
-        row["condition_key"]: (row["value"] if row["condition_key"] == "age_months" else row["value"].get("value"))
+        row["condition_key"]: row["value"].get("value")
         for row in full["conditions"]
     }
     category = values.get("category")
     if category is None:
         raise Conflict("카테고리를 먼저 선택하세요.", code="category_required")
-    if category not in ("computer", "baby"):
+    if category != "computer":
         raise ValidationFailed(f"지원하지 않는 카테고리입니다: {category}", field="category")
 
     cat_def = load_category(category)
@@ -83,25 +83,6 @@ def start_recommendation(
         raise Conflict("이미 추천을 실행하는 중입니다.", code="run_in_progress")
 
     locale = normalize_locale(locale)
-    if category == "baby":
-        from src.engine.stage2_requirement import build_baby_requirements, persist_baby_requirements
-
-        conditions = session_service.normalize_baby_conditions(values)
-        conditions["revision_id"] = str(revision_id)
-        requirements = persist_baby_requirements(
-            conn, revision_id, build_baby_requirements(conditions, _baby_domain_snapshot())
-        )
-        run_id = erepo.start_run(
-            revision_id, revision["domain_version_id"],
-            input_snapshot={"values": values, "strategy": strategy, "conditions": conditions,
-                            "requirement_ids": [requirement.id for requirement in requirements],
-                            "response_locale": locale},
-            input_hash=hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest(),
-            draft_lock_version=revision["lock_version"],
-            engine_versions={"pipeline": "baby-v1"},
-        )
-        return {"run_id": str(run_id), "status": "running"}
-
     input_snapshot = {
         "values": values,
         "strategy": strategy,
@@ -119,113 +100,6 @@ def start_recommendation(
         engine_versions={"pipeline": "computer-v1"},
     )
     return {"run_id": str(run_id), "status": "running"}
-
-
-def _baby_domain_snapshot() -> dict:
-    from src.engine.stage2_requirement import load_baby_rules_snapshot
-
-    return {
-        "reference_date": datetime.now(timezone.utc).date().isoformat(),
-        "baby_rules_snapshot": load_baby_rules_snapshot(),
-    }
-
-
-_BABY_BLOCKERS = {
-    "no_reviewed_rule_for_category": (
-        "verification_rule_missing",
-        "검증 기준이 준비되지 않아 담을 수 없어요.",
-        "검토된 검증 기준과 근거가 준비된 뒤 다시 추천받아 주세요.",
-    ),
-    "missing_certificate": (
-        "verification_evidence_missing",
-        "필수 인증 근거를 확인하지 못해 담을 수 없어요.",
-        "인증 정보가 확인된 다른 상품을 기다리거나 조건을 바꿔 주세요.",
-    ),
-    "active_recall": (
-        "eligibility_not_met",
-        "회수 대상이어서 담을 수 없어요.",
-        "다른 후보를 선택해 주세요.",
-    ),
-    "provider_not_configured": (
-        "provider_unavailable",
-        "검증 자료 검색 제공자가 설정되지 않아 담을 수 없어요.",
-        "검색 제공자 설정 후 다시 추천받아 주세요.",
-    ),
-    "search_failed": (
-        "provider_failed",
-        "검증 자료를 조회하지 못해 담을 수 없어요.",
-        "잠시 후 다시 추천받아 주세요.",
-    ),
-    "manual_rule_not_satisfied": (
-        "eligibility_not_met",
-        "현재 조건에서 검증 기준을 충족하지 않아 담을 수 없어요.",
-        "조건을 확인하거나 다른 후보를 선택해 주세요.",
-    ),
-    # P3 full-catalog verification (2026-09-14) — src.engine.stage3c_verify.verify_baby_candidate reason codes.
-    "missing_rule_evidence": (
-        "verification_evidence_missing",
-        "이 상품의 필수 증빙을 아직 다 확인하지 못해 담을 수 없어요.",
-        "증빙이 모두 확인된 다른 상품을 기다리거나 조건을 바꿔 주세요.",
-    ),
-    "missing_product_identity": (
-        "verification_identity_missing",
-        "이 상품의 제조사·모델 정보를 확인하지 못해 담을 수 없어요.",
-        "상품 식별 정보가 확인된 다른 후보를 선택해 주세요.",
-    ),
-    "scope_mismatch": (
-        "verification_scope_unavailable",
-        "이 상품 범위(합성/실제)에 맞는 검증 기준이 아직 없어 담을 수 없어요.",
-        "해당 범위의 검증 기준이 준비된 뒤 다시 추천받아 주세요.",
-    ),
-    "missing_verification_input": (
-        "verification_input_missing",
-        "월령·체중 등 필요한 조건 입력이 없어 검증을 완료하지 못했어요.",
-        "빠진 조건을 입력한 뒤 다시 추천받아 주세요.",
-    ),
-    "evidence_provider_unavailable": (
-        "provider_unavailable",
-        "검증 자료 검색 제공자가 설정되지 않아 담을 수 없어요.",
-        "검색 제공자 설정 후 다시 추천받아 주세요.",
-    ),
-    "evidence_provider_failed": (
-        "provider_failed",
-        "검증 자료를 조회하지 못해 담을 수 없어요.",
-        "잠시 후 다시 추천받아 주세요.",
-    ),
-    "condition_out_of_range": (
-        "eligibility_not_met",
-        "입력한 조건(월령·체중 등)이 이 상품의 사용 조건을 벗어나 담을 수 없어요.",
-        "조건을 확인하거나 다른 후보를 선택해 주세요.",
-    ),
-    "identity_mismatch": (
-        "verification_identity_mismatch",
-        "판매 정보와 증빙의 상품 식별이 일치하지 않아 담을 수 없어요.",
-        "다른 후보를 선택해 주세요.",
-    ),
-    "certificate_mismatch": (
-        "eligibility_not_met",
-        "인증 정보가 이 상품·옵션과 일치하지 않아 담을 수 없어요.",
-        "다른 후보를 선택해 주세요.",
-    ),
-}
-
-
-def _blocker_detail(reason: str | None) -> tuple[str, str, str]:
-    if reason in _BABY_BLOCKERS:
-        return _BABY_BLOCKERS[reason]
-    return ("verification_evidence_missing", "검증 근거를 충분히 확인하지 못해 담을 수 없어요.",
-            "검증 가능한 상품 또는 근거가 준비된 뒤 다시 추천받아 주세요.")
-
-
-def _baby_headline(missing: list[dict], *, feasible: bool) -> str:
-    if feasible:
-        return "조건에 맞는 유아용품을 담았어요."
-    reasons = {row.get("reason") or row.get("reason_code") for row in missing}
-    if reasons and reasons <= {"over_budget"}:
-        return "예산을 초과해 필요한 품목을 모두 담지 못했어요."
-    if "no_selectable_candidate" in reasons and len(reasons) == 1:
-        return "검증 가능한 후보가 없어 필요한 품목을 담지 못했어요."
-    return "검증 또는 상품 정보가 부족해 필요한 품목을 모두 담지 못했어요."
 
 
 def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
@@ -253,14 +127,10 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
             response_locale = normalize_locale(input_snapshot.get("response_locale"))
             full = prepo.load_full(revision_id)
             values = {
-                row["condition_key"]: (row["value"] if row["condition_key"] == "age_months" else row["value"].get("value"))
+                row["condition_key"]: row["value"].get("value")
                 for row in full["conditions"]
             }
             category = values["category"]
-            if category == "baby":
-                _execute_baby_recommendation(conn, prepo, erepo, revision_id, run_id, values)
-                erepo.complete_run(run_id)
-                return
             cat_def = load_category(category)
             slots = _slots_from_conditions(category, cat_def, values)
 
@@ -379,7 +249,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
             # 여기서 안 실으면 [3-B] 감점은 되는데 "왜" 가 화면에 안 간다 (review_service 주석 참고).
             cur = currency_of(values)
             if response_locale == "en-US":
-                category_label = {"computer": "Computer", "baby": "Baby care"}.get(category, category)
+                category_label = {"computer": "Computer"}.get(category, category)
                 budget = values.get("budget_max")
                 trace_rows = [
                     ("Organize conditions", f"Category: {category_label}, budget: {fmt_money(budget, cur)}" if budget else "Conditions organized"),
@@ -433,180 +303,6 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
                 fail_erepo.fail_candidate_reason(candidate_id)
                 fail_erepo.fail_candidate_checks(candidate_id)
             fail_erepo.fail_explanation(run_id)
-
-
-def verify_and_explain_baby_candidate(*, rag_service, engine_repo, run_id, candidate: dict, slots: dict) -> dict:
-    """후보 하나의 설명서 검증/설명과 채택 evidence 연결.
-
-    검색 실패는 unknown이며 pass로 승격하지 않는다. 직렬화할 인용은 resolve_evidence
-    재검사를 통과한 것만 반환한다.
-    """
-    from src.engine.stage3c_verify import verify_baby_manual
-    from src.engine.stage5_explain import explain_manual
-    from src.rag.contracts import SearchRequest
-    product_key, variant_key = candidate.get("product_key"), candidate.get("variant_key")
-    if not product_key or not variant_key:
-        return {"eligibility_status": "unknown", "verification_status": "unknown", "coverage_status": "none", "reason": "missing_catalog_identifier", "evidence": []}
-    context = {key: slots.get(key) for key in ("age_months", "weight_kg", "independent_sitting") if slots.get(key) is not None}
-    request = SearchRequest(domain="baby", product_key=product_key, variant_key=variant_key, query="연령, 체중 및 독립 착석 조건", market=candidate.get("market", "KR"), language="ko", corpus="real", purpose="validation", recommendation_run_id=str(run_id), context=context)
-    verified = verify_baby_manual(rag_service, request, **context)
-    if verified.get("status") == "error":
-        return {"eligibility_status": "unknown", "verification_status": "unknown", "coverage_status": "error", "reason": verified.get("error_code", "retrieval_error"), "evidence": []}
-    validation_id = engine_repo.add_validation(run_id, rule_key="baby_manual_applicability", rule_version="v1", executor_version="rag-v1", status=verified.get("eligibility_status", "unknown"), severity="critical", measured_values=context, threshold={}, message=verified.get("reason", "manual verification"), checked_at=__import__("datetime").datetime.now(__import__("datetime").timezone.utc))
-    engine_repo.link_validation_target(validation_id, candidate_id=candidate["candidate_id"])
-    explanation = explain_manual(rag_service, request)
-    evidence = []
-    profile_id = rag_service.repo.active_profile()["id"]
-    for hit in explanation.get("hits", []):
-        resolved = rag_service.repo.resolve_evidence(hit["evidence_id"], request, profile_id)
-        if resolved:
-            engine_repo.link_candidate_evidence(candidate["candidate_id"], hit["evidence_id"], "manual_excerpt")
-            engine_repo.link_validation_evidence(validation_id, hit["evidence_id"])
-            evidence.append(hit)
-    return {"eligibility_status": verified.get("eligibility_status", "unknown"), "verification_status": verified.get("verification_status", "unknown"), "coverage_status": verified.get("coverage_status", "partial"), "reason": verified.get("reason"), "evidence": evidence, "explanation": explanation.get("answer"), "error_code": explanation.get("error_code")}
-
-
-def _execute_baby_recommendation(conn, prepo, erepo, revision_id: UUID, run_id: UUID, values: dict) -> None:
-    """백그라운드에서 실행되는 유아 경로 [3-0]→[3-C]→[4]→저장.
-
-    persist_baby_requirements 는 이미 start_recommendation(요청 트랜잭션)에서 실행됐다 —
-    여기서는 그 결과를 다시 읽기만 한다(재계산 아님). 후보 수집(get_baby_candidates)은
-    DB 읽기뿐이라 재호출해도 새 검색/임베딩이 아니다. RAG 검증(verify_baby_candidate)만
-    실제로 임베딩을 쓰므로, 그 부분만 이 백그라운드 태스크 안에서 수행한다
-    (CONTRACTS "No external embedding inside a long plan transaction").
-    """
-    from src.engine.stage2_requirement import load_persisted_baby_requirements
-    from src.engine.stage3_0_candidates import get_baby_candidates
-    from src.engine.stage3b_rank import load_baby_optimizer_profile
-    from src.engine.stage5_explain import explain_baby_candidate
-    from src.pipeline import run_baby_optimizer
-    from src.rag.provider import get_search_provider
-    from src.rag.service import RagService
-    from src.repo.material_repo import MaterialRepo
-    from src.services import session_service
-
-    conditions = session_service.normalize_baby_conditions(values)
-    conditions["revision_id"] = str(revision_id)
-
-    requirements = load_persisted_baby_requirements(conn, revision_id)
-    candidates_by_req = get_baby_candidates(conn, requirements, corpus="synthetic")
-
-    # 후보마다 실제 recommendation_candidate 행을 먼저 만든다 — verify_and_persist_baby_candidate
-    # (persist_candidate_check)가 "이 run 에 속한 실제 행"을 전제하기 때문이다(P3 계약).
-    # BabyCandidate.candidate_id 를 카탈로그 offer_observation_id 에서 이 행의 진짜 UUID로 바꿔치기한다.
-    db_candidates = []
-    for requirement in requirements:
-        for cand in candidates_by_req.get(requirement.id, []):
-            if cand.variant_id is None:
-                continue
-            db_id = erepo.add_candidate(
-                run_id, UUID(requirement.id), UUID(cand.variant_id), result="pending",
-                offer_observation_id=UUID(cand.offer_observation_id) if cand.offer_observation_id else None,
-            )
-            db_candidates.append((cand, cand.model_copy(update={"candidate_id": str(db_id)})))
-
-    rag_service = RagService(MaterialRepo(conn), get_search_provider())
-    run_context = {"recommendation_run_id": str(run_id)}
-    checks = []
-    for _catalog_cand, db_cand in db_candidates:
-        outcome = verify_and_persist_baby_candidate(
-            conn=conn, rag_service=rag_service, run_id=run_id,
-            candidate=db_cand.model_dump(), conditions=conditions,
-        )
-        check = outcome["check"]
-        checks.append(check)
-        explanation = explain_baby_candidate(rag_service, db_cand.model_dump(), check, run_context)
-        if explanation.status == "ready" and explanation.text:
-            erepo.update_candidate_reason(UUID(db_cand.candidate_id), explanation.text)
-        elif explanation.status == "failed":
-            erepo.fail_candidate_reason(UUID(db_cand.candidate_id))
-
-    profile = load_baby_optimizer_profile()
-    ranked, decision = run_baby_optimizer(
-        requirements=requirements, candidates=[c for _o, c in db_candidates], checks=checks,
-        owned_items=[], budget_max=conditions.get("budget_max"), profile=profile,
-    )
-
-    # `recommendation_candidate` stores every candidate considered for a requirement,
-    # while its `selected` column is the actual result-screen basket state.  The
-    # database default is true for backwards-compatible manual additions, so leaving
-    # non-winning candidates untouched makes every alternative appear in the cart.
-    # Persist the optimizer's complete decision, including explicit false values.
-    decision_by_candidate_id = {
-        item.candidate_id: item for item in decision.items if item.candidate_id
-    }
-    selected_candidate_ids = {
-        candidate_id for candidate_id, item in decision_by_candidate_id.items()
-        if item.selected
-    }
-    for _o, db_cand in db_candidates:
-        item = decision_by_candidate_id.get(db_cand.candidate_id)
-        selected = bool(item and item.selected)
-        result = "selected" if selected else "rejected"
-        score = next((s.score for s in ranked.by_requirement.get(db_cand.requirement_id, [])
-                     if s.candidate_id == db_cand.candidate_id), None)
-        erepo._exec(
-            "UPDATE engine.recommendation_candidate "
-            "SET result=%s, score=%s, score_method_version='baby-v1' WHERE id=%s",
-            (result, score, UUID(db_cand.candidate_id)),
-        )
-        # Retain optimizer-provided quantity/timing for a proposed deferred item;
-        # candidates outside the decision keep harmless defaults but are explicitly
-        # excluded from the basket.
-        erepo.update_candidate_state(
-            UUID(db_cand.candidate_id),
-            selected=selected,
-            qty=int(item.qty) if item and item.qty >= 1 else None,
-            timing=item.timing if item else None,
-        )
-
-    headline = _baby_headline(decision.missing_requirements, feasible=decision.feasible)
-    trace = [
-        {"step": "조건 정리", "title": "조건 정리", "detail": f"필요 항목 {len(requirements)}개"},
-        {"step": "후보 검증", "title": "후보 검증",
-         "detail": f"후보 {len(db_candidates)}개 중 선택 {len(selected_candidate_ids)}개"},
-        {"step": "예산 배분", "title": "예산 배분", "detail": headline},
-    ]
-    erepo.set_explanation(
-        run_id, headline=headline,
-        text=headline,
-        reasoning_log=trace,
-    )
-
-
-def verify_and_persist_baby_candidate(*, conn, rag_service, run_id, candidate: dict, conditions: dict) -> dict:
-    """후보 하나의 검증(verify_baby_candidate)과 설명(explain_baby_candidate)을 각자
-    별도의 RAG 질의로 수행하고, persist_candidate_check로 원자적으로 저장한다.
-
-    이전 verify_and_explain_baby_candidate는 검증과 설명에 동일한 SearchRequest를
-    재사용해 explanation hit이 항상 validation hit과 같아지는 결함이 있었다(P3
-    CONTRACTS VE05). verify_baby_candidate/explain_baby_candidate는 서로 다른 질의를
-    쓰므로 인용 근거가 실제로 달라질 수 있다 — 이것이 실제 동작이지 버그가 아니다.
-    """
-    from src.engine.stage3c_verify import verify_baby_candidate
-    from src.engine.stage5_explain import explain_baby_candidate
-
-    run_context = {"recommendation_run_id": str(run_id)}
-    check = verify_baby_candidate(rag_service, candidate, conditions, run_context)
-    explanation = explain_baby_candidate(rag_service, candidate, check, run_context)
-    from src.repo.engine_repo import EngineRepo
-
-    repo = EngineRepo(conn)
-    for issue in check.issues:
-        # v3 dropped engine.validation_target — the candidate/requirement link lives
-        # only in issues[].target, so it must actually be persisted here (matches
-        # EngineRepo.persist_candidate_check's contract; this loop previously
-        # dropped `target` by omitting `issues=`, which silently broke every reader
-        # that JOINs on issue #>> '{target,...}' — e.g. _stored_baby_missing_requirements).
-        repo.add_validation(
-            run_id,
-            rule_key=issue["rule_key"], rule_version=issue.get("rule_version", "v1"),
-            executor_version="baby-rag-v1", status=issue["status"], severity=issue["severity"],
-            measured_values=issue.get("measured") or {}, threshold=issue.get("threshold") or {},
-            message=issue.get("reason") or issue["rule_key"], checked_at=datetime.now(timezone.utc),
-            issues=[issue],
-        )
-    return {"check": check, "explanation": explanation}
 
 
 
@@ -744,54 +440,6 @@ def _item_checks(item: dict, validations: list[dict], lang: str = "ko",
     return {"status": "ready", "text": " · ".join(parts)}
 
 
-def _stored_baby_missing_requirements(conn, run_id: UUID, revision_id: UUID) -> list[dict]:
-    """Rebuild user-visible blockers from persisted candidates and validations.
-
-    This is deliberately read-only: GET /result must never rerun retrieval or
-    recommendation just to explain an already completed run.
-    """
-    from psycopg.rows import dict_row
-    rows = conn.cursor(row_factory=dict_row).execute(
-        """SELECT r.id AS requirement_id, n.template_key AS slot_key,
-                  r.quantity AS required_qty, r.match_spec,
-                  count(DISTINCT c.id) AS candidate_count,
-                  bool_or(c.selected) AS selected,
-                  array_agg(DISTINCT v.message) FILTER (WHERE v.status IN ('unknown','fail')) AS blockers
-             FROM planning.requirement r
-             JOIN planning.plan_node n ON n.id=r.node_id
-             LEFT JOIN engine.recommendation_candidate c
-               ON c.requirement_id=r.id AND c.run_id=%s
-             LEFT JOIN engine.validation_result v ON v.run_id=%s AND (
-                  EXISTS (SELECT 1 FROM jsonb_array_elements(v.issues) issue
-                           WHERE issue #>> '{target,requirement_id}' = r.id::text)
-                  -- Compatibility for runs persisted before issue payloads were added.
-                  OR v.measured_values->>'slot_key' = n.template_key)
-            WHERE r.revision_id=%s AND r.required=true AND r.status='active'
-            GROUP BY r.id, n.template_key, n.position, r.quantity, r.match_spec
-            ORDER BY n.position""",
-        (run_id, run_id, revision_id),
-    ).fetchall()
-    missing = []
-    for row in rows:
-        if row["selected"]:
-            continue
-        blockers = [reason for reason in (row["blockers"] or []) if reason]
-        if not row["candidate_count"]:
-            code, message, next_action = ("price_or_stock_unavailable", "가격 또는 재고를 확인할 수 있는 후보가 없어요.",
-                                          "다른 조건으로 다시 추천받아 주세요.")
-        elif blockers:
-            code, message, next_action = _blocker_detail(blockers[0])
-        else:
-            code, message, next_action = _blocker_detail(None)
-        missing.append({
-            "requirement_id": str(row["requirement_id"]), "slot_key": row["slot_key"],
-            "required_qty": float(row["required_qty"]), "reason": code,
-            "reason_code": code, "message": message, "next_action": next_action,
-            "blocking_reasons": blockers,
-        })
-    return missing
-
-
 def get_stored_result(conn, revision_id: UUID) -> dict | None:
     """GET /result 가 호출 — 저장된 실행/후보/검증만 읽어 RecommendResult 모양으로 조립한다.
 
@@ -910,27 +558,6 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
         "headline": run.get("explanation_headline"),
         "text": run.get("explanation_text"),
     }
-    if category == "baby":
-        missing = _stored_baby_missing_requirements(conn, run["id"], revision_id)
-        result["missing_requirements"] = missing
-        result["feasible"] = not missing and not result["totals"]["over_budget"]
-        if not result["feasible"]:
-            # Older rows may have the pre-fix generic explanation; the result
-            # contract still exposes an accurate headline after a reload.
-            result["explanation"]["headline"] = _baby_headline(missing, feasible=False)
-        # P3 full-catalog verification (2026-09-14): the only baby candidate path
-        # currently wired up (get_baby_candidates(..., corpus="synthetic") in
-        # execute_recommendation) verifies against synthetic_demo-scope evidence
-        # only — no production evidence has been collected yet (docs/agent-tasks/
-        # baby/P3_full_catalog_verification_execution.md "production_readiness:
-        # blocked"). Every baby result must say so explicitly rather than let a
-        # synthetic-only pass read as a real safety verdict.
-        result["verification"]["synthetic_verification_only"] = True
-        result["verification"]["synthetic_notice"] = L(
-            lang,
-            "이 결과는 합성(가상) 검증 범위에서만 통과했습니다 — 실제 제품 안전 인증이 아닙니다.",
-            "This result only passed within the synthetic (demo) verification scope — it is not a real product safety certification.",
-        )
     result["memo_suggestion"] = memo_suggestion(result, values)
     return result
 
@@ -963,18 +590,6 @@ def patch_item(conn, revision_id: UUID, item_id: UUID, *, selected: bool | None,
     if selected is True:
         values = {r["condition_key"]: r["value"].get("value")
                   for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
-        if values.get("category") == "baby":
-            from psycopg.rows import dict_row
-            validation = conn.cursor(row_factory=dict_row).execute(
-                """SELECT count(*) AS total,
-                          count(*) FILTER (WHERE v.status = 'pass') AS passed
-                     FROM engine.validation_result v
-                    WHERE v.run_id=%s
-                      AND EXISTS (SELECT 1 FROM jsonb_array_elements(v.issues) issue
-                                  WHERE issue #>> '{target,candidate_id}' = %s)""", (run["id"], str(item_id))).fetchone()
-            if not validation["total"] or validation["passed"] != validation["total"]:
-                raise ValidationFailed("검증 기준 또는 근거가 충족되지 않아 이 품목은 담을 수 없습니다.",
-                                       code="selection_not_allowed")
     erepo.update_candidate_state(item_id, selected=selected, qty=qty, timing=timing)
 
     # P8 FB03: selected true→false는 "이 항목을 뺐다" — 담아 두는 동안의 수량/시점 조정은
@@ -1179,53 +794,6 @@ def _parse_swap_request(text: str, known_slots: set[str]) -> tuple[str | None, s
     return slot, direction, is_question
 
 
-_BABY_SLOT_ALIASES = {
-    "기저귀": "diaper", "물티슈": "wipes", "젖병": "bottle", "유모차": "stroller",
-    "카시트": "car_seat", "아기침대": "crib", "체온계": "thermometer",
-}
-
-
-def _handle_baby_result_message(conn, revision_id: UUID, text: str, rows: list[dict]) -> dict:
-    """Small deterministic baby editor used when the optional result agent is off.
-
-    It only identifies an existing candidate row; selection still goes through
-    the service guard, so recognising “add diapers” never turns unknown into
-    an approved choice.
-    """
-    normalized = text.replace(" ", "")
-    slot = next((key for label, key in _BABY_SLOT_ALIASES.items() if label in normalized), None)
-    if slot is None:
-        return {"reply": "요청을 이해하지 못했어요. 어떤 유아용품을 바꿀지 알려주세요. 예: 기저귀 빼줘, 젖병 수량 2개로 바꿔줘.",
-                "result": get_stored_result(conn, revision_id)}
-    matching = [row for row in rows if row["slot"] == slot]
-    if not matching:
-        return {"reply": f"{slot} 후보가 아직 준비되지 않았어요. 조건을 확인한 뒤 다시 추천받아 주세요.",
-                "result": get_stored_result(conn, revision_id)}
-    row = matching[0]
-    if any(word in normalized for word in ("담아", "추가", "넣어")):
-        # The persisted result is the source of the rejection explanation.
-        result = get_stored_result(conn, revision_id)
-        blocker = next((m for m in result.get("missing_requirements", []) if m.get("slot_key") == slot), None)
-        if blocker:
-            label = next((k for k, value in _BABY_SLOT_ALIASES.items() if value == slot), slot)
-            return {"reply": f"{label}은(는) {blocker['message']} {blocker.get('next_action', '')}".strip(), "result": result}
-        try:
-            return {"reply": f"{slot}을(를) 담았어요.",
-                    "result": patch_item(conn, revision_id, row["id"], selected=True, qty=None, timing=None)}
-        except ValidationFailed as exc:
-            return {"reply": str(exc), "result": get_stored_result(conn, revision_id)}
-    if any(word in normalized for word in ("빼", "삭제", "제외")):
-        return {"reply": f"{slot}을(를) 뺐어요.",
-                "result": patch_item(conn, revision_id, row["id"], selected=False, qty=None, timing=None)}
-    quantity = re.search(r"(?:수량)?\s*(\d{1,2})\s*(?:개|팩|개로|팩으로)", text)
-    if quantity:
-        qty = int(quantity.group(1))
-        return {"reply": f"{slot} 수량을 {qty}로 바꿨어요.",
-                "result": patch_item(conn, revision_id, row["id"], selected=None, qty=qty, timing=None)}
-    return {"reply": f"{slot}은(는) 담기, 빼기, 수량 변경을 도와드릴 수 있어요. 원하는 동작을 말씀해 주세요.",
-            "result": get_stored_result(conn, revision_id)}
-
-
 def handle_result_message(
     conn,
     revision_id: UUID,
@@ -1268,8 +836,6 @@ def handle_result_message(
     from src.repo.plan_repo import PlanRepo
     values = {r["condition_key"]: r["value"].get("value")
               for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
-    if values.get("category") == "baby":
-        return _handle_baby_result_message(conn, revision_id, text, rows)
     known_slots = {r["slot"] for r in rows}
     slot, direction, is_question = _parse_swap_request(text, known_slots)
     if slot is None:

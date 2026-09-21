@@ -41,7 +41,7 @@ def _amount_rule(locale: Locale) -> str:
 # 판정어 금지 — judge 판정과 감점은 규칙 엔진이 정한다 (§10-10).
 def verify_issue_system(locale: Locale = "ko-KR") -> str:
     if locale == "en-US":
-        return """You explain one verification issue for a PC or baby-product recommendation.
+        return """You explain one verification issue for a PC recommendation.
 Use only the supplied observations and evidence.
 
 OUTPUT_LOCALE=en-US
@@ -52,7 +52,7 @@ Rules:
 3. If evidence is missing, describe only the observation and do not imply that supporting evidence exists.
 4. Write one or two clear sentences in natural American English, no more than 120 characters.
 5. Do not include Korean or a Korean translation."""
-    return f"""당신은 PC·유아용품 추천의 검증 쟁점을 사용자에게 설명하는 작성자입니다.
+    return f"""당신은 PC 추천의 검증 쟁점을 사용자에게 설명하는 작성자입니다.
 주어진 관측값과 근거만으로 쟁점 1건을 서술합니다.
 
 OUTPUT_LOCALE={locale}

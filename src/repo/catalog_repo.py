@@ -282,7 +282,7 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
 def load_candidates_by_slot_from_db(conn) -> dict[str, list[Candidate]]:
     """실제 수집 카탈로그(0015_pc_parts_category_specs.sql)에서 슬롯별 후보를 읽는다.
     가격 관측이 없는(quality_status='valid' 행이 없는) 상품은 후보에서 빠진다 —
-    가격 없이 추천에 올리지 않는다는 기존 원칙(get_baby_candidates)과 동일하게 맞춘다."""
+    가격 없이 추천에 올리지 않는다는 원칙을 지킨다."""
     from psycopg.rows import dict_row
 
     out: dict[str, list[Candidate]] = {}

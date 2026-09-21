@@ -214,13 +214,13 @@ def _coerce(meta: dict, raw):
             if str(v).lower() == str(s).lower():
                 return v
         raise ValueError(f"허용값은 {allowed} 중 하나")
-    if t in ("int", "money"):          # money: develop 의 baby.yaml 표기 — 저장은 원 단위 정수
+    if t == "int":                     # 저장은 원 단위 정수
         if isinstance(s, bool):
             raise ValueError("정수가 필요")
         if isinstance(s, (int, float)):
             return int(s)
         amount, _ = _parse_money(str(s))
-        if amount is not None and (t != "money" or amount > 0):   # money(develop 의 baby 표기)는 0 이하 거부
+        if amount is not None:
             return amount
         raise ValueError("원 단위 정수로 (예: 1500000 · 150만원 · $1,500)")
     if t == "bool":
