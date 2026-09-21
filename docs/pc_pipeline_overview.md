@@ -1,0 +1,100 @@
+# PC 추천 파이프라인 — 흐름과 현재 상태
+
+브랜치 `pc-catalog-engine`, 2026-09-21 기준. 재현 절차는 [pc_pipeline_quickstart.md](pc_pipeline_quickstart.md),
+테스트 현황은 [test_status.md](test_status.md).
+
+## 한 줄 요약
+
+**큰 파이프라인은 끝까지 이어진다** — 조건 대화 → 추천 → 결과 → 대안·교체 → 확정 → 리포트가 신규 조립과 업그레이드
+모두 HTTP로 통과한다(`scripts/e2e_smoke.py` 39/39). 세부(참조 스펙 데이터, 교체 뒤 전체 재검증, 실제 LLM 검증 등)는 아래
+[미완 목록](#미완-목록)에 있다.
+
+## 흐름
+
+```mermaid
+flowchart TD
+  A["POST /session<br/>익명 세션(list_id)"] --> B["POST /session/{id}/category<br/>computer + mode(build | upgrade)"]
+  B --> C["조건 입력<br/>PATCH /slot · POST /answer(칩) · POST /message · POST /spec-file"]
+  C -->|필수 조건 부족| C
+  C -->|can_recommend| D["POST /session/{id}/recommend → 202"]
+  subgraph ENG["엔진 (백그라운드, recommendation_service.execute_recommendation)"]
+    D --> S2["[2] 요구사양<br/>용도·예산·우선순위 → 슬롯별 목표<br/>업그레이드: 바꿀 부품만 목표, 유지 부품 스펙 해석"]
+    S2 --> S3A["[3-A] 하드 필터<br/>확정 판정 가능한 조건만"]
+    S3A --> S3B["[3-B] 랭킹<br/>가격·성능·밸런스·리뷰 관측·호환 여유"]
+    S3B --> S4["[4] 세트 최적화<br/>슬롯별 top-N 분기한정 + 호환 규칙<br/>실패 시 넓힌 탐색 → 최저가 호환 세트"]
+    S4 --> S3C["[3-C] 세트 검증<br/>규칙 judge + 쟁점 문장"]
+    S3C --> S5["[5] 설명 생성<br/>수치·부품·통과 여부는 코드, 문장만 LLM(또는 템플릿)"]
+  end
+  S5 --> E["GET /session/{id}/result<br/>부품·가격·요약·구매 전 확인·리뷰 관측"]
+  E --> F["대안 GET …/alternatives · 교체 POST …/swap<br/>품목 수정 PATCH …/items/{id} · 결과 화면 대화 POST /result-message"]
+  F --> G["가입/로그인 (게스트 세션 병합)"]
+  G --> H["POST /lists/{id}/confirm<br/>선택 0개·예산 초과·조건 변경(stale)은 거절"]
+  H --> I["GET /lists/{id}/report"]
+```
+
+- 조건 필수 항목: 신규 조립 = 용도·예산·우선순위, 업그레이드 = 여기에 바꿀 부품. 업그레이드에서 사양 파일에 없는 유지 부품
+  정보(플랫폼·RAM 종류·파워 용량)는 필요한 경우에만 칩 질문으로 묻는다(`config/categories/computer.yaml`의 `ask_when`).
+- 추천은 비동기(202 후 폴링)다. `[2]~[4]+검증`과 `[5]` 설명은 별도 트랜잭션이라 부품표가 문장보다 먼저 보인다.
+
+## 규칙·설정이 있는 곳
+
+| 무엇 | 어디 |
+|---|---|
+| 조건 스키마·질문·영어 라벨 | `config/categories/computer.yaml` |
+| 용도별 기본값, 성능 티어, 우선순위 가중치, 소음 프록시, 전력 헤드룸·권장 파워 규칙 | `config/computer_verification_rules.yaml` (`rule_set_version: computer-rules-v5`) |
+| 요구사양(용도 프로필·업그레이드 목표 제한) | `src/engine/stage2_requirement.py` |
+| 유지 부품 스펙 해석·업그레이드 안내문 | `src/engine/owned_parts.py` |
+| 호환 규칙(소켓·메모리·폼팩터 계층·전력·GPU 권장 파워) | `src/engine/stage4_optimize.py` (`_pc_known_failures`) |
+| 후보 로딩(DB → 후보) | `src/repo/catalog_repo.py` |
+| 대안 목록의 호환 필터 | `src/services/recommendation_service.py` (`_drop_incompatible_alternatives`) |
+| 확정 규칙 | `src/services/list_service.py` (`confirm`) |
+| 파이프라인 점검 | `scripts/e2e_smoke.py`, `tests/test_pipeline_http_smoke.py`(HTTP 3개 흐름), `tests/test_pipeline_smoke.py`(엔진 목 시나리오) |
+
+## 이 파이프라인이 지키는 것 (테스트로 고정됨)
+
+- 모르는 것을 호환 불가로 단정하지 않는다 — 스펙을 못 읽은 부품은 "확인 못 함"으로 안내하고 실패로 세지 않는다.
+- 업그레이드에서 유지 부품은 견적에 넣지 않고, 소켓·메모리·크기·전력 호환 검사에만 쓴다.
+- 대안 목록에서 현재 구성과 확정적으로 안 맞는 후보(소켓·메모리·크기·전력)는 뺀다.
+- 결과 항목이 있어도 선택이 0개이면 확정할 수 없다(`no_items_selected`). 예산 초과·조건 변경 뒤 확정도 거절.
+- 재확정은 거절이 아니라 같은 리포트를 돌려준다(멱등) — 이벤트(`plan_confirmed`)는 늘지 않는다.
+- 테스트는 이름에 `test`가 든 DB에만 접속한다(개발 DB 보호).
+
+## 미완 목록
+
+우선순위 = 공유 뒤 다음으로 할 순서. **P2 = 이번 공유 범위 밖(알고 있는 한계)**.
+
+### 데이터
+
+| 항목 | 상태 | 영향 |
+|---|---|---|
+| 참조 스펙 테이블(카탈로그에 없는 구형 부품의 스펙) | 스키마 **초안만** ([db/drafts/](../db/drafts/part_reference_draft.sql), [설명](db/part_reference_schema_draft.md)). 마이그레이션·적재 스크립트 없음 | 업그레이드에서 유지하는 구형 부품은 이름 규칙으로 소켓만 추정. 전력·권장 파워는 알 수 없어 "확인 못 함" |
+| 가격 이상치 점검 | 미수행 (예: RTX 4070 2,697,030원) | 비정상 가격이 추천에 들어갈 수 있음 |
+| 원본 데이터 전달 | xlsx·CSV는 Git에 없음 | 새 체크아웃은 파일을 따로 받아야 재현 가능 |
+| 부속기기(마우스·모니터·스피커·키보드) | DB 적재까지만 | 추천 엔진과 화면에 연결 안 됨 |
+
+### 엔진
+
+| 항목 | 상태 |
+|---|---|
+| 교체(swap) 뒤 세트 전체 재검증 | 대안 목록은 호환 필터를 거치지만, 교체 확정 뒤 세트 전체를 다시 검증하지는 않는다 |
+| 세트 검증 `[3-C]` | 규칙 스캐폴드(RAG 근거 미연결). 신뢰도 점수는 화면에 노출하지 않는다 |
+| 내장 그래픽(iGPU) 조립 | 미지원 — GPU 슬롯은 항상 채운다 |
+| `games` 조건 | 조건 스키마에는 있으나 요구사양·랭킹 코드가 읽지 않는다(추천에 반영 안 됨) |
+| 성능 우선일 때 예산 상한 | 예산 안에서 점수 합을 최대화할 뿐, 예산을 얼마나 남길지(상한 여유) 정책은 미정 |
+| 최적화 범위 | 슬롯별 top-N(CPU·GPU 5, 나머지 3) 안에서만 최적. 실패하면 전체 후보로 넓혀 탐색 후 최저가 호환 세트 |
+
+### LLM·에이전트
+
+| 항목 | 상태 |
+|---|---|
+| 실제 LLM 검증 | 미수행 — 스모크·테스트는 전부 `MOCK_MODE=1` |
+| 조건/결과 대화 에이전트(Strands) | 기본 꺼짐(규칙 경로가 기본). 영어 프롬프트 미구현(xfail 테스트로 표시) |
+| 영어 흐름 | 동작하나 일부 한국어 문구가 섞일 수 있음(목 문장 탓인지 미확인) |
+
+### 화면·계정·범위 밖
+
+| 항목 | 상태 |
+|---|---|
+| 프론트 목업 반영 | 일부(다크 테마 토큰을 5개 흐름 페이지에만 적용) |
+| 인증 강화 | 로그인·가입·확정은 동작. 이메일 확인 호출 제한, 5회 실패 잠금, 비밀번호 변경 시 옛 토큰 무효화, 탈퇴 시 동의 시각 삭제는 **테스트 7건이 실패** — 후순위 |
+| 유아용품(baby) | 범위 밖. 참고 구현으로 남아 있고 관련 테스트 26건이 실패([test_status.md](test_status.md)) |

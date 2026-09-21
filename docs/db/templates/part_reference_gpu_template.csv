@@ -1,0 +1,2 @@
+brand,model,generation,release_year,vram_gb,memory_type,power_w,recommended_psu_w,length_mm_min,length_mm_max,spec_basis,aliases,source_url,verified_at,verified_by,spec_confidence
+NVIDIA,GeForce GTX 1060 6GB,GeForce 10,2016,6,GDDR5,120,400,190,290,제조사 카드별 길이 상이(범위 기재; length_mm 에는 최대값),GTX1060;GTX 1060;지포스 GTX 1060,https://EXAMPLE-원문-URL,2026-09-21,홍길동,estimated

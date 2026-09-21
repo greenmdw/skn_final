@@ -1,0 +1,3 @@
+chipset,vendor,socket,memory_types,release_year,note,source_url
+B450,AMD,AM4,DDR4,2018,,https://EXAMPLE-원문-URL
+B760,Intel,LGA1700,DDR4;DDR5,2023,보드마다 DDR4 또는 DDR5 — 소켓만 확정,https://EXAMPLE-원문-URL
