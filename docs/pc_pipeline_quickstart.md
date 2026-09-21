@@ -21,6 +21,7 @@
 |---|---|---|
 | `data/parts_list_modify.xlsx` | PC 부품 8종(CPU·GPU·RAM·메인보드·저장장치·파워·케이스·쿨러) 카탈로그 원본 | `db/seed_pc_parts_specs.py` 실패 → 추천할 후보가 없음 |
 | `data/peripherals/mouse_processed.csv`, `monitor_processed.csv`, `speaker_processed.csv`, `keyboard_processed.csv` | 부속기기 4종 | `db/seed_peripherals.py` 실패(엔진 추천 경로는 아직 이 데이터를 쓰지 않는다) |
+| `data/amazon23/pcparts_product_risk.json` (약 5MB) | PC 부품 리뷰 관측 산출물(리뷰 축의 입력) | **추천은 되지만 리뷰 관측 축이 꺼진 채(관측 0건)로 계산된다.** 이 파일을 직접 읽는 테스트 2건은 skip |
 
 > 이 커밋 이전(`abb829e`까지)에는 위 파일이 Git에 들어 있었다. 이 브랜치를 pull 하면 **로컬 원본이 지워질 수 있으니**
 > pull 전에 `data/parts_list_modify.xlsx`와 `data/peripherals/*.csv`를 다른 곳에 복사해 두고, pull 후 원래 경로에 되돌린다.
@@ -88,7 +89,8 @@ TEST_DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test uv ru
 TEST_DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test uv run pytest -q
 ```
 
-- 2026-09-21 기준: **898 passed, 34 failed, 6 skipped, 1 xfailed** (약 55초). 실패 34건의 분류는 [test_status.md](test_status.md) —
+- 2026-09-21 기준: **898 passed, 34 failed, 6 skipped, 1 xfailed** (약 55초). 위 원본 파일을 모두 갖춘 경우이며,
+  `data/amazon23/pcparts_product_risk.json`이 없는 새 체크아웃에서는 passed 896 · skipped 8(리뷰 원본을 읽는 2건이 skip). 실패 34건의 분류는 [test_status.md](test_status.md) —
   전부 이 브랜치의 PC 파이프라인 밖이다.
 - 같은 테스트 DB에서 반복 실행해도 결과가 같다(인증 테스트는 시작 시 사용자 표를 비운다 — 일회용 DB에서만).
 - 테스트 DB가 꺼져 있으면 DB가 필요한 테스트는 실패가 아니라 skip으로 보고된다.
