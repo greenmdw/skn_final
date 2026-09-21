@@ -1,6 +1,6 @@
 import pytest
 
-from src.engine.slot_rules import extract_baby, extract_computer
+from src.engine.slot_rules import extract_computer
 from src.services import recommendation_service
 
 
@@ -21,18 +21,6 @@ from src.services import recommendation_service
 ])
 def test_english_computer_message_extracts_conditions(message, expected):
     assert extract_computer(message) == expected
-
-
-def test_english_baby_message_extracts_conditions():
-    extracted = extract_baby(
-        "My baby is 12 months old. We need feeding bottles, diapers, sleep items and a stroller. "
-        "The baby has sensitive skin. Budget is 500 thousand won."
-    )
-
-    assert extracted["age_months"] == 12
-    assert extracted["budget_max"] == 500_000
-    assert extracted["health_skin"] == ["민감성 피부"]
-    assert extracted["needs"] == ["수유", "수면", "외출", "기저귀·배변"]
 
 
 @pytest.mark.parametrize(("message", "expected"), [

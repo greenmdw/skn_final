@@ -40,7 +40,7 @@ def test_guest_list_lifecycle_and_ownership():
         pytest.skip('requires app database')
     with TestClient(app) as a:
         lid = a.post('/session').json()['list_id']
-        assert a.post(f'/session/{lid}/category', json={'category': 'baby', 'mode': 'born'}).status_code == 200
+        assert a.post(f'/session/{lid}/category', json={'category': 'computer', 'mode': 'build'}).status_code == 200
         assert lid in [x['list_id'] for x in a.get('/lists').json()['items']]
         with TestClient(app) as b:
             assert b.patch(f'/lists/{lid}', json={'name': 'intruder'}).status_code == 404

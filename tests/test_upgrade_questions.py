@@ -99,7 +99,7 @@ def test_category_definitions_serialise_the_way_the_seed_does():
     # TypeError 로 시드가 죽어 새 DB 를 준비할 수 없다 — 실제로 한 번 그랬다.
     import json
 
-    for category in ("computer", "baby"):
+    for category in ("computer",):
         json.dumps(load_category(category), sort_keys=True, ensure_ascii=False)
 
 

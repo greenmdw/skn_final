@@ -47,7 +47,7 @@ def test_computer_summary_fields_are_fully_localized():
 
 
 def test_all_configured_condition_copy_has_english_variants():
-    for category in ("computer", "baby"):
+    for category in ("computer",):
         definition = load_category(category)
         for field in definition["fields"]:
             assert field.get("label_en"), (category, field["key"])

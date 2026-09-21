@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.engine.slot_rules import _parse_won, extract_baby, extract_computer
+from src.engine.slot_rules import _parse_won, extract_computer
 
 
 @pytest.mark.parametrize("raw, expected", [
@@ -30,8 +30,7 @@ def test_parse_won_does_not_mistake_grammar_particles_for_digits():
     assert _parse_won("보유 물품이 없어요") is None
 
 
-def test_extract_baby_and_computer_pick_up_korean_word_budget():
-    assert extract_baby("예산은 삼백만원이요")["budget_max"] == 3_000_000
+def test_extract_computer_picks_up_korean_word_budget():
     out = extract_computer("게임용이고 예산은 백오십만원이요")
     assert out["budget_max"] == 1_500_000
     assert out["purpose"] == "game"

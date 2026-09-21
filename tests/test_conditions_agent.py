@@ -50,17 +50,9 @@ def test_unknown_and_file_fields_are_refused():
 
 
 def test_list_splits_on_comma_only():
-    d = _draft("baby")
-    d.set("needs", "수유, 이유식·식사")
-    assert d.patches["needs"] == ["수유", "이유식·식사"]   # '·' 는 선택지 라벨 일부
-
-
-def test_list_none_option_normalises_to_none():
-    d = _draft("baby")
-    d.set("health_skin", "특이사항 없음")
-    d.set("owned_items", "none")
-    assert d.patches["health_skin"] == ["none"]
-    assert d.patches["owned_items"] == ["none"]
+    d = _draft("computer")
+    d.set("games", "발로란트·롤, 배그")
+    assert d.patches["games"] == ["발로란트·롤", "배그"]   # '·' 는 구분자가 아니다
 
 
 def test_nullable_int_clears_and_bool_parses():
@@ -77,25 +69,14 @@ def test_nullable_int_clears_and_bool_parses():
     ("300만", 3_000_000), ("300만원", 3_000_000), ("3000000", 3_000_000), ("3,000,000", 3_000_000),
     ("삼백만원", 3_000_000),
 ])
-def test_money_type_parses_like_int(raw, expected):
-    # baby.yaml 의 budget_max 는 type: money — int 전용 분기만 있으면 항상 실패했었다
-    d = _draft("baby")
+def test_budget_amount_parses_like_int(raw, expected):
+    d = _draft("computer")
     out = d.set("budget_max", raw)
     assert not out.startswith("오류"), out
     if isinstance(expected, str) and expected.startswith("USD:"):
         assert d.patches["budget_max"] == round(int(expected[4:]) * ca.USD_KRW_RATE) and d.patches["currency"] == "USD"
     else:
         assert d.patches["budget_max"] == expected
-
-
-def test_money_type_nullable_clears_and_rejects_non_positive():
-    d = _draft("baby")
-    d.set("budget_max", "null")
-    assert d.patches["budget_max"] is None
-    msg = d.set("budget_max", "0")
-    assert msg.startswith("오류") and d.patches["budget_max"] is None   # 실패한 set 은 이전 값을 안 건드린다
-    msg = d.set("budget_max", "-100")
-    assert msg.startswith("오류")
 
 
 def test_extra_appends_without_duplicates():
@@ -118,10 +99,9 @@ def test_tool_result_carries_next_question_from_rules():
 
 # ── 프롬프트 ───────────────────────────────────────────────────────────────
 def test_system_prompt_lists_option_codes_and_language():
-    d = _draft("baby", {"category": "baby"})
-    p = ca.system_prompt(d, "출산 예정이에요")
-    assert "0~3개월→1" in p                  # 현재 유아 질문 칩의 라벨→값 매핑이 모델에 보인다
-    assert '"특이사항 없음" 이면 값은 none' in p
+    d = _draft("computer", {"category": "computer"})
+    p = ca.system_prompt(d, "게임용 PC 맞추려고요")
+    assert '게임→"game"' in p                # 질문 칩의 라벨→값 매핑이 모델에 보인다
     assert p.endswith("답변 언어: 한국어 존댓말.")
     assert ca.system_prompt(d, "we're expecting").endswith("including the closing question.")
 
