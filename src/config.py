@@ -99,6 +99,8 @@ CONFIG_DIR: Path = ROOT / "config"
 CATEGORY_DIR: Path = CONFIG_DIR / "categories"
 SCENARIO_DIR: Path = DATA_DIR / "scenarios"
 FRONTEND_DIR: Path = ROOT / "frontend"
+WEB_DIST_DIR: Path = ROOT / "web" / "dist"   # 새 React 프론트 빌드 결과(cd web && npm run build)
+FRONTEND_MODE: str = os.getenv("TRUEFIT_FRONTEND", "auto")   # auto | spa | legacy — src/frontend_serving.py
 
 # 리뷰 관계·행동 축 — 배치(review_cleanse_worker) 산출물과 데모 부품 ↔ ASIN 매핑.
 # 산출 JSON 이 없으면 ProductRiskStore 는 None 이고 호출자는 "관측 없음" 으로 다룬다

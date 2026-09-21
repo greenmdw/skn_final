@@ -17,6 +17,9 @@ import os
 # src.config 를 import 하기 전에 정한다(config 가 .env 를 읽되 이미 있는 환경변수는 덮지 않는다).
 os.environ.setdefault("MOCK_MODE", "1")
 os.environ.setdefault("PGCONNECT_TIMEOUT", "3")
+# web/dist(새 React 프론트 빌드)가 있어도 기존 서빙 테스트는 옛 frontend/ 를 대상으로 한다. SPA 모드는
+# tests/test_frontend_spa_serving.py 가 임시 폴더로 따로 검사한다.
+os.environ.setdefault("TRUEFIT_FRONTEND", "legacy")
 _TEST_URL = os.environ.get("TEST_DATABASE_URL")
 if _TEST_URL:
     os.environ["DATABASE_URL"] = _TEST_URL

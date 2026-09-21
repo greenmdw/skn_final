@@ -1,0 +1,10 @@
+import type { Part } from '../../../state/types'
+
+// 목업용 가상 데이터입니다. 실제 서비스에서는 백엔드 추천 API 응답으로 교체됩니다.
+export const fakeParts: Record<'cpu' | 'gpu' | 'ram' | 'ssd' | 'monitor', Part> = {
+  cpu: { type: 'CPU', name: 'AMD Ryzen 7 9700X', price: '448,300원', meta: 'CPU · 8코어 · AM5', source: 'Best Buy API · $319 × 환율', action: '지금 구매', actionClass: '', score: '편집 성능 92점', fit: '4K 영상 편집을 우선한 요청에 맞춰 8코어 성능과 AM5 업그레이드 경로를 함께 확보했습니다.', reasonTitle: '영상 편집의 중심 연산을 맡습니다', tags: ['4K 편집', 'AM5', '예산 균형'], rating: '4.7', reviews: '1,284개', label: 'R7' },
+  gpu: { type: 'GPU', name: 'GeForce RTX 5070 12GB', price: '841,800원', meta: 'GPU · QHD 144Hz 목표', source: 'Best Buy API · $599 × 환율', action: '가격 추적', actionClass: 'track', score: 'QHD 144Hz 96점', fit: 'QHD 울트라 옵션에서 높은 프레임을 확보하면서 영상 편집 가속까지 담당합니다.', reasonTitle: '게임 프레임과 편집 가속을 함께 높입니다', tags: ['QHD 144Hz', '12GB VRAM', 'GPU 가속'], rating: '4.6', reviews: '932개', label: 'RTX' },
+  ram: { type: 'RAM', name: 'DDR5-6000 64GB', price: '221,400원', meta: 'RAM · 32GB × 2 · CL30', source: 'Best Buy API · $157.55 × 환율', action: '지금 구매', actionClass: '', score: '작업 여유 94점', fit: '4K 타임라인과 여러 앱을 동시에 열어도 여유가 있도록 64GB로 구성했습니다.', reasonTitle: '대용량 편집 프로젝트의 여유를 만듭니다', tags: ['64GB', 'DDR5-6000', '멀티태스킹'], rating: '4.8', reviews: '2,106개', label: '64' },
+  ssd: { type: 'SSD', name: 'PCIe 4.0 NVMe 2TB', price: '181,300원', meta: 'SSD · DRAM 탑재', source: 'Best Buy API · $129 × 환율', action: '지금 구매', actionClass: '', score: '읽기 7,400MB/s', fit: '원본 영상과 게임을 함께 보관하고 편집 캐시 응답성을 높이는 선택입니다.', reasonTitle: '프로젝트 로딩과 캐시 대기를 줄입니다', tags: ['2TB', 'DRAM', 'PCIe 4.0'], rating: '4.7', reviews: '3,842개', label: '2T' },
+  monitor: { type: '모니터', name: '27″ QHD 180Hz IPS', price: '364,000원', meta: '모니터 · 보조 화면 확장', source: 'Best Buy API · $259 × 환율', action: '6개월 후', actionClass: 'later', score: '색 정확도 91점', fit: '게임 주사율과 영상 편집용 색 표현을 모두 만족하며 책상 폭에도 맞습니다.', reasonTitle: '게임과 편집 모두에 맞는 화면입니다', tags: ['27인치', 'QHD', '180Hz IPS'], rating: '4.5', reviews: '718개', label: '27' },
+}

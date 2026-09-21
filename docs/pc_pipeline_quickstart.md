@@ -10,6 +10,7 @@
 | 항목 | 내용 |
 |---|---|
 | Python | 3.11 (`pyproject.toml`: `==3.11.*`), 패키지 관리 `uv` |
+| Node.js | 22.12 이상 — 새 프론트(`web/`) 빌드용. 없어도 백엔드·테스트는 돈다(옛 프론트로 대체) |
 | PostgreSQL 16 + pgvector | Docker 없이 conda로 띄우는 방법과 Docker 방법 모두 [db/README.md](../db/README.md) 「사전 준비」 |
 | **Git에 없는 원본 파일 (필수)** | 아래 표. 없으면 카탈로그 적재 단계에서 멈춘다 |
 
@@ -61,15 +62,31 @@ DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test python db/
 
 (같은 DB에 유아용품·부속기기 상품도 함께 적재된다. `setup_all.py`는 멱등이라 다시 돌려도 된다.)
 
-## 3. 서버 띄우기
+## 3. 프론트 빌드, 서버 띄우기, 웹 확인
+
+새 프론트는 `web/`(React + TypeScript + Vite)에 있다. **Node.js 22.12 이상**이 필요하고, 빌드 결과(`web/dist`)는 Git에 없다.
 
 ```bash
+cd web && npm ci && npm run build && cd ..        # 새 프론트 빌드 (한 번)
 DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit uv run uvicorn src.api:app --port 8000
-# 프론트(정적) — 다른 터미널
-uv run python -m http.server 5500 --bind 127.0.0.1 --directory frontend
 ```
 
-`http://127.0.0.1:5500`에서 카테고리 선택 → 조건 → 추천 → 확정 흐름을 볼 수 있다. API 문서는 `http://127.0.0.1:8000/docs`.
+`http://127.0.0.1:8000/`에서 랜딩 → 새 PC 구성(대화 → 분석 → 구성) → 확정(로그인 필요) → 리포트를 볼 수 있다. API 문서는 `/docs`.
+서버가 프론트도 함께 서빙하므로 **서버는 하나면 된다**(화면 경로 `/plan` 등을 새로고침해도 열린다).
+
+| 상황 | 방법 |
+|---|---|
+| 프론트를 고치면서 확인 | 서버를 8000에 띄운 채 `cd web && npm run dev` → `http://127.0.0.1:5173` (API 경로는 vite가 8000으로 넘긴다. 백엔드 주소는 `BACKEND_URL`) |
+| 백엔드 없이 화면만 | `cd web && VITE_API_MODE=mock npm run dev` (고정 샘플 데이터) |
+| 옛 정적 프론트(`frontend/`)로 | `TRUEFIT_FRONTEND=legacy` — 기본(`auto`)은 `web/dist`가 있으면 새 프론트, 없으면 옛 프론트 |
+
+프론트 검사: `cd web && npm run build && npm run lint && npm test` (변환 로직과, 실제 백엔드 응답을 캡처한 계약 테스트).
+
+- **실제 LLM 호출을 피하려면** `.env`의 `MOCK_MODE=1`(`.env.example` 기본값)을 확인한다. `MOCK_MODE=0`에 `OPENAI_API_KEY`가 있고
+  `CONDITIONS_AGENT=1`이면 입력한 문장이 외부 LLM으로 나가고 비용이 든다. 환경 변수로 덮어써도 된다(`.env`는 이미 설정된
+  환경 변수를 덮지 않는다): `MOCK_MODE=1 CONDITIONS_AGENT=0 RESULT_AGENT=0 uv run uvicorn …`
+- 웹에서 만든 세션·가입 정보는 그 DB에 남는다. 연습용이면 테스트 DB(`…/truefit_test`)를 가리켜 띄운다.
+- 화면의 401(`/auth/me`)은 로그인 전 게스트 상태의 정상 응답이다.
 
 ## 4. 파이프라인이 끝까지 되는지 확인 (가장 빠른 방법)
 
@@ -89,8 +106,8 @@ TEST_DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test uv ru
 TEST_DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test uv run pytest -q
 ```
 
-- 2026-09-21 기준: **898 passed, 34 failed, 6 skipped, 1 xfailed** (약 55초). 위 원본 파일을 모두 갖춘 경우이며,
-  `data/amazon23/pcparts_product_risk.json`이 없는 새 체크아웃에서는 passed 896 · skipped 8(리뷰 원본을 읽는 2건이 skip). 실패 34건의 분류는 [test_status.md](test_status.md) —
+- 2026-09-21 기준: **919 passed, 34 failed, 6 skipped, 1 xfailed** (약 70초). 위 원본 파일을 모두 갖춘 경우이며,
+  `data/amazon23/pcparts_product_risk.json`이 없는 새 체크아웃에서는 passed 917 · skipped 8(리뷰 원본을 읽는 2건이 skip). 실패 34건의 분류는 [test_status.md](test_status.md) —
   전부 이 브랜치의 PC 파이프라인 밖이다.
 - 같은 테스트 DB에서 반복 실행해도 결과가 같다(인증 테스트는 시작 시 사용자 표를 비운다 — 일회용 DB에서만).
 - 테스트 DB가 꺼져 있으면 DB가 필요한 테스트는 실패가 아니라 skip으로 보고된다.

@@ -2,11 +2,11 @@
 
 ```
 TEST_DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test uv run pytest -q
-→ 898 passed, 34 failed, 6 skipped, 1 xfailed  (약 55초, 같은 DB에서 반복 실행해도 동일)
+→ 919 passed, 34 failed, 6 skipped, 1 xfailed  (약 70초, 같은 DB에서 반복 실행해도 동일)
 ```
 
 재현 절차는 [pc_pipeline_quickstart.md](pc_pipeline_quickstart.md). 아래 분류는 전체 실행 결과를 파일별로 나눈 것이다.
-(위 숫자는 `data/amazon23/pcparts_product_risk.json`이 있을 때다. 없는 새 체크아웃은 passed 896 · skipped 8 — 리뷰 원본을 읽는 2건이 skip.)
+(위 숫자는 `data/amazon23/pcparts_product_risk.json`이 있을 때다. 없는 새 체크아웃은 passed 917 · skipped 8 — 리뷰 원본을 읽는 2건이 skip.)
 
 ## 요약
 
