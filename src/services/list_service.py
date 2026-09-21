@@ -118,6 +118,9 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
     stored = recommendation_service.get_stored_result(conn, revision["id"])
     if stored is None or stored["status"] != "done" or not stored["items"]:
         raise ValidationFailed("추천 결과가 아직 없습니다. 먼저 추천을 완료해 주세요.", code="no_items_selected")
+    # 결과 항목이 있어도 전부 선택 해제했다면 확정할 것이 없다(빈 리스트·0원 리포트가 만들어지던 결함).
+    if not stored["totals"].get("selected_units"):
+        raise ValidationFailed("선택한 품목이 없습니다. 하나 이상 선택한 뒤 확정해 주세요.", code="no_items_selected")
     if stored["totals"]["over_budget"]:
         raise ValidationFailed("선택한 구성이 예산을 초과합니다.", code="over_budget")
     # P7 review R1: confirm must recheck full requirement coverage, not just the

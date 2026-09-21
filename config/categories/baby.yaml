@@ -27,15 +27,15 @@ defaults: {}
 # age_stage 는 저장 필드가 아니라 age_months(+mode)에서 계산되는 표시 전용 필드.
 # 칩으로 고른 age_months 는 대표값(구간)이라 "assumed"로, 자유입력 정확 개월수는 "confirmed"로 표시한다.
 fields:
-  - { key: age_stage, label: "아이 연령대", computed: age_months, mode_only: born }
-  - { key: due_date, label: "출산 예정일", mode_only: prenatal }
-  - { key: needs, label: "필요한 영역" }
-  - { key: health_skin, label: "건강·피부 특성" }
-  - { key: owned_items, label: "이미 보유한 물품" }
-  - { key: budget_max, label: "예산" }
-  - { key: currency, label: "통화", display: { KRW: "원화", USD: "달러" }, display_en: { KRW: "KRW", USD: "USD" } }
-  - { key: weight_kg, label: "몸무게(kg)", mode_only: born }
-  - { key: independent_sitting, label: "혼자 앉기 가능", mode_only: born }
+  - { key: age_stage, label: "아이 연령대", label_en: "Baby's age", computed: age_months, mode_only: born }
+  - { key: due_date, label: "출산 예정일", label_en: "Due date", mode_only: prenatal }
+  - { key: needs, label: "필요한 영역", label_en: "Needs" }
+  - { key: health_skin, label: "건강·피부 특성", label_en: "Health & skin" }
+  - { key: owned_items, label: "이미 보유한 물품", label_en: "Items you already have" }
+  - { key: budget_max, label: "예산", label_en: "Budget" }
+  - { key: currency, label: "통화", label_en: "Currency", display: { KRW: "원화", USD: "달러" }, display_en: { KRW: "KRW", USD: "USD" } }
+  - { key: weight_kg, label: "몸무게(kg)", label_en: "Baby's weight", mode_only: born }
+  - { key: independent_sitting, label: "혼자 앉기 가능", label_en: "Sitting independently", mode_only: born }
 
 question_sets:
   - { id: q_age, select: single, maps_to: age_months, mode_only: born, exact: false,
