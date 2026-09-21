@@ -2,8 +2,6 @@
 
 pandas 가 없는 환경(API 전용 venv)에서는 건너뛴다. 배치 의존성은 배치에서만.
 """
-import json
-
 import pytest
 
 pd = pytest.importorskip("pandas")

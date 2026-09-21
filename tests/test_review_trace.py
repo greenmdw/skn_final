@@ -40,23 +40,23 @@ def test_no_steps_when_nothing_observed(lines):
 
 def test_explanation_text_appends_caveats():
     text = explanation_text_with_caveats(
-        ["CPU — 조건 충족, 1순위", "GPU — 조건 충족, 1순위"],
+        "예산 안에서 게임 성능을 우선한 구성입니다.",
         ["케이스 리뷰 관측: 7일 몰림이 부류 중앙값의 2배를 넘습니다"],
     )
-    assert text.startswith("- CPU — 조건 충족, 1순위")
+    assert text.startswith("예산 안에서 게임 성능을 우선한 구성입니다.")
     assert "확인이 필요한 것:" in text
-    assert "케이스 리뷰 관측" in text
+    assert "- 케이스 리뷰 관측" in text
 
 
-def test_explanation_text_without_caveats_is_reasons_only():
-    text = explanation_text_with_caveats(["CPU — 조건 충족"], [])
-    assert text == "- CPU — 조건 충족"
+def test_explanation_text_without_caveats_is_summary_only():
+    text = explanation_text_with_caveats("예산 안에서 게임 성능을 우선한 구성입니다.", [])
+    assert text == "예산 안에서 게임 성능을 우선한 구성입니다."
     assert "확인이 필요한 것" not in text
 
 
 def test_explanation_text_uses_english_heading_for_english_result():
     text = explanation_text_with_caveats(
-        ["CPU — meets the requirements"],
+        "A gaming build within budget.",
         ["Evidence for review authenticity could not be verified."],
         locale="en-US",
     )

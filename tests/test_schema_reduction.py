@@ -14,7 +14,6 @@ from pathlib import Path
 
 import psycopg
 import pytest
-from pydantic import ValidationError
 
 from src.schemas import ConditionState, RecommendResultOut
 
@@ -31,6 +30,12 @@ EXPECTED_CHAIN = [
     "0011_drop_rag_schema.sql", "0012_schema_reduction_safe_subset.sql",
     "0013_result_item_interaction.sql",
 ]
+# develop 이후 이 브랜치(PC 카탈로그 엔진)가 더한 마이그레이션 — develop 사슬은 그대로 앞에 있어야 하고, 뒤에 이것만 붙는다.
+BRANCH_MIGRATIONS = [
+    "0014_candidate_checks.sql", "0015_pc_parts_category_specs.sql", "0016_peripheral_specs.sql",
+]
+# 위 세 마이그레이션이 만든 표 수(develop 의 38개에 더해진다). 마이그레이션을 더하면 함께 고친다.
+BRANCH_EXTRA_TABLES = 13
 
 # Tables/schemas the rag-branch's "full reduction" (0010-0015 under that design)
 # removed but develop's actual schema keeps — must exist after this chain.
@@ -54,9 +59,9 @@ NEVER_TABLES = ["planning.item"]
 
 def test_migration_chain_matches_develop_exactly():
     actual = sorted(f.name for f in MIGRATIONS.glob("*.sql"))
-    assert actual == EXPECTED_CHAIN, (
-        "migration set drifted from develop `da79839` — got extra/missing files: "
-        f"{set(actual) ^ set(EXPECTED_CHAIN)}"
+    assert actual == EXPECTED_CHAIN + BRANCH_MIGRATIONS, (
+        "migration set drifted from develop `da79839` + branch additions — got extra/missing files: "
+        f"{set(actual) ^ set(EXPECTED_CHAIN + BRANCH_MIGRATIONS)}"
     )
 
 
@@ -138,4 +143,7 @@ def test_d0_01_real_db_has_exact_develop_table_set():
             "SELECT count(*) FROM information_schema.tables WHERE table_schema NOT IN "
             "('pg_catalog','information_schema','_migrations') AND table_type='BASE TABLE'"
         ).fetchone()[0]
-        assert total == 38, f"expected develop's 38 tables (58 -> 38 per commit 046eb84), got {total}"
+        expected = 38 + BRANCH_EXTRA_TABLES
+        assert total == expected, (
+            f"expected develop's 38 tables (58 -> 38 per commit 046eb84) + {BRANCH_EXTRA_TABLES} branch tables, got {total}"
+        )

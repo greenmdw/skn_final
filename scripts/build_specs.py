@@ -38,7 +38,7 @@ import shutil
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urlparse, quote
@@ -276,7 +276,6 @@ def _extract_pairs(soup: BeautifulSoup) -> list[tuple[str, str]]:
     # Intel ARK: <span data-key="SocketsSupported">  + 인접 값
     for el in soup.select("[data-key]"):
         k = el.get("data-key", "")
-        sib = el.find_next(string=False)
         val = el.parent.get_text(" ", strip=True) if el.parent else el.get_text(" ", strip=True)
         pairs.append((k, val))
     # 일반 div 쌍: class에 label/spec-name/tech-label 포함 → 다음 형제가 값

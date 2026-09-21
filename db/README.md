@@ -105,3 +105,19 @@ phase 방식(테이블 전부 → 제약 전부 → 인덱스 전부)을 쓴 이
 - 한국어 tokenizer 확정 후 `document_chunk.search_vector` 생성 규칙
 
 → 이 항목들은 `src/repo/` 저장 서비스 계층 + 소수의 가드 트리거로 구현. 별도 마이그레이션(`0006_guard_triggers.sql` 등)으로 추가.
+
+## 테스트용 일회용 DB (개발 DB 보호)
+
+`pytest`(tests/conftest.py)는 **이름에 `test`가 들어간 DB로만** 접속한다. 개발 DB(`truefit`)에는 테스트가 익명 세션·추천
+기록을 쌓지 않도록 접속을 차단하고, 그 때문에 못 도는 테스트는 실패가 아니라 skip으로 보고된다.
+
+```bash
+# 1) 일회용 DB를 만들고 같은 절차로 준비 (개발 DB와 같은 서버여도 된다)
+psql -c "create database truefit_test" postgresql://truefit:truefit@localhost:5432/postgres
+DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test python db/setup_all.py
+# 2) 테스트는 TEST_DATABASE_URL 로 그 DB를 가리킨다 (DATABASE_URL·RAG_TEST_DATABASE_URL 을 함께 덮는다)
+TEST_DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test uv run pytest
+```
+
+- 보호를 끄려면 `TRUEFIT_ALLOW_ANY_DB=1` (개발 DB에 테스트 데이터가 쌓인다).
+- 테스트는 `MOCK_MODE=1`(LLM 실호출 없음)과 `PGCONNECT_TIMEOUT=3`(DB가 꺼져 있어도 몇 초 안에 실패)이 기본이다.

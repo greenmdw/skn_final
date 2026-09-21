@@ -43,7 +43,8 @@ def test_english_baby_message_extracts_conditions():
     ("Tell me about the GPU", None),
 ])
 def test_result_change_direction_is_bilingual(message, expected):
-    assert recommendation_service._result_change_direction(message) == expected
+    _slot, direction, _is_question = recommendation_service._parse_swap_request(message, {"CPU", "GPU"})
+    assert direction == expected
 
 
 @pytest.mark.parametrize("message", [

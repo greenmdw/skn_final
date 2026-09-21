@@ -30,6 +30,15 @@ if DSN:
     from src.api import app
     from src.auth.ratelimit import reset_all as _reset_rate_limits
 
+    @pytest.fixture(scope="module", autouse=True)
+    def _clean_identity_tables():
+        """이 파일의 테스트는 고정 이메일로 가입한다 — 같은 DB 에서 두 번째 실행부터 409(email_taken)로 깨졌다.
+        일회용 DB(이름에 test 포함 — tests/conftest.py 가 이미 보장)에서만 사용자 표를 비우고 시작한다."""
+        assert "test" in DSN.rsplit("/", 1)[-1].split("?")[0].lower(), "사용자 표를 비우는 건 일회용 DB에서만"
+        with psycopg.connect(DSN, autocommit=True) as conn:
+            conn.execute("TRUNCATE identity.app_user CASCADE")
+        yield
+
     @pytest.fixture()
     def client():
         _reset_rate_limits()

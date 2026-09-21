@@ -276,10 +276,11 @@ def test_fb03_confirm_emits_plan_confirmed_once_and_repeat_confirm_emits_none(ra
     assert r.status_code == 200, r.text
     assert _event_count(raw_conn, revision_id, "plan_confirmed") == 1
 
+    # 이미 확정된 목록의 재확정은 거절이 아니라 같은 리포트를 돌려준다(list_service.confirm 의 멱등 처리) — 이벤트는 늘지 않는다.
     r = signed_up.post(f"/lists/{list_id}/confirm", json={"name": "FB03 확정 테스트"})
-    assert r.status_code == 409, r.text
+    assert r.status_code == 200, r.text
     assert _event_count(raw_conn, revision_id, "plan_confirmed") == 1, \
-        "a rejected repeat confirm must not emit a second plan_confirmed"
+        "a repeat confirm must not emit a second plan_confirmed"
 
 
 def test_fb03_shown_dedup_key_is_scoped_per_run_not_per_revision(raw_conn, plan_revision):
