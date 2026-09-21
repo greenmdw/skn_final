@@ -34,6 +34,49 @@ def _review_axis(cand: Candidate) -> tuple[float, list[str]]:
     return _REVIEW_CLEAR, [OBS_FLAG_OBSERVED]
 
 
+_NOISE = "소음"
+
+
+def _scaled(value: float, low: float, high: float) -> float:
+    """low 이하면 1.0, high 이상이면 0.0, 사이는 선형."""
+    return max(0.0, min(1.0, 1 - (value - low) / (high - low)))
+
+
+def _noise_axis(cand: Candidate, slot: str, proxy: dict) -> float:
+    """소음의 물리적 대용값(휴리스틱). 직접 측정값이 없어 CPU/GPU 소비전력과 쿨러 유형으로 본다.
+    정보가 없거나 관련 없는 슬롯은 중립 0.5 — 지어내지 않는다."""
+    specs = cand.specs
+    if slot == "CPU" and specs.get("tdp_w") is not None and "cpu_tdp_w" in proxy:
+        return _scaled(float(specs["tdp_w"]), *proxy["cpu_tdp_w"])
+    if slot == "GPU" and specs.get("power_w") is not None and "gpu_power_w" in proxy:
+        return _scaled(float(specs["power_w"]), *proxy["gpu_power_w"])
+    if slot == "쿨러" and specs.get("cooling_type"):
+        value = (proxy.get("cooler_type") or {}).get(specs["cooling_type"])
+        if value is not None:
+            return float(value)
+    return 0.5
+
+
+def _weights_for(values: dict, ranking: dict) -> tuple[dict[str, float], list[str]]:
+    """priority(성능/가성비/저소음)와 noise_sensitive 로 이번 요청의 축 가중치를 정한다.
+    조건을 안 준 요청은 기본 weights 그대로라 점수가 바뀌지 않는다."""
+    weights = dict(ranking["weights"])
+    notes: list[str] = []
+    priority = values.get("priority")
+    chosen = (ranking.get("priority_weights") or {}).get(priority)
+    if chosen:
+        weights = dict(chosen)
+        notes.append(f"우선순위 {priority}: " + " ".join(f"{k} {v:g}" for k, v in weights.items() if v))
+    floor = ranking.get("noise_sensitive_min_weight", 0)
+    if values.get("noise_sensitive") is True and weights.get(_NOISE, 0.0) < floor:
+        old = weights.get(_NOISE, 0.0)
+        factor = (1 - floor) / (1 - old)
+        weights = {k: (floor if k == _NOISE else v * factor) for k, v in weights.items()}
+        weights.setdefault(_NOISE, floor)
+        notes.append(f"소음 민감: 소음 가중치 {old:g} → {floor:g}, 나머지 축은 비율대로 축소")
+    return weights, notes
+
+
 def _compat_margin(cand: Candidate, slot: str, target: dict) -> float:
     """[2]가 계산해 둔 슬롯 자체의 전력 예산(tdp_budget_w/tgp_budget_w/wattage_min)
     대비 후보 실측값의 여유. 이 시점엔 다른 슬롯이 뭘 뽑을지 몰라 "최종 상대 부품과의
@@ -56,7 +99,8 @@ def _compat_margin(cand: Candidate, slot: str, target: dict) -> float:
     return 0.5
 
 
-def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int, slot: str, target: dict) -> Candidate:
+def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int, slot: str, target: dict,
+           weights: dict[str, float] | None = None) -> Candidate:
     tier = float(cand.specs.get("perf_tier", 5))
     price = cand.price or 1
     review, review_flags = _review_axis(cand)
@@ -67,8 +111,11 @@ def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int, slot: st
         "리뷰": review,
         "호환여유": _compat_margin(cand, slot, target),
     }
-    weights = load_computer_rules()["ranking"]["weights"]
-    raw = sum(weights[k] * v for k, v in b.items())
+    ranking = load_computer_rules()["ranking"]
+    weights = weights if weights is not None else ranking["weights"]
+    if weights.get(_NOISE, 0.0) > 0:   # 소음 축은 가중치가 있을 때만 계산·기록한다 — 기본은 breakdown 불변
+        b[_NOISE] = _noise_axis(cand, slot, ranking.get("noise_proxy") or {})
+    raw = sum(weights.get(k, 0.0) * v for k, v in b.items())
     if cand.verdict == "Pending":
         raw -= PENDING_SCORE_PENALTY
     return cand.model_copy(update={"score": round(raw, 3), "breakdown": {k: round(v, 3) for k, v in b.items()},
@@ -83,10 +130,14 @@ def run(hf: HardFilterResult, spec: RequirementSpec, slots: Slots, log: LogFn) -
     if reason != RISK_STORE_OK:
         log(f"      ⚠ 리뷰축 비활성 — {risk_store_note()} (리뷰 관측 0건으로 계산)")
     ranking = load_computer_rules()["ranking"]
-    rr = RankResult(weights_used=dict(ranking["weights"]))
+    weights, notes = _weights_for(slots.values, ranking)
+    rr = RankResult(weights_used=weights, weight_adjustments=notes)
+    for note in notes:
+        log(f"      가중치 조정 — {note}")
     purpose = slots.values.get("purpose", "game")
     res = slots.values.get("resolution") or load_computer_rules()["requirements"]["default_resolution"]
-    ideals = ranking["ideal_tiers"].get(purpose, {}).get(res, {})
+    by_purpose = ranking["ideal_tiers"].get(purpose) or {}
+    ideals = by_purpose.get(res) or by_purpose.get("default") or {}
     alloc = spec.budget.get("alloc", {})
     total = spec.budget.get("total", 0)
 
@@ -94,10 +145,11 @@ def run(hf: HardFilterResult, spec: RequirementSpec, slots: Slots, log: LogFn) -
         ideal = ideals.get(slot)
         slot_budget = int(total * alloc.get(slot, 0.1)) if total else 1
         target = spec.targets.get(slot, {})
-        scored = sorted((_score(c, ideal, slot_budget, slot, target) for c in cands),
+        scored = sorted((_score(c, ideal, slot_budget, slot, target, weights) for c in cands),
                         key=lambda c: c.score, reverse=True)
         n = TOP_N_IMPACT if slot in ranking["impact_slots"] else TOP_N_DEFAULT
-        top = [c.model_copy(update={"rank": i + 1}) for i, c in enumerate(scored[:n])]
+        ranked_all = [c.model_copy(update={"rank": i + 1}) for i, c in enumerate(scored)]
+        top = ranked_all[:n]
 
         hint = None
         if ideal and top and float(top[0].specs.get("perf_tier", 5)) < ideal - 0.5:
@@ -108,6 +160,8 @@ def run(hf: HardFilterResult, spec: RequirementSpec, slots: Slots, log: LogFn) -
         rr.slots[slot] = {
             "ideal_tier": ideal,
             "ranked": [c.model_dump() for c in top],
+            # top-N으로 자르기 전의 전체 순위. [4]가 top-N 안에 호환 조합이 없을 때만 넓혀 쓴다.
+            "pool": [c.model_dump() for c in ranked_all],
             "bottleneck_hint": hint,
         }
         n_obs = sum(1 for c in scored if c.breakdown.get("리뷰") != _REVIEW_UNKNOWN)

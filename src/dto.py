@@ -46,6 +46,9 @@ class RequirementSpec(BaseModel):
     targets: dict[str, dict[str, Any]] = Field(default_factory=dict)   # slot -> 제약 floor
     link_rules: list[str] = Field(default_factory=list)               # computer
     chain_warnings: list[str] = Field(default_factory=list)           # upgrade
+    # 업그레이드에서 사용자가 그대로 쓰는 부품 — slot -> {name, specs, source(catalog|text|unverified)}.
+    # 견적에는 안 넣고 호환성 검사(소켓·메모리·전력 …)에만 쓴다. 모르는 부품은 키가 없다.
+    owned: dict[str, dict[str, Any]] = Field(default_factory=dict)
     budget: dict[str, Any] = Field(default_factory=dict)              # total, alloc, feasibility
     flags: list[str] = Field(default_factory=list)
     unresolved: list[dict[str, str]] = Field(default_factory=list)

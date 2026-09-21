@@ -17,7 +17,9 @@ def test_explanation_text_is_summary_plus_caveats():
 def test_conditions_lines_exclude_extra_and_note_is_code_owned():
     cond = {"purpose": "game", "priority": "value", "games": ["발로란트", "롤"], "extra": ["흰색 케이스"], "mode": "build"}
     lines = s5._conditions_lines(cond)
-    assert len(lines) == 1 and "용도 game" in lines[0] and "게임 ['발로란트', '롤']" in lines[0]
+    # 리스트를 파이썬 repr("['발로란트', '롤']")로 흘리지 않고 읽히게 넘긴다 — LLM 이 대괄호를 그대로 받던 것을 고쳤다.
+    assert len(lines) == 1 and "용도 game" in lines[0] and "게임 발로란트, 롤" in lines[0]
+    assert "[" not in lines[0]
     assert "흰색" not in lines[0]                       # LLM 에게는 안 보여 준다 — "반영됐다"고 쓰던 것
     note = s5._extra_note(cond)
     assert "'흰색 케이스'" in note and "반영되지 않았습니다" in note

@@ -1,7 +1,7 @@
 # PC requirement, ranking, and set-compatibility policy. Change schema_version when
 # the structure changes; change rule_set_version when policy values change.
 schema_version: 1
-rule_set_version: computer-rules-v1
+rule_set_version: computer-rules-v5
 
 requirements:
   default_resolution: FHD_144
@@ -9,6 +9,57 @@ requirements:
     FHD_144: {gpu: 6, cpu: 6, ram_gb: 16, vram_gb: 8}
     QHD_165: {gpu: 7, cpu: 5, ram_gb: 16, vram_gb: 12}
     4K: {gpu: 9, cpu: 5, ram_gb: 32, vram_gb: 16}
+  # DB 카탈로그에는 CPU/GPU 성능 실측이 없어, 수집된 제조사 등급(lineup)을 임시 티어로 쓴다.
+  # game_tiers/ideal_tiers 와 같은 1~10 눈금이다. 같은 등급 안의 세대·모델 차이는 구분하지
+  # 못하는 거친 대용품이며, 벤치마크 수집 뒤 실측 티어로 교체한다. 표에 없는 등급(GPU의
+  # Workstation 등)은 티어를 비워 두어 판정 보류(Pending)로 남긴다. CPU의 "(Gaming)" 접미는
+  # 떼고 본다.
+  lineup_perf_tier:
+    gpu: {Budget: 3, Entry: 5, Mainstream: 6, Mid-Range: 7, High-End: 8, Enthusiast: 9, Flagship: 9, Ultra Flagship: 10}
+    cpu: {Entry: 4, Mainstream: 6, Mid-Range: 7, High-End: 8, Enthusiast: 9, Flagship: 9, Ultra Flagship: 10}
+  # 용도별 요구 프로필 — 2026-09-21 사용자 확인 반영(숫자는 카탈로그 공급 여건 기준이며 바뀔 수 있다).
+  # 여기 없는 용도(game, 미지정)는 위 game_tiers 를 해상도로 골라 쓴다. 프로필에 적은
+  # 키만 이 문서의 같은 이름 값을 덮어쓰고 tier 는 game_tiers 를 대신한다. 사무·학습은 게임용
+  # 하한(DDR5·최신 소켓·1TB·Gold·750W)을 걷어 낸다. 외장 GPU 없는 구성(내장 그래픽)은 슬롯 구조상
+  # 아직 표현하지 못해 GPU 는 최저 등급으로 남긴다.
+  purpose_profiles:
+    office:
+      tier: {gpu: 3, cpu: 4, ram_gb: 16, vram_gb: 4}
+      ram_type: null                     # DDR4/DDR5 모두 허용 — 메인보드와의 일치는 호환 검사가 본다
+      storage_capacity_gb_min: 500
+      psu_efficiency_min: Bronze
+      estimated_power_w: {cpu: 65, gpu: 75, other: 75}
+      sockets_by_brand:
+        intel: [LGA1700, LGA1851]
+        amd: [AM4, AM5]
+        none: [LGA1700, LGA1851, AM4, AM5]
+      budget_allocation: {GPU: 0.10, CPU: 0.25, 메인보드: 0.15, RAM: 0.12, 저장장치: 0.12, 파워: 0.10, 케이스: 0.09, 쿨러: 0.07}
+    study:
+      tier: {gpu: 3, cpu: 6, ram_gb: 16, vram_gb: 4}
+      ram_type: null
+      storage_capacity_gb_min: 500
+      psu_efficiency_min: Bronze
+      estimated_power_w: {cpu: 65, gpu: 75, other: 75}
+      sockets_by_brand:
+        intel: [LGA1700, LGA1851]
+        amd: [AM4, AM5]
+        none: [LGA1700, LGA1851, AM4, AM5]
+      budget_allocation: {GPU: 0.10, CPU: 0.25, 메인보드: 0.15, RAM: 0.12, 저장장치: 0.12, 파워: 0.10, 케이스: 0.09, 쿨러: 0.07}
+    other:                               # 기타: 용도를 특정하지 못한 범용 — 학습과 같은 수준(2026-09-21 결정)
+      tier: {gpu: 3, cpu: 6, ram_gb: 16, vram_gb: 4}
+      ram_type: null
+      storage_capacity_gb_min: 500
+      psu_efficiency_min: Bronze
+      estimated_power_w: {cpu: 65, gpu: 75, other: 75}
+      sockets_by_brand:
+        intel: [LGA1700, LGA1851]
+        amd: [AM4, AM5]
+        none: [LGA1700, LGA1851, AM4, AM5]
+      budget_allocation: {GPU: 0.10, CPU: 0.25, 메인보드: 0.15, RAM: 0.12, 저장장치: 0.12, 파워: 0.10, 케이스: 0.09, 쿨러: 0.07}
+    creation:                            # 창작: CPU·RAM 우선, GPU 는 중간 등급
+      tier: {gpu: 6, cpu: 8, ram_gb: 32, vram_gb: 8}
+      estimated_power_w: {cpu: 150, gpu: 200, other: 75}
+      budget_allocation: {GPU: 0.28, CPU: 0.28, 메인보드: 0.10, RAM: 0.10, 저장장치: 0.10, 파워: 0.06, 케이스: 0.04, 쿨러: 0.04}
   sockets_by_brand:
     intel: [LGA1851]
     amd: [AM5]
@@ -52,6 +103,8 @@ verification:
     gpu_spec: power_w
     psu_spec: wattage_w
     psu_capacity_factor: 0.9
+    # 업그레이드에서 GPU 와 파워 중 한쪽만 견적에 들어갈 때, GPU 스펙의 제조사 권장 파워를 유지 파워 용량과 비교한다.
+    use_gpu_recommended_psu: true
   balance_max_tier_gap: 3
 
 ranking:
@@ -61,4 +114,26 @@ ranking:
       FHD_144: {GPU: 6.0, CPU: 6.0}
       QHD_165: {GPU: 7.5, CPU: 5.5}
       4K: {GPU: 9.0, CPU: 5.5}
-  weights: {가격: 0.35, 성능: 0.25, 밸런스: 0.15, 리뷰: 0.20, 호환여유: 0.05}
+    # 해상도가 없는 용도는 default 를 쓴다(purpose_profiles 의 tier 와 같은 눈금).
+    office: {default: {GPU: 3.0, CPU: 4.0}}
+    study: {default: {GPU: 3.0, CPU: 6.0}}
+    creation: {default: {GPU: 6.0, CPU: 8.0}}
+    other: {default: {GPU: 3.0, CPU: 6.0}}
+  # 소음 축은 기본 가중치 0 — priority/noise_sensitive 를 안 준 요청의 점수는 이전과 같다.
+  weights: {가격: 0.35, 성능: 0.25, 밸런스: 0.15, 리뷰: 0.20, 호환여유: 0.05, 소음: 0.0}
+  # 우선순위(priority)별 가중치 세트. 합계 1. 표에 없는 값/미지정은 위 weights 를 쓴다.
+  priority_weights:
+    performance: {가격: 0.10, 성능: 0.55, 밸런스: 0.10, 리뷰: 0.20, 호환여유: 0.05, 소음: 0.0}
+    value: {가격: 0.50, 성능: 0.15, 밸런스: 0.10, 리뷰: 0.20, 호환여유: 0.05, 소음: 0.0}
+    quiet: {가격: 0.25, 성능: 0.15, 밸런스: 0.10, 리뷰: 0.20, 호환여유: 0.05, 소음: 0.25}
+  # noise_sensitive=true 이면 소음 가중치를 최소 이만큼 보장한다(나머지 축은 비율대로 줄인다).
+  noise_sensitive_min_weight: 0.15
+  # 소음은 직접 측정값(dBA)도 리뷰 관점 정보도 없어 물리적 대용값으로 잡는다 — 휴리스틱이다.
+  # CPU/GPU 는 소비전력(발열이 적을수록 팬이 덜 돈다)을 [낮음, 높음] 범위에서 1→0 으로,
+  # 쿨러는 유형(큰 방열판·라디에이터는 낮은 회전수로 버틴다)으로 본다. 파워는 효율 등급과
+  # 소음의 연결 근거가 약해 넣지 않았다(넣었더니 저소음 요청이 1300W Titanium 을 골라 견적이
+  # 64만원 뛰었다). 표에 없는 값(Passive 쿨러 등)과 다른 슬롯은 중립 0.5 — 지어내지 않는다.
+  noise_proxy:
+    cpu_tdp_w: [65, 200]
+    gpu_power_w: [75, 450]
+    cooler_type: {"Air (Dual-Tower)": 0.8, "Air (Single-Tower)": 0.6, "Liquid (AIO)": 0.6, "Air (Low-Profile)": 0.2}

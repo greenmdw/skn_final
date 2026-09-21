@@ -129,8 +129,9 @@ def load_candidates_by_slot() -> dict[str, list[Candidate]]:
 # specs 딕셔너리 키는 stage4_optimize.py의 _apply_mainboard_compat와
 # build_computer()가 참조하는 이름(socket/mem_type/form_factor/supports_form_factors 및
 # 물리·전력 체크용 length_mm/max_gpu_len_mm/height_mm/max_cooler_height_mm/tdp_w/power_w/
-# wattage_w)에 맞춘다 — perf_tier는 실측이 없어 의도적으로 채우지 않는다(0으로 자연 강등,
-# 없는 정보를 있는 것처럼 지어내지 않는다는 기존 _compat_filter 철학과 동일).
+# wattage_w)에 맞춘다. perf_tier는 실측이 없어 수집된 제조사 등급(lineup)을 임시 티어로 쓴다
+# (표는 config/computer_verification_rules.yaml 의 lineup_perf_tier). 표에 없는 등급이나
+# 등급이 없는 행은 키를 넣지 않는다 — 없는 정보를 지어내지 않는다는 기존 철학 그대로.
 
 PC_TYPE_TO_SLOT = {
     "cpu": "CPU", "gpu": "GPU", "ram": "RAM", "motherboard": "메인보드",
@@ -144,14 +145,14 @@ def pc_catalog_key(product_type: str, brand: str, model: str) -> str:
 
 # (스펙 컬럼 목록, 스펙 테이블) — WHERE/가격 조인은 _build_query가 공통으로 붙인다.
 _SPEC_QUERIES: dict[str, tuple[str, str]] = {
-    "cpu": ("s.socket, s.tdp_w, s.memory_type", "catalog.cpu_spec"),
+    "cpu": ("s.socket, s.tdp_w, s.memory_type, s.lineup", "catalog.cpu_spec"),
     "motherboard": ("s.socket, s.memory_type, s.form_factor", "catalog.mainboard_spec"),
     "ram": ("s.memory_type, s.total_capacity_gb, s.speed_mts", "catalog.ram_spec"),
-    "gpu": ("s.length_mm, s.power_w, s.vram_gb", "catalog.gpu_spec"),
+    "gpu": ("s.length_mm, s.power_w, s.vram_gb, s.lineup, s.recommended_psu_w", "catalog.gpu_spec"),
     "ssd": ("s.interface, s.protocol, s.form_factor, s.capacity_options", "catalog.ssd_spec"),
     "psu": ("s.wattage_w, s.efficiency_rating", "catalog.psu_spec"),
     "case": ("s.gpu_max_length_mm, s.cpu_cooler_height_mm, s.supported_motherboard", "catalog.case_spec"),
-    "cooler": ("s.cooler_height_mm, s.supported_socket", "catalog.cooler_spec"),
+    "cooler": ("s.cooler_height_mm, s.supported_socket, s.cooling_type", "catalog.cooler_spec"),
 }
 
 
@@ -194,10 +195,25 @@ def _parse_max_capacity_gb(text) -> float | None:
     return best
 
 
+def _lineup_perf_tier(product_type: str, lineup) -> float | None:
+    """제조사 등급(lineup) -> 1~10 임시 성능 티어. 표에 없으면 None(=정보 없음)."""
+    if product_type not in ("cpu", "gpu") or not lineup:
+        return None
+    from src.engine.stage2_requirement import load_computer_rules  # 순환 import 회피용 지연 import
+
+    table = (load_computer_rules()["requirements"].get("lineup_perf_tier") or {}).get(product_type) or {}
+    label = re.sub(r"\s*\(.*?\)\s*$", "", str(lineup)).strip()   # "Flagship (Gaming)" -> "Flagship"
+    tier = table.get(label)
+    return float(tier) if tier is not None else None
+
+
 def _specs_from_row(product_type: str, row: dict) -> dict:
     """DB 행 -> stage4 호환 체크가 읽는 specs 키. 없는 값은 아예 안 넣는다(=정보 없음,
     _compat_filter가 이미 그렇게 "통과"로 처리하는 것과 동일한 관례)."""
     specs: dict = {}
+    tier = _lineup_perf_tier(product_type, row.get("lineup"))
+    if tier is not None:
+        specs["perf_tier"] = tier
     if product_type == "cpu":
         if row.get("socket"):
             specs["socket"] = row["socket"]
@@ -224,6 +240,8 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
             specs["length_mm"] = row["length_mm"]
         if row.get("power_w") is not None:
             specs["power_w"] = row["power_w"]
+        if row.get("recommended_psu_w") is not None:
+            specs["recommended_psu_w"] = row["recommended_psu_w"]   # 제조사 권장 파워 — 유지 파워와 직접 비교
         vram = _parse_max_number(row.get("vram_gb"))  # "8 / 16" 라인업 표기 대응
         if vram is not None:
             specs["vram_gb"] = vram
@@ -250,12 +268,14 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
         supported = (row.get("supported_motherboard") or "").strip()
         if supported:
             # "ATX / mATX" 같은 원본 표기를 _apply_mainboard_compat가 읽는 리스트로.
-            specs["supports_form_factors"] = [x.strip() for x in supported.split("/") if x.strip()]
+            specs["supports_form_factors"] = [x.strip() for x in re.split(r"[/,]", supported) if x.strip()]
     elif product_type == "cooler":
         if row.get("cooler_height_mm") is not None:
             specs["height_mm"] = row["cooler_height_mm"]
         if row.get("supported_socket"):
             specs["supported_socket"] = row["supported_socket"]
+        if row.get("cooling_type"):
+            specs["cooling_type"] = row["cooling_type"]   # 소음 대용값(휴리스틱)이 읽는다
     return specs
 
 

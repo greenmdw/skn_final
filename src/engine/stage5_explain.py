@@ -215,14 +215,30 @@ def _top_axes(rank: RankResult | None, slot: str, product_key: str) -> str:
     return ""
 
 
+_MODE_LABEL = {"build": "새로 조립", "upgrade": "업그레이드"}
+
+
+def _condition_text(key: str, value) -> str:
+    """리스트·딕셔너리를 파이썬 repr 로 흘리지 않고 읽히게 — LLM 이 "['GPU']" 를 그대로 받던 것을 고친다."""
+    if key == "mode":
+        return _MODE_LABEL.get(value, str(value))
+    if isinstance(value, dict):
+        return ", ".join(f"{k} {v}" for k, v in value.items())
+    if isinstance(value, (list, tuple)):
+        return ", ".join(str(v) for v in value)
+    return str(value)
+
+
 def _conditions_lines(conditions: dict | None) -> list[str]:
     """[5] 입력에 싣는 사용자 조건. 엔진이 읽지 않는 extra 는 그렇게 표시해 LLM 이 반영됐다고 쓰지 못하게 한다."""
     if not conditions:
         return []
     labels = {"purpose": "용도", "priority": "우선순위", "games": "게임", "resolution": "해상도",
               "noise_sensitive": "소음 민감", "brand_pref": "브랜드 선호", "assembly": "조립", "mode": "구성 방식",
-              "age_months": "아이 개월", "needs": "필요 영역", "health_skin": "건강·피부", "owned_items": "보유 물품"}
-    parts = [f"{label} {conditions[k]}" for k, label in labels.items() if conditions.get(k) not in (None, [], "")]
+              "age_months": "아이 개월", "needs": "필요 영역", "health_skin": "건강·피부", "owned_items": "보유 물품",
+              "upgrade_parts": "업그레이드 부품", "current_specs": "현재 사양"}
+    parts = [f"{label} {_condition_text(k, conditions[k])}" for k, label in labels.items()
+             if conditions.get(k) not in (None, [], "", {})]
     # extra(자유 조건)는 엔진이 읽지 않는다. LLM 에 보여 주면 "반영됐다"고 쓰는 일이 있어(실호출에서
     # "케이스는 흰색으로 선택할 수 있으며") 입력에서 빼고, 안내 문장은 코드가 summary 뒤에 붙인다(_extra_note).
     return ["사용자 조건: " + (" · ".join(parts) if parts else "(없음)")]
@@ -350,7 +366,8 @@ def _fallback_summary(build: BuildResult, locale: Locale, cur: str = "KRW") -> s
 
 
 def run(build: BuildResult, verification: VerificationResult, log: LogFn,
-        rank: RankResult | None = None, *, locale: Locale = "ko-KR", conditions: dict | None = None) -> Explanation:
+        rank: RankResult | None = None, *, locale: Locale = "ko-KR", conditions: dict | None = None,
+        extra_caveats: list[str] | None = None, scope_note: str = "") -> Explanation:
     log("[5] 설명 생성 ...")
     contrib = _contribution(build)
     tgt = verification.targets[0] if verification.targets else None
@@ -378,10 +395,10 @@ def run(build: BuildResult, verification: VerificationResult, log: LogFn,
     # caveats 는 규칙이 소유한다 — 코드가 정확히 알고 있어서, LLM 이 같은 내용을 다른 표현으로 또 쓰면
     # 화면에 중복으로 나간다. 회색축("근거는 확인되지 않았습니다")은 개발 상태 설명이라 사용자 문장에서 뺐다
     # (docs/decisions/0003) — 아래 로그에만 남긴다.
-    caveats = list(review_caveats)
+    caveats = [*(extra_caveats or []), *review_caveats]     # 업그레이드 미확인 안내는 코드가 만든 문장(LLM 아님)
     headline = (draft.headline if draft and draft.headline
                 else _fallback_headline(build, locale, cur))
-    summary = (draft.summary if draft and draft.summary else _fallback_summary(build, locale, cur)) + _extra_note(conditions)
+    summary = (draft.summary if draft and draft.summary else _fallback_summary(build, locale, cur)) + _extra_note(conditions) + scope_note
     if gray:
         log(f"      근거 미확인 축(화면에는 안 나감): {', '.join(gray)}")
     log(f"      기여도: 가격 {contrib['가격']}% / 성능 {contrib['성능']}% / 호환성 {contrib['호환성']}%")

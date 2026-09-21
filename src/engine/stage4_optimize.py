@@ -24,6 +24,10 @@ from src.engine.stage2_requirement import load_computer_rules
 # as a global optimum.
 BASKET_SEARCH_TOP_N = 8
 
+# Node budget for the widened PC search (all hard-filter survivors, not just top-N). Keeps a
+# pathological catalog from stalling a request; hitting it is reported as counts["capped"].
+WIDEN_NODE_CAP = 150_000
+
 # v3 (develop `da79839`, DEVELOP_DB_TRANSITION.md "Candidate edits and confirmation"):
 # engine.recommendation_candidate.qty is a purchase pack count, integer 1-99. Applies to
 # any to_purchase qty this module produces or re-validates — not a domain-required-qty
@@ -63,6 +67,12 @@ def _pack_count_for(need: float, unit_qty: float, req_unit_code: str) -> int | N
 
 def _ranked(rank: RankResult, slot: str) -> list[Candidate]:
     return [Candidate.model_validate(c) for c in rank.slots.get(slot, {}).get("ranked", [])]
+
+
+def _full_pool(rank: RankResult, slot: str) -> list[Candidate]:
+    """Every hard-filter survivor for ``slot`` (stage3b's "pool"); top-N only if absent."""
+    info = rank.slots.get(slot, {})
+    return [Candidate.model_validate(c) for c in (info.get("pool") or info.get("ranked", []))]
 
 
 def _compat_filter(pool: list[Candidate], key: str, wanted: str) -> list[Candidate]:
@@ -180,11 +190,36 @@ def _pick_cooler(pools: dict[str, list[Candidate]], budget: int, running: int,
     return fallback if fallback is not None else pool[0]
 
 
+# 메인보드 크기 위계. 케이스가 "ATX" 를 지원한다고 적어 두면 그보다 작은 mATX·ITX 보드도 들어간다
+# (이전엔 정확 일치만 봐서 mATX 보드 22개가 ATX 케이스 23개와 "비호환"으로 판정됐다).
+_FORM_RANK = {"itx": 1, "miniitx": 1, "matx": 2, "microatx": 2, "atx": 3, "eatx": 4, "extendedatx": 4}
+
+
+def _form_rank(text) -> int | None:
+    key = "".join(ch for ch in str(text).lower() if ch.isalnum())
+    return _FORM_RANK.get(key)
+
+
+def _form_fits(board_form, case_forms) -> bool | None:
+    """보드가 케이스에 들어가는가. 표기를 못 읽으면 None(판정 보류) — 비호환으로 단정하지 않는다."""
+    board = _form_rank(board_form)
+    listed = case_forms if isinstance(case_forms, (list, tuple)) else str(case_forms).replace(",", "/").split("/")
+    ranks = [r for r in (_form_rank(f) for f in listed) if r is not None]
+    if board is None or not ranks:
+        return None
+    return board <= max(ranks)
+
+
 def _pc_known_failures(chosen: dict[str, Candidate], spec: RequirementSpec, rules: dict) -> set[str]:
     """선택된 부품 사이에서 *확정된* 비호환만 돌려준다. 모르는 스펙은 보류한다."""
+    owned = spec.owned
+
     def value(slot: str, key: str):
         candidate = chosen.get(slot)
-        return candidate.specs.get(key) if candidate else None
+        if candidate is not None:
+            return candidate.specs.get(key)
+        # 업그레이드: 견적에 안 넣는(사용자가 그대로 쓰는) 부품의 스펙. 모르면 None → 판정 보류.
+        return ((owned.get(slot) or {}).get("specs") or {}).get(key)
 
     failures: set[str] = set()
     socket = rules["socket"]
@@ -202,7 +237,7 @@ def _pc_known_failures(chosen: dict[str, Candidate], spec: RequirementSpec, rule
     board_case = rules["motherboard_case"]
     board_form = value("메인보드", board_case["mainboard_spec"])
     case_forms = value("케이스", board_case["case_spec"])
-    if board_form and case_forms and board_form not in case_forms:
+    if board_form and case_forms and _form_fits(board_form, case_forms) is False:
         failures.add("motherboard_case")
 
     gpu_length = rules["gpu_length"]
@@ -231,26 +266,25 @@ def _pc_known_failures(chosen: dict[str, Candidate], spec: RequirementSpec, rule
                   else spec.targets.get("파워", {}).get("wattage_min"))
     if psu_w is not None and required_w is not None and psu_w < required_w:
         failures.add("power")
+    # 업그레이드: GPU 와 파워 중 *하나만* 견적에 들어가면 다른 쪽은 유지 부품이다. 유지하는 CPU 전력을 모르면
+    # 위 합산 검사가 안 돌아서, 제조사 권장 파워(GPU 스펙에 있음)를 유지 파워 용량과 직접 비교한다.
+    if power.get("use_gpu_recommended_psu", True) and (("GPU" in chosen) != ("파워" in chosen)):
+        recommended = value("GPU", "recommended_psu_w")
+        if recommended and psu_w is not None and psu_w < recommended:
+            failures.add("power")
     return failures
 
 
-def _search_pc_build(
-    pools: dict[str, list[Candidate]], slots: list[str], budget: int,
-    spec: RequirementSpec, rules: dict,
-) -> tuple[dict[str, Candidate], dict[str, int], bool]:
-    """Search the supplied (already top-N) pools exactly for maximum total score.
+class _NodeCap(Exception):
+    """Raised inside a widened search when it exceeds its node budget."""
 
-    A compatible over-budget set is retained only as a diagnostic fallback. When
-    none is compatible, a least-bad set is returned and explicitly marked failed.
-    """
-    order = [s for s in ("메인보드", "케이스", "CPU", "RAM", "GPU", "쿨러", "파워", "저장장치") if s in pools]
-    order.extend(s for s in slots if s not in order)
-    counts = {"considered": math.prod(len(pools[s]) for s in slots), "valid": 0,
-              "visited": 0, "pruned_budget": 0, "pruned_compat": 0,
-              "pruned_score": 0, "feasible": 0, "compatible": 0}
-    if not all(pools[s] for s in slots):
-        return {}, counts, False
 
+def _max_score_search(
+    pools: dict[str, list[Candidate]], order: list[str], slots: list[str], budget: int,
+    spec: RequirementSpec, rules: dict, counts: dict[str, int], node_cap: int | None = None,
+) -> dict[str, Candidate]:
+    """Exact branch-and-bound over ``pools``: best total score among compatible sets within
+    budget. With ``node_cap`` the search stops early (keeping the best set found so far)."""
     min_price = [0] * (len(order) + 1)
     max_score = [0.0] * (len(order) + 1)
     for i in range(len(order) - 1, -1, -1):
@@ -268,6 +302,8 @@ def _search_pc_build(
     def visit(i: int, price: int, score: float) -> None:
         nonlocal best, best_key
         counts["visited"] += 1
+        if node_cap is not None and counts["visited"] > node_cap:
+            raise _NodeCap
         if budget and price + min_price[i] > budget:
             counts["pruned_budget"] += 1
             return
@@ -289,12 +325,99 @@ def _search_pc_build(
                 visit(i + 1, price + candidate.price, score + candidate.score)
             del chosen[slot]
 
-    visit(0, 0, 0.0)
+    try:
+        visit(0, 0, 0.0)
+    except _NodeCap:
+        counts["capped"] = 1
+    return best
+
+
+def _cheapest_compatible(
+    pools: dict[str, list[Candidate]], order: list[str], spec: RequirementSpec, rules: dict,
+    counts: dict[str, int], node_cap: int,
+) -> dict[str, Candidate]:
+    """Lowest-price set with no *known* incompatibility, ignoring the budget. Used when no
+    compatible set fits the budget: the budget is soft, compatibility is not, so the
+    least-over-budget compatible set is the honest answer."""
+    by_price = {s: sorted(pools[s], key=lambda c: (c.price, c.product_key)) for s in order}
+    min_price = [0] * (len(order) + 1)
+    for i in range(len(order) - 1, -1, -1):
+        min_price[i] = min_price[i + 1] + by_price[order[i]][0].price
+
+    best: dict[str, Candidate] = {}
+    best_price: int | None = None
+    chosen: dict[str, Candidate] = {}
+    nodes = 0
+
+    def visit(i: int, price: int) -> None:
+        nonlocal best, best_price, nodes
+        nodes += 1
+        if nodes > node_cap:
+            raise _NodeCap
+        if i == len(order):
+            if best_price is None or price < best_price:
+                best, best_price = chosen.copy(), price
+            return
+        slot = order[i]
+        for candidate in by_price[slot]:
+            if best_price is not None and price + candidate.price + min_price[i + 1] >= best_price:
+                break  # sorted ascending: nothing later in this slot can beat the incumbent
+            chosen[slot] = candidate
+            if not _pc_known_failures(chosen, spec, rules):
+                visit(i + 1, price + candidate.price)
+            del chosen[slot]
+
+    try:
+        visit(0, 0)
+    except _NodeCap:
+        counts["capped"] = 1
+    counts["widened_visited"] = nodes
+    return best
+
+
+def _search_pc_build(
+    pools: dict[str, list[Candidate]], slots: list[str], budget: int,
+    spec: RequirementSpec, rules: dict, wide_pools: dict[str, list[Candidate]] | None = None,
+) -> tuple[dict[str, Candidate], dict[str, int], bool]:
+    """Search the supplied (already top-N) pools exactly for maximum total score.
+
+    When no compatible in-budget set exists there, the search is repeated over
+    ``wide_pools`` (every hard-filter survivor, not just top-N) — the top-N cut is made
+    before cross-slot compatibility is known, so it can strand every compatible pair.
+    If that still finds nothing in budget, the cheapest *compatible* set is returned with
+    the budget marked failed. Only when no compatible set exists at all does a least-bad
+    set over the top-N pools come back, explicitly marked failed.
+    """
+    order = [s for s in ("메인보드", "케이스", "CPU", "RAM", "GPU", "쿨러", "파워", "저장장치") if s in pools]
+    order.extend(s for s in slots if s not in order)
+    counts = {"considered": math.prod(len(pools[s]) for s in slots), "valid": 0,
+              "visited": 0, "pruned_budget": 0, "pruned_compat": 0,
+              "pruned_score": 0, "feasible": 0, "compatible": 0}
+    if not all(pools[s] for s in slots):
+        return {}, counts, False
+
+    best = _max_score_search(pools, order, slots, budget, spec, rules, counts)
     if best:
         counts["feasible"] = counts["compatible"] = 1
         return best, counts, True
 
-    # No feasible solution: distinguish budget shortage from incompatible pools.
+    if (wide_pools and all(wide_pools.get(s) for s in slots)
+            and any(len(wide_pools[s]) > len(pools[s]) for s in slots)):
+        counts["widened"] = 1
+        wide_counts = {"visited": 0, "pruned_budget": 0, "pruned_compat": 0, "pruned_score": 0, "valid": 0}
+        best = _max_score_search(wide_pools, order, slots, budget, spec, rules, wide_counts, WIDEN_NODE_CAP)
+        counts["widened_visited"] = wide_counts["visited"]
+        if best:
+            if wide_counts.get("capped"):
+                counts["capped"] = 1
+            counts["feasible"] = counts["compatible"] = 1
+            return best, counts, True
+        cheapest = _cheapest_compatible(wide_pools, order, spec, rules, counts, WIDEN_NODE_CAP)
+        if cheapest:
+            counts["compatible"] = 1
+            return cheapest, counts, True
+
+    # No compatible set anywhere: distinguish budget shortage from incompatible pools.
     # This bounded diagnostic pass cannot be mistaken for a successful solution.
     fallback_key: tuple | None = None
     compatible = False
@@ -327,7 +450,8 @@ def build_computer(
     slots = list(spec.targets.keys())
     pools = {s: [c for c in _ranked(rank, s) if (s, c.product_key) not in exclude] for s in slots}
     budget = spec.budget.get("total", 0)
-    selected, search, compatible = _search_pc_build(pools, slots, budget, spec, rules)
+    wide_pools = {s: [c for c in _full_pool(rank, s) if (s, c.product_key) not in exclude] for s in slots}
+    selected, search, compatible = _search_pc_build(pools, slots, budget, spec, rules, wide_pools)
 
     def _make_item(s: str, cand: Candidate) -> BuildItem:
         return BuildItem(
@@ -342,8 +466,15 @@ def build_computer(
 
     total = sum(i.price for i in picked)
     used_pct = round(total / budget * 100, 1) if budget else 0.0
-    gpu_t = next((i.perf_tier for i in picked if i.slot == "GPU"), 0)
-    cpu_t = next((i.perf_tier for i in picked if i.slot == "CPU"), 0)
+    def _tier(slot: str) -> float | None:
+        picked_tier = next((i.perf_tier for i in picked if i.slot == slot), None)
+        if picked_tier is not None:
+            return picked_tier
+        owned_tier = ((spec.owned.get(slot) or {}).get("specs") or {}).get("perf_tier")
+        return float(owned_tier) if owned_tier is not None else None
+
+    tiers_known = _tier("GPU") is not None and _tier("CPU") is not None
+    gpu_t, cpu_t = _tier("GPU") or 0, _tier("CPU") or 0
 
     log(f"      상위 후보 {search['considered']:,} 조합 분기한정 탐색 "
         f"({search['visited']:,} 노드, 예산 적합 {search['valid']:,}개)"
@@ -355,7 +486,7 @@ def build_computer(
         빈 dict, 즉 아래 각 체크가 "정보 없음 → 근사"로 자연 강등한다."""
         item = next((i for i in picked if i.slot == slot), None)
         if item is None:
-            return {}
+            return dict((spec.owned.get(slot) or {}).get("specs") or {})
         return next((c.specs for c in pools.get(slot, []) if c.product_key == item.product_key), {})
 
     cpu_specs, mb_specs = _picked_specs("CPU"), _picked_specs("메인보드")
@@ -412,7 +543,8 @@ def build_computer(
                 "slack": (budget - total) if budget else 0},
         link_check=link_check,
         balance={"gpu_tier": gpu_t, "cpu_tier": cpu_t,
-                 "verdict": "균형" if abs(gpu_t - cpu_t) <= rules["balance_max_tier_gap"] else "불균형"},
+                 "verdict": ("판단 보류" if not tiers_known else
+                             "균형" if abs(gpu_t - cpu_t) <= rules["balance_max_tier_gap"] else "불균형")},
         alternatives=search,
         round=round_no,
     )

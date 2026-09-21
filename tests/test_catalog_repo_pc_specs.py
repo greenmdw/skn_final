@@ -63,3 +63,42 @@ def test_specs_from_row_missing_values_are_simply_absent_not_none():
     # 구분할 필요 없이 둘 다 falsy/None으로 자연스럽게 처리된다.
     specs = _specs_from_row("psu", {"wattage_w": None, "efficiency_rating": None})
     assert specs == {}
+
+
+# ── perf_tier: 실측이 없어 제조사 등급(lineup)을 임시 티어로 쓴다 ─────────────
+
+@pytest.mark.parametrize("lineup, tier", [
+    ("Budget", 3), ("Entry", 5), ("Mainstream", 6), ("Mid-Range", 7), ("High-End", 8),
+    ("Enthusiast", 9), ("Flagship", 9), ("Ultra Flagship", 10),
+])
+def test_gpu_lineup_maps_to_a_perf_tier(lineup, tier):
+    assert _specs_from_row("gpu", {"lineup": lineup})["perf_tier"] == tier
+
+
+@pytest.mark.parametrize("lineup, tier", [
+    ("Entry", 4), ("Mainstream", 6), ("High-End", 8),
+    ("Flagship (Gaming)", 9), ("High-End (Gaming)", 8), ("Enthusiast (Gaming)", 9),   # 접미는 떼고 본다
+])
+def test_cpu_lineup_maps_to_a_perf_tier_ignoring_the_gaming_suffix(lineup, tier):
+    assert _specs_from_row("cpu", {"lineup": lineup})["perf_tier"] == tier
+
+
+@pytest.mark.parametrize("lineup", ["Workstation", "새 등급", "", None])
+def test_unmapped_or_missing_lineup_leaves_perf_tier_absent_not_invented(lineup):
+    # 표에 없는 등급(워크스테이션 GPU 등)은 티어를 지어내지 않는다 -> 3A가 판정 보류로 남긴다.
+    assert "perf_tier" not in _specs_from_row("gpu", {"lineup": lineup})
+
+
+def test_only_cpu_and_gpu_get_a_tier_from_lineup():
+    assert "perf_tier" not in _specs_from_row("ram", {"lineup": "Flagship", "memory_type": "DDR5"})
+    assert "perf_tier" not in _specs_from_row("psu", {"lineup": "Entry", "wattage_w": 650})
+
+
+def test_lineup_tier_table_rises_with_the_lineup_grade():
+    from src.engine.stage2_requirement import load_computer_rules
+
+    order = ["Budget", "Entry", "Mainstream", "Mid-Range", "High-End", "Enthusiast", "Flagship", "Ultra Flagship"]
+    for part in ("gpu", "cpu"):
+        table = load_computer_rules()["requirements"]["lineup_perf_tier"][part]
+        tiers = [table[g] for g in order if g in table]
+        assert tiers == sorted(tiers), f"{part}: 상위 등급이 더 낮은 티어를 받는다"

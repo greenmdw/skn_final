@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from src.categories import load_category
-from src.dto import PipelineResult, Slots
+from src.dto import PipelineResult, RequirementSpec, Slots
 from src.engine.lang import L, currency_of, fmt_money, lang_of
 from src.errors import Conflict, NotFound, ValidationFailed
 from src.i18n import normalize_locale
@@ -266,6 +266,9 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
 
             spec = stage2_requirement.run(slots, cat_def, noop)
             spec.list_id = str(revision_id)
+            if spec.mode == "upgrade" and not spec.targets:
+                raise ValidationFailed("업그레이드할 부품을 선택해 주세요.", field="upgrade_parts",
+                                       code="upgrade_parts_required")
 
             req_id_by_slot = {}
             for slot in spec.targets:
@@ -273,6 +276,11 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
                 req_id_by_slot[slot] = prepo.ensure_requirement(revision_id, node_id, spec.targets[slot])
 
             by_slot = load_candidates_by_slot_from_db(conn)
+            if spec.mode == "upgrade":
+                # 사용자가 그대로 쓰는 부품은 견적에 넣지 않고, 적어 준 것만 호환성 검사에 쓴다.
+                from src.engine.owned_parts import constrain_targets, owned_for_conditions
+                spec.owned = owned_for_conditions(values, by_slot, spec.targets, cat_def.get("slot_structure", []))
+                constrain_targets(spec)
             missing_slots = [slot for slot in spec.targets if not by_slot.get(slot)]
             if missing_slots:
                 raise ValidationFailed(
@@ -349,6 +357,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
                 rank=rank,
                 locale=response_locale,
                 conditions=values,
+                **_upgrade_explanation_extras(spec, response_locale),
             )
 
             for it in explanation.items:
@@ -1001,15 +1010,68 @@ def _alternative_out(row: dict, *, current: bool, current_price: int, lang: str 
     }
 
 
+def _drop_incompatible_alternatives(conn, stored: list[dict], current: dict, variants: list[dict],
+                                    cvals: dict) -> list[dict]:
+    """PC: 지금 구성(과 업그레이드에서 유지하는 부품)과 소켓·메모리·크기·전력이 *확정적으로* 안 맞는
+    후보를 대안 목록에서 뺀다. 교체 때문에 새로 생기는 비호환만 본다 — 현재 구성에 이미 있는 문제는
+    후보 탓이 아니다. 판정에 쓸 정보가 없는 후보는 남긴다(모르는 것을 비호환으로 단정하지 않는다).
+    재현: 예전엔 CPU 대안 39개 중 23개가 메인보드 소켓과 안 맞았고 가격순 목록 맨 위부터 나왔다."""
+    if cvals.get("category") != "computer":
+        return variants
+    from src.engine.owned_parts import owned_for_conditions
+    from src.engine.stage2_requirement import load_computer_rules
+    from src.engine.stage4_optimize import _pc_known_failures
+    from src.repo.catalog_repo import load_candidates_by_slot_from_db
+
+    pool = load_candidates_by_slot_from_db(conn)
+    by_variant = {c.variant_id: c for cands in pool.values() for c in cands}
+    slot = current["slot"]
+    chosen = {}
+    for row in stored:
+        cand = by_variant.get(str(row["variant_id"]))
+        if row["slot"] != slot and row.get("selected") is not False and cand is not None:
+            chosen[row["slot"]] = cand
+    spec = RequirementSpec(
+        list_id="alternatives", category="computer",
+        mode="upgrade" if cvals.get("mode") == "upgrade" else "build",
+        owned=owned_for_conditions(cvals, pool, {r["slot"] for r in stored},
+                                   load_category("computer").get("slot_structure", [])),
+    )
+    rules = load_computer_rules()["verification"]
+    now = by_variant.get(str(current["variant_id"]))
+    baseline = _pc_known_failures({**chosen, slot: now}, spec, rules) if now is not None else set()
+    kept = []
+    for row in variants:
+        cand = by_variant.get(str(row["variant_id"]))
+        if cand is not None and _pc_known_failures({**chosen, slot: cand}, spec, rules) - baseline:
+            continue
+        kept.append(row)
+    return kept
+
+
+def _upgrade_explanation_extras(spec, locale: str) -> dict:
+    """업그레이드 결과에 코드가 붙이는 안내: 견적 범위(요약 뒤)와 미확인 항목(확인이 필요한 것)."""
+    if spec.mode != "upgrade" or not spec.targets:
+        return {}
+    from src.engine.owned_parts import upgrade_notes, upgrade_scope_note
+
+    lang = "en" if locale == "en-US" else "ko"
+    return {"extra_caveats": upgrade_notes(list(spec.targets), spec.owned, lang),
+            "scope_note": upgrade_scope_note(spec.targets, lang)}
+
+
 def list_alternatives(conn, revision_id: UUID, item_id: UUID, *,
                       locale: Locale = "ko-KR") -> dict:
     from src.repo.product_repo import ProductRepo
     erepo, run = _require_done_run(conn, revision_id)
-    current = _find_candidate(erepo.get_candidates(run["id"]), item_id)
+    stored = erepo.get_candidates(run["id"])
+    current = _find_candidate(stored, item_id)
     current_price = int(current["price"]) if current["price"] is not None else 0
     slot_variants = ProductRepo(conn).candidates_by_slot().get(current["slot"], [])
     from src.repo.plan_repo import PlanRepo
-    lang = lang_of({r["condition_key"]: r["value"].get("value") for r in PlanRepo(conn).load_full(revision_id)["conditions"]})
+    cvals = {r["condition_key"]: r["value"].get("value") for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
+    lang = lang_of(cvals)
+    slot_variants = _drop_incompatible_alternatives(conn, stored, current, slot_variants, cvals)
     items = [
         _alternative_out(row, current=False, current_price=current_price, lang=lang)
         for row in sorted(slot_variants, key=lambda r: r["price"] if r["price"] is not None else 0)

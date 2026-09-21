@@ -22,6 +22,11 @@ slot_schema:
   current_specs:   { type: object, nullable: true }   # TODO: 사양 파일 파싱 결정 전까지 자유 텍스트로만 수집
   spec_file_name:  { type: str, nullable: true }       # TODO: 파일 업로드 미구현 — accepts_spec_file=false
   owned:           { type: list }
+  # 업그레이드에서 유지하는 부품의 플랫폼 — 사양 파일이 없거나 못 읽을 때 칩으로 되묻는다(ask_when). "unknown" 은 답이다.
+  owned_platform:  { type: enum, values: [LGA1151, LGA1200, LGA1700, LGA1851, AM4, AM5, unknown], nullable: true }
+  owned_ram_type:  { type: enum, values: [DDR3, DDR4, DDR5, unknown], nullable: true }
+  # 구간의 하한(W, 보수적으로). 값은 전부 문자열이다 — 숫자와 문자열 키가 섞이면 시드(JSON sort_keys)가 깨진다.
+  owned_psu_w:     { type: enum, values: ["450", "500", "700", "900", unknown], nullable: true }
   extra:           { type: list }
 
 defaults:                      # 동적 기본값 실패 시 fallback
@@ -32,17 +37,31 @@ defaults:                      # 동적 기본값 실패 시 fallback
 
 # ConditionState.fields 순서·표시 라벨 (§D-4-1 "카테고리별 필드")
 fields:
-  - { key: mode, label: "구성 방식", display: { build: "새 컴퓨터", upgrade: "업그레이드" },
+  - { key: mode, label: "구성 방식", label_en: "Build type", display: { build: "새 컴퓨터", upgrade: "업그레이드" },
       display_en: { build: "New build", upgrade: "Upgrade" } }
-  - { key: spec_file_name, label: "첨부 사양 파일", mode_only: upgrade }
-  - { key: current_specs, label: "현재 사양", mode_only: upgrade }
-  - { key: upgrade_parts, label: "업그레이드 부품", mode_only: upgrade }
-  - { key: purpose, label: "주요 용도",
+  - { key: spec_file_name, label: "첨부 사양 파일", label_en: "Attached spec file", mode_only: upgrade }
+  - { key: current_specs, label: "현재 사양", label_en: "Current specs", mode_only: upgrade }
+  - { key: upgrade_parts, label: "업그레이드 부품", label_en: "Parts to upgrade", mode_only: upgrade }
+  - { key: owned_platform, label: "현재 CPU 세대", label_en: "Current CPU generation", mode_only: upgrade,
+      ask_when: { upgrade_parts_any: [CPU, 메인보드, 쿨러], unless_current_specs_any: [CPU, 메인보드] },
+      display: { LGA1151: "Intel 8~9세대", LGA1200: "Intel 10~11세대", LGA1700: "Intel 12~14세대", LGA1851: "Intel Core Ultra 200",
+                 AM4: "Ryzen 1000~5000", AM5: "Ryzen 7000 이상", unknown: "모름" },
+      display_en: { LGA1151: "Intel 8th-9th gen", LGA1200: "Intel 10th-11th gen", LGA1700: "Intel 12th-14th gen",
+                    LGA1851: "Intel Core Ultra 200", AM4: "Ryzen 1000-5000", AM5: "Ryzen 7000+", unknown: "Not sure" } }
+  - { key: owned_ram_type, label: "현재 메모리 종류", label_en: "Current memory type", mode_only: upgrade,
+      ask_when: { upgrade_parts_any: [RAM, 메인보드], unless_current_specs_any: [RAM] },
+      display: { DDR3: "DDR3", DDR4: "DDR4", DDR5: "DDR5", unknown: "모름" },
+      display_en: { DDR3: "DDR3", DDR4: "DDR4", DDR5: "DDR5", unknown: "Not sure" } }
+  - { key: owned_psu_w, label: "현재 파워 용량", label_en: "Current PSU wattage", mode_only: upgrade,
+      ask_when: { upgrade_parts_any: [GPU], unless_current_specs_any: [파워] },
+      display: { "450": "500W 미만", "500": "500~650W", "700": "700~850W", "900": "900W 이상", unknown: "모름" },
+      display_en: { "450": "Under 500W", "500": "500-650W", "700": "700-850W", "900": "900W or more", unknown: "Not sure" } }
+  - { key: purpose, label: "주요 용도", label_en: "Main use",
       display: { game: "게임", creation: "창작", office: "사무", study: "학습", other: "기타" },
       display_en: { game: "Gaming", creation: "Creative work", office: "Office", study: "Study", other: "Other" } }
-  - { key: budget_max, label: "예산" }
+  - { key: budget_max, label: "예산", label_en: "Budget" }
   - { key: currency, label: "통화", label_en: "Currency", display: { KRW: "원화", USD: "달러" }, display_en: { KRW: "KRW", USD: "USD" } }
-  - { key: priority, label: "우선순위",
+  - { key: priority, label: "우선순위", label_en: "Priority",
       display: { performance: "성능 우선", value: "가성비", quiet: "저소음" },
       display_en: { performance: "Performance first", value: "Value for money", quiet: "Quiet" } }
 
@@ -74,6 +93,27 @@ question_sets:
       mode_only: upgrade,
       label_en: "Which parts do you want to upgrade?",
       options_en: ["CPU", "GPU", "RAM", "Motherboard", "Storage", "PSU", "Case", "Cooler"] }
+  # 업그레이드: 호환을 보려면 유지 부품의 플랫폼이 필요하다. 사양 파일에 없을 때만, 필요한 부품을 고른 경우에만 묻는다.
+  # 모든 질문에 "모르겠어요"가 있다(그것도 답이라 추천이 막히지 않는다 — 대신 결과에 "확인 못 함"으로 안내된다).
+  - { id: q_owned_platform, select: single, maps_to: owned_platform, mode_only: upgrade,
+      ask_when: { upgrade_parts_any: [CPU, 메인보드, 쿨러], unless_current_specs_any: [CPU, 메인보드] },
+      label: "지금 쓰는 CPU는 어느 세대인가요? 메인보드 소켓을 맞추는 데 필요해요.",
+      options: ["Intel 8~9세대", "Intel 10~11세대", "Intel 12~14세대", "Intel Core Ultra 200", "Ryzen 1000~5000", "Ryzen 7000 이상", "모르겠어요"],
+      values: [LGA1151, LGA1200, LGA1700, LGA1851, AM4, AM5, unknown],
+      label_en: "Which generation is your current CPU? It is needed to match the motherboard socket.",
+      options_en: ["Intel 8th-9th gen", "Intel 10th-11th gen", "Intel 12th-14th gen", "Intel Core Ultra 200", "Ryzen 1000-5000", "Ryzen 7000+", "Not sure"] }
+  - { id: q_owned_ram, select: single, maps_to: owned_ram_type, mode_only: upgrade,
+      ask_when: { upgrade_parts_any: [RAM, 메인보드], unless_current_specs_any: [RAM] },
+      label: "지금 쓰는 메모리(RAM)는 어떤 종류인가요?",
+      options: ["DDR3", "DDR4", "DDR5", "모르겠어요"], values: [DDR3, DDR4, DDR5, unknown],
+      label_en: "What type of memory (RAM) do you use now?",
+      options_en: ["DDR3", "DDR4", "DDR5", "Not sure"] }
+  - { id: q_owned_psu, select: single, maps_to: owned_psu_w, mode_only: upgrade,
+      ask_when: { upgrade_parts_any: [GPU], unless_current_specs_any: [파워] },
+      label: "지금 쓰는 파워(전원공급장치)는 몇 W인가요? 새 그래픽카드가 버티는지 보려고요.",
+      options: ["500W 미만", "500~650W", "700~850W", "900W 이상", "모르겠어요"], values: ["450", "500", "700", "900", unknown],
+      label_en: "How many watts is your current power supply? It is needed to check the new graphics card.",
+      options_en: ["Under 500W", "500-650W", "700-850W", "900W or more", "Not sure"] }
   - { id: q_resolution, select: single, maps_to: resolution,
       label: "목표 해상도·주사율은?",
       options: ["FHD 144Hz", "QHD 165Hz", "4K", "잘 모르겠어요"],

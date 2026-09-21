@@ -260,6 +260,8 @@ def _build_fields(cat_def: dict, values: dict, locale: Locale = "ko-KR") -> list
     for meta in cat_def.get("fields", []):
         if meta.get("mode_only") and meta["mode_only"] != mode:
             continue
+        if meta.get("ask_when") and not _ask_applies(meta, values) and values.get(meta["key"]) is None:
+            continue                       # 필요 없는 조건부 필드는 화면 목록에 안 낸다
         value = _field_value(meta, values, locale)
         raw = values.get(meta["computed"]) if meta.get("computed") else value
         source_key = meta.get("computed") or meta["key"]
@@ -275,11 +277,34 @@ def _build_fields(cat_def: dict, values: dict, locale: Locale = "ko-KR") -> list
     return out
 
 
+def _ask_applies(meta: dict, values: dict) -> bool:
+    """ask_when 조건: 이 질문/필드가 지금 필요한가. 없으면 항상 필요.
+    - upgrade_parts_any: 고른 업그레이드 부품 중 하나라도 이 목록에 있을 때만
+    - unless_current_specs_any: 사양 파일에 이 부품이 이미 적혀 있으면 다시 묻지 않는다"""
+    cond = meta.get("ask_when")
+    if not cond:
+        return True
+    from src.engine.stage2_requirement import normalize_pc_slot
+
+    parts = {normalize_pc_slot(p) or str(p) for p in (values.get("upgrade_parts") or [])}
+    wanted = cond.get("upgrade_parts_any")
+    if wanted and not (parts & set(wanted)):
+        return False
+    known = values.get("current_specs")
+    given = {normalize_pc_slot(k) or str(k) for k, v in (known.items() if isinstance(known, dict) else []) if v}
+    return not (given & set(cond.get("unless_current_specs_any") or ()))
+
+
 def _required_keys(cat_def: dict, values: dict) -> list[str]:
     req = list(cat_def.get("required_inputs", []))
     for mode, extra in (cat_def.get("required_inputs_by_mode") or {}).items():
         if values.get("mode") == mode:
             req += extra
+    # 조건부 질문: 필요할 때만 필수가 된다("모르겠어요"도 답이라 채워지면 충족).
+    for q in cat_def.get("question_sets", []):
+        if q.get("ask_when") and (not q.get("mode_only") or q["mode_only"] == values.get("mode")) \
+                and _ask_applies(q, values) and q["maps_to"] not in req:
+            req.append(q["maps_to"])
     return req
 
 
@@ -290,7 +315,9 @@ def compute_missing(cat_def: dict, values: dict) -> list[str]:
 def _next_question(cat_def: dict, values: dict, locale: Locale = "ko-KR") -> dict | None:
     locale = normalize_locale(locale)
     mode = values.get("mode")
-    en = lang_of(values) == "en"      # 영어 사용자 — yaml 의 label_en/options_en (없으면 한국어 그대로)
+    # 영어 사용자 — 조건에 저장된 language(언어 토글) 또는 요청 로케일(Accept-Language). 예전엔 앞쪽만 봐서
+    # 로케일이 en-US 여도 저장된 language 가 없으면 한국어 질문이 나갔다(_build_fields·메시지 변환은 로케일을 따랐는데).
+    en = lang_of(values) == "en" or locale == "en-US"      # yaml 의 label_en/options_en (없으면 한국어 그대로)
     missing = set(compute_missing(cat_def, values))
     for q in cat_def.get("question_sets", []):
         if q.get("mode_only") and q["mode_only"] != mode:
@@ -602,9 +629,13 @@ def reset_conditions(
 # ── 업그레이드 사양 파일 첨부 (§D-4-1: current_specs · spec_file_name) ──
 _ALLOWED_SPEC_EXTENSIONS = {"txt", "json", "csv", "md", "log", "nfo", "xml"}
 _MAX_SPEC_FILE_BYTES = 1_000_000
-_SPEC_LINE = re.compile(r"(?im)^\s*(cpu|프로세서|gpu|그래픽카드|그래픽|ram|메모리)\s*[:=]\s*(.+?)\s*$")
+_SPEC_LINE = re.compile(
+    r"(?im)^\s*(cpu|프로세서|gpu|그래픽카드|그래픽|ram|메모리|메인보드|mainboard|motherboard|"
+    r"파워|psu|케이스|case|쿨러|cooler)\s*[:=]\s*(.+?)\s*$")
 _SPEC_KEY_MAP = {"cpu": "CPU", "프로세서": "CPU", "gpu": "GPU", "그래픽카드": "GPU", "그래픽": "GPU",
-                 "ram": "RAM", "메모리": "RAM"}
+                 "ram": "RAM", "메모리": "RAM", "메인보드": "메인보드", "mainboard": "메인보드",
+                 "motherboard": "메인보드", "파워": "파워", "psu": "파워", "케이스": "케이스", "case": "케이스",
+                 "쿨러": "쿨러", "cooler": "쿨러"}
 
 
 def _parse_spec_file(content: str) -> dict:

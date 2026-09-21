@@ -20,7 +20,7 @@ def _cand(key: str, slot: str, price: int, **specs) -> Candidate:
 
 def test_default_yaml_preserves_pc_requirement_contract():
     rules = stage2_requirement.load_computer_rules()
-    assert rules["rule_set_version"] == "computer-rules-v1"
+    assert rules["rule_set_version"] == "computer-rules-v5"
     spec = stage2_requirement.run(_slots(resolution="QHD_165", brand_pref="amd", budget_max=2_000_000), {}, lambda _: None)
     assert spec.targets["GPU"]["vram_gb_min"] == 12
     assert spec.targets["CPU"]["socket_in"] == ["AM5"]
@@ -81,3 +81,19 @@ def test_psu_capacity_factor_controls_set_verification(monkeypatch):
                            targets={slot: {} for slot in pools}, budget={"total": 1000})
     build = stage4_optimize.build_computer(rank, spec, lambda _: None)
     assert build.link_check["power"] == "fail"  # 300 W > 500 W * 0.5
+
+
+@pytest.mark.parametrize("bad", [
+    {"gpu": {"Entry": 0}},          # 1 미만
+    {"gpu": {"Entry": 11}},         # 10 초과
+    {"gpu": {"Entry": "high"}},     # 숫자 아님
+    {"gpu": {}},                    # 비어 있음
+    {"psu": {"Entry": 5}},          # cpu/gpu 이외
+])
+def test_lineup_perf_tier_table_rejects_bad_values(tmp_path, bad):
+    rules = deepcopy(stage2_requirement.load_computer_rules())
+    rules["requirements"]["lineup_perf_tier"] = bad
+    path = tmp_path / "computer_verification_rules.yaml"
+    path.write_text(yaml.safe_dump(rules, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    with pytest.raises(stage2_requirement.RequirementRuleError):
+        stage2_requirement.load_computer_rules(path)
