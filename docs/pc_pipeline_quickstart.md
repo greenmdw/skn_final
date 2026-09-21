@@ -1,7 +1,7 @@
 # PC 추천 파이프라인 — 처음부터 재현하기
 
 브랜치 `pc-catalog-engine` 기준. **PC 추천 파이프라인**(조건 대화 → 추천 → 결과 → 교체 → 확정 → 리포트)만
-공유 범위다. 유아용품(baby)은 참고 구현으로 남아 있을 뿐 이 문서의 범위 밖이다([테스트 현황](test_status.md) 참고).
+공유 범위다. 유아용품 지원과 영어 UI는 2026-09-21에 제거했다([테스트 현황](test_status.md) 참고).
 
 전체 그림과 미완 목록은 [pc_pipeline_overview.md](pc_pipeline_overview.md).
 
@@ -60,7 +60,7 @@ DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test python db/
 |---|---|---|---|---|---|---|---|
 | 40 | 43 | 39 | 40 | 40 | 40 | 40 | 40 |
 
-(같은 DB에 유아용품·부속기기 상품도 함께 적재된다. `setup_all.py`는 멱등이라 다시 돌려도 된다.)
+(`setup_all.py`는 멱등이라 다시 돌려도 된다. 예전에 유아용품 시드를 넣어 둔 DB에는 그 행이 그대로 남는다 — 삭제 마이그레이션은 없다. 새 DB에서 시작하면 깨끗하다.)
 
 ## 3. 프론트 빌드, 서버 띄우기, 웹 확인
 
@@ -106,9 +106,9 @@ TEST_DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test uv ru
 TEST_DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test uv run pytest -q
 ```
 
-- 2026-09-21 기준: **919 passed, 34 failed, 6 skipped, 1 xfailed** (약 70초). 위 원본 파일을 모두 갖춘 경우이며,
-  `data/amazon23/pcparts_product_risk.json`이 없는 새 체크아웃에서는 passed 917 · skipped 8(리뷰 원본을 읽는 2건이 skip). 실패 34건의 분류는 [test_status.md](test_status.md) —
-  전부 이 브랜치의 PC 파이프라인 밖이다.
+- 2026-09-21 기준(새 DB, 시드는 `computer`만): **622 passed, 7 failed, 6 skipped** (약 30초). 실패 7건은 전부 인증 강화 수용 테스트다
+  ([test_status.md](test_status.md)). `d6_iat_boundary…`는 초 경계에 따라 통과할 수도 있어 6~7건으로 나온다.
+  `data/amazon23/pcparts_product_risk.json`이 없는 새 체크아웃에서는 리뷰 원본을 읽는 2건이 skip 된다.
 - 같은 테스트 DB에서 반복 실행해도 결과가 같다(인증 테스트는 시작 시 사용자 표를 비운다 — 일회용 DB에서만).
 - 테스트 DB가 꺼져 있으면 DB가 필요한 테스트는 실패가 아니라 skip으로 보고된다.
 - **Windows 주의**: 기본 임시 폴더(`%TEMP%\pytest-of-<user>`) 접근 거부가 나면 `--basetemp=<쓸 수 있는 폴더>`를 준다.

@@ -110,9 +110,9 @@ def test_the_three_conditional_questions_exist():
 @pytest.mark.parametrize("q", CONDITIONAL, ids=lambda q: q["id"])
 def test_every_conditional_question_is_well_formed(q):
     assert q["select"] == "single" and q["mode_only"] == "upgrade"
-    assert len(q["options"]) == len(q["values"]) == len(q["options_en"])
-    assert q["values"][-1] == "unknown" and q["options"][-1] == "모르겠어요" and q["options_en"][-1] == "Not sure"
-    assert q["maps_to"] in CAT["slot_schema"] and q["label_en"]
+    assert len(q["options"]) == len(q["values"])
+    assert q["values"][-1] == "unknown" and q["options"][-1] == "모르겠어요"
+    assert q["maps_to"] in CAT["slot_schema"] and q["label"]
     assert set(q["values"]) == set(CAT["slot_schema"][q["maps_to"]]["values"])            # 스키마와 일치
     assert q["maps_to"] in {f["key"] for f in CAT["fields"]}
     assert set(q["ask_when"]["upgrade_parts_any"]) <= set(SLOTS)
@@ -123,13 +123,6 @@ def test_answers_round_trip_to_their_typed_values():
     q = next(q for q in CAT["question_sets"] if q["id"] == "q_owned_psu")
     assert ss._canonicalize_answer_values(q, ["500"]) == ["500"]                  # data-* 로 와도 YAML 의 값으로 정규화
     assert ss._canonicalize_answer_values(q, ["모르겠어요"]) == ["unknown"]
-    assert ss._canonicalize_answer_values(q, ["Not sure"]) == ["unknown"]
-
-
-def test_english_users_get_english_question_text():
-    nq = ss._next_question(CAT, {**_v(upgrade_parts=["GPU"]), "language": "en"})
-    assert nq["id"] == "q_owned_psu" and "power supply" in nq["text"]
-    assert [o["label"] for o in nq["options"]][-1] == "Not sure"
 
 
 # ── 답이 엔진에 어떻게 쓰이는가 ───────────────────────────────────────────────
@@ -202,11 +195,8 @@ def test_notes_disclose_that_the_board_socket_was_deduced_from_the_old_cpu():
     assert notes == ["현재 메인보드의 소켓은 교체하는 CPU(Ryzen 5 3600)의 모델명으로 보아 AM4일 것으로 추정했어요 — 구매 전 확인하세요."]
 
 
-def test_answers_from_the_user_produce_no_caveat_and_english_has_no_korean():
+def test_answers_from_the_user_produce_no_caveat():
     assert upgrade_notes(["CPU"], _owned(["CPU"], owned_platform="AM4")) == []
-    en = upgrade_notes(["CPU"], _owned(["CPU"], current_specs={"CPU": "Ryzen 5 3600"}), "en")
-    assert en and not any("가" <= ch <= "힣" for n in en for ch in n)
-    assert "model name of the CPU you are replacing (Ryzen 5 3600)" in en[0]
 
 
 # ── 종단: 세션 -> 칩 답변 -> 추천 -> 결과 (로컬 PostgreSQL + PC 카탈로그 seed 필요) ─────────

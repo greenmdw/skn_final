@@ -65,7 +65,7 @@ def test_nullable_int_clears_and_bool_parses():
 
 @pytest.mark.parametrize("raw, expected", [
     ("1000000", 1_000_000), ("50000000", 50_000_000), ("100만원", 1_000_000),
-    ("$1000", "USD:1000"), ("1000만원", 10_000_000),   # 달러는 고정 환율로 원화 환산 (2026-09-14 결정 — 1,000원이 아니다)
+    ("1000만원", 10_000_000),
     ("300만", 3_000_000), ("300만원", 3_000_000), ("3000000", 3_000_000), ("3,000,000", 3_000_000),
     ("삼백만원", 3_000_000),
 ])
@@ -73,10 +73,7 @@ def test_budget_amount_parses_like_int(raw, expected):
     d = _draft("computer")
     out = d.set("budget_max", raw)
     assert not out.startswith("오류"), out
-    if isinstance(expected, str) and expected.startswith("USD:"):
-        assert d.patches["budget_max"] == round(int(expected[4:]) * ca.USD_KRW_RATE) and d.patches["currency"] == "USD"
-    else:
-        assert d.patches["budget_max"] == expected
+    assert d.patches["budget_max"] == expected
 
 
 def test_extra_appends_without_duplicates():
@@ -103,22 +100,6 @@ def test_system_prompt_lists_option_codes_and_language():
     p = ca.system_prompt(d, "게임용 PC 맞추려고요")
     assert '게임→"game"' in p                # 질문 칩의 라벨→값 매핑이 모델에 보인다
     assert p.endswith("답변 언어: 한국어 존댓말.")
-    assert ca.system_prompt(d, "we're expecting").endswith("including the closing question.")
-
-
-def test_digits_only_message_follows_conversation_language():
-    codes = ca._chip_codes(load_category("computer"))
-    # 실측(2026-09-14 원격 테스트): 칩으로 "office" 고르고 "100000" 을 치면 영어로 답했다
-    chip_then_digits = [{"role": "assistant", "content": "주로 어떤 용도로 쓰실 건가요?"},
-                        {"role": "user", "content": "office"},
-                        {"role": "assistant", "content": "예산은 얼마까지 생각하시나요?"}]
-    assert ca._reply_language("100000", chip_then_digits, codes) == "ko"
-    en_hist = [{"role": "user", "content": "for gaming"}, {"role": "assistant", "content": "Budget?"}]
-    assert ca._reply_language("100000", en_hist, codes) == "en"
-    assert ca._reply_language("100000") == "ko"
-    assert ca._reply_language("QHD 165Hz 쓸 거예요") == "ko"  # 한글이 있으면 라틴 단어가 섞여도 한국어
-    multi_chip = [{"role": "user", "content": "CPU, GPU"}, {"role": "assistant", "content": "예산은요?"}]
-    assert ca._reply_language("100000", multi_chip, codes) == "ko"   # 멀티 칩 값도 건너뛴다
 
 
 # ── 대화 이력 ──────────────────────────────────────────────────────────────
@@ -151,52 +132,3 @@ def test_unavailable_under_mock_mode(monkeypatch):
     monkeypatch.setattr(ca, "CONDITIONS_AGENT", True)
     assert ca.available() is False
 
-
-# ── 달러 입력 (영어 데모) ──────────────────────────────────────────────────
-@pytest.mark.parametrize("raw, krw", [("$1,500", 1_500 * 1400), ("1500 dollars", 1_500 * 1400), ("1.2k USD", 1_200 * 1400),
-                                      ("USD 900", 900 * 1400), ("천 달러", None)])   # 한글 숫자는 안 잡는다 — 되묻게
-def test_usd_amounts_convert_at_fixed_rate(monkeypatch, raw, krw):
-    monkeypatch.setattr(ca, "USD_KRW_RATE", 1400.0)
-    assert ca._parse_money(raw) == (krw, "USD")
-    assert ca._parse_money("150만원") == (1_500_000, None)
-
-
-def test_budget_in_dollars_sets_currency_and_shows_both(monkeypatch):
-    monkeypatch.setattr(ca, "USD_KRW_RATE", 1400.0)
-    d = _draft("computer", {"category": "computer", "mode": "build"})
-    out = d.set("budget_max", "$1,200")
-    assert d.patches["budget_max"] == 1_680_000 and d.patches["currency"] == "USD"
-    assert "budget_max = $1,200 반영" in out and "원" not in out.split("반영")[0]   # 달러만, 원화 병기 없음
-    p = ca.system_prompt(d, "budget is $1,200")
-    assert '"budget_max": "$1,200"' in p and "원화(₩·KRW·원)로 바꾸거나 병기하지 않습니다" in p
-    d2 = _draft("computer")
-    d2.set("budget_max", "150만원")
-    assert "currency" not in d2.patches
-
-
-def test_bare_number_is_dollars_in_english_and_won_in_korean(monkeypatch):
-    monkeypatch.setattr(ca, "USD_KRW_RATE", 1400.0)
-    assert ca._parse_budget("1500", lang="en") == (2_100_000, "USD")            # 영어 대화 + 단위 없음 → 달러
-    assert ca._parse_budget("1,500", lang="en") == (2_100_000, "USD")
-    assert ca._parse_budget("1500", lang="ko") == (1_500, None)                # 한국어 → 원화 그대로
-    assert ca._parse_budget("1,500,000 won", lang="en") == (1_500_000, None)   # 명시적 원화는 영어여도 원화
-    assert ca._parse_budget("150만원", lang="en") == (1_500_000, None)
-    assert ca._parse_budget("2000", lang="ko", session_currency="USD") == (2_800_000, "USD")   # 이미 달러로 말한 사용자
-    assert ca._parse_budget("$900", lang="ko") == (1_260_000, "USD")
-    d = _draft("computer", {"category": "computer"}); d.lang = "en"
-    d.set("budget_max", "1500")
-    assert d.patches["budget_max"] == 2_100_000 and d.patches["currency"] == "USD"
-    d2 = _draft("computer", {"category": "computer", "currency": "USD"})
-    d2.set("budget_max", "2,000,000원")
-    assert d2.patches["budget_max"] == 2_000_000 and d2.patches["currency"] == "KRW"
-
-
-def test_currency_set_after_bare_budget_reinterprets_it(monkeypatch):
-    monkeypatch.setattr(ca, "USD_KRW_RATE", 1400.0)
-    d = _draft("computer", {"category": "computer", "currency": "USD"}); d.lang = "en"
-    d.set("budget_max", "1,500,000")          # 모델이 "won" 을 떼고 넘김 → 일단 달러로 읽힘
-    assert d.patches["budget_max"] == 2_100_000_000
-    out = d.set("currency", "KRW")             # 뒤이어 통화가 오면 다시 해석
-    assert d.patches["budget_max"] == 1_500_000 and d.patches["currency"] == "KRW" and "다시 해석" in out
-    d.set("currency", "USD")
-    assert d.patches["budget_max"] == 2_100_000_000

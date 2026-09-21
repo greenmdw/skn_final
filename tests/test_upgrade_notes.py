@@ -28,8 +28,6 @@ CPU_CONFIRMED = {"name": "AMD Ryzen 5 7600", "specs": {"socket": "AM5"}, "source
 def test_scope_note_lists_the_upgraded_parts_and_says_the_rest_stays():
     ko = upgrade_scope_note(["GPU", "파워"])
     assert "GPU, 파워만 포함" in ko and "그대로 쓰는 것" in ko
-    en = upgrade_scope_note(["GPU", "파워"], "en")
-    assert "GPU, power supply" in en and "stay" in en
     assert upgrade_scope_note([]) == ""
 
 
@@ -77,11 +75,6 @@ def test_korean_object_particle_follows_the_final_consonant(aspect, expected):
     from src.engine.owned_parts import _josa
 
     assert _josa(aspect, "을", "를") == expected
-
-
-def test_english_notes_do_not_leak_korean():
-    notes = upgrade_notes(["GPU"], {}, "en")
-    assert notes and not any(ch for n in notes for ch in n if "가" <= ch <= "힣")
 
 
 def test_every_upgrade_type_has_a_defined_set_of_needs():

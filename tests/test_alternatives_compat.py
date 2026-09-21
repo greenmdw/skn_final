@@ -122,10 +122,10 @@ def test_deselected_parts_do_not_constrain_the_alternatives(pool):
     assert _names(kept) == ["c-lga", "c-am4"]
 
 
-def test_baby_and_other_categories_are_untouched(pool):
+def test_other_categories_are_untouched(pool):
     stored = [_row("CPU", "c-am5-a"), _row("메인보드", "b-am5")]
     variants = _variants("c-lga")
-    assert rs._drop_incompatible_alternatives(None, stored, stored[0], variants, {"category": "baby"}) == variants
+    assert rs._drop_incompatible_alternatives(None, stored, stored[0], variants, {"category": "other"}) == variants
 
 
 def test_upgrade_uses_the_kept_parts_the_user_described(pool):

@@ -10,7 +10,6 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from src.i18n import Locale, normalize_locale
 from src.auth.deps import Principal
 from src.errors import Conflict, NotFound, ValidationFailed
 from src.repo.engine_repo import EngineRepo
@@ -98,20 +97,15 @@ def delete(conn, list_id: UUID, principal: Principal) -> None:
     prepo.soft_delete(list_id)
 
 
-def _report_lang(prepo: PlanRepo, revision_id: UUID) -> str:
-    from src.engine.lang import lang_of
-    return lang_of({r["condition_key"]: r["value"].get("value") for r in prepo.load_full(revision_id)["conditions"]})
-
-
 def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_purchase_at: str | None,
-            target_amount: int | None, memo: str, if_match: int | None = None, locale: Locale = "ko-KR") -> dict:
+            target_amount: int | None, memo: str, if_match: int | None = None) -> dict:
     user_id = _require_login(conn, principal)
     prepo = PlanRepo(conn)
     revision = _owned(prepo, list_id, principal)
     if revision["owner_user_id"] != user_id:
         raise NotFound("목록을 찾을 수 없습니다.")
     if revision["state"] == "confirmed":
-        return get_report(conn, list_id, principal, locale=locale)
+        return get_report(conn, list_id, principal)
     if if_match is not None and if_match != revision["lock_version"]:
         raise Conflict("목록이 다른 곳에서 변경되었습니다.", code="stale_revision")
 
@@ -176,17 +170,15 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
         conn, plan_id=revision["plan_id"], revision_id=revision["id"],
         run_id=UUID(stored["run_id"]), version=revision["lock_version"], user_id=user_id,
     )
-    return get_report(conn, list_id, principal, locale=locale)
+    return get_report(conn, list_id, principal)
 
 
-def get_report(conn, list_id: UUID, principal: Principal, *, locale: Locale = "ko-KR") -> dict:
-    locale = normalize_locale(locale)
+def get_report(conn, list_id: UUID, principal: Principal) -> dict:
     user_id = _require_login(conn, principal)
     prepo = PlanRepo(conn)
     revision = _owned(prepo, list_id, principal)
     if revision["owner_user_id"] != user_id or revision["state"] != "confirmed":
         raise NotFound("확정된 목록을 찾을 수 없습니다.")
-    lang = "en" if locale == "en-US" else "ko"
 
     owner = UserRepo(conn).get(revision["owner_user_id"])
     items = []
@@ -197,7 +189,7 @@ def get_report(conn, list_id: UUID, principal: Principal, *, locale: Locale = "k
             "product": snapshot.get("product") or {},
             "price": int(line["line_amount"]), "qty": int(line["pack_count"]),
             "timing": snapshot.get("timing", "now"), "review": snapshot.get("review"),
-            "evidence_text": _report_evidence(snapshot, locale),
+            "evidence_text": snapshot.get("evidence_text", "") or "",
         })
     watch = NotificationRepo(conn).get_for_revision(revision["id"])
 
@@ -206,7 +198,7 @@ def get_report(conn, list_id: UUID, principal: Principal, *, locale: Locale = "k
     # 담아주므로, 서버가 PDF를 따로 만들 필요가 없다는 게 이 기능의 핵심 결정이다).
     from src.agent.assembly_guide_agent import build_guide
     guide_items = [{"slot": it["slot"], "product": it["product"]} for it in items if it["product"]]
-    care_guide = build_guide(guide_items, lang=lang)
+    care_guide = build_guide(guide_items)
 
     return {
         "list_id": str(list_id),
@@ -226,11 +218,8 @@ def get_report(conn, list_id: UUID, principal: Principal, *, locale: Locale = "k
             watch, int(revision["target_amount"]) if revision["target_amount"] is not None else None
         ),
         "care_guide": care_guide,
-        "data_notice": (("PC products and prices come from an imported file, not a live feed. Review summaries are synthetic."
-                         if lang == "en" else "PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. 리뷰 요약은 합성 데이터입니다.")
-                        if revision["category"] == "computer" else
-                        ("Products, prices and reviews are synthetic demo data." if lang == "en"
-                         else "상품·가격·리뷰는 합성 데이터입니다.")),
+        "data_notice": ("PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. 리뷰 요약은 합성 데이터입니다."
+                        if revision["category"] == "computer" else "상품·가격·리뷰는 합성 데이터입니다."),
     }
 
 
@@ -262,13 +251,3 @@ def set_alert(conn, list_id: UUID, principal: Principal, *, enabled: bool, targe
     ends_at = datetime.now(timezone.utc) + timedelta(days=_PRICE_WATCH_WINDOW_DAYS)
     watch = nrepo.upsert_active(revision["id"], target_amount=amount, ends_at=ends_at)
     return {"price_watch": _price_watch_out(watch, confirmed_target)}
-
-
-def _report_evidence(snapshot: dict, locale: Locale) -> str:
-    text = snapshot.get("evidence_text", "") or ""
-    if locale == "en-US":
-        if snapshot.get("evidence_text_en"):
-            return snapshot["evidence_text_en"]
-        if any("가" <= char <= "힣" for char in text):
-            return "The recommendation explanation was saved in Korean. An English translation is not available for this saved report."
-    return text

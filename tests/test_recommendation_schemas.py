@@ -20,7 +20,7 @@ def test_recommendation_response_is_explicit_in_openapi() -> None:
     schema = app.openapi()["components"]["schemas"]
     response = schema["RecommendResultOut"]
     assert {
-        "list_id", "run_id", "status", "content_language", "items", "totals",
+        "list_id", "run_id", "status", "items", "totals",
         "verification", "explanation",
     } <= set(
         response["properties"]
@@ -49,27 +49,6 @@ def test_result_out_builds_from_plain_dict() -> None:
     )
     assert result.items[0].product.name == "GeForce RTX 4060"
     assert result.explanation.status == "pending"  # 기본값
-    assert result.content_language == "ko-KR"
-
-
-def test_result_language_accepts_only_supported_locales() -> None:
-    english = RecommendResultOut(
-        list_id="list-1",
-        run_id="run-1",
-        status="done",
-        category="computer",
-        content_language="en-US",
-    )
-    assert english.content_language == "en-US"
-
-    with pytest.raises(ValidationError):
-        RecommendResultOut(
-            list_id="list-1",
-            run_id="run-1",
-            status="done",
-            category="computer",
-            content_language="fr-FR",
-        )
 
 
 def test_mutable_schema_defaults_are_not_shared() -> None:

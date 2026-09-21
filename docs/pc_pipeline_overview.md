@@ -40,7 +40,7 @@ flowchart TD
 
 | 무엇 | 어디 |
 |---|---|
-| 조건 스키마·질문·영어 라벨 | `config/categories/computer.yaml` |
+| 조건 스키마·질문 | `config/categories/computer.yaml` |
 | 용도별 기본값, 성능 티어, 우선순위 가중치, 소음 프록시, 전력 헤드룸·권장 파워 규칙 | `config/computer_verification_rules.yaml` (`rule_set_version: computer-rules-v5`) |
 | 요구사양(용도 프로필·업그레이드 목표 제한) | `src/engine/stage2_requirement.py` |
 | 유지 부품 스펙 해석·업그레이드 안내문 | `src/engine/owned_parts.py` |
@@ -89,7 +89,7 @@ flowchart TD
 | 항목 | 상태 |
 |---|---|
 | 실제 LLM 검증 | 미수행 — 스모크·테스트는 전부 `MOCK_MODE=1` |
-| 조건/결과 대화 에이전트(Strands) | 기본 꺼짐(규칙 경로가 기본). 영어 프롬프트 미구현(xfail 테스트로 표시) |
+| 조건/결과 대화 에이전트(Strands) | 기본 꺼짐(규칙 경로가 기본) |
 
 ### 프론트 (`web/`, React) — 연결 현황
 
@@ -114,6 +114,6 @@ flowchart TD
 
 | 항목 | 상태 |
 |---|---|
-| 옛 정적 프론트(`frontend/`) | 새 프론트(`web/`)가 기본이 되어 대체 경로로만 남는다(`TRUEFIT_FRONTEND=legacy`). 유아용품 화면은 옛 프론트에만 있다 |
+| 옛 정적 프론트(`frontend/`) | 새 프론트(`web/`)가 기본이 되어 대체 경로로만 남는다(`TRUEFIT_FRONTEND=legacy`). 유아용품 카드·영어 전환은 더 이상 동작하지 않는다. 삭제는 미결정 |
 | 인증 강화 | 로그인·가입·확정은 동작. 이메일 확인 호출 제한, 5회 실패 잠금, 비밀번호 변경 시 옛 토큰 무효화, 탈퇴 시 동의 시각 삭제는 **테스트 7건이 실패** — 후순위 |
-| 유아용품(baby) | 범위 밖. 참고 구현으로 남아 있고 관련 테스트 26건이 실패([test_status.md](test_status.md)) |
+| 유아용품(baby)·영어 화면·달러 입력 | 2026-09-21에 제거(코드·데이터·문서·테스트). 프롬프트 문구도 한국어 전용으로 바뀌었으므로 팀 확인이 필요하다 |

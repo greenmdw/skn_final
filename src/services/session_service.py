@@ -6,9 +6,7 @@ from src.agent import conditions_agent
 from src.auth.deps import Principal
 from src.categories import available_categories, load_category
 from src.engine import slot_rules
-from src.engine.lang import L, lang_of
 from src.errors import Conflict, FileTooLarge, NotFound, ValidationFailed
-from src.i18n import Locale, normalize_locale
 from src.repo.plan_repo import PlanRepo
 from src.repo.user_repo import ConversationRepo
 
@@ -63,17 +61,11 @@ def create_session(conn, principal: Principal) -> dict:
     return {"list_id": str(plan), "browser_token": None if principal.user_id is not None else token, "reused": reused}
 
 
-def _field_value(meta: dict, values: dict, locale: Locale = "ko-KR"):
+def _field_value(meta: dict, values: dict):
     return values.get(meta["key"])
 
 
-def _localized(meta: dict, key: str, locale: Locale):
-    if locale == "en-US":
-        return meta.get(f"{key}_en", meta.get(key))
-    return meta.get(key)
-
-
-def _option_label_map(cat_def: dict, field: str, locale: Locale) -> dict:
+def _option_label_map(cat_def: dict, field: str) -> dict:
     question = next(
         (q for q in cat_def.get("question_sets", []) if q["maps_to"] == field),
         None,
@@ -81,44 +73,33 @@ def _option_label_map(cat_def: dict, field: str, locale: Locale) -> dict:
     if not question:
         return {}
     options = question.get("options") or []
-    labels = _localized(question, "options", locale) or options
     values = question.get("values") or options
-    return {value: label for value, label in zip(values, labels)}
+    return {value: label for value, label in zip(values, options)}
 
 
 def _display(
     meta: dict,
     value,
-    locale: Locale = "ko-KR",
     option_labels: dict | None = None,
-    values: dict | None = None,
 ) -> str | None:
-    values = values or {}
     if value in (None, ""):
         return None
-    disp_map = _localized(meta, "display", locale)
+    disp_map = meta.get("display")
     if disp_map:
         return disp_map.get(value, disp_map.get(str(value), str(value)))
     if isinstance(value, list):
         labels = option_labels or {}
-        none_label = "None" if locale == "en-US" else "없음"
-        return " · ".join(none_label if v == "none" else str(labels.get(v, v)) for v in value)
+        return " · ".join("없음" if v == "none" else str(labels.get(v, v)) for v in value)
     if isinstance(value, dict):
         return " · ".join(f"{k}: {v}" for k, v in value.items())
     if isinstance(value, bool):
-        if locale == "en-US":
-            return "Yes" if value else "No"
         return "예" if value else "아니오"
     if meta["key"] == "budget_max" and isinstance(value, (int, float)):
-        if values.get("currency") == "USD":   # 달러로 말한 사용자 — 달러만 (고정 환율 src/config.USD_KRW_RATE)
-            from src.agent.conditions_agent import usd
-            return usd(int(value))
-        return f"₩{int(value):,}" if locale == "en-US" else f"{int(value):,}원"
+        return f"{int(value):,}원"
     return str(value)
 
 
-def _build_fields(cat_def: dict, values: dict, locale: Locale = "ko-KR") -> list[dict]:
-    locale = normalize_locale(locale)
+def _build_fields(cat_def: dict, values: dict) -> list[dict]:
     mode = values.get("mode")
     out = []
     for meta in cat_def.get("fields", []):
@@ -126,11 +107,11 @@ def _build_fields(cat_def: dict, values: dict, locale: Locale = "ko-KR") -> list
             continue
         if meta.get("ask_when") and not _ask_applies(meta, values) and values.get(meta["key"]) is None:
             continue                       # 필요 없는 조건부 필드는 화면 목록에 안 낸다
-        value = _field_value(meta, values, locale)
+        value = _field_value(meta, values)
         status = "confirmed" if meta["key"] in values and value is not None else "missing"
         out.append({
-            "key": meta["key"], "label": _localized(meta, "label", locale), "value": value,
-            "display": _display(meta, value, locale, _option_label_map(cat_def, meta["key"], locale), values),
+            "key": meta["key"], "label": meta.get("label"), "value": value,
+            "display": _display(meta, value, _option_label_map(cat_def, meta["key"])),
             "status": status, "editable": True,
         })
     return out
@@ -171,12 +152,8 @@ def compute_missing(cat_def: dict, values: dict) -> list[str]:
     return [k for k in _required_keys(cat_def, values) if k not in values or values[k] is None]
 
 
-def _next_question(cat_def: dict, values: dict, locale: Locale = "ko-KR") -> dict | None:
-    locale = normalize_locale(locale)
+def _next_question(cat_def: dict, values: dict) -> dict | None:
     mode = values.get("mode")
-    # 영어 사용자 — 조건에 저장된 language(언어 토글) 또는 요청 로케일(Accept-Language). 예전엔 앞쪽만 봐서
-    # 로케일이 en-US 여도 저장된 language 가 없으면 한국어 질문이 나갔다(_build_fields·메시지 변환은 로케일을 따랐는데).
-    en = lang_of(values) == "en" or locale == "en-US"      # yaml 의 label_en/options_en (없으면 한국어 그대로)
     missing = set(compute_missing(cat_def, values))
     for q in cat_def.get("question_sets", []):
         if q.get("mode_only") and q["mode_only"] != mode:
@@ -185,11 +162,10 @@ def _next_question(cat_def: dict, values: dict, locale: Locale = "ko-KR") -> dic
             continue
         options = q.get("options") or []
         qvalues = q.get("values") or options
-        labels = (q.get("options_en") if en and q.get("options_en") else None) or options
         return {
-            "id": q["id"], "field": q["maps_to"], "text": (q.get("label_en") if en else None) or q["label"],
+            "id": q["id"], "field": q["maps_to"], "text": q["label"],
             "select": q["select"],
-            "options": [{"value": v, "label": o} for o, v in zip(labels, qvalues)],
+            "options": [{"value": v, "label": o} for o, v in zip(options, qvalues)],
         }
     return None
 
@@ -201,7 +177,6 @@ def _canonicalize_answer_values(question: dict, selected: list) -> list:
     선택지는 표시 라벨이나 문자열화된 값을 받아도 YAML의 원래 값으로 정규화한다.
     """
     options = question.get("options") or []
-    options_en = question.get("options_en") or []
     values = question.get("values") or []
     if not values:
         return list(selected)
@@ -209,44 +184,27 @@ def _canonicalize_answer_values(question: dict, selected: list) -> list:
     normalized = []
     for item in selected:
         canonical = next(
-            (value for index, (option, value) in enumerate(zip(options, values))
-             if item == option or item == value
-             or str(item).casefold() == str(value).casefold()
-             or (index < len(options_en) and str(item).casefold() == str(options_en[index]).casefold())),
+            (value for option, value in zip(options, values)
+             if item == option or item == value or str(item).casefold() == str(value).casefold()),
             item,
         )
         normalized.append(canonical)
     return normalized
 
 
-def _localized_assistant_message(text: str, cat_def: dict, locale: Locale) -> str:
-    if locale != "en-US":
-        return text
-    if text == _ALL_SET:
-        return _ALL_SET_EN
-    if text == "조건을 초기화했어요.":
-        return "Conditions have been reset."
-    for question in cat_def.get("question_sets", []):
-        if text == question.get("label"):
-            return question.get("label_en", text)
-    return text
-
-
-def _messages_out(rows: list[dict], cat_def: dict | None = None, locale: Locale = "ko-KR") -> list[dict]:
+def _messages_out(rows: list[dict]) -> list[dict]:
     return [
         {
             "id": str(row["id"]),
             "role": row["role"],
-            "text": _localized_assistant_message(row["content"], cat_def or {}, locale)
-            if row["role"] in {"assistant", "system"} else row["content"],
+            "text": row["content"],
             "created_at": row["created_at"].isoformat(),
         }
         for row in rows
     ]
 
 
-def _state(conn, list_id: UUID, principal: Principal, locale: Locale = "ko-KR") -> dict:
-    locale = normalize_locale(locale)
+def _state(conn, list_id: UUID, principal: Principal) -> dict:
     prepo = PlanRepo(conn)
     revision = _owned(prepo, list_id, principal)
     full = prepo.load_full(revision["id"])
@@ -255,28 +213,23 @@ def _state(conn, list_id: UUID, principal: Principal, locale: Locale = "ko-KR") 
     message_rows = ConversationRepo(conn).messages(revision["conversation_id"])
     if category is None:
         return {"list_id": str(list_id), "category": None, "mode": None,
-                "messages": _messages_out(message_rows, locale=locale), "fields": [],
+                "messages": _messages_out(message_rows), "fields": [],
                 "next_question": None, "can_recommend": False, "accepts_spec_file": False,
                 "revision_id": str(revision["id"]), "lock_version": revision["lock_version"]}
     cat_def = _category(category)
     return {
         "list_id": str(list_id), "category": category, "mode": values.get("mode"),
-        "messages": _messages_out(message_rows, cat_def, locale),
-        "fields": _build_fields(cat_def, values, locale),
-        "next_question": _next_question(cat_def, values, locale),
+        "messages": _messages_out(message_rows),
+        "fields": _build_fields(cat_def, values),
+        "next_question": _next_question(cat_def, values),
         "can_recommend": not compute_missing(cat_def, values),
         "accepts_spec_file": category == "computer" and values.get("mode") == "upgrade",
         "revision_id": str(revision["id"]), "lock_version": revision["lock_version"],
     }
 
 
-def get_session_state(
-    conn,
-    list_id: UUID,
-    principal: Principal,
-    locale: Locale = "ko-KR",
-) -> dict:
-    return _state(conn, list_id, principal, locale)
+def get_session_state(conn, list_id: UUID, principal: Principal) -> dict:
+    return _state(conn, list_id, principal)
 
 
 def choose_category(
@@ -285,12 +238,7 @@ def choose_category(
     category: str,
     mode: str | None,
     principal: Principal,
-    locale: Locale = "ko-KR",
-    language: str | None = None,
 ) -> dict:
-    """language 는 프론트 언어 토글(X-TrueFit-Lang 헤더). 조건 대화 없이 칩만 눌러도 [3-C]·[5]·결과 문장이 그 언어로 나온다.
-    locale 은 이 요청(ConditionState) 응답 자체의 표시 언어 — Accept-Language 기반, 백그라운드 실행 시점엔 없다."""
-    locale = normalize_locale(locale)
     repo = PlanRepo(conn)
     current = _owned(repo, list_id, principal)
     cat_def = _category(category)
@@ -312,16 +260,14 @@ def choose_category(
     repo.upsert_condition(current["id"], "category", {"value": category}, "explicit")
     if mode is not None:
         repo.upsert_condition(current["id"], "mode", {"value": mode}, "explicit")
-    if language in ("ko", "en") and "language" in (cat_def.get("slot_schema") or {}):
-        repo.upsert_condition(current["id"], "language", {"value": language}, "explicit")
     if previous_category is not None and previous_category != category:
         for key in values:
             if key not in {"category", "mode"}:
                 repo.clear_condition(current["id"], key)
-    nq = _next_question(cat_def, {"mode": mode, "language": language}, locale)
+    nq = _next_question(cat_def, {"mode": mode})
     if nq:
         ConversationRepo(conn).add_message(current["conversation_id"], "assistant", nq["text"])
-    return _state(conn, list_id, principal, locale)
+    return _state(conn, list_id, principal)
 
 
 def patch_slot(
@@ -330,13 +276,11 @@ def patch_slot(
     field: str,
     value,
     principal: Principal,
-    locale: Locale = "ko-KR",
 ) -> dict:
-    locale = normalize_locale(locale)
     repo = PlanRepo(conn)
     current = _owned(repo, list_id, principal)
     repo.upsert_condition(current["id"], field, {"value": value}, "explicit")
-    return _state(conn, list_id, principal, locale)
+    return _state(conn, list_id, principal)
 
 
 def _current_values(repo: PlanRepo, revision_id: UUID) -> tuple[dict, str | None]:
@@ -346,7 +290,6 @@ def _current_values(repo: PlanRepo, revision_id: UUID) -> tuple[dict, str | None
 
 
 _ALL_SET = "필요한 조건을 모두 확인했어요. 이 조건으로 추천을 받아보세요."
-_ALL_SET_EN = "All required conditions are set. You can now get your recommendations."
 
 
 def handle_message(
@@ -354,14 +297,12 @@ def handle_message(
     list_id: UUID,
     text: str,
     principal: Principal,
-    locale: Locale = "ko-KR",
 ) -> dict:
     """자유 텍스트 한 턴. 에이전트가 있으면 도구 호출로 조건을 뽑고 답변 문장까지 만든다.
 
     에이전트가 없거나(MOCK_MODE·키 없음) 호출이 실패하면 규칙 추출(slot_rules)로 이번 턴을
     처리한다. 실패는 로그에만 남는다 — 화면에서는 규칙 경로와 구분되지 않는다.
     """
-    locale = normalize_locale(locale)
     repo = PlanRepo(conn)
     current = _owned(repo, list_id, principal)
     values, category = _current_values(repo, current["id"])
@@ -379,8 +320,7 @@ def handle_message(
             turn = conditions_agent.run_turn(
                 category, cat_def, values, history, text,
                 missing_fn=lambda v: compute_missing(cat_def, v),
-                next_question_fn=lambda v: _next_question(cat_def, v, locale),
-                locale=locale)
+                next_question_fn=lambda v: _next_question(cat_def, v))
             extracted, reply = turn.patches, turn.reply
             log.info("conditions agent [%s]: %s", list_id, " | ".join(turn.trace) or "(도구 호출 없음)")
         except Exception as exc:  # 모델·네트워크 오류 — 이번 턴만 규칙으로
@@ -392,15 +332,14 @@ def handle_message(
         repo.upsert_condition(current["id"], key, {"value": value}, "extracted", msg_id)
     values.update(extracted)
 
-    nq = _next_question(cat_def, values, locale)
+    nq = _next_question(cat_def, values)
     if reply is None:
-        lang = lang_of(values)
         if nq:
-            reply = nq["text"] if extracted else L(lang, "죄송해요, 이해하지 못했어요. ", "Sorry, I didn't catch that. ") + nq["text"]
+            reply = nq["text"] if extracted else "죄송해요, 이해하지 못했어요. " + nq["text"]
         else:
-            reply = L(lang, _ALL_SET, _ALL_SET_EN)
+            reply = _ALL_SET
     convo.add_message(current["conversation_id"], "assistant", reply)
-    return _state(conn, list_id, principal, locale)
+    return _state(conn, list_id, principal)
 
 
 def handle_answer(
@@ -409,9 +348,7 @@ def handle_answer(
     question_id: str,
     selected: list,
     principal: Principal,
-    locale: Locale = "ko-KR",
 ) -> dict:
-    locale = normalize_locale(locale)
     repo = PlanRepo(conn)
     current = _owned(repo, list_id, principal)
     values, category = _current_values(repo, current["id"])
@@ -434,36 +371,31 @@ def handle_answer(
         value = selected[0] if selected else None
 
     convo = ConversationRepo(conn)
-    option_labels = _option_label_map(cat_def, key, locale)
-    user_text = ", ".join(str(option_labels.get(s, s)) for s in selected) if selected else (
-        "(No selection)" if locale == "en-US" else "(선택 없음)"
-    )
+    option_labels = _option_label_map(cat_def, key)
+    user_text = ", ".join(str(option_labels.get(s, s)) for s in selected) if selected else "(선택 없음)"
     msg_id = convo.add_message(current["conversation_id"], "user", user_text)
     repo.upsert_condition(current["id"], key, {"value": value}, "explicit", msg_id)
     values[key] = value
 
-    nq = _next_question(cat_def, values, locale)
-    reply = nq["text"] if nq else L(lang_of(values), _ALL_SET, _ALL_SET_EN)
+    nq = _next_question(cat_def, values)
+    reply = nq["text"] if nq else _ALL_SET
     convo.add_message(current["conversation_id"], "assistant", reply)
-    return _state(conn, list_id, principal, locale)
+    return _state(conn, list_id, principal)
 
 
 def reset_conditions(
     conn,
     list_id: UUID,
     principal: Principal,
-    locale: Locale = "ko-KR",
 ) -> dict:
-    locale = normalize_locale(locale)
     repo = PlanRepo(conn)
     current = _owned(repo, list_id, principal)
     full = repo.load_full(current["id"])
     for row in full["conditions"]:
         if row["condition_key"] not in ("category", "mode"):
             repo.upsert_condition(current["id"], row["condition_key"], {"value": None}, "explicit")
-    ConversationRepo(conn).add_message(current["conversation_id"], "system",
-                                       L(lang_of(_current_values(repo, current["id"])[0]), "조건을 초기화했어요.", "Conditions were reset."))
-    return _state(conn, list_id, principal, locale)
+    ConversationRepo(conn).add_message(current["conversation_id"], "system", "조건을 초기화했어요.")
+    return _state(conn, list_id, principal)
 
 
 # ── 업그레이드 사양 파일 첨부 (§D-4-1: current_specs · spec_file_name) ──
@@ -492,9 +424,7 @@ def attach_spec_file(
     file_name: str,
     content: str,
     principal: Principal,
-    locale: Locale = "ko-KR",
 ) -> dict:
-    locale = normalize_locale(locale)
     repo = PlanRepo(conn)
     current = _owned(repo, list_id, principal)
     values, category = _current_values(repo, current["id"])
@@ -509,4 +439,4 @@ def attach_spec_file(
     repo.upsert_condition(current["id"], "spec_file_name", {"value": file_name}, "explicit")
     if specs:
         repo.upsert_condition(current["id"], "current_specs", {"value": specs}, "extracted")
-    return _state(conn, list_id, principal, locale)
+    return _state(conn, list_id, principal)

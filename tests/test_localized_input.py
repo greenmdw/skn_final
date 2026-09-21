@@ -1,36 +1,14 @@
 import pytest
 
-from src.engine.slot_rules import extract_computer
 from src.services import recommendation_service
 
 
 @pytest.mark.parametrize(("message", "expected"), [
-    (
-        "I need a quiet gaming PC for ₩1,500,000 at 1440p 165Hz",
-        {
-            "budget_max": 1_500_000,
-            "purpose": "game",
-            "priority": "quiet",
-            "resolution": "QHD_165",
-        },
-    ),
-    (
-        "A 1.2 million won computer for video editing with strong performance",
-        {"budget_max": 1_200_000, "purpose": "creation", "priority": "performance"},
-    ),
-])
-def test_english_computer_message_extracts_conditions(message, expected):
-    assert extract_computer(message) == expected
-
-
-@pytest.mark.parametrize(("message", "expected"), [
-    ("Make the GPU cheaper", "cheaper"),
-    ("Choose a better processor", "pricier"),
     ("그래픽카드를 더 저렴하게 바꿔줘", "cheaper"),
     ("CPU를 더 좋은 걸로 바꿔줘", "pricier"),
-    ("Tell me about the GPU", None),
+    ("GPU에 대해 알려줘", None),
 ])
-def test_result_change_direction_is_bilingual(message, expected):
+def test_result_change_direction_is_read_from_korean(message, expected):
     _slot, direction, _is_question = recommendation_service._parse_swap_request(message, {"CPU", "GPU"})
     assert direction == expected
 
@@ -38,15 +16,13 @@ def test_result_change_direction_is_bilingual(message, expected):
 @pytest.mark.parametrize("message", [
     "이 구성 총평 알려줘",
     "전체 평가를 요약해 줘",
-    "Give me an overall assessment of this build",
-    "Show me a summary",
 ])
-def test_result_summary_request_is_bilingual(message):
+def test_result_summary_request_is_recognised(message):
     assert recommendation_service._is_result_summary_request(message)
 
 
 def test_result_summary_message_returns_saved_explanation(monkeypatch):
-    stored = {"explanation": {"status": "ready", "text": "The parts are well balanced."}}
+    stored = {"explanation": {"status": "ready", "text": "부품 균형이 잘 맞는 구성입니다."}}
     monkeypatch.setattr(
         recommendation_service,
         "_require_done_run",
@@ -54,17 +30,12 @@ def test_result_summary_message_returns_saved_explanation(monkeypatch):
     )
     monkeypatch.setattr(recommendation_service, "get_stored_result", lambda conn, revision_id: stored)
 
-    out = recommendation_service.handle_result_message(
-        None,
-        None,
-        "Give me an overall assessment of this build",
-        locale="en-US",
-    )
+    out = recommendation_service.handle_result_message(None, None, "이 구성 총평 알려줘")
 
-    assert out == {"reply": "The parts are well balanced.", "result": stored}
+    assert out == {"reply": "부품 균형이 잘 맞는 구성입니다.", "result": stored}
 
 
-def test_result_summary_message_has_localized_pending_reply(monkeypatch):
+def test_result_summary_message_has_a_pending_reply(monkeypatch):
     stored = {"explanation": {"status": "pending", "text": None}}
     monkeypatch.setattr(
         recommendation_service,
@@ -73,11 +44,6 @@ def test_result_summary_message_has_localized_pending_reply(monkeypatch):
     )
     monkeypatch.setattr(recommendation_service, "get_stored_result", lambda conn, revision_id: stored)
 
-    out = recommendation_service.handle_result_message(
-        None,
-        None,
-        "Show me a summary",
-        locale="en-US",
-    )
+    out = recommendation_service.handle_result_message(None, None, "요약해 줘")
 
-    assert out["reply"] == "The overall assessment is still being prepared. Please try again shortly."
+    assert out["reply"] == "전체 구성 총평을 아직 준비하고 있어요. 잠시 후 다시 물어봐 주세요."

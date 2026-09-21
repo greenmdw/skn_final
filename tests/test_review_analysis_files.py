@@ -64,7 +64,7 @@ def _write(tmp_path: Path, samples, labels, analysis) -> Path:
 
     files = [_dump("samples.jsonl", samples), _dump("labels.jsonl", labels), _dump("analysis.jsonl", analysis)]
     manifest = {"schema_version": 1, "dataset_version": "test-v1", "corpus": "synthetic", "language": "ko",
-                "domain": "baby", "generated_at": "2026-01-01T00:00:00+00:00", "files": files,
+                "domain": "computer", "generated_at": "2026-01-01T00:00:00+00:00", "files": files,
                 "label_definition_version": "v1", "split_policy": "fixed"}
     mp = tmp_path / "manifest.json"
     mp.write_text(json.dumps(manifest, ensure_ascii=False), encoding="utf-8")

@@ -100,12 +100,12 @@ def test_safe_subset_keeps_price_watch_and_purchase_line():
 
 def test_condition_and_recommendation_contract_round_trip():
     state = ConditionState.model_validate({
-        "list_id": "list", "category": "baby", "fields": [{"key": "needs", "label": "필요 품목", "value": ["수유"], "status": "confirmed"}],
+        "list_id": "list", "category": "computer", "fields": [{"key": "purpose", "label": "주요 용도", "value": "game", "status": "confirmed"}],
     })
     assert state.accepts_spec_file is False
     result = RecommendResultOut.model_validate({
         "list_id": "list", "run_id": "run",
-        "status": "done", "category": "baby", "budget_max": 300000,
+        "status": "done", "category": "computer", "budget_max": 1500000,
         "items": [], "totals": {"selected_price": 0, "selected_units": 0},
     })
     assert result.model_dump()["status"] == "done"

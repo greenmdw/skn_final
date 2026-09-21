@@ -6,11 +6,6 @@
 새 로직을 추가하려고 이 파일의 기댓값을 고치지 않는다 — 기댓값이 바뀌어야 한다면 그건 새
 기능이지 리팩터링이 아니다.
 
-유아용품 쪽(verify_baby_candidate)은 실제 DB(evidence.evidence·catalog.product_fact)를
-쓰는 구조라 이 파일 형태(순수 함수 스냅샷)로는 못 굳힌다 — tests/test_baby_verification.py·
-tests/test_baby_verification_rules.py(53건, DB 필요 37건 포함)가 그 자리를 대신한다.
-리팩터링 착수 전 반드시 Postgres가 있는 환경(EC2 등)에서 이 두 파일을 먼저 통과시켜
-베이스라인을 잡아야 한다 — 로컬 샌드박스는 DB가 없어 37건이 skip된다.
 """
 from __future__ import annotations
 
@@ -70,11 +65,3 @@ def test_combined_penalties_can_drop_below_threshold():
     assert t.passed is False and t.confidence < CONFIDENCE_THRESHOLD
     assert {i.axis for i in t.issues} == {"socket", "cooler_height", "예산"}
 
-
-def test_english_locale_translates_known_axis_labels():
-    r = s3c.verify_build(_build(link_check={"파워": "fail"}), "computer", _noop, locale="en-US")
-    t = r.targets[0]
-    assert t.subject == "Entire build"
-    assert t.issues[0].axis == "Power"
-    assert t.gray_axes == ["manual/spec evidence (RAG not connected)",
-                           "detailed compatibility check (socket/power/size are approximations)"]

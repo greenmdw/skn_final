@@ -54,24 +54,6 @@ def test_build_guide_falls_back_when_agent_raises(monkeypatch):
     assert "케이스" in result["text"]
 
 
-def test_system_prompt_switches_to_english_instruction():
-    ordered = [_item("케이스", "타워")]
-    ko = agent_mod._system_prompt(ordered)
-    en = agent_mod._system_prompt(ordered, lang="en")
-    assert "한국어 존댓말로 답합니다." in ko
-    assert "Reply entirely in English" in en
-    assert "한국어 존댓말로 답합니다." not in en
-
-
-def test_fallback_translates_slot_label_when_english(monkeypatch):
-    """폴백도 LLM 없이 slot 라벨(_slot_label)과 근거 문서의 text_en으로 영어를 낼 수 있다."""
-    monkeypatch.setattr(agent_mod, "available", lambda: False)
-    result = agent_mod.build_guide([_item("케이스", "타워")], lang="en")
-    assert result["status"] == "ready"
-    assert "Case" in result["text"]
-    assert "케이스" not in result["text"]
-
-
 def test_fallback_stays_korean_when_lang_ko(monkeypatch):
     monkeypatch.setattr(agent_mod, "available", lambda: False)
     result = agent_mod.build_guide([_item("케이스", "타워")])

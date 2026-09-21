@@ -32,15 +32,14 @@ def _ordered_items(items: list[dict]) -> list[dict]:
     return sorted(items, key=lambda it: rank.get(it["slot"], len(ASSEMBLY_ORDER)))
 
 
-def build_guide_fallback(ordered_items: list[dict], lang: str = "ko") -> str:
+def build_guide_fallback(ordered_items: list[dict]) -> str:
     """규칙 기반 폴백 — 검색은 실제로 하되 문장은 템플릿. 에이전트 미가용 시 이걸 쓴다."""
     lines = []
     for i, it in enumerate(ordered_items, start=1):
         name = it["product"]["name"]
         hits = search_care_guide(f"{it['slot']} {name} 조립 시 확인할 점", k=1)
-        note = ((hits[0].get("text_en") if hits else None) or "No English guide is available for this component.") if lang == "en" else (hits[0]["text"] if hits else "특별히 확인할 점은 없습니다.")
-        slot = _slot_label(it['slot'], lang)
-        lines.append(f"{i}. {slot} — {name}\n   {note}")
+        note = hits[0]["text"] if hits else "특별히 확인할 점은 없습니다."
+        lines.append(f"{i}. {it['slot']} — {name}\n   {note}")
     return "\n".join(lines)
 
 
@@ -67,15 +66,8 @@ def _model():
                        params={"temperature": 0.2})
 
 
-def _system_prompt(ordered_items: list[dict], lang: str = "ko") -> str:
-    lines = [f"{i}. {_slot_label(it['slot'], lang)}: {it['product']['name']}" for i, it in enumerate(ordered_items, start=1)]
-    language_line = (
-        "한국어 존댓말로 답합니다."
-        if lang != "en"
-        else "Reply entirely in English, including step titles and every sentence — "
-             "even though the guide docs you find via search_guide are in Korean, "
-             "translate them faithfully into English rather than quoting the Korean."
-    )
+def _system_prompt(ordered_items: list[dict]) -> str:
+    lines = [f"{i}. {it['slot']}: {it['product']['name']}" for i, it in enumerate(ordered_items, start=1)]
     return "\n".join([
         "당신은 TrueFit에서 확정된 부품 목록으로 조립 가이드를 작성하는 도우미입니다.",
         "",
@@ -88,39 +80,31 @@ def _system_prompt(ordered_items: list[dict], lang: str = "ko") -> str:
         "",
         "출력은 번호를 매긴 단계 목록으로, 각 단계는 '슬롯 — 부품명' 제목과 안내 문장으로",
         "구성합니다. 순서·부품명·슬롯 이름은 위에 주어진 그대로 씁니다.",
-        language_line,
+        "한국어 존댓말로 답합니다.",
     ])
 
 
-def build_guide(items: list[dict], lang: str = "ko") -> dict:
+def build_guide(items: list[dict]) -> dict:
     """{"status": "ready", "text": str}. 품목이 없으면만 다른 status.
 
     에이전트가 미가용이거나 실패하면 규칙 폴백으로 내려간다 — 이 기능은 [3-C]/[5]처럼
     "문장 생성 실패가 결과 자체를 막지 않는다"는 원칙을 따른다. 검색(RAG)은 폴백에서도
     실제로 수행되므로, 사용자에게 보이는 조립 가이드는 항상 실제 데이터를 인용한다.
-
-    영어 폴백은 근거 문서의 text_en을 사용한다.
     """
     ordered = _ordered_items(items)
     if not ordered:
         return {"status": "pending", "text": None}
     if not available():
-        return {"status": "ready", "text": build_guide_fallback(ordered, lang)}
+        return {"status": "ready", "text": build_guide_fallback(ordered)}
     from strands import Agent
 
     try:
-        agent = Agent(model=_model(), system_prompt=_system_prompt(ordered, lang),
+        agent = Agent(model=_model(), system_prompt=_system_prompt(ordered),
                      tools=make_tools(), callback_handler=None)
-        result = agent("이 목록으로 조립 가이드를 작성해 주세요."
-                       if lang != "en" else "Write the assembly guide for this list.")
+        result = agent("이 목록으로 조립 가이드를 작성해 주세요.")
         text = str(result).strip()
         if not text:
             raise ValueError("empty_agent_response")
         return {"status": "ready", "text": text}
     except Exception:  # noqa: BLE001 — 에이전트 실패는 가이드 자체를 막지 않는다, 폴백으로
-        return {"status": "ready", "text": build_guide_fallback(ordered, lang)}
-
-
-def _slot_label(slot: str, lang: str) -> str:
-    labels = {"케이스": "Case", "파워": "Power supply", "메인보드": "Motherboard", "쿨러": "Cooler", "저장장치": "Storage"}
-    return labels.get(slot, slot) if lang == "en" else slot
+        return {"status": "ready", "text": build_guide_fallback(ordered)}

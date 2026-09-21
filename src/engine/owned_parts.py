@@ -263,20 +263,18 @@ def _fill_platform(owned: dict[str, dict[str, Any]], values: dict, targets: set[
 
 # ── 안내 문장 ────────────────────────────────────────────────────────────────────────────────
 # 업그레이드로 바꾸는 부품(키)이 호환을 보려면 유지 부품의 어떤 정보가 필요한가:
-# (유지 슬롯, 정보 이름 ko/en, 그 정보를 담은 스펙 키 중 하나라도 있으면 충족)
-UPGRADE_NEEDS: dict[str, tuple[tuple[str, tuple[str, str], tuple[str, ...]], ...]] = {
-    "CPU": (("메인보드", ("소켓", "socket"), ("socket",)),),
-    "메인보드": (("CPU", ("소켓", "socket"), ("socket",)), ("RAM", ("메모리 종류", "memory type"), ("mem_type",)),
-             ("케이스", ("지원 보드 크기", "supported board sizes"), ("supports_form_factors",))),
-    "RAM": (("메인보드", ("메모리 종류", "memory type"), ("mem_type",)),),
-    "GPU": (("파워", ("정격 용량", "rated wattage"), ("wattage_w",)),
-            ("케이스", ("GPU 장착 공간", "GPU clearance"), ("max_gpu_len_mm",))),
-    "파워": (("GPU", ("권장 파워", "recommended PSU"), ("recommended_psu_w", "power_w")),),
-    "쿨러": (("CPU", ("소켓", "socket"), ("socket",)), ("케이스", ("쿨러 높이 여유", "cooler clearance"), ("max_cooler_height_mm",))),
-    "케이스": (("메인보드", ("보드 크기", "board size"), ("form_factor",)), ("GPU", ("길이", "length"), ("length_mm",))),
+# (유지 슬롯, 정보 이름, 그 정보를 담은 스펙 키 중 하나라도 있으면 충족)
+UPGRADE_NEEDS: dict[str, tuple[tuple[str, str, tuple[str, ...]], ...]] = {
+    "CPU": (("메인보드", "소켓", ("socket",)),),
+    "메인보드": (("CPU", "소켓", ("socket",)), ("RAM", "메모리 종류", ("mem_type",)),
+             ("케이스", "지원 보드 크기", ("supports_form_factors",))),
+    "RAM": (("메인보드", "메모리 종류", ("mem_type",)),),
+    "GPU": (("파워", "정격 용량", ("wattage_w",)),
+            ("케이스", "GPU 장착 공간", ("max_gpu_len_mm",))),
+    "파워": (("GPU", "권장 파워", ("recommended_psu_w", "power_w")),),
+    "쿨러": (("CPU", "소켓", ("socket",)), ("케이스", "쿨러 높이 여유", ("max_cooler_height_mm",))),
+    "케이스": (("메인보드", "보드 크기", ("form_factor",)), ("GPU", "길이", ("length_mm",))),
 }
-_EN_SLOT = {"CPU": "CPU", "GPU": "GPU", "RAM": "RAM", "메인보드": "motherboard", "저장장치": "storage",
-            "파워": "power supply", "케이스": "case", "쿨러": "cooler"}
 
 
 def _josa(word: str, with_batchim: str, without: str) -> str:
@@ -286,28 +284,25 @@ def _josa(word: str, with_batchim: str, without: str) -> str:
     return word + (with_batchim if has else without)
 
 
-def upgrade_scope_note(target_slots: Iterable[str], lang: str = "ko") -> str:
+def upgrade_scope_note(target_slots: Iterable[str]) -> str:
     """이번 견적에 무엇이 들어 있고 무엇이 빠졌는지 — 요약이 새 컴퓨터 한 대처럼 읽히지 않게."""
     slots = list(target_slots)
     if not slots:
         return ""
-    if lang == "en":
-        return (f" This quote covers only the {', '.join(_EN_SLOT.get(s, s) for s in slots)}; the rest of your PC"
-                " is assumed to stay as it is.")
     return f" 이번 견적은 {', '.join(slots)}만 포함해요. 나머지 부품은 지금 쓰는 것을 그대로 쓰는 것으로 봤어요."
 
 
-def upgrade_notes(target_slots: Iterable[str], owned: dict[str, dict[str, Any]], lang: str = "ko") -> list[str]:
+def upgrade_notes(target_slots: Iterable[str], owned: dict[str, dict[str, Any]]) -> list[str]:
     """유지 부품 정보가 부족해 호환을 다 확인하지 못한 곳을 문장으로 — "확인이 필요한 것"에 실린다.
     코드가 아는 사실(무엇을 못 읽었는지)만 적는다. 같은 (유지 부품, 정보)는 한 번만."""
     targets = set(target_slots)
     seen: set[tuple[str, str]] = set()
     notes: list[str] = []
     for target in target_slots:
-        for kept, (aspect_ko, aspect_en), keys in UPGRADE_NEEDS.get(target, ()):
-            if kept in targets or (kept, aspect_ko) in seen:
+        for kept, aspect, keys in UPGRADE_NEEDS.get(target, ()):
+            if kept in targets or (kept, aspect) in seen:
                 continue
-            seen.add((kept, aspect_ko))
+            seen.add((kept, aspect))
             info = owned.get(kept)
             specs = (info or {}).get("specs") or {}
             hit = next((k for k in keys if k in specs), None)
@@ -315,31 +310,18 @@ def upgrade_notes(target_slots: Iterable[str], owned: dict[str, dict[str, Any]],
             if hit and hit in ((info or {}).get("inferred") or []) and (info or {}).get("basis"):
                 guess, basis = specs[hit], info["basis"]
                 other, model = basis["slot"], basis["model"]
-                if lang == "en":
-                    source = (f"the model name of the {_EN_SLOT.get(other, other)} you are replacing ({model})"
-                              if basis["kind"] == "replaced" else f"the {_EN_SLOT.get(other, other)} you keep")
-                    notes.append(f"Your {_EN_SLOT.get(kept, kept)}: {aspect_en} assumed to be {guess} from {source} — check before buying.")
-                else:
-                    source = (f"교체하는 {other}({model})의 모델명으로 보아" if basis["kind"] == "replaced"
-                              else f"유지하는 {other}와 같은 플랫폼이라고 보고")
-                    notes.append(f"현재 {kept}의 {_josa(aspect_ko, '은', '는')} {source} {guess}일 것으로 추정했어요 — 구매 전 확인하세요.")
+                source = (f"교체하는 {other}({model})의 모델명으로 보아" if basis["kind"] == "replaced"
+                          else f"유지하는 {other}와 같은 플랫폼이라고 보고")
+                notes.append(f"현재 {kept}의 {_josa(aspect, '은', '는')} {source} {guess}일 것으로 추정했어요 — 구매 전 확인하세요.")
             elif hit and hit in ((info or {}).get("inferred") or []):
                 guess = specs[hit]
                 notes.append(
-                    f"Your {_EN_SLOT.get(kept, kept)} ({name}): {aspect_en} assumed to be {guess} from the model name — "
-                    "check the manufacturer's label before buying." if lang == "en" else
-                    f"현재 {kept}({name})의 {_josa(aspect_ko, '은', '는')} 모델명으로 보아 {guess}일 것으로 추정했어요 — "
+                    f"현재 {kept}({name})의 {_josa(aspect, '은', '는')} 모델명으로 보아 {guess}일 것으로 추정했어요 — "
                     "구매 전 제조사 표기를 확인하세요.")
             elif hit:
                 continue                                              # 글·카탈로그로 확인됨
             elif info:
-                notes.append(
-                    f"Could not read the {aspect_en} of your {_EN_SLOT.get(kept, kept)} ({name}) — check compatibility yourself."
-                    if lang == "en" else
-                    f"현재 {kept}({name})의 {_josa(aspect_ko, '을', '를')} 확인하지 못했어요 — 호환은 직접 확인이 필요해요.")
+                notes.append(f"현재 {kept}({name})의 {_josa(aspect, '을', '를')} 확인하지 못했어요 — 호환은 직접 확인이 필요해요.")
             else:
-                notes.append(
-                    f"No information on your {_EN_SLOT.get(kept, kept)}, so {aspect_en} compatibility was not checked."
-                    if lang == "en" else
-                    f"현재 {kept} 정보가 없어 {aspect_ko} 호환은 확인하지 못했어요.")
+                notes.append(f"현재 {kept} 정보가 없어 {aspect} 호환은 확인하지 못했어요.")
     return notes

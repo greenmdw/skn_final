@@ -72,7 +72,6 @@ def test_system_prompt_carries_table_reasons_budget_and_language():
     assert "미리 조회한 근거" in p and "\nPRE" in p
     assert p.endswith("답변 언어: 한국어 존댓말.")
     assert "미리 조회한 근거" not in ra.system_prompt(r, "swap the gpu", [])
-    assert ra.system_prompt(r, "swap the gpu", []).endswith("Write the entire reply in English.")
 
 
 def test_strands_registers_six_tools():
@@ -115,13 +114,3 @@ def test_guarded_reply_prefers_changes_then_prefetched_then_template():
     assert ra._guarded_reply(s2, "CPU X 255,000원\n저장된 추천 이유: …") == "CPU X 255,000원 저장된 추천 이유: …"
     assert ra._guarded_reply(_session(), "").startswith("구성표 기준으로만 답할 수 있어요")
 
-
-def test_amounts_are_dollar_first_when_session_currency_is_usd(monkeypatch):
-    monkeypatch.setattr("src.agent.conditions_agent.USD_KRW_RATE", 1400.0)
-    monkeypatch.setitem(ra._CURRENCY, "code", "USD")
-    assert ra._won(1_457_000) == "$1,041"                       # 달러만
-    p = ra.system_prompt(_result(), "am I within budget?", [])
-    assert "총액: $557 ·" in p and "원화(₩·KRW·원)로 바꾸거나 병기하지 않습니다" in p
-    monkeypatch.setitem(ra._CURRENCY, "code", "KRW")
-    assert ra._won(1_457_000) == "1,457,000원"
-    assert "병기하지 않습니다" not in ra.system_prompt(_result(), "예산 안이야?", [])

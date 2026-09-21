@@ -60,7 +60,7 @@ if DSN:
         plan_id = row[0]
         domain_version_id = raw_conn.execute(
             "SELECT dv.id FROM config.domain_version dv JOIN config.domain d ON d.id=dv.domain_id "
-            "WHERE d.code='baby' ORDER BY dv.version_no DESC LIMIT 1"
+            "WHERE d.code='computer' ORDER BY dv.version_no DESC LIMIT 1"
         ).fetchone()[0]
         row = raw_conn.execute(
             "INSERT INTO planning.plan_revision(plan_id,revision_no,domain_version_id,name_snapshot) "
@@ -258,7 +258,7 @@ def test_fb03_deselect_emits_item_removed_once_and_reselecting_emits_none(client
 def test_fb03_confirm_emits_plan_confirmed_once_and_repeat_confirm_emits_none(raw_conn):
     # sign up first (not the guest-then-signup path) — list ownership is then
     # unambiguously the authenticated user's from the start, same pattern as the
-    # baby P7 confirm tests use.
+    # the other confirm tests use.
     signed_up = TestClient(app)
     r = signed_up.post("/auth/signup", json={
         "email": f"fb03-{uuid4().hex[:12]}@example.test", "password": "abcd1234",
