@@ -32,23 +32,22 @@ _COMMON = {
     "상품 URL": ("product_url", "url"),
     "설명서 URL": ("manual_reference", "text"),
 }
+_CONNECTION_METHODS = {"유선", "무선", "유선|무선"}
 _SPECS: dict[str, tuple[str, dict[str, tuple[str, str]]]] = {
     "mouse": ("catalog.mouse_spec", {
-        "모델 번호": ("model_number", "text"),
-        "카테고리": ("category_label", "text"),
         "폼팩터": ("form_factor", "text"),
         "센서": ("sensor", "text"),
         "DPI 범위": ("dpi_range", "text"),
         "폴링레이트": ("polling_rate", "text"),
         "버튼 수": ("button_count", "text"),
         "스위치/클릭 방식": ("switch_click", "text"),
-        "연결 방식": ("connectivity", "text"),
+        "연결 방식": ("connectivity", "connection_method"),
+        "연결 인터페이스": ("connectivity_interface", "pipe_list"),
         "배터리/전원": ("battery_power", "text"),
         "색상": ("color_options", "text"),
         "드라이버/소프트웨어 URL": ("software_url", "url"),
     }),
     "monitor": ("catalog.monitor_spec", {
-        "모델코드": ("model_code", "text"),
         "화면크기(inch)": ("screen_size_inch", "decimal"),
         "해상도": ("resolution", "text"),
         "최대주사율(Hz)": ("max_refresh_hz", "decimal"),
@@ -69,7 +68,8 @@ _SPECS: dict[str, tuple[str, dict[str, tuple[str, str]]]] = {
     }),
     "speaker": ("catalog.speaker_spec", {
         "스피커 형태": ("speaker_form", "text"),
-        "연결 방식": ("connectivity", "text"),
+        "연결 방식": ("connectivity", "connection_method"),
+        "연결 인터페이스": ("connectivity_interface", "pipe_list"),
         "채널": ("channels", "text"),
         "출력(W)": ("output_power", "text"),
         "임피던스": ("impedance", "text"),
@@ -83,7 +83,8 @@ _SPECS: dict[str, tuple[str, dict[str, tuple[str, str]]]] = {
         "축 종류": ("switch_kind", "text"),
         "스위치 방식": ("switch_method", "text"),
         "래피드 트리거": ("rapid_trigger", "rapid_trigger"),
-        "연결 방식": ("connectivity", "text"),
+        "연결 방식": ("connectivity", "connection_method"),
+        "연결 인터페이스": ("connectivity_interface", "pipe_list"),
     }),
 }
 
@@ -127,6 +128,15 @@ def _convert(value: str | None, kind: str):
         if raw not in {"O", "X"}:
             raise ValueError(f"래피드 트리거 값 오류: {raw}")
         return raw == "O"
+    if kind == "connection_method":
+        if raw not in _CONNECTION_METHODS:
+            raise ValueError(f"연결 방식 값 오류: {raw} (허용: 유선, 무선, 유선|무선)")
+        return raw.split("|")
+    if kind == "pipe_list":
+        values = raw.split("|")
+        if not all(value.strip() for value in values):
+            raise ValueError(f"'|'로 구분한 값 오류: {raw}")
+        return [value.strip() for value in values]
     raise ValueError(f"지원하지 않는 변환: {kind}")
 
 

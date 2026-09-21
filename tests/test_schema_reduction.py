@@ -33,6 +33,7 @@ EXPECTED_CHAIN = [
 # develop 이후 이 브랜치(PC 카탈로그 엔진)가 더한 마이그레이션 — develop 사슬은 그대로 앞에 있어야 하고, 뒤에 이것만 붙는다.
 BRANCH_MIGRATIONS = [
     "0014_candidate_checks.sql", "0015_pc_parts_category_specs.sql", "0016_peripheral_specs.sql",
+    "0017_peripheral_connection_interface.sql",
 ]
 # 위 세 마이그레이션이 만든 표 수(develop 의 38개에 더해진다). 마이그레이션을 더하면 함께 고친다.
 BRANCH_EXTRA_TABLES = 13

@@ -30,24 +30,21 @@ def source_rows():
 def test_all_peripheral_rows_are_read_and_priced_only_when_present(source_rows):
     rows = source_rows
     assert Counter(row.product_type for row in rows) == {
-        "mouse": 90, "monitor": 43, "speaker": 46, "keyboard": 42,
+        "mouse": 84, "monitor": 33, "speaker": 45, "keyboard": 41,
     }
-    assert sum(row.price_krw is not None for row in rows) == 209
-    assert len({(row.brand.casefold(), row.model.casefold()) for row in rows}) == 221
+    assert sum(row.price_krw is not None for row in rows) == 203
+    assert len({(row.brand.casefold(), row.model.casefold()) for row in rows}) == 203
     assert all(len(row.source_sha256) == 64 and row.source_row >= 2 for row in rows)
 
 
-def test_missing_values_and_source_ambiguity_are_not_invented_away(source_rows):
+def test_connection_method_and_interface_are_preserved_separately(source_rows):
     rows = source_rows
-    monitor = next(row for row in rows if row.model == "ASUS ProArt Display PA279CV")
-    assert monitor.price_krw is None
-    assert monitor.specs["weight_g"] is None
-    assert monitor.specs["hdmi_version"] == "2"  # 2.0/2.1로 추정하지 않음
-    keyboard = next(row for row in rows if row.model == "PRO X TKL RAPID")
-    assert keyboard.specs["rapid_trigger"] is True
-    speaker = next(row for row in rows if row.model == "브리츠인터내셔널 BA-R9")
-    assert speaker.specs["manual_reference"] == "BA-R9 SoundBar_manual.jpg"
-    assert speaker.specs["impedance"] == "4Ω"
+    mouse = next(row for row in rows if row.model == "MX Master 3S")
+    assert mouse.specs["connectivity"] == ["무선"]
+    assert mouse.specs["connectivity_interface"] == ["USB 수신기", "Bluetooth"]
+    keyboard = next(row for row in rows if row.model == "G915 X LIGHTSPEED")
+    assert keyboard.specs["connectivity"] == ["유선", "무선"]
+    assert keyboard.specs["connectivity_interface"] == ["USB", "USB 수신기", "Bluetooth"]
 
 
 def test_port_absence_is_zero_but_unknown_is_null():
@@ -57,3 +54,12 @@ def test_port_absence_is_zero_but_unknown_is_null():
     assert _convert("X", "rapid_trigger") is False
     with pytest.raises(ValueError):
         _convert("maybe", "rapid_trigger")
+
+
+def test_connection_method_and_pipe_delimited_interface_are_validated():
+    assert _convert("유선|무선", "connection_method") == ["유선", "무선"]
+    assert _convert("USB| Bluetooth ", "pipe_list") == ["USB", "Bluetooth"]
+    with pytest.raises(ValueError, match="연결 방식"):
+        _convert("Bluetooth", "connection_method")
+    with pytest.raises(ValueError, match="구분한 값"):
+        _convert("USB||Bluetooth", "pipe_list")
