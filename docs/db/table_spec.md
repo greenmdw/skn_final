@@ -7,8 +7,8 @@
 > `notification`·`dataset`·`shared` 삭제, `config`/`identity`/`catalog`/`assets`/`community`/
 > `evidence`/`engine`/`planning` 병합, `rag` 6개 테이블은 유지)로 축소했고, `0013`이 축소된
 > JSON 컬럼·리비전 스코프·스냅샷 불변을 DB 제약으로 강제한다. 실제 물리 컬럼 매핑과
-> 실행 증거는 [`docs/agent-tasks/baby/schema-v1.md`](../agent-tasks/baby/schema-v1.md)를 우선
-> 참조한다. 아래 본문은 축소 전 설계 근거로만 유효하다.
+> 실행 증거는 `db/migrations/0010`~`0013` SQL을 우선
+> 참조한다(예전 실행 증거 문서는 유아 작업 패키지와 함께 삭제됐다). 아래 본문은 축소 전 설계 근거로만 유효하다.
 >
 > `0013`이 추가한 것 중 이 문서에 없는 항목:
 > - `engine.recommendation_candidate.revision_id` (`NOT NULL`) — run 에서 트리거로 파생되며,
@@ -2304,4 +2304,4 @@ FK는 참조 무결성을 보장하지만 조회에 필요한 인덱스를 자�
 
 ## P0 reduced schema v1 transition (2026-09-12)
 
-The physical transition is `db/migrations/0010_schema_reduction_v1.sql`. It stages the v1 mappings documented in `docs/agent-tasks/baby/schema-v1.md`, retains pgvector RAG, and rejects ambiguous category/fulfilment source data before a destructive phase. Legacy source tables remain audited compatibility inputs pending a seeded mapping rehearsal; this section supersedes neither their historical definitions nor the forward-only migration record.
+The physical transition is `db/migrations/0010_schema_reduction_v1.sql`. It stages the v1 mappings (the former evidence document was removed with the baby work package), retains pgvector RAG, and rejects ambiguous category/fulfilment source data before a destructive phase. Legacy source tables remain audited compatibility inputs pending a seeded mapping rehearsal; this section supersedes neither their historical definitions nor the forward-only migration record.

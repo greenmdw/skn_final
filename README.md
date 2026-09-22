@@ -1,6 +1,6 @@
 # TrueFit — Purpose-Driven Shopping Planner
 
-> Current scope: PC recommendations, in Korean. Baby-products support and the English UI were removed on 2026-09-21 (see git history). Some screenshots below come from the earlier bilingual demo.
+> Current scope: PC recommendations, in Korean. Baby-products support and the English UI were removed on 2026-09-21 (see git history).
 
 **English** · [한국어](README.ko.md)
 
@@ -31,17 +31,6 @@ Category → conditions chat → recommendation → confirm → report, in one b
 | **Confirm & report** | Name, purchase date, target amount, memo; the confirmed snapshot keeps seller links and an optional target-price watch |
 
 The engine builds **PC configurations**: it optimizes the set, then verifies it as a whole. The UI and the server speak Korean.
-
-## See it
-
-<table>
-<tr>
-<td width="50%"><img src="docs/screenshots/02-conditions.png" alt="Conditions chat: one free-text sentence becomes typed conditions"><br><sub>One sentence → purpose, budget (₩1,500,000), priority, game title, and a free-form extra ("white case") — all set by the conditions agent through validated tool calls.</sub></td>
-<td width="50%"><img src="docs/screenshots/03-results.png" alt="Recommendation summary"><br><sub>The explanation is generated from stored facts only, and says what it could not do: the extra request was not applied automatically.</sub><br><br><img src="docs/screenshots/04-result-chat.png" alt="Result chat: swap the CPU and explain the GPU"><br><sub>The result agent swaps through the same service the buttons use, then explains the GPU from the stored reason.</sub></td>
-</tr>
-</table>
-
-Screenshots are from a real session on 2026-09-14 (`gpt-4o-mini`, synthetic catalog). Prices in the demo are **synthetic** and the UI says so.
 
 ## Built on Strands Agents
 
@@ -158,7 +147,7 @@ uv run uvicorn src.api:app --reload --port 8000              # http://127.0.0.1:
 | | Works | Not yet |
 |---|---|---|
 | PC | Full flow: conditions → run → reasons, checks, review observations, alternatives, swap, qty/timing, result chat → confirm → report → price watch, all persisted | Synthetic prices; compatibility is approximate (socket, power, size); a swap does not re-verify |
-| Agents | Both agents in real sessions (screenshots above) | Need an OpenAI key; off by default |
+| Agents | Both agents verified in real sessions with `gpt-4o-mini` | Need an OpenAI key; off by default |
 | Accounts | Email + password, httpOnly JWT, guest → account merge, withdrawal | Email verification and password reset deferred; `/auth/request-code`, `/auth/verify` are stubs |
 | Reviews | Relation-axis facts for 25 of 51 demo parts in ranking, explanation and `GET /reviews/summary` | Review *writing* is out of demo scope; no collector for live sources yet |
 | Data | 10 schemas / 38 tables, one-shot setup, RDS-compatible SQL | No live price or spec feed; notification and learning workers are stubs |
@@ -217,4 +206,4 @@ tests/                        pipeline · agents · HTTP flows · services · SQ
 
 ## Documents & license
 
-MIT — [`LICENSE`](LICENSE). Team documents are in Korean: [DB setup](db/README.md) · [table spec](docs/db/table_spec.md) · [schema reduction](docs/db/db_schema_reduction_proposal_2026-09-12.md) · [API contract](docs/frontend_외부수정요청.md) · [frontend rules](frontend/CLAUDE.md) · [decisions](docs/decisions/README.md) · [review analysis contract](docs/review_analysis_contract.md) · [baby work packages](docs/agent-tasks/baby/README.md) · [manual generator](docs/synthetic_manual_generator.md). [`docs/rag_implementation.md`](docs/rag_implementation.md) describes the removed pgvector design and is kept for history.
+MIT — [`LICENSE`](LICENSE). Team documents are in Korean: [DB setup](db/README.md) · [table spec](docs/db/table_spec.md) · [schema reduction](docs/db/db_schema_reduction_proposal_2026-09-12.md) · [API contract](docs/frontend_외부수정요청.md) · [frontend rules](frontend/CLAUDE.md) · [decisions](docs/decisions/README.md) · [review analysis contract](docs/review_analysis_contract.md) · [pipeline overview](docs/pc_pipeline_overview.md) · [quickstart](docs/pc_pipeline_quickstart.md).
