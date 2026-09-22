@@ -39,3 +39,10 @@ review-analysis = [
 test = [
     "httpx>=0.27",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: database-independent unit test",
+    "db: test requiring the disposable PostgreSQL database",
+    "integration: end-to-end application and database test",
+]

@@ -4,15 +4,18 @@
    않는다) 테스트는 실제 LLM 을 부르지 않는다. 실호출이 필요하면 셸에서 MOCK_MODE=0 을 명시한다.
 2. PGCONNECT_TIMEOUT=3 이 기본이다. DB 가 꺼져 있을 때 접속 시도가 OS 타임아웃(20초 이상)까지 매달려
    전체 스위트가 20분씩 걸리던 문제를 막는다.
-3. 개발 DB 보호. 이름에 "test" 가 없는 DB 로는 접속을 *시도하는 순간* 차단한다 — 테스트가 개발 DB(truefit)에
-   익명 세션·추천 기록을 쌓지 않게. 그 때문에 못 돈 테스트는 실패가 아니라 skip 으로 보고된다.
-   - 일회용 DB 지정:   TEST_DATABASE_URL=postgresql://truefit:truefit@127.0.0.1:5432/truefit_test
-     (DATABASE_URL·RAG_TEST_DATABASE_URL 을 함께 덮는다. 준비: db/setup_all.py 를 그 DB 로 실행)
-   - 보호 해제(주의):  TRUEFIT_ALLOW_ANY_DB=1
+3. 기본적으로 로컬 PostgreSQL 서버에 고유한 truefit_test_<UUID> DB를 만들고 setup_all.py를 적용한 뒤
+   테스트 종료 시 강제 삭제한다. 서버가 없을 때 DB를 필수로 요구하려면 TRUEFIT_REQUIRE_TEST_DB=1을 쓴다.
+   자동 생성을 끄려면 TRUEFIT_AUTO_TEST_DB=0, 준비된 DB를 쓰려면 TEST_DATABASE_URL을 지정한다.
+4. 개발 DB 보호. 이름에 "test"가 없는 DB 접속은 차단한다. 보호 해제는 TRUEFIT_ALLOW_ANY_DB=1이다.
 """
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+from pathlib import Path
+from uuid import uuid4
 
 # src.config 를 import 하기 전에 정한다(config 가 .env 를 읽되 이미 있는 환경변수는 덮지 않는다).
 os.environ.setdefault("MOCK_MODE", "1")
@@ -27,9 +30,13 @@ if _TEST_URL:
 
 import psycopg  # noqa: E402
 import pytest  # noqa: E402
-from psycopg.conninfo import conninfo_to_dict  # noqa: E402
+from psycopg import sql  # noqa: E402
+from psycopg.conninfo import conninfo_to_dict, make_conninfo  # noqa: E402
 
 _ALLOW_ANY = os.environ.get("TRUEFIT_ALLOW_ANY_DB") == "1"
+_ROOT = Path(__file__).resolve().parents[1]
+_AUTO_DB: tuple[str, str] | None = None
+_REAL_CONNECT = psycopg.Connection.__dict__["connect"].__func__
 _BLOCKED = {"count": 0, "targets": set()}
 _MESSAGE = ("개발 DB 보호: '{db}' 는 테스트용 DB 가 아니라 접속을 차단했습니다. TEST_DATABASE_URL 로 이름에 'test' 가 "
             "들어간 일회용 DB 를 지정하세요(준비: db/setup_all.py). 의도한 것이면 TRUEFIT_ALLOW_ANY_DB=1.")
@@ -55,9 +62,36 @@ def _deny(name: str | None) -> None:
 
 
 def pytest_configure(config):
+    global _AUTO_DB
+    if os.environ.get("TRUEFIT_AUTO_TEST_DB", "1") != "0" and not _TEST_URL:
+        template = os.environ.get("DATABASE_URL", "postgresql://truefit:truefit@127.0.0.1:5432/truefit")
+        params = conninfo_to_dict(template)
+        name = f"truefit_test_{uuid4().hex[:12]}"
+        admin_params = {**params, "dbname": "postgres", "connect_timeout": "3"}
+        try:
+            with psycopg.connect(**admin_params, autocommit=True) as admin:
+                admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+        except psycopg.OperationalError as exc:
+            if os.environ.get("TRUEFIT_REQUIRE_TEST_DB") == "1":
+                raise pytest.UsageError(f"자동 테스트 DB 생성 실패: {exc}") from exc
+        else:
+            test_params = {**params, "dbname": name}
+            test_url = make_conninfo(**test_params)
+            os.environ["DATABASE_URL"] = test_url
+            os.environ["RAG_TEST_DATABASE_URL"] = test_url
+            result = subprocess.run(
+                [sys.executable, "db/setup_all.py"], cwd=_ROOT,
+                env={**os.environ, "PYTHONUNBUFFERED": "1"}, capture_output=True, text=True,
+            )
+            if result.returncode:
+                with psycopg.connect(**admin_params, autocommit=True) as admin:
+                    admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
+                raise pytest.UsageError(f"자동 테스트 DB 준비 실패:\n{result.stdout}\n{result.stderr}")
+            _AUTO_DB = (make_conninfo(**admin_params), name)
+
     if _ALLOW_ANY:
         return
-    real = psycopg.Connection.__dict__["connect"].__func__     # 원래 classmethod 함수
+    real = _REAL_CONNECT                                       # 원래 classmethod 함수
 
     def guarded(cls, conninfo="", *args, **kwargs):
         name = _dbname(conninfo, kwargs)
@@ -81,6 +115,13 @@ def pytest_configure(config):
         return real_pool()
 
     db_module.get_pool = guarded_pool
+
+
+def pytest_unconfigure(config):
+    if _AUTO_DB:
+        admin_url, name = _AUTO_DB
+        with _REAL_CONNECT(psycopg.Connection, admin_url, autocommit=True) as admin:
+            admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
 
 
 def _skip_if_blocked(before: int, exc: BaseException) -> None:

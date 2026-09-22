@@ -10,6 +10,9 @@ that need the running app live in test_p0_list_item_integrity.py.
 from __future__ import annotations
 
 import os
+import hashlib
+import subprocess
+import sys
 from pathlib import Path
 
 import psycopg
@@ -103,6 +106,7 @@ pytestmark_db = pytest.mark.skipif(not DSN, reason="set DATABASE_URL/RAG_TEST_DA
 
 
 @pytestmark_db
+@pytest.mark.db
 def test_d0_01_real_db_has_exact_develop_table_set():
     """D0-01: enumerate actual tables/schemas on the real bootstrapped DB — not just SQL text."""
     with psycopg.connect(DSN) as conn:
@@ -133,3 +137,41 @@ def test_d0_01_real_db_has_exact_develop_table_set():
         assert total == expected, (
             f"expected 38 core tables + {BRANCH_EXTRA_TABLES} branch tables, got {total}"
         )
+
+
+@pytestmark_db
+@pytest.mark.db
+def test_baseline_tracking_functions_and_triggers():
+    expected = {path.stem: hashlib.sha256(path.read_bytes()).hexdigest()[:16]
+                for path in MIGRATIONS.glob("*.sql")}
+    with psycopg.connect(DSN) as conn:
+        applied = dict(conn.execute(
+            "SELECT version, checksum FROM _migrations.schema_migrations"
+        ).fetchall())
+        assert applied == expected
+        assert conn.execute(
+            "SELECT n.nspname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
+            "WHERE p.proname='set_updated_at'"
+        ).fetchall() == [("public",)]
+        assert conn.execute(
+            "SELECT count(*) FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid "
+            "JOIN pg_namespace n ON n.oid=p.pronamespace WHERE NOT t.tgisinternal "
+            "AND t.tgname='set_updated_at' AND n.nspname <> 'public'"
+        ).fetchone()[0] == 0
+
+
+@pytestmark_db
+@pytest.mark.db
+def test_setup_all_is_idempotent():
+    tables = ("catalog.product", "catalog.product_variant", "catalog.offer",
+              "catalog.offer_observation", "catalog.peripheral_price_snapshot",
+              "evidence.review_summary")
+    with psycopg.connect(DSN) as conn:
+        before = tuple(conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in tables)
+    result = subprocess.run([sys.executable, "db/setup_all.py"], cwd=ROOT,
+                            env={**os.environ, "DATABASE_URL": DSN},
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr
+    with psycopg.connect(DSN) as conn:
+        after = tuple(conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in tables)
+    assert after == before
