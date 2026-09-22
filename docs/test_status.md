@@ -1,37 +1,54 @@
-# 테스트 현황 (2026-09-21, 브랜치 `pc-catalog-engine`)
+# 테스트 현황 (2026-09-22)
 
+저장소 루트에서 실행한다. `tests/conftest.py`가 고유한 테스트 DB를 만들고,
+현재 baseline 4개와 전체 시드를 적용한 다음 세션 종료 시 DB를 삭제한다.
+개발 DB `truefit`에는 연결하지 않는다.
+
+```bash
+docker compose up -d db
+PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache TRUEFIT_REQUIRE_TEST_DB=1 uv run pytest -q -rs
 ```
-TEST_DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit_test uv run pytest -q
-→ 747 passed, 7 failed, 6 skipped  (약 30초, 새 DB에 `db/setup_all.py`로 `computer`만 시드한 경우)
-```
 
-재현 절차는 [pc_pipeline_quickstart.md](pc_pipeline_quickstart.md).
-(`data/amazon23/pcparts_product_risk.json`이 없으면 리뷰 원본을 읽는 2건이 skip 된다.)
+전체 실행 결과: **790 passed, 4 skipped, 7 xfailed** (38.64초).
+Starlette/AnyIO의 외부 의존성 deprecation warning 1건이 있다.
 
-같은 날 유아용품과 영어 화면·달러 입력을 제거하면서 관련 테스트(baby 26건 실패 포함, 영어·달러 테스트)를 함께 지웠다.
-PC 파이프라인 테스트(엔진·서비스·세션·확정·업그레이드·파이프라인 스모크)는 실패가 없다. `scripts/e2e_smoke.py`는 39/39 통과.
+필수 입력은 `data/parts_list_modify.xlsx`와 `data/peripherals/`의
+`mouse_processed.csv`, `monitor_processed.csv`, `speaker_processed.csv`,
+`keyboard_processed.csv`다. 누락·DB 준비 실패는 오류로 처리한다.
 
-## 인증 강화 (7건) — 후순위
+## 현재 DB 계약과 테스트 격리
 
-`test_password_auth_http.py` — 실제 PostgreSQL + FastAPI로 인증 동작을 검사하는 테스트가 **기대한 보안 동작이 아직 없다**:
+- baseline은 `0000_schema.sql`부터 `0003_triggers.sql`까지 정확히 4개다.
+- `test_schema_reduction.py`는 실제 DB의 테이블 51개를 이름으로 비교하고,
+  제거된 구조의 부재, JSON 저장 컬럼 타입·기본값·NULL 제약,
+  마이그레이션 체크섬과 시드 재실행 멱등성을 검증한다.
+- 인증 HTTP 테스트의 `TRUNCATE identity.app_user CASCADE`를 제거했다.
+  이 명령은 현재 외래 키 관계를 따라 리뷰 시드까지 지워 뒤따르는 멱등성 검사를 깨뜨렸다.
+  인증 데이터도 세션 종료 시 테스트 DB와 함께 정리한다.
+- 사전 준비한 DB를 직접 지정할 때는 고정 테스트 이메일이 남아 있지 않은 새 테스트 DB를 사용한다.
+- `TRUEFIT_REQUIRE_TEST_DB=1`에서는 개발 DB 보호로 차단된 접속을 skip으로 바꾸지 않는다.
 
-| 테스트 | 기대 동작 | 실제 |
-|---|---|---|
-| `au01_email_availability_is_rate_limited` | 이메일 사용 가능 확인을 반복 호출하면 429 | 계속 200 |
-| `au03_five_wrong_passwords_then_lock_then_expiry` | 5번째 실패에서 `locked_until` 설정 | 설정 안 됨 |
-| `au03_concurrent_failures_do_not_lose_increments` | 동시 실패도 5번째에서 잠금 | 잠금 안 됨 |
-| `au04_password_change_invalidates_old_jwt_immediately` | 비밀번호 변경 즉시 옛 토큰 401 | 200 |
-| `au04_login_blocked_by_concurrent_password_change…` | 동시 변경 중 로그인은 새 비밀번호 기준 | 옛 비밀번호로 200 |
-| `au06_withdraw_anonymizes_and_invalidates_all_tokens` | 탈퇴 시 동의 시각 삭제 | 시각이 남음 |
-| `d6_iat_boundary_rejects_token_at_password_change…` | 비밀번호 변경 시각 이전 토큰 거절 | `/auth/me` 200 (초 경계에 따라 통과하기도 함) |
+## 알려진 인증 결함 — strict xfail 7건
 
-가입·로그인·로그아웃·세션 병합·확정은 통과한다(스모크에서 가입 후 확정까지 확인). 실제 서비스 전에는 이 항목을 해결해야 한다.
+아래 항목은 정상 동작으로 인정하지 않는다. 기존 보안 기대를 유지하면서
+정확히 알려진 assertion에서만 `KnownAuthGap`을 발생시킨다.
+다른 assertion이나 DB·SQL 오류는 그대로 실패한다.
+구현 후 통과하면 strict XPASS로 실패하므로 xfail 표시를 제거해야 한다.
 
-## 이전 정리에서 테스트를 현재 코드에 맞춘 것 (참고)
+| 추적 ID | 미구현·결함 | 테스트 수 |
+|---|---|---:|
+| AUTH-01 | 이메일 사용 가능 확인 요청 제한 없음 | 1 |
+| AUTH-02 | 로그인 실패 예외가 실패 횟수 갱신까지 롤백하여 계정 잠금 불가 | 2 |
+| AUTH-03 | 초 단위 JWT가 같은 초에 변경된 비밀번호의 이전 토큰을 허용 | 2 |
+| AUTH-04 | 로그인 비밀번호 조회에 행 잠금이 없어 동시 변경 시 이전 해시 사용 가능 | 1 |
+| AUTH-05 | 탈퇴 시 이용약관·개인정보·마케팅 동의 시각 미삭제 | 1 |
 
-- `test_review_trace`: 이름·시그니처가 바뀐 함수 호출을 현재 API에 맞춤.
-- `test_feedback_events`: 재확정은 409가 아니라 같은 리포트를 돌려주는 동작(멱등)에 맞춤.
-- `test_schema_reduction`: develop 이후 이 브랜치가 더한 마이그레이션 0014~0016과 표 13개를 골든에 반영.
-- `test_password_auth_http`: 고정 이메일 때문에 같은 DB에서 두 번째 실행부터 깨지던 것 — 일회용 DB에서만 사용자 표를 비우고 시작.
+탈퇴의 계정 익명화·비밀번호 삭제·토큰 거절 검증은 일반 통과 테스트로 유지하고,
+동의 시각 삭제만 별도 xfail로 분리했다. 애플리케이션 인증 코드는 이번 작업에서 변경하지 않았다.
 
-기능 결함으로 고친 것: 선택 0개 확정 허용(`list_service.confirm`), 확정 때 붙인 이름이 리포트에 나오게(`plan_repo.confirm_revision`).
+## 선택 의존성과 데이터
+
+`pandas`가 없으면 리뷰 분석 테스트 모듈 2개가 skip된다.
+실행하려면 `uv sync --group review-analysis --group test`로 분석 의존성을 준비한다.
+`data/amazon23/pcparts_product_risk.json`이 없으면 해당 파일을 직접 읽는 테스트 2개가 skip된다.
+이 파일은 별도 전달 데이터다. 필수 DB 테스트의 skip과 구별해야 한다.
