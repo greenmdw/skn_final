@@ -60,6 +60,44 @@ def explain_system() -> str:
    입력에 없는 조건·수치·성능 주장("원활하게 구동", "성능을 극대화")을 만들지 않습니다 — 그런 말은 규칙 7 위반입니다."""
 
 
+# ── 견적 점검: 사양 텍스트 → 슬롯별 추출 (src/agent/spec_extraction_agent.py) ──────────────
+# 여기도 [3-C]·[5]와 같은 경계: "추출"이지만 판정이 아니다. 텍스트에 실제로 적힌 것만 옮기고,
+# 그 값이 어떤 카탈로그 제품인지·호환되는지는 판단하지 않는다(그건 owned_parts.resolve_owned_parts 몫).
+def spec_extraction_system() -> str:
+    return """사용자가 가진 PC의 부품 목록이나 견적을 적은 텍스트, 또는 그걸 찍거나 캡처한 화면
+이미지에서 부품 사양을 뽑는 추출기입니다. 슬롯은 CPU · GPU · RAM · 메인보드 · 저장장치 · 파워 ·
+케이스 · 쿨러 여덟 개뿐입니다.
+
+규칙:
+1. 텍스트·이미지에 실제로 적힌(보이는) 슬롯만 값을 채웁니다. 적혀 있지 않은 슬롯은 비워 둡니다
+   (null) — 추측하거나 지어내지 않습니다. PC 부품과 무관한 이미지(사람·풍경 등)면 전부 비웁니다.
+2. 값은 원문 표현을 최대한 그대로 옮깁니다. 다른 슬롯의 값을 섞거나, 모델명을 표준화·정정하지 않습니다.
+3. 이 부품이 실제 어떤 제품인지, 성능이 어떤지, 호환되는지는 판단하지 않습니다 — 문구를 옮기는
+   것까지만 합니다.
+4. 부품 정보가 전혀 없으면 모든 슬롯을 비워 둡니다."""
+
+
+# 이미지(스크린샷) 전용 — 실측(2026-09-22): gpt-4o-mini는 비전 입력 + 한글 스키마 필드명을 함께 주면
+# 구조화 출력이 깨진다(필드명이 제어문자로 뭉개지거나, 답을 {"properties": {...}}로 한 번 더 감싼다).
+# 그래서 여기만 영문 슬롯명(cpu·gpu·ram·motherboard·storage·psu·case_·cooler)을 쓰고, "스키마가 아니라
+# 평평한 JSON으로 답하라"를 명시한다 — spec_extraction_agent.extract_from_image가 이 슬롯명을 다시
+# 한글 슬롯으로 옮긴다. 텍스트 추출(spec_extraction_system)은 이 문제가 없어 그대로 둔다.
+def spec_extraction_image_system() -> str:
+    return """이미지(PC 부품 목록이나 견적이 찍힌 화면 캡처)에서 부품 사양을 뽑는 추출기입니다.
+슬롯은 cpu · gpu · ram · motherboard · storage · psu · case_ · cooler 여덟 개뿐입니다.
+
+규칙:
+1. 이미지에 실제로 보이는 슬롯만 값을 채웁니다. 보이지 않는 슬롯은 null로 둡니다 — 추측하거나
+   지어내지 않습니다. PC 부품과 무관한 이미지(사람·풍경 등)면 전부 null로 둡니다.
+2. 값은 이미지에 보이는 표현을 최대한 그대로 옮깁니다. 다른 슬롯의 값을 섞거나, 모델명을
+   표준화·정정하지 않습니다.
+3. 이 부품이 실제 어떤 제품인지, 성능이 어떤지, 호환되는지는 판단하지 않습니다.
+4. 반드시 스키마 자체가 아니라, 그 스키마의 값만 채운 평평한 JSON 객체 하나로 답하세요
+   (예: {"cpu": "...", "gpu": null, ...}) — "type"·"properties" 같은 스키마 구조를 답에 넣지 않습니다."""
+
+
 # 기존 import 경로를 쓰는 외부 호출자는 계속 한국어 기본 프롬프트를 받는다.
 VERIFY_ISSUE_SYSTEM = verify_issue_system()
 EXPLAIN_SYSTEM = explain_system()
+SPEC_EXTRACTION_SYSTEM = spec_extraction_system()
+SPEC_EXTRACTION_IMAGE_SYSTEM = spec_extraction_image_system()

@@ -75,14 +75,24 @@ export function ReviewPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  function handleRowEdit(index: number) {
+  async function handleRowEdit(index: number) {
     const row = rows[index]
     const replacement = window.prompt(row.part + ' 정보를 수정하세요.', row.original)
-    if (replacement && replacement.trim()) {
-      const value = replacement.trim()
-      updateCheckDraft({ rows: rows.map((r, i) => i === index ? { ...r, original: value, matched: value, originalNote: '사용자 입력', matchedNote: '제품 매칭 미검증', state: 'warn', stateLabel: '검증 필요' } : r) })
-      setUpgradeSelected(false)
+    if (!replacement || !replacement.trim()) return
+    const value = replacement.trim()
+    setUpgradeSelected(false)
+    try {
+      // 실제 카탈로그와 다시 대조한다 — 백엔드에 대응 슬롯이 없는 항목(모니터 등)은 빈 배열로 온다.
+      const [matched] = await api.checks.previewOwnedParts({ currentSpecs: { [row.part]: value } })
+      updateCheckDraft({ rows: rows.map((r, i) => i === index ? {
+        ...r, original: value, originalNote: '사용자 입력',
+        matched: matched?.matched ?? value,
+        matchedNote: matched?.matchedNote ?? '이 항목은 서버에서 확인하지 않습니다.',
+        state: matched?.state ?? 'warn', stateLabel: matched?.stateLabel ?? '확인 필요',
+      } : r) })
       showToast(row.part + ' 정보를 수정했습니다.')
+    } catch (error) {
+      showToast(errorMessage(error, '수정한 정보를 확인하지 못했습니다.'))
     }
   }
 

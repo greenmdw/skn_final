@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  checksFromWire, choicesFromWire, compatChecksFromWire, compatFromWire, fieldsFromWire, partExplanation, suggestionFromPlan, wantsPartExplanation, currentSpecsFromRows, gamesFromText, itemFromWire, planFromResult, priorityFromText, purposeFromText, replyTextFromWire, resolutionFromText,
+  backendSlotFromRowPart, checksFromWire, choicesFromWire, compatChecksFromWire, compatFromWire, fieldsFromWire, partExplanation, suggestionFromPlan, wantsPartExplanation, currentSpecsFromRows, gamesFromText, itemFromWire, planFromResult, priorityFromText, purposeFromText, replyTextFromWire, resolutionFromText, reviewRowsFromWire,
   setupFromReport, slotKey, upgradePartsFromText,
 } from '../src/api/http/mapping.ts'
 
@@ -58,8 +58,19 @@ test('점검 행 → current_specs: 백엔드가 아는 부품만, 사용자가 
   const specs = currentSpecsFromRows([
     row('CPU', 'AMD Ryzen 7 7800X3D'), row('GPU', 'RTX 4070 SUPER'), row('BOARD', 'B650M WiFi'),
     row('SSD', 'Samsung 990 PRO 1TB'), row('DISPLAY', 'LG 27GR95QE'), row('RAM', '   '),
+    row('파워', '750W'),                                       // 이미 백엔드 슬롯 이름 그대로인 행(업로드 결과)도 그대로 통과한다
   ])
-  assert.deepEqual(specs, { CPU: 'AMD Ryzen 7 7800X3D', GPU: 'RTX 4070 SUPER', 메인보드: 'B650M WiFi' })
+  assert.deepEqual(specs, {
+    CPU: 'AMD Ryzen 7 7800X3D', GPU: 'RTX 4070 SUPER', 메인보드: 'B650M WiFi', 저장장치: 'Samsung 990 PRO 1TB', 파워: '750W',
+  })   // DISPLAY(모니터)는 여전히 뺀다 — computer의 slot_structure에 대응 슬롯이 없다
+})
+
+test('backendSlotFromRowPart: 화면 전용 라벨(BOARD·SSD)은 백엔드 슬롯으로, 대응 없으면(모니터) null', () => {
+  assert.equal(backendSlotFromRowPart('BOARD'), '메인보드')
+  assert.equal(backendSlotFromRowPart('SSD'), '저장장치')
+  assert.equal(backendSlotFromRowPart('CPU'), 'CPU')
+  assert.equal(backendSlotFromRowPart('케이스'), '케이스')
+  assert.equal(backendSlotFromRowPart('DISPLAY'), null)
 })
 
 test('추천 항목 → 화면 부품: 가격·이유·리뷰 없음 처리', () => {
@@ -224,4 +235,15 @@ test('조건 세션 응답 문장: 가장 최근 assistant 메시지, 없으면 
                { id: '2', role: 'assistant', text: '예산을 1,500,000원으로 기록했어요.', created_at: 't' }] }
   assert.equal(replyTextFromWire(state), '예산을 1,500,000원으로 기록했어요.')
   assert.equal(replyTextFromWire({ ...state, messages: [] }), '')
+})
+
+test('사양 매칭 미리보기 응답 → 표 행: 판정만 옮기고 originalNote는 비워 둔다(호출자가 채운다)', () => {
+  const rows = reviewRowsFromWire([
+    { part: 'GPU', original: 'RTX 4070 SUPER', matched: 'NVIDIA GeForce RTX 4070 SUPER', matched_note: '카탈로그 제품과 일치', state: 'ok' },
+    { part: '메인보드', original: '아무 보드', matched: '아무 보드', matched_note: '확인 가능한 스펙이 없습니다.', state: 'warn' },
+  ])
+  assert.deepEqual(rows, [
+    { part: 'GPU', original: 'RTX 4070 SUPER', originalNote: '', matched: 'NVIDIA GeForce RTX 4070 SUPER', matchedNote: '카탈로그 제품과 일치', state: 'ok', stateLabel: '확인' },
+    { part: '메인보드', original: '아무 보드', originalNote: '', matched: '아무 보드', matchedNote: '확인 가능한 스펙이 없습니다.', state: 'warn', stateLabel: '확인 필요' },
+  ])
 })

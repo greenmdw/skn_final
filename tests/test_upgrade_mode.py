@@ -121,6 +121,28 @@ def test_ambiguous_match_keeps_only_the_values_all_candidates_agree_on():
     assert "length_mm" not in owned["specs"]
 
 
+# ── 실제 견적 캡처처럼 판매처·유통사·다른 브랜드 수식어가 섞여도 대응한다(2026-09-22 실측 회귀) ──
+def test_reseller_name_appended_to_the_model_does_not_break_the_match():
+    # "GIGABYTE B650M K 피씨디렉트" — "피씨디렉트"는 국내 판매처 이름이지 제품명이 아니다.
+    pool = {"메인보드": [_named("메인보드", "GIGABYTE B650M K", socket="AM5", mem_type="DDR5")]}
+    owned = resolve_owned_parts({"메인보드": "GIGABYTE B650M K 피씨디렉트"}, pool, ["메인보드"])["메인보드"]
+    assert owned["source"] == "catalog" and owned["name"] == "GIGABYTE B650M K"
+
+
+def test_aib_partner_branding_does_not_break_a_chipset_match():
+    # "Colorful ... GAMING DUO D7 8GB" — 카탈로그엔 칩셋 기준 대표 제품만 있고 보드파트너별 실제
+    # 판매 모델명까지는 없다. 칩셋 토큰(RTX 5060)만 전부 있으면 대응해야 한다.
+    pool = {"GPU": [_named("GPU", "NVIDIA GeForce RTX 5060", power_w=115)]}
+    owned = resolve_owned_parts({"GPU": "Colorful 지포스 RTX 5060 GAMING DUO D7 8GB"}, pool, ["GPU"])["GPU"]
+    assert owned["source"] == "catalog" and owned["specs"]["power_w"] == 115
+
+
+def test_catalog_only_tokens_still_exclude_a_different_specific_model():
+    # 반대 방향은 여전히 지킨다 — 카탈로그 이름에만 있고 사용자 글에는 없는 토큰(Ti)이 있으면 제외.
+    owned = _owned({"GPU": "RTX 3060 GAMING DUO 판매처이름"})["GPU"]
+    assert owned["source"] == "catalog" and owned["specs"]["power_w"] == 170        # 여전히 Ti(200W)가 아니다
+
+
 def test_text_without_a_model_number_is_not_matched_to_a_catalog_part():
     owned = _owned({"CPU": "Intel Core"})["CPU"]
     assert owned["source"] == "unverified" and owned["specs"] == {}

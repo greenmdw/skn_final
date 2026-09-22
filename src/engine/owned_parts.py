@@ -33,21 +33,26 @@ def _significant(tokens: Iterable[str]) -> list[str]:
 
 
 def _match_catalog(text: str, pool: list[Candidate]) -> list[Candidate]:
-    """텍스트의 의미 있는 토큰이 전부 후보 이름의 토큰과 *정확히* 같고(부분 일치 아님 — 5600 은 5600X 가
-    아니다), 모델 번호로 보이는 토큰(숫자 3자리 이상)이 하나는 있어야 대응으로 본다. 그중 군더더기 토큰이
-    가장 적은 후보들만 남긴다(RTX 3060 과 RTX 3060 Ti 를 구분)."""
+    """카탈로그 이름의 의미 있는 토큰이 전부 사용자 글 안에 있어야 대응으로 본다(부분 일치 아님 —
+    5600 은 5600X 가 아니다: 후보 이름에만 있고 글에는 없는 토큰이 있으면 그 후보는 제외한다). 방향이
+    "후보 ⊆ 글"인 이유: 실제 견적 캡처·판매글은 유통사·판매처 이름("피씨디렉트", "서린")이나 다른
+    브랜드의 수식어("Colorful ... GAMING DUO")를 덧붙이는 게 관례라, 글에 그런 낱말이 섞여 있다고
+    대응을 포기하면 실제 카탈로그에 있는 제품도 거의 못 찾는다(2026-09-22 실측). 그 여분 낱말은 후보
+    판정에 안 쓴다. 모델 번호로 보이는 토큰(숫자 3자리 이상)이 글에 하나는 있어야 시도한다. 대응된
+    후보 중 후보 이름 토큰이 가장 많이 채워진(=가장 구체적인) 것만 남긴다(RTX 3060 과 RTX 3060 Ti
+    는 애초에 "ti"가 글에 없으면 Ti 쪽이 방향성 검사에서 제외된다)."""
     wanted = _significant(_tokens(text))
     if not wanted or not any(_MODEL_DIGITS.search(t) for t in wanted):
         return []
     scored: list[tuple[int, Candidate]] = []
     for cand in pool:
         have = _significant(_tokens(cand.name))
-        if all(t in have for t in wanted):
-            scored.append((len(set(have) - set(wanted)), cand))
+        if have and all(t in wanted for t in have):
+            scored.append((len(have), cand))
     if not scored:
         return []
-    best = min(extra for extra, _ in scored)
-    return [cand for extra, cand in scored if extra == best]
+    best = max(size for size, _ in scored)
+    return [cand for size, cand in scored if size == best]
 
 
 def _common_specs(matches: list[Candidate]) -> dict[str, Any]:
@@ -188,6 +193,51 @@ def constrain_targets(spec) -> None:
             spec.targets["메인보드"]["mem_type"] = ram_mem
     if "RAM" in spec.targets and board_mem:
         spec.targets["RAM"]["type"] = board_mem
+
+
+_PREVIEW_STATE = {"catalog": "ok", "text": "warn", "inferred": "warn", "unverified": "warn"}
+
+
+def _preview_note(info: dict[str, Any]) -> str:
+    """미리보기 표의 "확인 내용" 칸 — 어떤 근거로 이 판정이 나왔는지 한 줄로."""
+    source, specs = info["source"], info.get("specs") or {}
+    if source == "catalog":
+        watt = specs.get("wattage_w")
+        bits = [str(v) for v in (specs.get("socket"), specs.get("mem_type")) if v]
+        if watt:
+            bits.append(f"{watt}W")
+        return " · ".join(bits) if bits else "카탈로그 제품과 일치"
+    if source == "unverified":
+        return "확인 가능한 스펙이 없습니다."
+    parts = [f"{k}: {v}" for k, v in specs.items()]
+    prefix = "모델명·칩셋 규칙으로 추정 — " if info.get("inferred") else "글에서 읽음 — "
+    return prefix + (", ".join(parts) if parts else "세부 스펙 없음")
+
+
+def preview_current_specs(current_specs: Any, by_slot: dict[str, list[Candidate]],
+                          slot_structure: Iterable[str]) -> list[dict[str, Any]]:
+    """사용자가 적은 사양 텍스트(current_specs)를 견적 점검 화면의 "확인된 PC 구성" 표로 바꾼다.
+
+    판정은 resolve_owned_parts — 실제 추천 실행(owned_for_conditions)과 **같은 함수**를 쓴다.
+    화면에 보이는 매칭과 실제 추천 계산의 매칭이 서로 다른 기준으로 갈리는 일이 없다.
+    반환: slot_structure 순서로, 텍스트를 적어 준 슬롯만. state는 화면(ReviewRow)과 같은
+    ok(카탈로그와 확정 대응) / warn(글에서 읽었거나 추정, 또는 확인 가능한 스펙 없음) 두 가지뿐이다
+    — "모름"을 비호환으로 단정하지 않는 것과 같은 원칙으로, 매칭 실패도 다른 상태로 부풀리지 않는다."""
+    if not isinstance(current_specs, dict):
+        return []
+    given = {(normalize_pc_slot(k) or str(k).strip()): v for k, v in current_specs.items()}
+    owned = resolve_owned_parts(current_specs, by_slot, slot_structure)
+    rows: list[dict[str, Any]] = []
+    for slot in slot_structure:
+        text = given.get(slot)
+        if not text or not str(text).strip():
+            continue
+        original = str(text).strip()
+        info = owned[slot]                    # resolve_owned_parts는 text가 있으면 반드시 항목을 만든다
+        matched = info["name"] if info["source"] == "catalog" else original
+        rows.append({"part": slot, "original": original, "matched": matched,
+                    "matched_note": _preview_note(info), "state": _PREVIEW_STATE[info["source"]]})
+    return rows
 
 
 def owned_for_conditions(values: dict, by_slot: dict[str, list[Candidate]], target_slots: Iterable[str],

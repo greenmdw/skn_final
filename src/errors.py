@@ -61,3 +61,11 @@ class AccountLocked(TruefitError):
 class FileTooLarge(TruefitError):
     code = "file_too_large"
     http_status = 413
+
+
+class ServiceUnavailable(TruefitError):
+    """이 요청을 처리할 방법이 지금 서버에 아예 없을 때(예: 이미지 인식에 필요한 LLM 연결이
+    꺼져 있음) — 규칙 기반 fallback이 없어 "확인 못 함"으로 조용히 넘길 수 없는 경우에 쓴다."""
+
+    code = "service_unavailable"
+    http_status = 503

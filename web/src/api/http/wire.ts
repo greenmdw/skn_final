@@ -53,6 +53,16 @@ export interface WireSessionState {
   next_question: { id: string; select: string; options: { value: unknown }[] } | null
 }
 
+// ── 견적 점검: 사양 텍스트 매칭 미리보기(src.schemas.OwnedPartsPreview*) — 세션 없이 호출 ──
+export interface WireOwnedPartsPreviewRow {
+  part: string
+  original: string
+  matched: string
+  matched_note: string
+  state: 'ok' | 'warn'
+}
+export interface WireOwnedPartsPreviewOut { rows: WireOwnedPartsPreviewRow[] }
+
 // ── 조건 대화 세션(src.schemas.ConditionState) ──────────────────────────────
 export interface WireMessage { id: string; role: string; text: string; created_at: string }
 export interface WireField {

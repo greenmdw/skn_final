@@ -22,7 +22,7 @@ from src.config import APP_NAME, FRONTEND_DIR, FRONTEND_MODE, WEB_DIST_DIR, asse
 from src.db import close_pool
 from src.errors import TruefitError
 from src.frontend_serving import mount_frontend
-from src.routers import auth, dev, lists, reviews, session
+from src.routers import auth, dev, lists, pc_check, reviews, session
 
 
 @asynccontextmanager
@@ -40,6 +40,7 @@ app.include_router(session.router)
 app.include_router(lists.router)
 app.include_router(reviews.router)
 app.include_router(dev.router)
+app.include_router(pc_check.router)
 
 
 @app.exception_handler(TruefitError)

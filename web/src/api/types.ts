@@ -1,4 +1,4 @@
-import type { ChatChoice, CheckDraft, ConditionField, CurrentPlan, PartKey, PlanMode, SavedSetup } from '../state/types'
+import type { ChatChoice, CheckDraft, ConditionField, CurrentPlan, PartKey, PlanMode, ReviewRow, SavedSetup } from '../state/types'
 
 // 화면이 백엔드에 기대하는 계약입니다. 실제 서버를 붙일 때는 이 인터페이스(Api)를 그대로 구현하면 됩니다.
 
@@ -115,6 +115,15 @@ export interface Api {
   }
   checks: {
     suggestUpgrade(draft: CheckDraft): Promise<UpgradeSuggestion>
+    /** 사양을 실제 카탈로그와 대조해 "확인된 PC 구성" 표 행으로 바꾼다. 세션·로그인 없이 부른다.
+     * - currentSpecs: 슬롯 -> 이미 알고 있는 자유 문장(행 수정 등, 형식이 정해져 있을 때).
+     * - text: 자유 형식 원문(업로드 파일 전체·붙여넣은 견적 설명). 서버가 슬롯별로 먼저 추출한다
+     *   (LLM 추출 에이전트가 켜져 있으면 그걸로, 아니면 규칙 기반 파서로 — 형식이 안 맞으면 못 뽑을 수 있다).
+     * - imageDataUrl: 견적·부품 목록이 찍힌 화면 캡처("data:image/png;base64,..." 등). text와 함께
+     *   오면 이걸 우선한다. 서버에 이미지 인식(LLM)이 꺼져 있으면 에러로 알린다 — 규칙 기반 대안이
+     *   없어서 조용히 빈 결과로 넘기지 않는다.
+     * currentSpecs에 같은 슬롯이 있으면 그 값이 텍스트·이미지 추출값보다 우선한다. */
+    previewOwnedParts(request: { currentSpecs?: Record<string, string>; text?: string; imageDataUrl?: string }): Promise<ReviewRow[]>
   }
   setups: {
     list(): Promise<SetupsListResult>

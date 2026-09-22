@@ -87,3 +87,52 @@ def call_llm(
 
     # 그 외 구조화 출력 요청 → 호출자가 시나리오 정답값을 직접 주입하므로 빈 골격 반환
     return {"text": "[MOCK] 일반 응답"}
+
+
+def _call_openai_vision(image_data_url: str, *, system: str | None, output_schema: dict | None, model: str) -> dict:
+    client = _get_client()
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": [{"type": "image_url", "image_url": {"url": image_data_url}}]})
+
+    kwargs: dict[str, Any] = {"model": model or LLM_MODEL, "messages": messages}
+    if output_schema:
+        kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "output", "schema": output_schema, "strict": False},
+        }
+
+    last_error: Exception | None = None
+    for _attempt in range(2):
+        response = client.chat.completions.create(**kwargs)
+        content = response.choices[0].message.content or ""
+        if not output_schema:
+            return {"text": content}
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+    raise ValueError(f"call_llm_vision: 구조화 출력 JSON 파싱 실패: {last_error}")
+
+
+def call_llm_vision(
+    image_data_url: str,
+    *,
+    system: str | None = None,
+    output_schema: dict | None = None,
+    model: str = LLM_MODEL,
+) -> dict:
+    """이미지 1장을 보는 LLM 호출. call_llm과 같은 계약(스키마 있으면 dict, 없으면 {"text": str})이고
+    입력만 텍스트 대신 이미지다 — call_llm 자체의 시그니처·동작은 바꾸지 않는다(다른 호출부가 많다).
+
+    Args:
+        image_data_url: "data:image/png;base64,..." 형식의 데이터 URL. 원본 이미지는 이 호출이
+            끝나면 버려진다 — 저장하지 않는다(견적 점검 사양 추출의 개인정보·저작권 원칙).
+        system, output_schema, model: call_llm과 같다.
+    """
+    if not MOCK_MODE:
+        return _call_openai_vision(image_data_url, system=system, output_schema=output_schema, model=model)
+
+    print("[MOCK] LLM 비전 호출: (이미지 1장)")
+    return {"text": "[MOCK] 일반 응답"}

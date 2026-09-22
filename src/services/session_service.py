@@ -1,11 +1,12 @@
 """세션 생성과 조건 대화 서비스 (계약: docs/frontend_외부수정요청.md §D-4-1)."""
 from __future__ import annotations
-import hashlib, logging, re, secrets
+import hashlib, logging, secrets
 from uuid import UUID
-from src.agent import conditions_agent
+from src.agent import conditions_agent, spec_extraction_agent
 from src.auth.deps import Principal
 from src.categories import available_categories, load_category
 from src.engine import slot_rules
+from src.engine.spec_text import parse_spec_text
 from src.errors import Conflict, FileTooLarge, NotFound, ValidationFailed
 from src.repo.plan_repo import PlanRepo
 from src.repo.user_repo import ConversationRepo
@@ -401,21 +402,20 @@ def reset_conditions(
 # ── 업그레이드 사양 파일 첨부 (§D-4-1: current_specs · spec_file_name) ──
 _ALLOWED_SPEC_EXTENSIONS = {"txt", "json", "csv", "md", "log", "nfo", "xml"}
 _MAX_SPEC_FILE_BYTES = 1_000_000
-_SPEC_LINE = re.compile(
-    r"(?im)^\s*(cpu|프로세서|gpu|그래픽카드|그래픽|ram|메모리|메인보드|mainboard|motherboard|"
-    r"파워|psu|케이스|case|쿨러|cooler)\s*[:=]\s*(.+?)\s*$")
-_SPEC_KEY_MAP = {"cpu": "CPU", "프로세서": "CPU", "gpu": "GPU", "그래픽카드": "GPU", "그래픽": "GPU",
-                 "ram": "RAM", "메모리": "RAM", "메인보드": "메인보드", "mainboard": "메인보드",
-                 "motherboard": "메인보드", "파워": "파워", "psu": "파워", "케이스": "케이스", "case": "케이스",
-                 "쿨러": "쿨러", "cooler": "쿨러"}
+_parse_spec_file = parse_spec_text   # 기존 이름 유지(테스트가 이 이름으로 import한다)
 
 
-def _parse_spec_file(content: str) -> dict:
-    """'CPU: i5-13600K' 같은 key: value 줄만 규칙 기반으로 뽑는다. 매칭 안 되면 빈 dict."""
-    specs: dict[str, str] = {}
-    for m in _SPEC_LINE.finditer(content):
-        specs[_SPEC_KEY_MAP[m.group(1).lower()]] = m.group(2).strip()
-    return specs
+def _extract_current_specs(content: str) -> dict:
+    """텍스트에서 슬롯별 사양을 뽑는다. LLM 추출(에이전트)이 있으면 그걸 먼저 쓰고, 없거나 실패하면
+    규칙 기반(key: value 줄)으로 이번 요청만 처리한다 — conditions_agent와 같은 fallback 원칙."""
+    if spec_extraction_agent.available():
+        try:
+            extracted = spec_extraction_agent.extract(content)
+            if extracted:
+                return extracted
+        except Exception as exc:  # noqa: BLE001 — 모델·네트워크 오류. 이번 요청만 규칙 경로로.
+            log.warning("spec extraction agent failed, falling back to rules: %s", exc)
+    return parse_spec_text(content)
 
 
 def attach_spec_file(
@@ -435,7 +435,7 @@ def attach_spec_file(
         raise ValidationFailed("지원하지 않는 파일 형식입니다.", field="file_name", code="unsupported_file")
     if len(content.encode("utf-8")) > _MAX_SPEC_FILE_BYTES:
         raise FileTooLarge("파일이 너무 큽니다(1MB 이하).", field="content")
-    specs = _parse_spec_file(content)
+    specs = _extract_current_specs(content)
     repo.upsert_condition(current["id"], "spec_file_name", {"value": file_name}, "explicit")
     if specs:
         repo.upsert_condition(current["id"], "current_specs", {"value": specs}, "extracted")

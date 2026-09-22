@@ -2,7 +2,7 @@
 // 프레임워크·네트워크에 기대지 않아 Node 로 바로 테스트한다(web/tests/mapping.test.mjs) — 그래서 타입만 import 한다.
 import type { ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, CurrentPlan, DeskState, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
 import type { UpgradeSuggestion } from '../types'
-import type { WireCompatCheck, WireConditionState, WireField, WireItem, WireNextQuestion, WireReport, WireReportItem, WireResult, WireReview, WireText } from './wire'
+import type { WireCompatCheck, WireConditionState, WireField, WireItem, WireNextQuestion, WireOwnedPartsPreviewRow, WireReport, WireReportItem, WireResult, WireReview, WireText } from './wire'
 
 // ── 슬롯 ────────────────────────────────────────────────────────────────────
 // 백엔드 슬롯 이름(config/categories/computer.yaml 의 slot_structure)과 화면의 부품 키.
@@ -83,16 +83,36 @@ export function upgradePartsFromText(text: string): string[] {
   return found.length ? found : ['GPU']
 }
 
-// 점검 화면의 부품 행 → 백엔드가 읽는 current_specs(슬롯 → 사용자가 쓴 문자열). 백엔드가 모르는 부품(SSD·DISPLAY)은 뺀다.
-const ROW_SLOT: Record<string, string> = { CPU: 'CPU', GPU: 'GPU', RAM: 'RAM', BOARD: '메인보드' }
+// 점검 화면의 부품 행 → 백엔드가 읽는 current_specs(슬롯 → 사용자가 쓴 문자열). 화면 전용 라벨(BOARD·SSD)은
+// 백엔드 슬롯 이름으로 바꾼다. DISPLAY(모니터)만 뺀다 — computer의 slot_structure에 모니터 슬롯이 없다.
+// BOARD·SSD 말고는 애초에 백엔드 슬롯 이름(CPU·GPU·RAM·메인보드·저장장치·파워·케이스·쿨러) 그대로 쓴다 —
+// 파일에서 뽑은 행(reviewRowsFromWire)은 이미 그 이름으로 온다.
+const ROW_SLOT: Record<string, string> = { BOARD: '메인보드', SSD: '저장장치' }
+const BACKEND_SLOTS = new Set(['CPU', 'GPU', 'RAM', '메인보드', '저장장치', '파워', '케이스', '쿨러'])
+/** 점검 표의 부품 행이 백엔드 어떤 슬롯에 대응하는지. 대응이 없으면(모니터 등) null — 서버 검증 대상이 아니다. */
+export function backendSlotFromRowPart(part: string): string | null {
+  return ROW_SLOT[part] ?? (BACKEND_SLOTS.has(part) ? part : null)
+}
 export function currentSpecsFromRows(rows: ReviewRow[]): Record<string, string> {
   const specs: Record<string, string> = {}
   for (const row of rows) {
-    const slot = ROW_SLOT[row.part]
+    const slot = backendSlotFromRowPart(row.part)
     const text = row.original.trim()
     if (slot && text) specs[slot] = text
   }
   return specs
+}
+
+// ── 견적 점검: 사양 텍스트 매칭 미리보기(POST /pc/owned-parts/preview) → 화면 표 ─────────────────
+// originalNote는 "이 텍스트를 어떻게 얻었는지"(파일에서 읽음/사용자 입력)라 문맥마다 다르다 —
+// 호출자(파일 업로드·행 수정)가 채운다. 여기서는 매칭 판정(matched·state)만 옮긴다.
+const PREVIEW_STATE_LABEL: Record<'ok' | 'warn', string> = { ok: '확인', warn: '확인 필요' }
+export function reviewRowsFromWire(rows: WireOwnedPartsPreviewRow[]): ReviewRow[] {
+  return rows.map(r => ({
+    part: r.part, original: r.original, originalNote: '',
+    matched: r.matched, matchedNote: r.matched_note,
+    state: r.state, stateLabel: PREVIEW_STATE_LABEL[r.state],
+  }))
 }
 
 // ── 조건 대화 세션 응답 → 화면 모델 ─────────────────────────────────────────────

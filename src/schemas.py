@@ -98,6 +98,30 @@ class SlotPatchIn(BaseModel):
     value: Any | None = None
 
 
+# ── PC 견적 점검: 사양 텍스트 매칭 미리보기 (세션 없이 호출) ──
+class OwnedPartsPreviewIn(BaseModel):
+    # 슬롯 이름(원문 그대로, 예: "CPU"·"그래픽카드") -> 사용자가 적은 자유 텍스트.
+    current_specs: dict[str, str] = Field(default_factory=dict)
+    # 자유 형식 텍스트(업로드 파일 전체·붙여넣은 견적 설명). 있으면 슬롯별로 추출해 current_specs에
+    # 채운다 — 같은 슬롯이 current_specs에도 이미 있으면 그 값(명시값)을 우선한다.
+    text: str | None = None
+    # 견적·부품 목록이 찍힌 화면 캡처. "data:image/png;base64,..." 형식의 데이터 URL 그대로 —
+    # text와 동시에 오면 이걸 우선한다. 처리 후 저장하지 않는다(요청 처리 중에만 메모리에 존재).
+    image_data_url: str | None = None
+
+
+class OwnedPartsPreviewRow(BaseModel):
+    part: str
+    original: str
+    matched: str
+    matched_note: str
+    state: Literal["ok", "warn"]
+
+
+class OwnedPartsPreviewOut(BaseModel):
+    rows: list[OwnedPartsPreviewRow] = Field(default_factory=list)
+
+
 # ── 조건 대화 (§D-4-1) ──
 class MessageOut(BaseModel):
     id: str
