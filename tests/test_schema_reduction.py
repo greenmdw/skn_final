@@ -22,15 +22,7 @@ MIGRATIONS = ROOT / "db/migrations"
 
 # The compact migration chain creates only objects that survive in the final schema.
 EXPECTED_CHAIN = [
-    "0000_prereq.sql", "0001_tables.sql", "0002_unique.sql", "0003_foreign_keys.sql",
-    "0004_triggers.sql", "0005_indexes.sql", "0007_app_user_password_auth.sql", "0008_frontend_contract.sql",
-    "0009_frontend_requirement_revision.sql", "0010_review_summary_relation_axis.sql",
-    "0012_schema_reduction_safe_subset.sql", "0013_result_item_interaction.sql",
-]
-# develop 이후 이 브랜치(PC 카탈로그 엔진)가 더한 마이그레이션 — develop 사슬은 그대로 앞에 있어야 하고, 뒤에 이것만 붙는다.
-BRANCH_MIGRATIONS = [
-    "0014_candidate_checks.sql", "0015_pc_parts_category_specs.sql", "0016_peripheral_specs.sql",
-    "0017_peripheral_connection_interface.sql", "0018_pc_parts_compat_columns.sql",
+    "0000_schema.sql", "0001_constraints.sql", "0002_indexes.sql", "0003_triggers.sql",
 ]
 # 위 세 마이그레이션이 만든 표 수(develop 의 38개에 더해진다). 마이그레이션을 더하면 함께 고친다.
 BRANCH_EXTRA_TABLES = 13
@@ -57,9 +49,9 @@ NEVER_TABLES = ["planning.item"]
 
 def test_migration_chain_matches_develop_exactly():
     actual = sorted(f.name for f in MIGRATIONS.glob("*.sql"))
-    assert actual == EXPECTED_CHAIN + BRANCH_MIGRATIONS, (
-        "migration set drifted from develop `da79839` + branch additions — got extra/missing files: "
-        f"{set(actual) ^ set(EXPECTED_CHAIN + BRANCH_MIGRATIONS)}"
+    assert actual == EXPECTED_CHAIN, (
+        "baseline migration set drifted — got extra/missing files: "
+        f"{set(actual) ^ set(EXPECTED_CHAIN)}"
     )
 
 
@@ -77,7 +69,7 @@ def test_no_full_reduction_migration_survives():
 def test_removed_objects_are_never_created_or_dropped():
     sql = "\n".join(path.read_text(encoding="utf-8") for path in MIGRATIONS.glob("*.sql"))
     for schema in REMOVED_SCHEMAS:
-        assert f"CREATE SCHEMA IF NOT EXISTS {schema}" not in sql
+        assert f"CREATE SCHEMA {schema}" not in sql
         assert f"DROP SCHEMA {schema}" not in sql
     for table in REMOVED_TABLES:
         assert f"CREATE TABLE {table}" not in sql
@@ -85,9 +77,9 @@ def test_removed_objects_are_never_created_or_dropped():
     assert "CREATE EXTENSION IF NOT EXISTS vector" not in sql
 
 
-def test_safe_subset_only_adds_final_schema_columns():
-    sql = (MIGRATIONS / "0012_schema_reduction_safe_subset.sql").read_text(encoding="utf-8")
-    assert "DROP TABLE" not in sql and "DROP SCHEMA" not in sql
+def test_baseline_contains_final_schema_columns():
+    sql = (MIGRATIONS / "0000_schema.sql").read_text(encoding="utf-8")
+    assert "DROP TABLE" not in sql and "DROP SCHEMA" not in sql and "ALTER COLUMN" not in sql
     for addition in ("ui_settings", "notification_settings", "category_id", "evidence_refs", "issues"):
         assert addition in sql
 

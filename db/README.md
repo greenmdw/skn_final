@@ -49,17 +49,10 @@ python db/migrate.py status
 
 | 파일 | 내용 |
 |---|---|
-| `0000_prereq.sql` | 최종 애플리케이션 스키마 9개 · `public.set_updated_at()` |
-| `0001_tables.sql` | 핵심 38개 `CREATE TABLE` — 컬럼·PK·CHECK·DEFAULT. FK 없음 |
-| `0002_unique.sql` | 단순/복합 UNIQUE (FK 타깃) · 부분/표현식/`NULLS NOT DISTINCT` UNIQUE 인덱스 |
-| `0003_foreign_keys.sql` | 모든 FK (`ON DELETE RESTRICT`) — 복합 FK C01~C12 포함 |
-| `0004_triggers.sql` | `updated_at` 자동 갱신 트리거 (updated_at 컬럼 있는 테이블 전부) |
-| `0005_indexes.sql` | 성능 인덱스 (명세서 "인덱스 제안" + FK 조인용) |
-| `0007_app_user_password_auth.sql` | 이메일+비밀번호 인증, 로그인 잠금, 약관 동의와 소프트 탈퇴 |
-| `0008_frontend_contract.sql` | 리스트 소프트 삭제, 확정 목표금액·메모, 추천 설명 비동기 상태 |
-| `0009_frontend_requirement_revision.sql` | 변경된 프론트 요구의 이메일 인증 시각·계정 updated_at·UI 설정 복원 |
-| `0010_review_summary_relation_axis.sql` | `evidence.review_summary` + `author_ref`(소스별 솔트 해시) · `review_posted_at` — 관계·행동 축(공유 리뷰어·7일 몰림·간격)이 온라인 요약 위에서 계산되려면 필요. 원문 미저장 정책과 무관한 메타데이터 |
-| `0012_schema_reduction_safe_subset.sql` | 축소된 최종 스키마의 설정·카테고리·근거 JSON 컬럼 보강 |
+| `0000_schema.sql` | 최종 스키마 9개 · 함수 · 51개 테이블과 최종 컬럼·CHECK |
+| `0001_constraints.sql` | PK · UNIQUE · 모든 FK |
+| `0002_indexes.sql` | 부분 UNIQUE와 성능 인덱스 |
+| `0003_triggers.sql` | `updated_at` 자동 갱신 트리거 |
 
 phase 방식(테이블 전부 → 제약 전부 → 인덱스 전부)을 쓴 이유는 스키마 간 순환 참조가 있기 때문이다.
 
@@ -84,7 +77,7 @@ phase 방식(테이블 전부 → 제약 전부 → 인덱스 전부)을 쓴 이
   C10(pc_build↔version) C12(review↔revision)
 - `updated_at` 트리거
 
-`identity.conversation`은 `created_at`만 저장하므로 갱신 트리거 대상이 아니다. `identity.app_user.updated_at`과 트리거는 변경된 요구를 반영하는 0009에서 추가한다.
+`identity.conversation`은 `created_at`만 저장하므로 갱신 트리거 대상이 아니다.
 `config.domain_version`에는 게시 완료된 버전만 적재하며 게시 전 초안은 버전 관리 저장소에서 관리한다.
 UI 표시 설정과 알림 수신 설정은 `identity.app_user`의 JSON 컬럼에 저장한다.
 
