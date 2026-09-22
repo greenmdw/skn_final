@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  checksFromWire, compatChecksFromWire, compatFromWire, partExplanation, suggestionFromPlan, wantsPartExplanation, currentSpecsFromRows, gamesFromText, itemFromWire, planFromResult, priorityFromText, purposeFromText, resolutionFromText,
+  checksFromWire, choicesFromWire, compatChecksFromWire, compatFromWire, fieldsFromWire, partExplanation, suggestionFromPlan, wantsPartExplanation, currentSpecsFromRows, gamesFromText, itemFromWire, planFromResult, priorityFromText, purposeFromText, replyTextFromWire, resolutionFromText,
   setupFromReport, slotKey, upgradePartsFromText,
 } from '../src/api/http/mapping.ts'
 
@@ -196,4 +196,32 @@ test('호환 검사 상세: 화면 목록으로 바꾸고, 모르는 상태는 u
   assert.equal(checks[0].detail, 'CPU (AM5) = 메인보드 (AM5)')
   assert.equal(compatChecksFromWire([]), undefined)
   assert.equal(compatChecksFromWire(undefined), undefined)
+})
+
+test('조건 세션 필드: 값을 그대로 옮기고, 모르는 status는 missing으로 본다', () => {
+  const fields = fieldsFromWire([
+    { key: 'budget_max', label: '예산', value: 1500000, display: null, status: 'confirmed', editable: true },
+    { key: 'priority', label: '우선순위', value: 'quiet', display: '저소음', status: 'assumed', editable: true },
+    { key: 'games', label: '게임', value: [], display: null, status: '알 수 없는 상태', editable: true },
+  ])
+  assert.deepEqual(fields[0], { key: 'budget_max', label: '예산', value: 1500000, display: null, status: 'confirmed' })
+  assert.equal(fields[1].display, '저소음')
+  assert.equal(fields[2].status, 'missing')
+})
+
+test('다음 질문 선택지: 객관식이면 칩으로, 자유 텍스트·선택지 없음·질문 없음이면 undefined', () => {
+  const single = { id: 'q_priority', field: 'priority', text: '가장 중요한 건?', select: 'single',
+    options: [{ value: 'performance', label: '성능 우선' }, { value: 'value', label: '가성비' }] }
+  assert.deepEqual(choicesFromWire(single), [{ label: '성능 우선', value: 'performance' }, { label: '가성비', value: 'value' }])
+  assert.equal(choicesFromWire({ ...single, select: 'free', options: [] }), undefined)
+  assert.equal(choicesFromWire({ ...single, options: [] }), undefined)
+  assert.equal(choicesFromWire(null), undefined)
+})
+
+test('조건 세션 응답 문장: 가장 최근 assistant 메시지, 없으면 빈 문자열', () => {
+  const state = { list_id: 'l1', category: 'computer', mode: 'build', can_recommend: false, next_question: null, fields: [],
+    messages: [{ id: '1', role: 'user', text: '150만원짜리 게임용', created_at: 't' },
+               { id: '2', role: 'assistant', text: '예산을 1,500,000원으로 기록했어요.', created_at: 't' }] }
+  assert.equal(replyTextFromWire(state), '예산을 1,500,000원으로 기록했어요.')
+  assert.equal(replyTextFromWire({ ...state, messages: [] }), '')
 })

@@ -1,8 +1,8 @@
 // 화면 모델(CurrentPlan · SavedSetup)과 백엔드 모델 사이의 순수 변환 함수 모음.
 // 프레임워크·네트워크에 기대지 않아 Node 로 바로 테스트한다(web/tests/mapping.test.mjs) — 그래서 타입만 import 한다.
-import type { CheckDraft, CompatCheck, CompatNotice, CurrentPlan, DeskState, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
+import type { ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, CurrentPlan, DeskState, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
 import type { UpgradeSuggestion } from '../types'
-import type { WireCompatCheck, WireItem, WireReport, WireReportItem, WireResult, WireReview, WireText } from './wire'
+import type { WireCompatCheck, WireConditionState, WireField, WireItem, WireNextQuestion, WireReport, WireReportItem, WireResult, WireReview, WireText } from './wire'
 
 // ── 슬롯 ────────────────────────────────────────────────────────────────────
 // 백엔드 슬롯 이름(config/categories/computer.yaml 의 slot_structure)과 화면의 부품 키.
@@ -93,6 +93,32 @@ export function currentSpecsFromRows(rows: ReviewRow[]): Record<string, string> 
     if (slot && text) specs[slot] = text
   }
   return specs
+}
+
+// ── 조건 대화 세션 응답 → 화면 모델 ─────────────────────────────────────────────
+// /session/{id}/message · /slot 이 돌려주는 ConditionState(src.schemas)를 화면이 쓰는 모양으로 바꾼다.
+// 판정(무엇이 채워졌는지)은 서버가 하고, 여기는 필드 이름만 옮긴다 — "정보 없음"과 "값이 있다"를 섞지 않는다.
+const FIELD_STATUS = new Set(['confirmed', 'assumed', 'missing'])
+
+export function fieldsFromWire(fields: WireField[]): ConditionField[] {
+  return fields.map(f => ({
+    key: f.key, label: f.label, value: f.value, display: f.display,
+    status: (FIELD_STATUS.has(f.status) ? f.status : 'missing') as ConditionField['status'],
+  }))
+}
+
+/** 다음 질문이 객관식(single/multi)이면 선택지 칩으로, 자유 텍스트 질문이거나 더 물을 게 없으면 undefined. */
+export function choicesFromWire(question: WireNextQuestion | null): ChatChoice[] | undefined {
+  if (!question || question.select === 'free' || !question.options.length) return undefined
+  return question.options.map(o => ({ label: String(o.label ?? o.value), value: String(o.value) }))
+}
+
+/** 이번 턴에 대한 챗봇 답변 — 방금 쌓인 마지막 assistant 메시지. 없으면(응답 형식이 어긋나면) 빈 문자열. */
+export function replyTextFromWire(state: WireConditionState): string {
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    if (state.messages[i].role === 'assistant') return state.messages[i].text
+  }
+  return ''
 }
 
 // ── 추천 결과 → 화면 구성 ────────────────────────────────────────────────────

@@ -22,6 +22,15 @@ export interface Part {
 
 export type PlanMode = 'new' | 'upgrade'
 
+/** 조건 세션(백엔드)이 대화 한 턴마다 돌려주는 필드 하나 — 에이전트/규칙이 자유 텍스트에서 뽑은 값. */
+export interface ConditionField {
+  key: string
+  label: string
+  value: unknown
+  display: string | null
+  status: 'confirmed' | 'assumed' | 'missing'
+}
+
 export interface PlanState {
   currentPlan: CurrentPlan | null
   budget: number | null
@@ -31,6 +40,12 @@ export interface PlanState {
   performance: string
   quiet: string
   checkSnapshot: CheckDraft | null
+  /** 실서버 조건 대화 세션 id(list_id). 인터뷰 중에만 쓰고, 목업 모드에서는 항상 null. */
+  sessionId: string | null
+  /** 지금까지 세션에 반영된 조건들(백엔드 fields) — 화면(GoalPanel)에 그대로 보여준다. */
+  fields: ConditionField[]
+  /** 백엔드가 판단한 "지금 추천 가능" 여부. 목업 모드에서는 쓰지 않는다. */
+  canRecommend: boolean
   selectedPart: PartKey
   deskUnlocked: boolean
   deskWidth: number

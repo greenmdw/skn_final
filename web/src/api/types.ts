@@ -1,4 +1,4 @@
-import type { ChatChoice, CheckDraft, CurrentPlan, PartKey, PlanMode, SavedSetup } from '../state/types'
+import type { ChatChoice, CheckDraft, ConditionField, CurrentPlan, PartKey, PlanMode, SavedSetup } from '../state/types'
 
 // 화면이 백엔드에 기대하는 계약입니다. 실제 서버를 붙일 때는 이 인터페이스(Api)를 그대로 구현하면 됩니다.
 
@@ -43,11 +43,30 @@ export interface ReviewChatRequest {
 }
 export interface ReviewChatReply { text: string }
 
+// ---- 조건 대화(인터뷰) ----
+// 새 PC를 만드는 인터뷰(용도·예산·우선순위 등)는 서버의 조건 세션(POST /session/{id}/message)이 처리한다.
+// 서버는 조건 추출 에이전트(LLM, CONDITIONS_AGENT=1일 때)가 있으면 그걸로, 없으면 규칙 추출(slot_rules)로
+// 자유 문장에서 예산·용도·우선순위 등을 뽑는다 — 화면은 결과(fields)만 반영하면 된다.
+export interface ConditionTurnResult {
+  /** 세션이 없어서 새로 만들었으면 그 id. 이후 대화는 이 id로 이어간다. */
+  sessionId: string
+  /** 이번 턴에 대한 챗봇 답변(에이전트 문장 또는 다음 질문). */
+  reply: string
+  /** 지금까지 세션에 반영된 조건 전체(백엔드가 다시 계산해서 보낸 최신값). */
+  fields: ConditionField[]
+  /** 다음 질문이 객관식/다지선다면 그 선택지 — 없으면 자유 텍스트로 답해야 하는 질문이거나 더 물을 게 없다는 뜻. */
+  choices?: ChatChoice[]
+  /** 필수 조건을 다 채워서 지금 추천을 받을 수 있는지. */
+  canRecommend: boolean
+}
+
 // ---- 추천 구성 ----
 export interface RecommendRequest {
   mode: PlanMode
   budget: number | null
   conditions: { intent: string; performance: string; quiet: string }
+  /** 인터뷰에서 이미 조건을 채워 둔 세션이 있으면 그 세션으로 그대로 추천한다(실서버 전용, 조건을 다시 만들지 않는다). */
+  sessionId?: string | null
   checkSnapshot: CheckDraft | null
 }
 
@@ -84,6 +103,12 @@ export interface Api {
   chat: {
     reply(request: ChatReplyRequest): Promise<ChatReply>
     reviewReply(request: ReviewChatRequest): Promise<ReviewChatReply>
+  }
+  conditions: {
+    /** 인터뷰 자유 텍스트 한 턴. sessionId가 없으면 새 조건 세션을 만든다. */
+    send(sessionId: string | null, text: string): Promise<ConditionTurnResult>
+    /** 화면에서 직접 값을 바꿨을 때(예산 입력창 등) 세션에 반영한다. */
+    patch(sessionId: string, field: string, value: unknown): Promise<ConditionTurnResult>
   }
   plans: {
     recommend(request: RecommendRequest): Promise<CurrentPlan>
