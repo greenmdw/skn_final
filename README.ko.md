@@ -1,6 +1,6 @@
 # TrueFit — 목적성 쇼핑 플래너
 
-> 현재 범위는 PC 추천(한국어)입니다. 유아용품 지원과 영어 UI는 2026-09-21에 제거했습니다(git 이력 참고). 아래 스크린샷 일부는 이전의 이중 언어 데모 세션입니다.
+> 현재 범위는 PC 추천(한국어)입니다. 유아용품 지원과 영어 UI는 2026-09-21에 제거했습니다(git 이력 참고).
 
 [English](README.md) · **한국어**
 
@@ -31,17 +31,6 @@ TrueFit은 세 가지를 거부하는 데서 출발합니다.
 | **확정·리포트** | 이름·구매 예정일·목표 금액·메모. 확정 스냅샷은 판매처 링크와 선택 사항인 목표가 추적을 유지합니다 |
 
 엔진은 **PC 구성**을 만듭니다: 세트를 최적화한 뒤 전체를 검증합니다. UI와 서버는 한국어를 씁니다.
-
-## 화면
-
-<table>
-<tr>
-<td width="50%"><img src="docs/screenshots/02-conditions.png" alt="조건 대화: 자유 문장 하나가 타입 있는 조건이 된다"><br><sub>문장 하나 → 용도·예산(150만원)·우선순위·게임 제목·자유 조건("흰색 케이스") — 전부 조건 에이전트가 검증된 도구 호출로 설정.</sub></td>
-<td width="50%"><img src="docs/screenshots/03-results.png" alt="추천 요약"><br><sub>설명은 저장된 사실로만 생성되고, 못 한 것도 말한다: 추가 요청은 자동 반영되지 않았다.</sub><br><br><img src="docs/screenshots/04-result-chat.png" alt="결과 대화: CPU 교체와 GPU 설명"><br><sub>결과 에이전트가 버튼과 같은 서비스로 교체한 뒤 저장된 이유로 GPU를 설명.</sub></td>
-</tr>
-</table>
-
-스크린샷은 2026-09-14 실제 세션(`gpt-4o-mini`, 합성 카탈로그)입니다. 데모의 가격은 **합성**이며 UI가 그렇게 표시합니다.
 
 ## Strands Agents 위에서
 
@@ -158,7 +147,7 @@ DB 표준 문서는 [`db/README.md`](db/README.md)(Docker 없이 conda로 하는
 | | 되는 것 | 아직 |
 |---|---|---|
 | PC | 전체 흐름: 조건 → 실행 → 이유·확인·리뷰 관측·대안·교체·수량/시점·결과 대화 → 확정 → 리포트 → 목표가 추적, 전부 저장 | 합성 가격. 호환은 근사(소켓·전력·크기). 교체 뒤 재검증 없음 |
-| 에이전트 | 실제 세션에서 둘 다(위 스크린샷) | OpenAI 키 필요. 기본은 꺼짐 |
+| 에이전트 | 실제 세션에서 둘 다 확인(`gpt-4o-mini`) | OpenAI 키 필요. 기본은 꺼짐 |
 | 계정 | 이메일+비밀번호, httpOnly JWT, 게스트 → 계정 병합, 탈퇴 | 이메일 인증·비밀번호 재설정은 미룸. `/auth/request-code`, `/auth/verify`는 스텁 |
 | 리뷰 | 데모 부품 51개 중 25개의 관계 축 관측이 순위·설명·`GET /reviews/summary`에 | 리뷰 *작성*은 데모 범위 밖. 실제 소스 수집기 없음 |
 | 데이터 | 스키마 10 / 테이블 38, 원샷 셋업, RDS 호환 SQL | 실시간 가격·스펙 연동 없음. 알림·학습 워커는 스텁 |
@@ -217,4 +206,4 @@ tests/                        파이프라인 · 에이전트 · HTTP 흐름 · 
 
 ## 문서와 라이선스
 
-MIT — [`LICENSE`](LICENSE). 팀 문서: [DB 셋업](db/README.md) · [테이블 명세](docs/db/table_spec.md) · [스키마 축소](docs/db/db_schema_reduction_proposal_2026-09-12.md) · [API 계약](docs/frontend_외부수정요청.md) · [프론트 규칙](frontend/CLAUDE.md) · [결정 기록](docs/decisions/README.md) · [리뷰 분석 계약](docs/review_analysis_contract.md) · [유아 작업 패키지](docs/agent-tasks/baby/README.md) · [설명서 생성기](docs/synthetic_manual_generator.md). [`docs/rag_implementation.md`](docs/rag_implementation.md)는 삭제된 pgvector 설계를 적은 것으로 기록용으로만 남깁니다.
+MIT — [`LICENSE`](LICENSE). 팀 문서: [DB 셋업](db/README.md) · [테이블 명세](docs/db/table_spec.md) · [스키마 축소](docs/db/db_schema_reduction_proposal_2026-09-12.md) · [API 계약](docs/frontend_외부수정요청.md) · [프론트 규칙](frontend/CLAUDE.md) · [결정 기록](docs/decisions/README.md) · [리뷰 분석 계약](docs/review_analysis_contract.md) · [파이프라인 개요](docs/pc_pipeline_overview.md) · [빠른 시작](docs/pc_pipeline_quickstart.md).

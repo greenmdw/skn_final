@@ -49,30 +49,41 @@ async function answerRemainingQuestions(session: string): Promise<void> {
   }
 }
 
-// 추천을 요청할 때마다 새 목록(세션)을 만든다. 그 list_id 가 화면의 plan.id 가 되고, 확정도 같은 id 로 한다.
+// 추천을 요청할 때마다 새 목록(세션)을 만든다 — 단, 인터뷰(조건 대화 세션)에서 이미 조건을 채운 sessionId가
+// 있으면 그 세션을 그대로 쓴다(조건을 다시 만들지 않는다). 그 list_id 가 화면의 plan.id 가 되고, 확정도 같은 id 로 한다.
 export const plans: Api['plans'] = {
-  async recommend({ mode, budget, conditions, checkSnapshot }) {
+  async recommend({ mode, budget, conditions, checkSnapshot, sessionId }) {
     if (budget === null) throw new ApiError('예산을 입력해주세요. 예산 안에서 구성을 추천합니다.', 'BUDGET_REQUIRED')
-    const { list_id: listId } = await request<{ list_id: string }>('POST', '/session')
-    const session = '/session/' + listId
-    await request('POST', session + '/category', { category: 'computer', mode: mode === 'upgrade' ? 'upgrade' : 'build' })
+    let listId: string
+    if (sessionId && mode !== 'upgrade') {
+      // 인터뷰 세션 재사용: 용도·우선순위 등은 이미 에이전트/규칙이 반영해 뒀다. 예산은 화면(BudgetEditor)에서
+      // 마지막으로 정한 값을 세션에 다시 맞춰서 보낸다 — 채팅 중 값과 예산창 값이 다를 수 있어서다.
+      listId = sessionId
+      await request('PATCH', '/session/' + listId + '/slot', { field: 'budget_max', value: budget })
+    } else {
+      const created = await request<{ list_id: string }>('POST', '/session')
+      listId = created.list_id
+      const session = '/session/' + listId
+      await request('POST', session + '/category', { category: 'computer', mode: mode === 'upgrade' ? 'upgrade' : 'build' })
 
-    const intent = conditions.intent
-    const slots: Record<string, unknown> = {
-      purpose: purposeFromText(intent),
-      budget_max: budget,
-      priority: priorityFromText(mode === 'upgrade' ? intent : conditions.quiet),
+      const intent = conditions.intent
+      const slots: Record<string, unknown> = {
+        purpose: purposeFromText(intent),
+        budget_max: budget,
+        priority: priorityFromText(mode === 'upgrade' ? intent : conditions.quiet),
+      }
+      const games = slots.purpose === 'game' ? gamesFromText(intent) : []
+      if (games.length) slots.games = games
+      const resolution = resolutionFromText(conditions.performance)
+      if (resolution) slots.resolution = resolution
+      if (mode === 'upgrade') {
+        slots.upgrade_parts = upgradePartsFromText(intent)
+        const specs = checkSnapshot ? currentSpecsFromRows(checkSnapshot.rows) : {}
+        if (Object.keys(specs).length) slots.current_specs = specs
+      }
+      for (const [field, value] of Object.entries(slots)) await request('PATCH', session + '/slot', { field, value })
     }
-    const games = slots.purpose === 'game' ? gamesFromText(intent) : []
-    if (games.length) slots.games = games
-    const resolution = resolutionFromText(conditions.performance)
-    if (resolution) slots.resolution = resolution
-    if (mode === 'upgrade') {
-      slots.upgrade_parts = upgradePartsFromText(intent)
-      const specs = checkSnapshot ? currentSpecsFromRows(checkSnapshot.rows) : {}
-      if (Object.keys(specs).length) slots.current_specs = specs
-    }
-    for (const [field, value] of Object.entries(slots)) await request('PATCH', session + '/slot', { field, value })
+    const session = '/session/' + listId
     await answerRemainingQuestions(session)
 
     await request('POST', session + '/recommend', {})

@@ -2,7 +2,7 @@
 
 RDB 밖 연구/정제 산출물의 파일 스키마와, 검수 승인된 분석을 `evidence.review_summary`/
 `review_aggregate`/`review_aggregate_member`에 적재하는 규칙이다. `dataset.*` 스키마는
-`0012_schema_reduction_safe_subset.sql`에서 이미 삭제됐고([schema-v1.md](agent-tasks/baby/schema-v1.md)),
+`0012_schema_reduction_safe_subset.sql`에서 이미 삭제됐고(실행 증거 문서는 유아 작업 패키지와 함께 삭제됨),
 연구 데이터는 파일로만 관리한다 — 이 문서가 그 파일들의 계약이다.
 
 구현: [`scripts/import_review_analysis.py`](../scripts/import_review_analysis.py)(적재),

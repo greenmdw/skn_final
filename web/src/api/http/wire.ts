@@ -53,6 +53,33 @@ export interface WireSessionState {
   next_question: { id: string; select: string; options: { value: unknown }[] } | null
 }
 
+// ── 조건 대화 세션(src.schemas.ConditionState) ──────────────────────────────
+export interface WireMessage { id: string; role: string; text: string; created_at: string }
+export interface WireField {
+  key: string
+  label: string
+  value: unknown
+  display: string | null
+  status: string
+  editable: boolean
+}
+export interface WireNextQuestion {
+  id: string
+  field: string
+  text: string
+  select: 'single' | 'multi' | 'free' | string
+  options: { value: unknown; label?: string }[]
+}
+export interface WireConditionState {
+  list_id: string
+  category: string | null
+  mode: string | null
+  messages: WireMessage[]
+  fields: WireField[]
+  next_question: WireNextQuestion | null
+  can_recommend: boolean
+}
+
 export interface WireReportItem {
   slot: string
   slot_label: string

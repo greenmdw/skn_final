@@ -68,13 +68,6 @@ Strands 의 OpenAI 모델 공급자를 쓰므로 기존 `OPENAI_API_KEY` 그대�
 | Performance matters most. Oh, and I'd like it to be as quiet as reasonably possible — but performance first. | priority=performance · noise_sensitive=true |
 | Actually make the budget 3,000,000. | budget_max=3000000 |
 
-유아용품 — 질문 칩의 라벨→값 매핑(출산 예정→0, "특이사항 없음"→none)을 프롬프트에 넣은 뒤:
-
-| 입력 | 도구 호출 |
-|---|---|
-| 출산 예정이에요. 수유랑 수면 쪽 물품 위주로 준비하려고요 | age_months=0 · needs=[수유, 수면] |
-| 피부 특이사항은 없고, 아직 가진 건 하나도 없어요. 예산은 50만원 | health_skin=[none] · owned_items=[none] · budget_max=500000 |
-
 HTTP 완주 (PGlite 테스트 DB, `CONDITIONS_AGENT=1`): `POST /session` → `/category`(computer/build) →
 `/message` 2턴 → `can_recommend=true` → `POST /recommend` 202 → `GET /result` done, 8슬롯 1,457,000원
 (예산 1,500,000). 조건 패널에 `purpose·budget_max·priority` 가 규칙 경로와 같은 형식으로 나온다.

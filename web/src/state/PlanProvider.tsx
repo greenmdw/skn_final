@@ -13,6 +13,7 @@ const INITIAL_GREETING = '안녕하세요! TrueFit입니다.\n어떤 PC가 필�
 const initialState: PlanState = {
   stage: 0, mode: 'new', intent: '', performance: '', quiet: '', budget: 2500000,
   currentPlan: null, checkSnapshot: null, selectedPart: 'cpu',
+  sessionId: null, fields: [], canRecommend: false,
   deskUnlocked: false, deskWidth: 1400, deskDepth: 700, deskHeight: 740,
 }
 function makeMessage(role: ChatMessage['role'], text: string, choices?: ChatChoice[]): ChatMessage {
@@ -21,7 +22,8 @@ function makeMessage(role: ChatMessage['role'], text: string, choices?: ChatChoi
 export function PlanProvider({ children }: { children: ReactNode }) {
   const { showToast } = useToast()
   const [restored] = useState(readWorkspace)
-  const [state, setState] = useState<PlanState>(restored?.state ?? initialState)
+  // 예전에 저장된 작업(sessionId·fields·canRecommend가 없던 버전)을 복원해도 기본값으로 채워지게 initialState와 합친다.
+  const [state, setState] = useState<PlanState>(restored?.state ? { ...initialState, ...restored.state } : initialState)
   const [checkDraft, setCheckDraft] = useState<CheckDraft>(restored?.checkDraft ?? createCheckDraft())
   const [messages, setMessages] = useState<ChatMessage[]>(() => [makeMessage('bot', restored?.state.stage ? '작성 중인 구성을 복원했습니다. 입력한 조건을 확인하고 이어서 진행하세요.' : INITIAL_GREETING)])
   const [analyzingIndex, setAnalyzingIndex] = useState(0)
@@ -63,6 +65,34 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     setMessages(prev => [...prev, makeMessage(role, text, choices)])
   }, [])
 
+  // 실서버 인터뷰 한 턴: 조건 세션(에이전트가 있으면 LLM, 없으면 규칙)이 자유 문장에서 예산·용도·우선순위 등을
+  // 뽑아 돌려준다. 뽑힌 값(특히 예산)을 그 자리에서 state에 반영해야 GoalPanel이 바로 바뀐다 — 화면이 직접
+  // 정규식으로 다시 해석하지 않는다(그러면 서버 판정과 화면 표시가 어긋날 수 있다).
+  const sendConditionTurn = useCallback((text: string) => {
+    const current = stateRef.current
+    const mine = epoch.current
+    api.conditions.send(current.sessionId, text)
+      .then(turn => {
+        if (mine !== epoch.current) return
+        updateState(prev => {
+          const fieldValue = (key: string) => turn.fields.find(f => f.key === key)
+          const budgetField = fieldValue('budget_max')
+          const nextBudget = typeof budgetField?.value === 'number' ? budgetField.value : prev.budget
+          // GoalPanel의 세 카드(주요 용도·성능 목표·소음 선호)는 그대로 두고, 값만 서버가 뽑은 필드로 채운다.
+          return {
+            ...prev, sessionId: turn.sessionId, fields: turn.fields, canRecommend: turn.canRecommend,
+            budget: nextBudget,
+            intent: fieldValue('purpose')?.display ?? prev.intent,
+            performance: fieldValue('resolution')?.display ?? prev.performance,
+            quiet: fieldValue('priority')?.display ?? prev.quiet,
+            stage: prev.stage === 0 ? 1 : prev.stage,
+          }
+        })
+        addMessage('bot', turn.reply || '조건을 반영했어요.', turn.choices)
+      })
+      .catch(error => { if (mine === epoch.current) addMessage('bot', errorMessage(error, '답변을 반영하지 못했습니다. 잠시 후 다시 시도해주세요.')) })
+  }, [addMessage, updateState])
+
   const handleInput = useCallback((text: string) => {
     const clean = text.trim()
     if (!clean) return
@@ -79,7 +109,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         })
         .catch(error => { if (mine === epoch.current) addMessage('bot', errorMessage(error, '답변을 받지 못했습니다. 잠시 후 다시 시도해주세요.')) })
     }
-    if (current.stage === 0) {
+    if (current.stage <= 2 && !isMockApi) {
+      sendConditionTurn(clean)
+    } else if (current.stage === 0) {
       updateState(prev => ({ ...prev, intent: clean, stage: 1 }))
       askApi('intent')
     } else if (current.stage === 1) {
@@ -91,7 +123,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     } else if (current.stage === 3) {
       addMessage('bot', isMockApi ? '샘플 구성을 준비 중입니다. 완료 후 이어서 질문해주세요.' : '구성을 만드는 중입니다. 완료 후 이어서 질문해주세요.')
     } else askApi('followup')
-  }, [addMessage, updateState])
+  }, [addMessage, updateState, sendConditionTurn])
   const handleChoice = useCallback((value: string) => handleInput(value), [handleInput])
   // 현재 조건(예산 포함)으로 서버 추천을 새로 받는다. 처음 시작할 때와, 구성이 나온 뒤 예산을 바꿨을 때 같이 쓴다.
   const runAnalysis = useCallback((intro: string) => {
@@ -106,6 +138,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     api.plans.recommend({
       mode: current.mode, budget: current.budget, checkSnapshot: current.checkSnapshot,
       conditions: { intent: current.intent, performance: current.performance, quiet: current.quiet },
+      sessionId: current.sessionId,
     }).then(plan => {
       if (mine !== epoch.current) return
       clearTimers()
@@ -120,7 +153,10 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   }, [cancelPending, clearTimers, later, addMessage, updateState])
   const startAnalysis = useCallback(() => {
     const current = stateRef.current
-    if (current.stage !== 2 || !current.quiet) return
+    // 실서버는 세션이 판정한 can_recommend를 그대로 따른다 — 한 문장에 조건이 다 담겨 있으면 1턴만에 열릴 수 있다.
+    // 목업은 세션이 없어 예전처럼 3단계를 다 거쳤는지(정해진 질문에 다 답했는지)로 본다.
+    const ready = isMockApi ? current.stage >= 2 && !!current.quiet : current.canRecommend
+    if (!ready) return
     runAnalysis(isMockApi ? '입력 조건을 보관하고 샘플 구성을 준비합니다. 실제 분석은 아직 연결되지 않았습니다.' : '입력한 조건으로 부품 후보와 가격, 호환성을 분석합니다. 잠시만 기다려주세요.')
   }, [runAnalysis])
   const selectPart = useCallback((key: PartKey) => updateState(prev => ({ ...prev, selectedPart: key })), [updateState])
@@ -128,6 +164,13 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     if (budget !== null && (!Number.isSafeInteger(budget) || budget < 1 || budget > 100000000)) return
     const before = stateRef.current
     updateState(prev => ({ ...prev, budget, currentPlan: prev.currentPlan ? { ...prev.currentPlan, budget } : null }))
+    // 예산창에서 직접 고친 값도 조건 세션에 바로 반영해 둔다 — 채팅으로 말한 값과 예산창 값이 다를 때, 다음 대화
+    // 턴과 최종 추천이 같은(가장 최근에 정한) 값을 보게 한다. 실패해도 화면 값은 이미 바뀌었고, 추천 시점에 다시 맞춘다.
+    if (!isMockApi && before.sessionId) {
+      api.conditions.patch(before.sessionId, 'budget_max', budget)
+        .then(turn => updateState(prev => ({ ...prev, fields: turn.fields, canRecommend: turn.canRecommend })))
+        .catch(() => {})
+    }
     // 서버는 조건이 바뀌면 그 추천을 낡은 것으로 보고 확정을 거절한다(stale_recommendation). 그래서 서버 추천이 나온 뒤에
     // 예산을 바꾸면 새 예산으로 다시 추천받는다 — 직접 바꾼 부품은 새 구성으로 초기화된다. 목업은 서버가 없어 화면 값만 바꾼다.
     if (!isMockApi && before.stage === 4 && before.currentPlan && budget !== before.budget) {

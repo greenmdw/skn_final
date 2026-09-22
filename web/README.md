@@ -56,6 +56,8 @@ npm run lint
 
 ```sh
 npm run dev      # 5173 — API 경로(/auth, /session, /lists …)는 vite가 백엔드(BACKEND_URL, 기본 http://127.0.0.1:8000)로 넘깁니다
+                 # mock이 아니라 이 백엔드로 실제 로그인·인터뷰·추천까지 띄워 보려면, 백엔드 .env에
+                 # ALLOWED_ORIGINS=http://127.0.0.1:5173 를 넣어야 합니다(안 넣으면 모든 POST/PATCH가 403).
 npm run build    # 타입 검사 + 빌드(dist) — 백엔드(src/frontend_serving.py)가 dist를 서빙합니다
 npm run lint
 npm test         # 변환 로직 + 실제 백엔드 응답을 캡처한 계약 테스트 (tests/fixtures/backend_flow.json, 새 의존성 없음)
