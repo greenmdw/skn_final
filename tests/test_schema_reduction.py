@@ -20,15 +20,12 @@ from src.schemas import ConditionState, RecommendResultOut
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = ROOT / "db/migrations"
 
-# The develop `da79839` migration chain this task restores — MUST be exactly these
-# filenames, in this order, with the two rag-branch-only reduction designs absent.
+# The compact migration chain creates only objects that survive in the final schema.
 EXPECTED_CHAIN = [
     "0000_prereq.sql", "0001_tables.sql", "0002_unique.sql", "0003_foreign_keys.sql",
-    "0004_triggers.sql", "0005_indexes.sql", "0006_rag_active_profile.sql",
-    "0007_app_user_password_auth.sql", "0008_frontend_contract.sql",
+    "0004_triggers.sql", "0005_indexes.sql", "0007_app_user_password_auth.sql", "0008_frontend_contract.sql",
     "0009_frontend_requirement_revision.sql", "0010_review_summary_relation_axis.sql",
-    "0011_drop_rag_schema.sql", "0012_schema_reduction_safe_subset.sql",
-    "0013_result_item_interaction.sql",
+    "0012_schema_reduction_safe_subset.sql", "0013_result_item_interaction.sql",
 ]
 # develop 이후 이 브랜치(PC 카탈로그 엔진)가 더한 마이그레이션 — develop 사슬은 그대로 앞에 있어야 하고, 뒤에 이것만 붙는다.
 BRANCH_MIGRATIONS = [
@@ -52,7 +49,7 @@ REMOVED_TABLES = [
     "engine.candidate_evidence", "engine.validation_target", "engine.validation_evidence",
     "notification.notification_event", "notification.price_watch_evaluation",
 ]
-REMOVED_SCHEMAS = ["rag", "dataset"]
+REMOVED_SCHEMAS = ["rag", "dataset", "shared"]
 # planning.item / config.domain (single-table merge) never existed in develop; the
 # rag-branch's destructive design invented them — they must not be reintroduced.
 NEVER_TABLES = ["planning.item"]
@@ -77,26 +74,22 @@ def test_no_full_reduction_migration_survives():
         assert stale not in names, f"{stale} should have been replaced by the develop chain"
 
 
-def test_drop_rag_schema_removes_all_six_tables():
-    sql = (MIGRATIONS / "0011_drop_rag_schema.sql").read_text(encoding="utf-8")
-    assert "DROP SCHEMA rag CASCADE" in sql
+def test_removed_objects_are_never_created_or_dropped():
+    sql = "\n".join(path.read_text(encoding="utf-8") for path in MIGRATIONS.glob("*.sql"))
+    for schema in REMOVED_SCHEMAS:
+        assert f"CREATE SCHEMA IF NOT EXISTS {schema}" not in sql
+        assert f"DROP SCHEMA {schema}" not in sql
+    for table in REMOVED_TABLES:
+        assert f"CREATE TABLE {table}" not in sql
+        assert f"DROP TABLE {table}" not in sql
+    assert "CREATE EXTENSION IF NOT EXISTS vector" not in sql
 
 
-def test_safe_subset_keeps_price_watch_and_purchase_line():
+def test_safe_subset_only_adds_final_schema_columns():
     sql = (MIGRATIONS / "0012_schema_reduction_safe_subset.sql").read_text(encoding="utf-8")
-    for removed in ("DROP TABLE planning.owned_item", "DROP TABLE planning.fulfillment_allocation",
-                    "DROP TABLE identity.user_preference", "DROP TABLE catalog.product_category_membership",
-                    "DROP TABLE engine.candidate_evidence", "DROP TABLE engine.validation_target",
-                    "DROP TABLE engine.validation_evidence", "DROP TABLE notification.notification_event",
-                    "DROP TABLE notification.price_watch_evaluation", "DROP SCHEMA dataset CASCADE"):
-        assert removed in sql, removed
-    # It must NOT touch these — they are develop's live, retained tables. Word-boundary
-    # check: "DROP TABLE notification.price_watch" is a substring of the (removed)
-    # "...price_watch_evaluation" statement, so match on the statement terminator too.
-    for keep in ("planning.purchase_line", "planning.plan_node", "notification.price_watch",
-                "config.domain_version", "assets.material_revision", "evidence.source"):
-        assert f"DROP TABLE {keep} " not in sql and f"DROP TABLE {keep};" not in sql
-        assert f"DROP SCHEMA {keep}" not in sql
+    assert "DROP TABLE" not in sql and "DROP SCHEMA" not in sql
+    for addition in ("ui_settings", "notification_settings", "category_id", "evidence_refs", "issues"):
+        assert addition in sql
 
 
 def test_condition_and_recommendation_contract_round_trip():
@@ -146,5 +139,5 @@ def test_d0_01_real_db_has_exact_develop_table_set():
         ).fetchone()[0]
         expected = 38 + BRANCH_EXTRA_TABLES
         assert total == expected, (
-            f"expected develop's 38 tables (58 -> 38 per commit 046eb84) + {BRANCH_EXTRA_TABLES} branch tables, got {total}"
+            f"expected 38 core tables + {BRANCH_EXTRA_TABLES} branch tables, got {total}"
         )

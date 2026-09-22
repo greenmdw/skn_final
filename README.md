@@ -143,7 +143,7 @@ uv run python main.py computer_research    # score 72 → swap a candidate → 8
 cp .env.example .env                        # MOCK_MODE=1, agents off
 docker compose up -d db
 export DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit
-uv run python db/setup_all.py                                # 15 migrations · domains · 51 PC parts · review summaries
+uv run python db/setup_all.py                                # compact migrations · domains · 51 PC parts · review summaries
 uv run uvicorn src.api:app --reload --port 8000              # http://127.0.0.1:8000 · API docs at /docs
 ```
 
@@ -208,7 +208,7 @@ src/workers/                  review_cleanse_worker + relation_axis (batch); oth
 config/categories/            computer.yaml (slots, questions, modes)
 web/                          React + TypeScript + Vite app (src/api/http = API adapter, tests/ = node tests)
 frontend/                     older static pages (superseded by web/; baby and English UI no longer work)
-db/                           migrate.py · 15 migrations · seed*.py · setup_all.py · README.md
+db/                           migrate.py · compact migrations · seed*.py · setup_all.py · README.md
 scripts/                      e2e_smoke.py · Amazon'23 batch · spec scraper · review-analysis import
 data/, generated/, docs/      parts list, care guides, scenarios · example outputs · specs, contracts, decisions
 tests/                        pipeline · agents · HTTP flows · services · SQL/migration checks

@@ -190,7 +190,7 @@ BEGIN
   FOREACH t IN ARRAY tables LOOP
     EXECUTE format(
       'CREATE TRIGGER set_updated_at BEFORE UPDATE ON %s
-         FOR EACH ROW EXECUTE FUNCTION shared.set_updated_at()', t);
+         FOR EACH ROW EXECUTE FUNCTION public.set_updated_at()', t);
   END LOOP;
 END;
 $$;

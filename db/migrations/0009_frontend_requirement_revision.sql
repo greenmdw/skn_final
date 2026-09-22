@@ -5,10 +5,6 @@ ALTER TABLE identity.app_user
   ADD COLUMN email_verified_at timestamptz,
   ADD COLUMN updated_at        timestamptz NOT NULL DEFAULT now();
 
-ALTER TABLE identity.user_preference
-  ADD COLUMN ui_settings jsonb NOT NULL DEFAULT '{}'::jsonb;
-
 CREATE TRIGGER set_updated_at
 BEFORE UPDATE ON identity.app_user
-FOR EACH ROW EXECUTE FUNCTION shared.set_updated_at();
-
+FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
