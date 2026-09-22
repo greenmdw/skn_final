@@ -170,7 +170,7 @@ def test_setup_all_is_idempotent():
         before = tuple(conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in tables)
     result = subprocess.run([sys.executable, "db/setup_all.py"], cwd=ROOT,
                             env={**os.environ, "DATABASE_URL": DSN},
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout + result.stderr
     with psycopg.connect(DSN) as conn:
         after = tuple(conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in tables)

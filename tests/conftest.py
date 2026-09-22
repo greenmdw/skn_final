@@ -82,6 +82,7 @@ def pytest_configure(config):
             result = subprocess.run(
                 [sys.executable, "db/setup_all.py"], cwd=_ROOT,
                 env={**os.environ, "PYTHONUNBUFFERED": "1"}, capture_output=True, text=True,
+                encoding="utf-8",
             )
             if result.returncode:
                 with psycopg.connect(**admin_params, autocommit=True) as admin:
