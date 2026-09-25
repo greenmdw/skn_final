@@ -31,7 +31,9 @@ def issue(user_id: UUID, email: str, *, ttl_seconds: int | None = None, after: f
     after: DB 가 방금 기록한 시각(epoch 초). iat 는 이 값보다 항상 뒤가 된다. 앱 시계와 DB 시계가 몇 ms 만
     어긋나도(Windows 의 time.time() 은 ~16ms 단위) 방금 발급한 토큰이 그 직전에 기록된 password_updated_at
     보다 앞서 보여 무효로 판정되는 일을 막는다."""
-    now = time.time()
+    # 마이크로초로 맞춘다 — DB 의 timestamptz 가 마이크로초라, 더 잘게 쪼갠 iat 는 DB 에 넣었다 읽으면 반올림돼
+    # 같은 시각끼리 비교(경계 <=)가 우연에 갈린다.
+    now = round(time.time(), 6)
     if after is not None and now <= after:
         now = after + 0.001
     ttl = JWT_TTL_DAYS * 86_400 if ttl_seconds is None else ttl_seconds

@@ -205,7 +205,6 @@ def test_au02_cookie_flags_match_local_http_environment(client: TestClient):
 
 
 # ── AU03 lockout ─────────────────────────────────────────────────────────
-@pytest.mark.xfail(strict=True, raises=KnownAuthGap, reason="AUTH-02: 인증 실패 예외가 실패 횟수 UPDATE도 롤백함")
 def test_au03_five_wrong_passwords_then_lock_then_expiry(client: TestClient, raw_conn):
     _signup(client, "au03@example.com")
     client.post("/auth/logout")
@@ -247,7 +246,6 @@ def test_au03_unknown_email_matches_wrong_password_error(client: TestClient):
     assert r_unknown.json()["error"]["code"] == r_wrong.json()["error"]["code"] == "invalid_credentials"
 
 
-@pytest.mark.xfail(strict=True, raises=KnownAuthGap, reason="AUTH-02: 인증 실패 트랜잭션 롤백으로 동시 실패 횟수 미보존")
 def test_au03_concurrent_failures_do_not_lose_increments(raw_conn):
     _signup(_fresh_client(), "au03-concurrent@example.com")
 
@@ -276,7 +274,6 @@ def test_au03_concurrent_failures_do_not_lose_increments(raw_conn):
 
 
 # ── AU04 same-second invalidation / logout ────────────────────────────────
-@pytest.mark.xfail(strict=True, raises=KnownAuthGap, reason="AUTH-03: 초 단위 JWT로 같은 초의 이전 토큰 무효화 불가")
 def test_au04_password_change_invalidates_old_jwt_immediately(client: TestClient, raw_conn, monkeypatch):
     # 같은 초를 고정해 실행 속도에 따라 통과하는 flaky 테스트를 막는다.
     from src.auth import jwt
@@ -308,7 +305,6 @@ def test_au04_password_change_invalidates_old_jwt_immediately(client: TestClient
     assert _login(_fresh_client(), "au04@example.com", password="newpass99").status_code == 200
 
 
-@pytest.mark.xfail(strict=True, raises=KnownAuthGap, reason="AUTH-04: 비밀번호 조회 행 잠금 누락")
 def test_au04_login_blocked_by_concurrent_password_change_sees_new_password():
     """P6 review R1: a login reading the OLD password hash must never issue a token
     after a concurrent password change has already committed. FOR UPDATE row
@@ -488,7 +484,6 @@ def test_au06_withdraw_anonymizes_and_invalidates_all_tokens(client: TestClient,
     assert _login(_fresh_client(), "au06c@example.com", password="abcd1234").status_code == 401
 
 
-@pytest.mark.xfail(strict=True, raises=KnownAuthGap, reason="AUTH-05: 탈퇴 시 동의 시각 미삭제")
 def test_withdraw_erases_consent_timestamps(client: TestClient, raw_conn):
     response = _signup(client, "withdraw-consent@example.com", marketing_agreed=True)
     assert response.status_code == 201, response.text
@@ -535,7 +530,6 @@ def test_au07_me_endpoint_only_source_of_truth_no_token_field(client: TestClient
     assert "token" not in r2.json()
 
 # ── D6 develop DB contract ────────────────────────────────────────────────
-@pytest.mark.xfail(strict=True, raises=KnownAuthGap, reason="AUTH-03: password_updated_at과 같은 초의 iat 허용")
 def test_d6_iat_boundary_rejects_token_at_password_change_and_relogin_works(
     client: TestClient, raw_conn, monkeypatch
 ):

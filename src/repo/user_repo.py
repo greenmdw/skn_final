@@ -166,7 +166,7 @@ class UserRepo(Repo):
             "email_verified_at=NULL, marketing_agreed_at=NULL, "
             # terms_version 도 같이 지운다 — app_user_terms_pair_check 가 둘을 세트로 묶는다
             # (하나만 NULL이면 제약 위반).
-            "terms_version=NULL, terms_agreed_at=NULL, "
+            "terms_version=NULL, terms_agreed_at=NULL, privacy_agreed_at=NULL, "
             "failed_login_count=0, locked_until=NULL, "
             "ui_settings='{}'::jsonb, notification_settings='{}'::jsonb "
             "WHERE id=%s AND status='active'",
