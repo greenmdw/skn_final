@@ -127,6 +127,8 @@ def pytest_unconfigure(config):
 
 def _skip_if_blocked(before: int, exc: BaseException) -> None:
     if _BLOCKED["count"] > before and not isinstance(exc, (KeyboardInterrupt, SystemExit)):
+        if os.environ.get("TRUEFIT_REQUIRE_TEST_DB") == "1":
+            raise pytest.UsageError("필수 테스트 DB 접속이 개발 DB 보호에 의해 차단됐습니다.") from exc
         pytest.skip("개발 DB 보호로 DB 접속이 차단됐습니다 — TEST_DATABASE_URL 로 일회용 DB 를 지정하면 돕니다.")
 
 
