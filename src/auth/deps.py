@@ -7,10 +7,10 @@ from src.config import COOKIE_NAME
 from src.errors import Unauthorized
 
 class Principal:
-    def __init__(self, user_id: UUID | None, browser_token: str | None, session_iat: int | None = None):
+    def __init__(self, user_id: UUID | None, browser_token: str | None, session_iat: float | None = None):
         self.user_id = user_id
         self.browser_token = browser_token
-        self.session_iat = session_iat  # 로그인 토큰 발급 시각(초) — 비밀번호 변경 이전 토큰 무효화용
+        self.session_iat = session_iat  # 로그인 토큰 발급 시각(초, 마이크로초 포함) — 비밀번호 변경 이전 토큰 무효화용
 
 def optional_principal(
     authorization: str | None = Header(default=None),

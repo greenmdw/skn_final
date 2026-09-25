@@ -83,6 +83,22 @@ class UserRepo(Repo):
             (email_normalized,),
         )
 
+    def get_for_login_locked(self, email_normalized: str) -> dict | None:
+        """get_for_login + FOR UPDATE — 로그인 판정용 행 잠금.
+
+        비밀번호 변경(UPDATE)과 로그인 판정(SELECT)이 겹치면, 평범한 SELECT는
+        상대 트랜잭션의 커밋을 기다리지 않고 옛 값을 읽어버릴 수 있다(P6 review
+        R1). FOR UPDATE로 그 UPDATE 뒤에 서도록 강제해, 막 바뀐 비밀번호로도
+        판정하게 한다. 전용 커넥션에서만 써야 한다 — 요청 전체를 감싸는 conn에서
+        쓰면 그 트랜잭션이 끝날 때까지 잠금이 안 풀려 같은 요청의 다른 쓰기가
+        걸릴 수 있다."""
+        return self._one(
+            "SELECT id, email_normalized AS email, display_name, password_hash, status, "
+            "failed_login_count, locked_until, password_updated_at "
+            "FROM identity.app_user WHERE email_normalized=%s FOR UPDATE",
+            (email_normalized,),
+        )
+
     def get(self, user_id: UUID) -> dict | None:
         return self._one(
             f"SELECT {self._PUBLIC_COLUMNS} FROM identity.app_user WHERE id=%s", (user_id,)
@@ -130,11 +146,15 @@ class UserRepo(Repo):
             params,
         )
 
-    def update_password(self, user_id: UUID, password_hash: str) -> None:
-        self._exec(
-            "UPDATE identity.app_user SET password_hash=%s, password_updated_at=now() WHERE id=%s",
+    def update_password(self, user_id: UUID, password_hash: str):
+        """password_updated_at(DB now())을 돌려준다 — 호출자가 그 시각 이후로만
+        유효한 토큰을 발급하도록(§A-3 세션 무효화 경계값 계산)."""
+        row = self._one(
+            "UPDATE identity.app_user SET password_hash=%s, password_updated_at=now() WHERE id=%s "
+            "RETURNING password_updated_at",
             (password_hash, user_id),
         )
+        return row["password_updated_at"]
 
     def withdraw(self, user_id: UUID) -> None:
         """소프트 삭제 + 개인정보 제거(§A-3 회원 탈퇴)."""
@@ -144,6 +164,9 @@ class UserRepo(Repo):
             "email_normalized = 'deleted+' || id::text || '@deleted.invalid', "
             "display_name='탈퇴한 사용자', password_hash=NULL, password_updated_at=now(), "
             "email_verified_at=NULL, marketing_agreed_at=NULL, "
+            # terms_version 도 같이 지운다 — app_user_terms_pair_check 가 둘을 세트로 묶는다
+            # (하나만 NULL이면 제약 위반).
+            "terms_version=NULL, terms_agreed_at=NULL, "
             "failed_login_count=0, locked_until=NULL, "
             "ui_settings='{}'::jsonb, notification_settings='{}'::jsonb "
             "WHERE id=%s AND status='active'",
