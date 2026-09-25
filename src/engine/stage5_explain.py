@@ -1,6 +1,6 @@
 """[5] 설명 생성.
 
-(a) 속성 기여도 — 계산(LLM 아님). [3-B] breakdown 을 세트 단위로 집계 → 3축(가격/성능/호환성).
+(a) 속성 기여도 — 계산(LLM 아님). [3-B] breakdown 을 세트 단위로 집계 → 축별 비율(가격·성능·밸런스·리뷰·호환여유, 합 100%).
 (b) 문장 — LLM structured output 1회. 수치·부품명·통과여부는 코드가 확정, LLM 은 서술만.
     실패 시 규칙 템플릿 fallback.
 (c) 리뷰 관측 — [3-B] 가 후보에 남긴 REVIEW_OBS flags 를 슬롯별 한 줄(review_line_by_slot)과
@@ -71,13 +71,32 @@ def explain_manual(service, request):
     return service.answer(replace(request, purpose="recommendation"))
 
 
-def _contribution(build: BuildResult) -> dict[str, int]:
-    # TODO: RankResult 의 slot별 breakdown 을 전달받아
-    #   contribution[축] = Σ(slot_weight · breakdown[축]) / total 로 집계.
-    #   현재는 데모 고정값 (목업 A5: 가격 41 / 성능 33 / 호환성 26).
-    acc = {"가격": 41.0, "성능": 33.0, "호환성": 26.0}
-    total = sum(acc.values()) or 1
-    return {k: round(v / total * 100) for k, v in acc.items()}
+def _contribution(build: BuildResult, rank: RankResult | None) -> dict[str, int]:
+    """고른 구성이 [3-B] 점수를 어느 축에서 얻었는지(%, 합 100).
+
+    후보 점수 = Σ 축 가중치 × 축 값(breakdown). 고른 부품마다 그 항을 축별로 더해 전체 대비 비율로 낸다.
+    (감점 — 검토 보류·검사 스펙 공백 — 은 축이 아니라서 여기엔 안 들어간다.)
+    rank 가 없으면(옛 호출) 만들 근거가 없으므로 빈 dict — 가짜 값을 대신 채우지 않는다."""
+    if rank is None or not rank.weights_used:
+        return {}
+    acc: dict[str, float] = {}
+    for it in build.items:
+        info = rank.slots.get(it.slot) or {}
+        # 넓힌 탐색([4])이 top-N 밖에서 고른 부품은 pool 에만 있다.
+        cand = next((c for key in ("ranked", "pool") for c in info.get(key, []) if c.get("product_key") == it.product_key), None)
+        if cand is None:
+            continue
+        for axis, value in (cand.get("breakdown") or {}).items():
+            acc[axis] = acc.get(axis, 0.0) + max(0.0, rank.weights_used.get(axis, 0.0) * value)
+    total = sum(acc.values())
+    if total <= 0:
+        return {}
+    # 반올림해도 합이 100 이 되게 — 소수부가 큰 축부터 1씩 나눠 받는다(최대잔여법).
+    exact = {axis: v / total * 100 for axis, v in acc.items()}
+    out = {axis: int(v) for axis, v in exact.items()}
+    for axis in sorted(exact, key=lambda a: exact[a] - out[a], reverse=True)[:100 - sum(out.values())]:
+        out[axis] += 1
+    return out
 
 
 def _top_axes(rank: RankResult | None, slot: str, product_key: str) -> str:
@@ -210,7 +229,7 @@ def run(build: BuildResult, verification: VerificationResult, log: LogFn,
         rank: RankResult | None = None, *, conditions: dict | None = None,
         extra_caveats: list[str] | None = None, scope_note: str = "") -> Explanation:
     log("[5] 설명 생성 ...")
-    contrib = _contribution(build)
+    contrib = _contribution(build, rank)
     tgt = verification.targets[0] if verification.targets else None
     gray = tgt.gray_axes if tgt else []
 
@@ -239,7 +258,7 @@ def run(build: BuildResult, verification: VerificationResult, log: LogFn,
     summary = (draft.summary if draft and draft.summary else _fallback_summary(build)) + _extra_note(conditions) + scope_note
     if gray:
         log(f"      근거 미확인 축(화면에는 안 나감): {', '.join(gray)}")
-    log(f"      기여도: 가격 {contrib['가격']}% / 성능 {contrib['성능']}% / 호환성 {contrib['호환성']}%")
+    log("      기여도: " + (" / ".join(f"{axis} {pct}%" for axis, pct in contrib.items()) or "(순위 정보 없음)"))
     log(f"      문장: {'LLM' if draft else '규칙 템플릿'}")
     log(f"      headline: {headline}")
     n_obs = sum(1 for l in review_lines.values() if not l.startswith("리뷰 관측 없음"))

@@ -13,7 +13,7 @@ const INITIAL_GREETING = '안녕하세요! TrueFit입니다.\n어떤 PC가 필�
 const initialState: PlanState = {
   stage: 0, mode: 'new', intent: '', performance: '', quiet: '', budget: 2500000,
   currentPlan: null, checkSnapshot: null, selectedPart: 'cpu',
-  sessionId: null, fields: [], canRecommend: false,
+  sessionId: null, fields: [], canRecommend: false, budgetWarning: null,
   deskUnlocked: false, deskWidth: 1400, deskDepth: 700, deskHeight: 740,
 }
 function makeMessage(role: ChatMessage['role'], text: string, choices?: ChatChoice[]): ChatMessage {
@@ -80,7 +80,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
           const nextBudget = typeof budgetField?.value === 'number' ? budgetField.value : prev.budget
           // GoalPanel의 세 카드(주요 용도·성능 목표·소음 선호)는 그대로 두고, 값만 서버가 뽑은 필드로 채운다.
           return {
-            ...prev, sessionId: turn.sessionId, fields: turn.fields, canRecommend: turn.canRecommend,
+            ...prev, sessionId: turn.sessionId, fields: turn.fields, canRecommend: turn.canRecommend, budgetWarning: turn.budgetWarning ?? null,
             budget: nextBudget,
             intent: fieldValue('purpose')?.display ?? prev.intent,
             performance: fieldValue('resolution')?.display ?? prev.performance,
@@ -159,6 +159,16 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     if (!ready) return
     runAnalysis(isMockApi ? '입력 조건을 보관하고 샘플 구성을 준비합니다. 실제 분석은 아직 연결되지 않았습니다.' : '입력한 조건으로 부품 후보와 가격, 호환성을 분석합니다. 잠시만 기다려주세요.')
   }, [runAnalysis])
+  // 결과 화면의 "성능 우선으로 다시 추천받기" — 우선순위만 세션에 바꿔 두고 같은 조건으로 다시 계산한다.
+  const retryWithPerformance = useCallback(() => {
+    const current = stateRef.current
+    if (isMockApi || !current.sessionId || current.mode !== 'new') return
+    api.conditions.patch(current.sessionId, 'priority', 'performance').then(turn => {
+      updateState(prev => ({ ...prev, fields: turn.fields, canRecommend: turn.canRecommend, budgetWarning: turn.budgetWarning ?? null,
+        quiet: turn.fields.find(f => f.key === 'priority')?.display ?? '성능 우선' }))
+      runAnalysis('성능 우선으로 바꿔서 남은 예산까지 활용해 구성을 다시 계산합니다.')
+    }).catch(error => showToast(errorMessage(error, '우선순위를 바꾸지 못했습니다. 잠시 후 다시 시도해주세요.')))
+  }, [updateState, runAnalysis, showToast])
   const selectPart = useCallback((key: PartKey) => updateState(prev => ({ ...prev, selectedPart: key })), [updateState])
   const setBudget = useCallback((budget: number | null) => {
     if (budget !== null && (!Number.isSafeInteger(budget) || budget < 1 || budget > 100000000)) return
@@ -168,7 +178,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     // 턴과 최종 추천이 같은(가장 최근에 정한) 값을 보게 한다. 실패해도 화면 값은 이미 바뀌었고, 추천 시점에 다시 맞춘다.
     if (!isMockApi && before.sessionId) {
       api.conditions.patch(before.sessionId, 'budget_max', budget)
-        .then(turn => updateState(prev => ({ ...prev, fields: turn.fields, canRecommend: turn.canRecommend })))
+        .then(turn => updateState(prev => ({ ...prev, fields: turn.fields, canRecommend: turn.canRecommend, budgetWarning: turn.budgetWarning ?? null })))
         .catch(() => {})
     }
     // 서버는 조건이 바뀌면 그 추천을 낡은 것으로 보고 확정을 거절한다(stale_recommendation). 그래서 서버 추천이 나온 뒤에
@@ -227,8 +237,8 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   }, [checkDraft, cancelPending, updateState, showToast])
   const value = useMemo<PlanContextValue>(() => ({
     state, checkDraft, updateCheckDraft, messages, starterHidden: state.stage > 0, analyzingIndex, customHeading,
-    handleInput, handleChoice, startAnalysis, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
+    handleInput, handleChoice, startAnalysis, retryWithPerformance, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
   }), [state, checkDraft, updateCheckDraft, messages, analyzingIndex, customHeading,
-    handleInput, handleChoice, startAnalysis, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode])
+    handleInput, handleChoice, startAnalysis, retryWithPerformance, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode])
   return <PlanContext.Provider value={value}>{children}</PlanContext.Provider>
 }

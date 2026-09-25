@@ -147,6 +147,15 @@ class NextQuestionOut(BaseModel):
     options: list[dict] = Field(default_factory=list)
 
 
+class BudgetWarningOut(BaseModel):
+    """추천 전 예산 사전 경고 — 요구 성능의 최저가 합계(하한)가 예산과 어떻게 맞는지."""
+
+    level: Literal["tight", "infeasible", "ok"]   # ok 는 예산 문제는 없고 message 만 있는 경우(요구를 채우는 후보 없음)
+    message: str | None = None
+    estimated_min: int
+    budget: int
+
+
 class ConditionState(BaseModel):
     list_id: str
     category: str | None = None
@@ -158,6 +167,7 @@ class ConditionState(BaseModel):
     next_question: NextQuestionOut | None = None
     can_recommend: bool = False
     accepts_spec_file: bool = False
+    budget_warning: BudgetWarningOut | None = None   # 예산이 빠듯/불가능할 때만 채운다
 
 
 # ── recommend / result (§D-4-2) ──
@@ -189,6 +199,8 @@ class ExplanationOut(BaseModel):
     status: str            # pending | ready | failed
     headline: str | None = None
     text: str | None = None
+    # 추천 당시 구성이 어느 축(가격·성능·밸런스·리뷰·호환여유)에서 점수를 얻었는지, 합 100(%). 교체 뒤에도 그대로다.
+    contribution: dict[str, int] | None = None
 
 
 class ProductOut(BaseModel):
@@ -346,6 +358,16 @@ class CompatCheckOut(BaseModel):
     detail: str
 
 
+class BudgetNoticeOut(BaseModel):
+    """예산을 많이 남긴 이유 안내 — 우선순위(가성비·저소음)가 싼 쪽을 골라서 남은 경우에만 채운다."""
+
+    message: str
+    budget: int
+    spent: int
+    remaining: int
+    suggest_priority: Literal["performance"] = "performance"   # 남은 예산으로 성능을 올리려면 다시 추천받을 우선순위
+
+
 class RecommendResultOut(BaseModel):
     """저장된 추천 실행 결과의 공개 API 계약 (docs/frontend_외부수정요청.md §D-4-2)."""
 
@@ -363,6 +385,7 @@ class RecommendResultOut(BaseModel):
     verification: VerificationOut = Field(default_factory=lambda: VerificationOut(status="pending"))
     compat_checks: list[CompatCheckOut] = Field(default_factory=list)     # PC 호환 검사별 상세 (done 일 때만)
     explanation: ExplanationOut = Field(default_factory=lambda: ExplanationOut(status="pending"))
+    budget_notice: BudgetNoticeOut | None = None       # 예산이 많이 남았고 그 이유가 우선순위일 때만 (done 일 때만)
     reasoning_log: list[dict] = Field(default_factory=list)
     data_notice: str = "상품·가격·리뷰는 합성 데이터입니다."
     # 04 리스트 확정 "메모" 초기값 — 조건·구성·직접 바꾼 것·확인 필요 사항을 코드가 정리한 문장 (done 일 때만)

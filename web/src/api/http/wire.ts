@@ -40,7 +40,8 @@ export interface WireResult {
   list_id: string
   status: 'running' | 'done' | 'failed'
   items: WireItem[]
-  explanation: { status: 'pending' | 'ready' | 'failed' }
+  explanation: { status: 'pending' | 'ready' | 'failed'; contribution?: Record<string, number> | null }
+  budget_notice?: { message: string; budget: number; spent: number; remaining: number; suggest_priority: 'performance' } | null
   /** 세트 전체 호환 점검. major = 확정된 문제(소켓·전력·크기·예산), minor = 스펙을 몰라 정밀 검사를 못 한 항목 */
   verification?: { status: 'pending' | 'ready' | 'failed'; issues: WireIssue[] } | null
   /** 호환 검사별 상세(무엇을 비교했고 결과가 어땠는지). 서버가 지금 선택된 부품으로 매번 계산한다 */
@@ -88,6 +89,7 @@ export interface WireConditionState {
   fields: WireField[]
   next_question: WireNextQuestion | null
   can_recommend: boolean
+  budget_warning?: { level: 'tight' | 'infeasible' | 'ok'; message: string | null; estimated_min: number; budget: number } | null
 }
 
 export interface WireReportItem {

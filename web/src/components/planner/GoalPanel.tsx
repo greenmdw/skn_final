@@ -27,6 +27,10 @@ export function GoalPanel() {
         <div className="goal-card"><span>구매 시점</span><strong>이번 달</strong><em>{isMockApi ? '가상 시세 기준' : '데모 가격 기준'}</em></div>
       </div>
       <BudgetEditor />
+      {!isMockApi && state.budgetWarning && <div className={'budget-warning ' + state.budgetWarning.level} role="status">
+        <strong>{state.budgetWarning.level === 'infeasible' ? '예산이 부족할 수 있어요' : '예산이 빠듯해요'}</strong>
+        <span>{state.budgetWarning.message}</span>
+      </div>}
       <div className="readiness">
         <div className="readiness-head"><span>분석 준비도</span><strong>{progress}%</strong></div>
         <div className="readiness-track"><div className="readiness-fill" style={{ width: progress + '%' }} /></div>

@@ -1,6 +1,6 @@
 // 화면 모델(CurrentPlan · SavedSetup)과 백엔드 모델 사이의 순수 변환 함수 모음.
 // 프레임워크·네트워크에 기대지 않아 Node 로 바로 테스트한다(web/tests/mapping.test.mjs) — 그래서 타입만 import 한다.
-import type { ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, CurrentPlan, DeskState, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
+import type { BudgetNotice, BudgetWarning, ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, ContributionShare, CurrentPlan, DeskState, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
 import type { UpgradeSuggestion } from '../types'
 import type { WireCompatCheck, WireConditionState, WireField, WireItem, WireNextQuestion, WireOwnedPartsPreviewRow, WireReport, WireReportItem, WireResult, WireReview, WireText } from './wire'
 
@@ -23,7 +23,9 @@ export type Priority = 'performance' | 'value' | 'quiet'
 export type Resolution = 'FHD_144' | 'QHD_165' | '4K'
 
 export function purposeFromText(text: string): Purpose {
-  if (/게임|겜|배그|배틀그라운드|롤|리그|발로란트|오버워치|FPS|gaming|game/i.test(text)) return 'game'
+  // 게임 제목만 적고 "게임"이라는 말은 안 쓴 문장("사이버펑크 2077 FHD 돌아가는 PC")도 게임 용도다. 용도가 other 로 가면
+  // plans.ts 가 games 를 서버에 안 보내서 게임 요구사양(GPU 등급 등)이 통째로 빠진다.
+  if (/게임|겜|배그|배틀그라운드|롤|리그|발로란트|오버워치|FPS|gaming|game/i.test(text) || gamesFromText(text).length) return 'game'
   if (/영상|편집|렌더|프리미어|모델링|3D|디자인|작업|creat|edit|render/i.test(text)) return 'creation'
   if (/사무|문서|오피스|업무|엑셀|office/i.test(text)) return 'office'
   if (/학습|공부|인강|학생|수업|study/i.test(text)) return 'study'
@@ -211,6 +213,24 @@ export function compatFromWire(verification: WireResult['verification']): Compat
   return { problems: texts('major'), unchecked: texts('minor') }
 }
 
+/** 서버가 준 축별 기여도(합 100) → 큰 순서로 화면용 목록. 없거나 비어 있으면 undefined(가짜 값을 채우지 않는다). */
+export function contributionFromWire(explanation: WireResult['explanation'] | undefined): ContributionShare[] | undefined {
+  const raw = explanation?.contribution
+  if (!raw) return undefined
+  const shares = Object.entries(raw).map(([axis, percent]) => ({ axis, percent })).sort((a, b) => b.percent - a.percent)
+  return shares.length ? shares : undefined
+}
+
+/** 서버가 만든 "예산을 남긴 이유" 안내 → 화면용. 없으면 undefined. */
+export function budgetNoticeFromWire(notice: WireResult['budget_notice']): BudgetNotice | undefined {
+  return notice?.message ? { message: notice.message, remaining: notice.remaining } : undefined
+}
+
+/** 조건 세션의 예산 사전 경고 → 화면용. 보여 줄 문장이 없으면 경고가 아니다. */
+export function budgetWarningFromWire(warning: WireConditionState['budget_warning']): BudgetWarning | null {
+  return warning?.message ? { level: warning.level, message: warning.message } : null
+}
+
 /** 서버의 업그레이드 추천 결과 → 점검 화면의 제안 카드. 서버가 계산하지 않는 값(성능 변화 폭·소비전력)은 비워 둔다(화면이 안 보인다). */
 export function suggestionFromPlan(plan: CurrentPlan, draft: CheckDraft): UpgradeSuggestion | null {
   const item = plan.items[0]
@@ -253,6 +273,8 @@ export function planFromResult(result: WireResult, context: PlanContext): Curren
     items: result.items.filter(item => item.selected).map(itemFromWire),
     compat: compatFromWire(result.verification),
     compatChecks: compatChecksFromWire(result.compat_checks),
+    contribution: contributionFromWire(result.explanation),
+    budgetNotice: budgetNoticeFromWire(result.budget_notice),
     budget: context.budget, conditions: { ...context.conditions },
     checkSnapshot: context.checkSnapshot ? structuredClone(context.checkSnapshot) : null,
   }

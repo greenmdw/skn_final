@@ -186,7 +186,7 @@ class Explanation(BaseModel):
     list_id: str
     headline: str = ""
     summary: str = ""          # 03 화면 "추천 요약" 본문. 슬롯별 reason 은 items 에, 여기엔 반복하지 않는다
-    contribution: dict[str, int] = Field(default_factory=dict)   # 가격/성능/호환성
+    contribution: dict[str, int] = Field(default_factory=dict)   # 축(가격·성능·밸런스·리뷰·호환여유) -> %, 합 100
     items: list[ExplanationItem] = Field(default_factory=list)
     caveats: list[str] = Field(default_factory=list)
     review_line_by_slot: dict[str, str] = Field(default_factory=dict)

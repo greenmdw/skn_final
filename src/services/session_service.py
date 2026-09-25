@@ -218,6 +218,7 @@ def _state(conn, list_id: UUID, principal: Principal) -> dict:
                 "next_question": None, "can_recommend": False, "accepts_spec_file": False,
                 "revision_id": str(revision["id"]), "lock_version": revision["lock_version"]}
     cat_def = _category(category)
+    from src.services.recommendation_service import assess_budget_feasibility   # 순환 import 피해 지연 import
     return {
         "list_id": str(list_id), "category": category, "mode": values.get("mode"),
         "messages": _messages_out(message_rows),
@@ -225,6 +226,7 @@ def _state(conn, list_id: UUID, principal: Principal) -> dict:
         "next_question": _next_question(cat_def, values),
         "can_recommend": not compute_missing(cat_def, values),
         "accepts_spec_file": category == "computer" and values.get("mode") == "upgrade",
+        "budget_warning": assess_budget_feasibility(conn, category, values),
         "revision_id": str(revision["id"]), "lock_version": revision["lock_version"],
     }
 

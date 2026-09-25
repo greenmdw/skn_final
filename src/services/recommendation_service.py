@@ -38,6 +38,61 @@ def _slots_from_conditions(category: str, cat_def: dict, values: dict) -> Slots:
     )
 
 
+# 예산의 이 비율 이상을 남겼을 때만 안내한다 — 조금 남는 건 흔해서 알릴 일이 아니다.
+UNDERSPENT_RATIO = 0.15
+# 우선순위가 "싼 쪽"을 고르게 하는 것들의 설명. 성능 우선은 예산을 채우는 쪽이라 여기 없다.
+_UNDERSPENT_REASON = {
+    "value": "가성비 우선이라 요구 성능을 만족하는 구성 중 가격 부담이 적은 쪽을 골랐어요.",
+    "quiet": "저소음 우선이라 소음과 가격을 함께 보고 골랐어요.",
+}
+
+
+def budget_notice(totals: dict | None, values: dict) -> dict | None:
+    """예산을 많이 남긴 새 구성에, 왜 남았는지와 성능 우선으로 다시 받는 길을 안내하는 문장.
+
+    점수 규칙은 건드리지 않는다 — 결과는 그대로고 설명만 붙인다. 업그레이드는 예산이 바꿀 부품에 쓸 돈이라
+    남는 게 자연스러워 제외하고, 예산 초과·조금 남은 경우·성능 우선(이미 채우는 쪽)도 안내하지 않는다."""
+    budget = values.get("budget_max")
+    reason = _UNDERSPENT_REASON.get(values.get("priority"))
+    if not totals or not budget or reason is None or values.get("mode") != "build" or totals.get("over_budget"):
+        return None
+    spent = int(totals.get("selected_price") or 0)
+    remaining = int(budget) - spent
+    if spent <= 0 or remaining < budget * UNDERSPENT_RATIO:
+        return None
+    return {
+        "message": (f"예산 {fmt_money(budget)} 중 {fmt_money(spent)}을 썼어요. {reason} "
+                    f"남은 {fmt_money(remaining)}으로 성능을 더 올리려면 '성능 우선'으로 다시 추천받을 수 있어요."),
+        "budget": int(budget), "spent": spent, "remaining": remaining, "suggest_priority": "performance",
+    }
+
+
+def assess_budget_feasibility(conn, category: str | None, values: dict) -> dict | None:
+    """조건 화면용 사전 경고 — 지금 채워진 조건으로 [2]를 세워 "요구 성능의 최저가 합계"를 예산과 견준다.
+
+    경고할 게 없으면(예산 없음·판정 ok·PC 아님) None. 조건이 덜 채워졌거나 카탈로그를 못 읽으면
+    그냥 None — 이 경고 때문에 조건 대화 자체가 실패해선 안 된다."""
+    if category != "computer" or not values.get("budget_max"):
+        return None
+    from src.engine import feasibility as feasibility_engine
+    from src.engine import stage2_requirement
+    from src.repo.catalog_repo import load_candidates_by_slot_from_db
+
+    try:
+        cat_def = load_category(category)
+        spec = stage2_requirement.run(_slots_from_conditions(category, cat_def, values), cat_def, lambda _m: None)
+        with conn.transaction():   # 세이브포인트 — 카탈로그 조회가 실패해도 요청 트랜잭션은 그대로 둔다
+            pools = load_candidates_by_slot_from_db(conn)
+        result = feasibility_engine.assess(spec, pools)
+    except Exception:  # noqa: BLE001 — 사전 경고는 부가 기능이다
+        log.warning("예산 사전 판정 실패", exc_info=True)
+        return None
+    if result["level"] == feasibility_engine.LEVEL_OK and not result["message"]:
+        return None
+    return {"level": result["level"], "message": result["message"],
+            "estimated_min": result["estimated_min"], "budget": result["budget"]}
+
+
 def start_recommendation(
     conn,
     revision_id: UUID,
@@ -96,6 +151,7 @@ def start_recommendation(
 def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
     """백그라운드 태스크 — 엔진 [2]~[5] 실행 + 저장 + run 종료. 자체 커넥션을 연다."""
     from src.db import get_conn
+    from src.engine import feasibility as feasibility_engine
     from src.engine import stage2_requirement, stage3a_hardfilter, stage3b_rank, stage3c_verify, stage4_optimize, stage5_explain
     from src.repo.catalog_repo import load_candidates_by_slot_from_db
     from src.repo.engine_repo import EngineRepo
@@ -151,6 +207,9 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
                     f"가격이 확인된 PC 후보가 없는 슬롯: {', '.join(missing_slots)}",
                     field="catalog", code="catalog_incomplete",
                 )
+            feasibility = feasibility_engine.assess(spec, by_slot)
+            spec.budget["feasibility"] = feasibility["level"]
+            spec.budget["feasibility_detail"] = feasibility
             hf = stage3a_hardfilter.run(spec, by_slot, noop)
             rank = stage3b_rank.run(hf, spec, slots, noop)
             # 지금 쓰는 부품 자체를 다시 추천하지 않는다(같은 제품으로 '교체'하는 견적이 나왔다).
@@ -242,6 +301,12 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
             if games_row is not None:
                 trace_rows.insert(1, games_row)
             trace = [{"step": s, "title": s, "detail": d} for s, d in trace_rows]
+            # 기여도는 저장할 전용 컬럼이 없어(스키마 기준선 4파일 고정) 추적 기록에 구조화해 싣는다.
+            # get_stored_result 가 이 항목에서 explanation.contribution 을 꺼낸다.
+            if explanation.contribution:
+                trace.insert(-1, {"step": "기여도", "title": "기여도",
+                                  "detail": " · ".join(f"{axis} {pct}%" for axis, pct in explanation.contribution.items()),
+                                  "contribution": explanation.contribution})
             # 관측 문장(7일 몰림 · 공유 리뷰어 · 5점 비율)은 슬롯별 evidence 에 있다.
             # 그것까지 실어야 검토자가 확인·반박할 수 있다 — 요약만으로는 못 한다.
             evidence_by_slot = {it.slot: it.evidence for it in explanation.items if it.evidence}
@@ -564,6 +629,8 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
         "over_budget": bool(budget_max and selected_price > budget_max),
     }
 
+    result["budget_notice"] = budget_notice(result["totals"], values)
+
     validations = erepo.get_validations(run["id"])
     penalty = sum((v["measured_values"] or {}).get("penalty", 0) for v in validations)
     confidence = max(0, 100 - penalty)
@@ -576,10 +643,13 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
             for v in validations
         ],
     }
+    contribution = next((step["contribution"] for step in (run.get("reasoning_log") or [])
+                         if isinstance(step, dict) and step.get("contribution")), None)
     result["explanation"] = {
         "status": run.get("explanation_status") or "pending",
         "headline": run.get("explanation_headline"),
         "text": run.get("explanation_text"),
+        "contribution": contribution,
     }
     result["compat_checks"] = compat_checks(conn, revision_id, values, candidate_rows)
     result["memo_suggestion"] = memo_suggestion(result, values)

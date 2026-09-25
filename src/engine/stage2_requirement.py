@@ -240,7 +240,9 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
                   for rule in rules["verification"]["link_rules"]]
     budget_total = slots.values.get("budget_max") or 0
     alloc = dict(req["budget_allocation"])
-    feasibility = "ok"  # TODO: est_total vs budget 예비 판정
+    # 예산 예비 판정은 후보 가격이 필요해서 [2] 시점엔 못 한다 — 초기값만 두고, 후보를 읽은 뒤
+    # engine/feasibility.assess() 가 채운다(recommendation_service · 조건 화면 사전 경고).
+    feasibility = "ok"
 
     flags = []
     unresolved: list[dict[str, str]] = []
