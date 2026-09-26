@@ -48,6 +48,8 @@ fields:
   - {key: purpose, label: 주요 용도, display: {game: 게임, creation: 창작, office: 사무, study: 학습, other: 기타}}
   - {key: budget_max, label: 예산}
   - {key: priority, label: 우선순위, display: {performance: 성능 우선, value: 가성비, quiet: 저소음}}
+  - {key: resolution, label: 해상도·주사율, display: {FHD_144: FHD 144Hz, QHD_165: QHD 165Hz, "4K": 4K}}
+  - {key: games, label: 하는 게임}
 
 question_sets:
   - {id: q_mode, select: single, maps_to: mode, label: '새로 만들까요, 업그레이드할까요?', options: [새 컴퓨터 조립, 기존 컴퓨터 업그레이드], values: [build, upgrade]}
