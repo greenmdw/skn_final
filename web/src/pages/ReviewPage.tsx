@@ -55,7 +55,10 @@ export function ReviewPage() {
   const [opening, setOpening] = useState(false)
 
   const configChat = useReviewChat('config', 'RAM 속도와 메인보드의 정확한 제조사 모델이 아직 모호합니다. 알고 있는 항목만 알려주세요.')
-  const answerChat = useReviewChat('answer', '이 화면은 샘플 업그레이드 제안입니다. 입력 조건에 대한 실제 분석은 아직 연결되지 않았습니다.')
+  // 실서버의 제안은 서버가 입력한 조건·부품으로 계산한 추천이다. "샘플/미연결" 문구는 서버가 없는 목업 모드에서만 맞다.
+  const answerChat = useReviewChat('answer', isMockApi
+    ? '이 화면은 샘플 업그레이드 제안입니다. 입력 조건에 대한 실제 분석은 아직 연결되지 않았습니다.'
+    : '입력한 조건과 부품 정보로 서버가 계산한 업그레이드 후보입니다. 점검 표에 적지 않은 유지 부품 정보(플랫폼·메모리 종류·파워 용량)는 확인하지 못한 채 추천하니, 구매 전에 호환성을 다시 확인해주세요.')
 
   useEffect(() => {
     if (step !== 'answer') return
@@ -137,7 +140,7 @@ export function ReviewPage() {
         {step === 'config' && (
           <div className="review-layout">
             <section className="review-card">
-              <div className="review-card-head"><div><h2>점검할 제품 (샘플)</h2><p>원문, 매칭한 제품과 부품 종류를 확인하세요.</p></div><span className="review-count">{rows.length}개 항목</span></div>
+              <div className="review-card-head"><div><h2>점검할 제품{isMockApi ? ' (샘플)' : ''}</h2><p>원문, 매칭한 제품과 부품 종류를 확인하세요.</p></div><span className="review-count">{rows.length}개 항목</span></div>
               <table className="review-parts"><tbody>
                 {rows.map((r, i) => (
                   <tr key={r.part}>
