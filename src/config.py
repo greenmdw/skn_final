@@ -73,6 +73,10 @@ SESSION_TTL_HOURS: int = int(os.getenv("SESSION_TTL_HOURS", "12"))
 LOGIN_MAX_FAILURES: int = int(os.getenv("LOGIN_MAX_FAILURES", "5"))
 LOGIN_LOCK_MINUTES: int = int(os.getenv("LOGIN_LOCK_MINUTES", "15"))
 TERMS_VERSION: str = os.getenv("TERMS_VERSION", "2026-09-11")
+EMAIL_CHECK_LIMIT_PER_MIN: int = int(os.getenv("EMAIL_CHECK_LIMIT_PER_MIN", "30"))
+# ALB 같은 프록시 뒤에서는 request.client 가 프록시 주소라 모든 사용자가 한도를 공유한다 — 프록시가 붙이는
+# X-Forwarded-For 를 믿어도 되는 배포에서만 1 로 켠다(직접 노출된 서버에서 켜면 헤더로 한도를 우회할 수 있다).
+TRUST_FORWARDED_FOR: bool = os.getenv("TRUST_FORWARDED_FOR", "0") == "1"
 
 
 def assert_production_secret_safe() -> None:

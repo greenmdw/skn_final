@@ -132,10 +132,10 @@ def test_au01_signup_weak_password_422(client: TestClient):
     assert r2.json()["error"]["code"] == "weak_password"
 
 
-@pytest.mark.xfail(strict=True, raises=KnownAuthGap, reason="AUTH-01: email-availability 요청 제한 미구현")
 def test_au01_email_availability_is_rate_limited(client: TestClient):
-    codes = [client.get("/auth/email-availability?email=ratelimited@example.com").status_code for _ in range(25)]
-    _check_known_auth_gap(codes.count(429) > 0, "must rate limit repeated email checks")
+    codes = [client.get("/auth/email-availability?email=ratelimited@example.com").status_code for _ in range(35)]
+    assert codes[:30] == [200] * 30, "한도(분당 30회) 안의 요청은 통과해야 한다"
+    assert set(codes[30:]) == {429}, "한도를 넘으면 429"
     assert codes[:20].count(429) == 0, "reasonable burst must not be limited immediately"
 
 
