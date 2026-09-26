@@ -33,13 +33,18 @@ def _ordered_items(items: list[dict]) -> list[dict]:
 
 
 def build_guide_fallback(ordered_items: list[dict]) -> str:
-    """규칙 기반 폴백 — 검색은 실제로 하되 문장은 템플릿. 에이전트 미가용 시 이걸 쓴다."""
+    """규칙 기반 폴백 — 검색은 실제로 하되 문장은 템플릿. 에이전트 미가용 시 이걸 쓴다.
+
+    단계마다 "설치"(kind=install 문서: 장착 방법)와 "확인"(care 문서: 주의사항)을 각각 검색해 싣는다.
+    둘 다 없으면 없다고 쓴다 — 없는 절차를 지어내지 않는다."""
     lines = []
     for i, it in enumerate(ordered_items, start=1):
         name = it["product"]["name"]
-        hits = search_care_guide(f"{it['slot']} {name} 조립 시 확인할 점", k=1, slot=it["slot"])
-        note = hits[0]["text"] if hits else "특별히 확인할 점은 없습니다."
-        lines.append(f"{i}. {it['slot']} — {name}\n   {note}")
+        install = search_care_guide(f"{it['slot']} {name} 장착 설치 방법", k=1, slot=it["slot"], kind="install")
+        caution = search_care_guide(f"{it['slot']} {name} 조립 시 확인할 점", k=1, slot=it["slot"])
+        lines.append(f"{i}. {it['slot']} — {name}")
+        lines.append(f"   설치: {install[0]['text'] if install else '이 부품의 설치 안내 문서가 아직 없습니다. 제품 설명서를 확인하세요.'}")
+        lines.append(f"   확인: {caution[0]['text'] if caution else '특별히 확인할 점은 없습니다.'}")
     return "\n".join(lines)
 
 
@@ -47,14 +52,17 @@ def make_tools() -> list:
     from strands import tool
 
     @tool
-    def search_guide(query: str) -> str:
-        """부품 사용 가이드·주의사항 문서에서 질의와 가장 관련 있는 내용을 찾는다.
+    def search_guide(slot: str, query: str) -> str:
+        """그 슬롯 부품의 설치 방법과 확인할 점 문서를 찾는다. 다른 부품의 문서는 나오지 않는다.
 
         Args:
-            query: 찾고 싶은 내용 — 부품명 + 확인하고 싶은 것 (예: "그래픽카드 전력 확인")
+            slot: 슬롯 이름 — 주어진 그대로 (CPU·GPU·RAM·메인보드·저장장치·파워·케이스·쿨러)
+            query: 찾고 싶은 내용 — 부품명 + 알고 싶은 것 (예: "RTX 4070 SUPER 장착 방법")
         """
-        hits = search_care_guide(query, k=1)
-        return hits[0]["text"] if hits else "관련된 가이드를 찾지 못했습니다."
+        install = search_care_guide(query, k=1, slot=slot, kind="install")
+        caution = search_care_guide(query, k=1, slot=slot)
+        lines = [f"[설치] {h['text']}" for h in install] + [f"[확인] {h['text']}" for h in caution]
+        return "\n".join(lines) or "관련된 가이드를 찾지 못했습니다."
 
     return [search_guide]
 
@@ -74,12 +82,16 @@ def _system_prompt(ordered_items: list[dict]) -> str:
         "아래는 이미 정해진 조립 순서와 부품입니다 — 순서를 바꾸거나 단계를 빼먹지 않습니다:",
         *lines,
         "",
-        "각 단계마다 search_guide 도구로 그 부품에 확인할 점이 있는지 찾아보고, 찾은 내용을",
-        "그대로 반영해 1~2문장으로 안내합니다. 검색 결과가 없거나 그 부품과 관련 없으면",
-        "\"특별히 확인할 점은 없습니다\"라고 정직하게 씁니다 — 없는 내용을 지어내지 않습니다.",
+        "각 단계마다 search_guide(slot, query) 도구를 그 슬롯 이름 그대로 불러 설치 방법과 확인할 점을 찾고,",
+        "찾은 문장을 줄이거나 바꾸지 말고 그대로 옮깁니다. 검색 결과가 없으면 없다고 정직하게 씁니다 —",
+        "없는 절차나 주의사항을 지어내지 않습니다.",
         "",
-        "출력은 번호를 매긴 단계 목록으로, 각 단계는 '슬롯 — 부품명' 제목과 안내 문장으로",
-        "구성합니다. 순서·부품명·슬롯 이름은 위에 주어진 그대로 씁니다.",
+        "출력 형식(이것만 출력합니다 — 서론·맺음말·설명 없음):",
+        "1. 케이스 — 부품명",
+        "   설치: (도구가 준 [설치] 문장)",
+        "   확인: (도구가 준 [확인] 문장)",
+        "제목 줄은 '번호. 슬롯이름 — 부품명' 입니다(예: '3. GPU — NVIDIA GeForce RTX 4070 SUPER').",
+        "순서·부품명·슬롯 이름은 위에 주어진 그대로 씁니다.",
         "한국어 존댓말로 답합니다.",
     ])
 

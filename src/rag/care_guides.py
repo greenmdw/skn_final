@@ -77,19 +77,37 @@ SLOT_GUIDE_IDS: dict[str, tuple[str, ...]] = {
 }
 
 
-def search_care_guide(query: str, k: int = 1, slot: str | None = None) -> list[dict]:
-    """query와 가장 관련 있는 사용 가이드 k개. 각 dict: {id, text, score}. 문서가 없으면 빈 리스트.
+# 조립·설치 방법 문서(kind="install") — 리포트의 "조립·설치 가이드"가 인용한다. 구매 전 확인 문구(care)와
+# 문서 종류가 달라서 서로 섞이지 않는다: 결과 화면의 "구매 전 확인"은 kind 를 안 주므로 care 가이드만 나온다.
+INSTALL_GUIDE_IDS: dict[str, tuple[str, ...]] = {
+    "CPU": ("install_cpu",),
+    "GPU": ("install_gpu",),
+    "RAM": ("install_ram",),
+    "메인보드": ("install_mainboard",),
+    "저장장치": ("install_storage",),
+    "파워": ("install_psu",),
+    "케이스": ("install_case",),
+    "쿨러": ("install_cooler",),
+}
 
-    slot 을 주면(SLOT_GUIDE_IDS 에 있는 슬롯) 그 슬롯의 가이드 안에서만 찾는다.
+
+def search_care_guide(query: str, k: int = 1, slot: str | None = None, kind: str | None = None) -> list[dict]:
+    """query와 가장 관련 있는 가이드 k개. 각 dict: {id, kind, text, score}. 문서가 없으면 빈 리스트.
+
+    slot 을 주면 그 슬롯의 가이드 안에서만 찾는다 — kind 가 "install" 이면 INSTALL_GUIDE_IDS, 아니면
+    SLOT_GUIDE_IDS(구매 전 확인). kind 를 주면 그 종류의 문서만 대상이다("care"|"install"),
+    안 주면(기본) 종류를 가리지 않는다 — 옛 호출(kind 없음)은 그대로 동작한다.
     """
     docs, embeddings = _load_guides()
     if not docs:
         return []
-    allowed = SLOT_GUIDE_IDS.get(slot) if slot else None
+    table = INSTALL_GUIDE_IDS if kind == "install" else SLOT_GUIDE_IDS
+    allowed = table.get(slot) if slot else None
     q = _embed([query])[0]
     scored = sorted(
-        ({"id": d["id"], "text": d["text"], "score": round(_cosine(q, e), 4)}
-         for d, e in zip(docs, embeddings) if allowed is None or d["id"] in allowed),
+        ({"id": d["id"], "kind": d.get("kind", "care"), "text": d["text"], "score": round(_cosine(q, e), 4)}
+         for d, e in zip(docs, embeddings)
+         if (kind is None or d.get("kind", "care") == kind) and (allowed is None or d["id"] in allowed)),
         key=lambda h: h["score"], reverse=True,
     )
     return scored[:k]
