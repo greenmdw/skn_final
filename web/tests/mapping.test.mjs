@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  backendSlotFromRowPart, budgetNoticeFromWire, budgetWarningFromWire, checksFromWire, choicesFromWire, compatChecksFromWire, compatFromWire, contributionFromWire, fieldsFromWire, partExplanation, suggestionFromPlan, wantsPartExplanation, currentSpecsFromRows, gamesFromText, itemFromWire, planFromResult, priorityFromText, purposeFromText, replyTextFromWire, resolutionFromText, reviewRowsFromWire,
+  backendSlotFromRowPart, guideStepsFromWire, budgetNoticeFromWire, budgetWarningFromWire, checksFromWire, choicesFromWire, compatChecksFromWire, compatFromWire, contributionFromWire, fieldsFromWire, partExplanation, suggestionFromPlan, wantsPartExplanation, currentSpecsFromRows, gamesFromText, itemFromWire, planFromResult, priorityFromText, purposeFromText, replyTextFromWire, resolutionFromText, reviewRowsFromWire,
   setupFromReport, slotKey, upgradePartsFromText,
 } from '../src/api/http/mapping.ts'
 
@@ -223,7 +223,11 @@ test('조건 세션 필드: 값을 그대로 옮기고, 모르는 status는 miss
 test('다음 질문 선택지: 객관식이면 칩으로, 자유 텍스트·선택지 없음·질문 없음이면 undefined', () => {
   const single = { id: 'q_priority', field: 'priority', text: '가장 중요한 건?', select: 'single',
     options: [{ value: 'performance', label: '성능 우선' }, { value: 'value', label: '가성비' }] }
-  assert.deepEqual(choicesFromWire(single), [{ label: '성능 우선', value: 'performance' }, { label: '가성비', value: 'value' }])
+  // 화면에는 label 만 보이고, value 는 서버 내부 값이라 어느 질문의 답인지(questionId)와 함께 /answer 로 보낸다.
+  assert.deepEqual(choicesFromWire(single), [
+    { label: '성능 우선', value: 'performance', questionId: 'q_priority' },
+    { label: '가성비', value: 'value', questionId: 'q_priority' },
+  ])
   assert.equal(choicesFromWire({ ...single, select: 'free', options: [] }), undefined)
   assert.equal(choicesFromWire({ ...single, options: [] }), undefined)
   assert.equal(choicesFromWire(null), undefined)
@@ -290,4 +294,34 @@ test('예산 남김 안내: 문장이 있을 때만 화면용으로 옮기고, �
   const plan = planFromResult({ list_id: 'l', status: 'done', items: [], explanation: { status: 'ready' }, budget_notice: wire, error: null },
     { mode: 'new', budget: 2000000, conditions: { intent: '', performance: '', quiet: '' }, checkSnapshot: null })
   assert.deepEqual(plan.budgetNotice, { message: wire.message, remaining: 483212 })
+})
+
+test('조립·설치 가이드: 서버 문장을 단계(제목 + 설치/확인 줄)로 나눈다', () => {
+  const text = '1. 케이스 — 다크플래쉬 DLM21\n   설치: 옆판을 열고 눕히세요.\n   확인: 팬 장착 개수를 보세요.\n2. GPU — RTX 4070 SUPER\n   설치: PCIe 슬롯에 끝까지 꽂으세요.\n   확인: 파워 용량을 확인하세요.'
+  assert.deepEqual(guideStepsFromWire({ status: 'ready', text }), [
+    { title: '케이스 — 다크플래쉬 DLM21', lines: [{ label: '설치', text: '옆판을 열고 눕히세요.' }, { label: '확인', text: '팬 장착 개수를 보세요.' }] },
+    { title: 'GPU — RTX 4070 SUPER', lines: [{ label: '설치', text: 'PCIe 슬롯에 끝까지 꽂으세요.' }, { label: '확인', text: '파워 용량을 확인하세요.' }] },
+  ])
+})
+
+test('조립·설치 가이드: 에이전트식 마크다운·글머리·모르는 줄도 버리지 않는다', () => {
+  const text = '1) **CPU — Ryzen 7**\n- 설치: 삼각형 표시를 맞추세요\n※ 핀을 만지지 마세요'
+  assert.deepEqual(guideStepsFromWire({ status: 'ready', text }), [
+    { title: 'CPU — Ryzen 7', lines: [{ label: '설치', text: '삼각형 표시를 맞추세요' }, { label: '', text: '※ 핀을 만지지 마세요' }] },
+  ])
+})
+
+test('조립·설치 가이드: 준비 전·실패·빈 문장·없음이면 undefined — 화면이 일반 안내로 대신한다', () => {
+  assert.equal(guideStepsFromWire({ status: 'pending', text: null }), undefined)
+  assert.equal(guideStepsFromWire({ status: 'failed', text: null }), undefined)
+  assert.equal(guideStepsFromWire({ status: 'ready', text: '  \n ' }), undefined)
+  assert.equal(guideStepsFromWire(null), undefined)
+  assert.equal(guideStepsFromWire(undefined), undefined)
+})
+
+test('리포트 → 저장한 구성에 가이드가 실리고, 없으면 careGuide 는 undefined', () => {
+  const report = { list_id: 'l', name: 'n', planned_purchase_at: null, target_amount: null, memo: '', total: 1, confirmed_at: '2026-09-26T00:00:00Z', items: [] }
+  const withGuide = setupFromReport({ ...report, care_guide: { status: 'ready', text: '1. GPU — X\n   설치: 꽂으세요.' } }, undefined)
+  assert.deepEqual(withGuide.careGuide, [{ title: 'GPU — X', lines: [{ label: '설치', text: '꽂으세요.' }] }])
+  assert.equal(setupFromReport(report, undefined).careGuide, undefined)
 })

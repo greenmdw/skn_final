@@ -109,6 +109,8 @@ export interface Api {
   conditions: {
     /** 인터뷰 자유 텍스트 한 턴. sessionId가 없으면 새 조건 세션을 만든다. */
     send(sessionId: string | null, text: string): Promise<ConditionTurnResult>
+    /** 선택지(칩)를 눌렀을 때 — 서버 질문의 답으로 그대로 보낸다(자유 문장으로 내부 값을 보내지 않는다). */
+    answer(sessionId: string, questionId: string, selected: string[]): Promise<ConditionTurnResult>
     /** 화면에서 직접 값을 바꿨을 때(예산 입력창 등) 세션에 반영한다. */
     patch(sessionId: string, field: string, value: unknown): Promise<ConditionTurnResult>
   }

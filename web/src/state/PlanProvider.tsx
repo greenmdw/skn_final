@@ -3,6 +3,7 @@ import type { ChatChoice, ChatMessage, CheckDraft, PartKey, PlanState, SavedSetu
 import { createCheckDraft } from '../data/checkDraftSeed'
 import { parseBudget, planTotal } from './planModel'
 import { api, errorMessage, isMockApi, type ChatTopic } from '../api'
+import type { ConditionTurnResult } from '../api/types'
 import { readWorkspace, WORKSPACE_KEY } from './storage'
 import { wonFmt } from '../utils/format'
 import { newId } from '../utils/id'
@@ -15,6 +16,11 @@ const initialState: PlanState = {
   currentPlan: null, checkSnapshot: null, selectedPart: 'cpu',
   sessionId: null, fields: [], canRecommend: false, budgetWarning: null,
   deskUnlocked: false, deskWidth: 1400, deskDepth: 700, deskHeight: 740,
+}
+// 서버의 해상도 필드 → 화면 문구. 사용자가 안 정해서 서버가 기본값으로 가정한 값이면 "(기본값)"을 붙인다.
+function resolutionText(field: { display: string | null; status: string } | undefined): string | null {
+  if (!field?.display) return null
+  return field.status === 'assumed' ? field.display + ' (기본값)' : field.display
 }
 function makeMessage(role: ChatMessage['role'], text: string, choices?: ChatChoice[]): ChatMessage {
   return { id: newId(), role, text, choices }
@@ -68,10 +74,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   // 실서버 인터뷰 한 턴: 조건 세션(에이전트가 있으면 LLM, 없으면 규칙)이 자유 문장에서 예산·용도·우선순위 등을
   // 뽑아 돌려준다. 뽑힌 값(특히 예산)을 그 자리에서 state에 반영해야 GoalPanel이 바로 바뀐다 — 화면이 직접
   // 정규식으로 다시 해석하지 않는다(그러면 서버 판정과 화면 표시가 어긋날 수 있다).
-  const sendConditionTurn = useCallback((text: string) => {
-    const current = stateRef.current
+  const runConditionTurn = useCallback((call: () => Promise<ConditionTurnResult>) => {
     const mine = epoch.current
-    api.conditions.send(current.sessionId, text)
+    call()
       .then(turn => {
         if (mine !== epoch.current) return
         updateState(prev => {
@@ -83,7 +88,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
             ...prev, sessionId: turn.sessionId, fields: turn.fields, canRecommend: turn.canRecommend, budgetWarning: turn.budgetWarning ?? null,
             budget: nextBudget,
             intent: fieldValue('purpose')?.display ?? prev.intent,
-            performance: fieldValue('resolution')?.display ?? prev.performance,
+            performance: resolutionText(fieldValue('resolution')) ?? prev.performance,
             quiet: fieldValue('priority')?.display ?? prev.quiet,
             stage: prev.stage === 0 ? 1 : prev.stage,
           }
@@ -92,6 +97,12 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       })
       .catch(error => { if (mine === epoch.current) addMessage('bot', errorMessage(error, '답변을 반영하지 못했습니다. 잠시 후 다시 시도해주세요.')) })
   }, [addMessage, updateState])
+  const sendConditionTurn = useCallback((text: string) => {
+    runConditionTurn(() => api.conditions.send(stateRef.current.sessionId, text))
+  }, [runConditionTurn])
+  const sendConditionAnswer = useCallback((sessionId: string, questionId: string, value: string) => {
+    runConditionTurn(() => api.conditions.answer(sessionId, questionId, [value]))
+  }, [runConditionTurn])
 
   const handleInput = useCallback((text: string) => {
     const clean = text.trim()
@@ -124,7 +135,17 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       addMessage('bot', isMockApi ? '샘플 구성을 준비 중입니다. 완료 후 이어서 질문해주세요.' : '구성을 만드는 중입니다. 완료 후 이어서 질문해주세요.')
     } else askApi('followup')
   }, [addMessage, updateState, sendConditionTurn])
-  const handleChoice = useCallback((value: string) => handleInput(value), [handleInput])
+  // 선택지(칩)를 누르면: 서버 질문의 선택지는 화면에 라벨("가성비")을 내 말로 보여 주고, 내부 값("value")은 구조화된 답변으로
+  // 보낸다 — 예전에는 값 문자열을 그대로 말풍선에 띄우고 자유 문장으로 보내서 "value" 가 보였다.
+  const handleChoice = useCallback((choice: ChatChoice) => {
+    const sessionId = stateRef.current.sessionId
+    if (!isMockApi && choice.questionId && sessionId && stateRef.current.stage <= 2) {
+      addMessage('user', choice.label)
+      sendConditionAnswer(sessionId, choice.questionId, choice.value)
+      return
+    }
+    handleInput(choice.value)
+  }, [addMessage, sendConditionAnswer, handleInput])
   // 현재 조건(예산 포함)으로 서버 추천을 새로 받는다. 처음 시작할 때와, 구성이 나온 뒤 예산을 바꿨을 때 같이 쓴다.
   const runAnalysis = useCallback((intro: string) => {
     const current = stateRef.current

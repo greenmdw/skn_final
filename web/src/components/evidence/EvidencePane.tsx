@@ -1,4 +1,5 @@
 import { usePlan } from '../../state/PlanContext'
+import { QUIET_LABEL } from '../../state/conditionLabels'
 import { useToast } from '../../state/ToastContext'
 import { wonFmt } from '../../utils/format'
 import { isMockApi } from '../../api'
@@ -33,7 +34,7 @@ function GoalsEvidence({ performance, quiet }: { performance: string; quiet: str
         <div><span className="check">✓</span> 목적 · {state.intent}</div>
         <div><span className="check">✓</span> 예산 · {state.budget === null ? '미설정' : wonFmt(state.budget)}</div>
         <div><span className="check">{performance ? '✓' : '○'}</span> 성능 · {performance || '확인 중'}</div>
-        <div><span className="check">{quiet ? '✓' : '○'}</span> 소음 · {quiet || '확인 중'}</div>
+        <div><span className="check">{quiet ? '✓' : '○'}</span> {QUIET_LABEL} · {quiet || '확인 중'}</div>
       </div>
     </div>
   )

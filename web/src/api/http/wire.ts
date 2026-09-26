@@ -112,6 +112,8 @@ export interface WireReport {
   total: number
   confirmed_at: string
   items: WireReportItem[]
+  /** 조립·설치 가이드(문서 검색으로 만든 번호 목록 문장). 준비 전(pending)·실패면 text 가 없다. */
+  care_guide?: WireText | null
 }
 
 export interface WireLists {

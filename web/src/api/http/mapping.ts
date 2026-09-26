@@ -1,6 +1,6 @@
 // 화면 모델(CurrentPlan · SavedSetup)과 백엔드 모델 사이의 순수 변환 함수 모음.
 // 프레임워크·네트워크에 기대지 않아 Node 로 바로 테스트한다(web/tests/mapping.test.mjs) — 그래서 타입만 import 한다.
-import type { BudgetNotice, BudgetWarning, ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, ContributionShare, CurrentPlan, DeskState, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
+import type { BudgetNotice, BudgetWarning, ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, ContributionShare, CurrentPlan, DeskState, GuideStep, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
 import type { UpgradeSuggestion } from '../types'
 import type { WireCompatCheck, WireConditionState, WireField, WireItem, WireNextQuestion, WireOwnedPartsPreviewRow, WireReport, WireReportItem, WireResult, WireReview, WireText } from './wire'
 
@@ -132,7 +132,7 @@ export function fieldsFromWire(fields: WireField[]): ConditionField[] {
 /** 다음 질문이 객관식(single/multi)이면 선택지 칩으로, 자유 텍스트 질문이거나 더 물을 게 없으면 undefined. */
 export function choicesFromWire(question: WireNextQuestion | null): ChatChoice[] | undefined {
   if (!question || question.select === 'free' || !question.options.length) return undefined
-  return question.options.map(o => ({ label: String(o.label ?? o.value), value: String(o.value) }))
+  return question.options.map(o => ({ label: String(o.label ?? o.value), value: String(o.value), questionId: question.id }))
 }
 
 /** 이번 턴에 대한 챗봇 답변 — 방금 쌓인 마지막 assistant 메시지. 없으면(응답 형식이 어긋나면) 빈 문자열. */
@@ -311,6 +311,31 @@ function dateOnly(value: string | null, fallbackIso: string): string {
   return source.slice(0, 10)
 }
 
+/**
+ * 서버의 조립·설치 가이드 문장 → 단계 목록. 서버 폴백은 "1. 슬롯 — 부품명 / 설치: … / 확인: …" 모양이고, 에이전트가 쓴 문장은
+ * 모양이 조금 다를 수 있어서(마크다운 굵게 · 글머리 기호) 그런 장식은 벗기고, 못 알아보는 줄은 그 단계의 일반 문장으로 둔다.
+ * 준비 전·실패·빈 문장이면 undefined — 화면이 일반 조립 안내로 대신한다(없는 가이드를 지어내지 않는다).
+ */
+export function guideStepsFromWire(guide: WireReport['care_guide']): GuideStep[] | undefined {
+  if (!guide || guide.status !== 'ready' || !guide.text?.trim()) return undefined
+  const steps: GuideStep[] = []
+  for (const raw of guide.text.split(/\r?\n/)) {
+    const line = raw.replace(/\*\*/g, '').trim()
+    if (!line) continue
+    const detail = line.match(/^[-*•]?\s*(설치|확인)\s*[:：]\s*(.+)$/)
+    if (detail) {
+      if (!steps.length) steps.push({ title: '', lines: [] })
+      steps[steps.length - 1].lines.push({ label: detail[1] as '설치' | '확인', text: detail[2].trim() })
+      continue
+    }
+    const title = line.match(/^\d+[.)]\s*(.+)$/)
+    if (title) { steps.push({ title: title[1].trim(), lines: [] }); continue }
+    if (!steps.length) steps.push({ title: '', lines: [] })
+    steps[steps.length - 1].lines.push({ label: '', text: line })
+  }
+  return steps.length ? steps : undefined
+}
+
 export function setupFromReport(report: WireReport, extras: SetupExtras | undefined): SavedSetup {
   const plan: CurrentPlan = {
     id: report.list_id, mode: extras?.mode ?? 'new',
@@ -326,5 +351,6 @@ export function setupFromReport(report: WireReport, extras: SetupExtras | undefi
     savedAt: report.confirmed_at, plan,
     desk: extras?.desk ?? { ...DEFAULT_DESK },
     checkDraft: extras?.checkDraft ?? { question: '', budget: '', rows: [] },
+    careGuide: guideStepsFromWire(report.care_guide),
   }
 }

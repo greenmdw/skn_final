@@ -30,6 +30,10 @@ export const conditions: Api['conditions'] = {
     const state = await request<WireConditionState>('POST', '/session/' + id + '/message', { text })
     return toResult(id, state)
   },
+  async answer(sessionId, questionId, selected) {
+    const state = await request<WireConditionState>('POST', '/session/' + sessionId + '/answer', { question_id: questionId, selected })
+    return toResult(sessionId, state)
+  },
   async patch(sessionId, field, value) {
     const state = await request<WireConditionState>('PATCH', '/session/' + sessionId + '/slot', { field, value })
     return toResult(sessionId, state)

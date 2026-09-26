@@ -67,7 +67,8 @@ export const setups: Api['setups'] = {
     } })
     // 사용자가 본 부품·추천 이유는 그대로 두고, 서버가 확정한 값(이름·날짜·목표 금액·메모·시각)을 반영한다.
     const saved = setupFromReport(report, undefined)
-    return { ...structuredClone(setup), title: saved.title, date: saved.date, target: saved.target, memo: saved.memo, savedAt: saved.savedAt }
+    // 조립·설치 가이드는 확정할 때 서버가 만든 것이라 같이 가져온다(없으면 undefined — 화면이 일반 안내로 대신한다).
+    return { ...structuredClone(setup), title: saved.title, date: saved.date, target: saved.target, memo: saved.memo, savedAt: saved.savedAt, careGuide: saved.careGuide }
   },
 
   async remove(id) {

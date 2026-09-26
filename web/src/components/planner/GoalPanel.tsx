@@ -2,6 +2,7 @@ import { BudgetEditor } from './BudgetEditor'
 import { wonFmt } from '../../utils/format'
 import { usePlan } from '../../state/PlanContext'
 import { isMockApi } from '../../api'
+import { QUIET_CARD_LABEL, QUIET_CARD_NOTE } from '../../state/conditionLabels'
 
 export function GoalPanel() {
   const { state, startAnalysis } = usePlan()
@@ -22,7 +23,7 @@ export function GoalPanel() {
         <div className="goal-card"><span>주요 용도</span><strong>{intent}</strong><em>우선순위 높음</em></div>
         <div className="goal-card"><span>최대 예산</span><strong>{state.budget === null ? '미설정' : wonFmt(state.budget)}</strong><em>본체 + 모니터</em></div>
         <div className="goal-card"><span>성능 목표</span><strong>{perf}</strong><em>게임 프레임</em></div>
-        <div className="goal-card"><span>소음 선호</span><strong>{quiet}</strong><em>작업 환경</em></div>
+        <div className="goal-card"><span>{QUIET_CARD_LABEL}</span><strong>{quiet}</strong><em>{QUIET_CARD_NOTE}</em></div>
         <div className="goal-card"><span>저장 공간</span><strong>2TB</strong><em>추천값 적용</em></div>
         <div className="goal-card"><span>구매 시점</span><strong>이번 달</strong><em>{isMockApi ? '가상 시세 기준' : '데모 가격 기준'}</em></div>
       </div>
