@@ -152,6 +152,18 @@ def run(hf: HardFilterResult, spec: RequirementSpec, slots: Slots, log: LogFn) -
 
     for slot, cands in hf.slots.items():
         ideal = ideals.get(slot)
+        # games 는 [2]가 targets[slot]["perf_tier_min"](하한)만 올려서, 무거운 게임을
+        # 골라도 밸런스 축의 ideal_tier 는 용도·해상도로만 정해진 값에 그대로 머물렀다.
+        # 하한이 ideal 보다 높아진 슬롯만 ideal 을 그 하한까지 끌어올린다(낮추지는 않는다).
+        # ideal 표에 없는 슬롯(ideal=None)은 밸런스 축이 중립 0.5 로 빠지는 자리라 그 의미를
+        # 바꾸지 않으려고 건드리지 않는다 — None 그대로 둔다.
+        if "games_applied" in spec.flags and ideal is not None:
+            perf_min = spec.targets.get(slot, {}).get("perf_tier_min")
+            if perf_min is not None and perf_min > ideal:
+                note = f"게임 요구 반영: {slot} 이상 등급 {ideal:g}→{perf_min:g}"
+                rr.weight_adjustments.append(note)
+                log(f"      가중치 조정 — {note}")
+                ideal = float(perf_min)
         slot_budget = int(total * alloc.get(slot, 0.1)) if total else 1
         target = spec.targets.get(slot, {})
         gap = ranking.get("data_gap") or {}

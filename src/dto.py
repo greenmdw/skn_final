@@ -12,6 +12,9 @@ from pydantic import BaseModel, Field
 Category = Literal["computer"]
 Mode = Literal["build", "upgrade"]
 Verdict = Literal["Pass", "Fail", "Pending"]
+# E8 — 모니터/키보드/마우스/스피커. 독립 카테고리가 아니라 computer 요청의 부속 결과라
+# Category에는 안 넣는다(config/peripherals.yaml이 config/categories/ 밖에 있는 이유와 같다).
+PeripheralKind = Literal["monitor", "keyboard", "mouse", "speaker"]
 
 
 # ── [1] 의도 분해 · 슬롯필링 ──────────────────────────────────────────────
@@ -52,6 +55,9 @@ class RequirementSpec(BaseModel):
     budget: dict[str, Any] = Field(default_factory=dict)              # total, alloc, feasibility
     flags: list[str] = Field(default_factory=list)
     unresolved: list[dict[str, str]] = Field(default_factory=list)
+    # E7 — 인식된 게임 제목별 출처·승인 상태. 항목: {"key", "label", "status", "source"}.
+    # status 는 provisional|approved, source 는 {url, excerpt, checked_at} 또는 None.
+    games: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # ── [3-0]~[3-B] 후보 ────────────────────────────────────────────────────
@@ -64,12 +70,24 @@ class Candidate(BaseModel):
     brand: str = ""
     price: int = 0
     specs: dict[str, Any] = Field(default_factory=dict)
+    # E5 — 카탈로그 출처(어느 URL·언제 확인한 값인가). specs 에는 섞지 않는다 — 섞으면
+    # [3-B] data_gap 감점(빈 스펙 카운트)이 메타데이터 키를 스펙으로 셀 수 있다.
+    # {"spec_url", "checked_at"(ISO 날짜 문자열), "by_key": {엔진 spec 키: 그 값을 뒷받침하는 URL}}.
+    # by_key 는 테이블에 전용 출처 컬럼이 있는 키만 담는다(예: gpu.dimension_source_url → length_mm/
+    # height_mm/slot_thickness) — 확실하지 않은 키는 넣지 않고 evidence 생성 쪽에서 spec_url로 대체한다.
+    provenance: dict[str, Any] = Field(default_factory=dict)
     verdict: Verdict = "Pass"
     reasons: list[str] = Field(default_factory=list)
     flags: list[str] = Field(default_factory=list)
     score: float = 0.0
     breakdown: dict[str, float] = Field(default_factory=dict)
     rank: int = 0
+    # E8/E9 — 가격 출처. PC 후보는 기존대로 offer_observation 기반 "observed"(기본값,
+    # 동작 불변). 주변기기 로더(E9)는 peripheral_price_snapshot만 있어 "reference_snapshot"을
+    # 쓴다 — 판매처·관측일을 모르는 참고가라는 뜻이고, PC 총액에 합산하지 않는다(계획 §3.3, R-3).
+    # "synthetic"은 예비값(현재 생성자 없음).
+    price_source: Literal["observed", "synthetic", "reference_snapshot"] = "observed"
+    price_observed_at: str | None = None   # ISO 날짜/시각 문자열. observed가 아니면 보통 None
 
 
 class HardFilterResult(BaseModel):
@@ -156,6 +174,46 @@ class VerificationResult(BaseModel):
     targets: list[VerificationTarget] = Field(default_factory=list)
 
 
+# ── 주변기기(모니터·키보드·마우스·스피커) — 계획 §3.3 E8~E13 ────────────────
+class PeripheralRequirement(BaseModel):
+    """[2] 종류별 요구사양(E10). PC의 RequirementSpec.targets에 대응하는 주변기기 버전."""
+
+    kind: PeripheralKind
+    hard: dict[str, Any] = Field(default_factory=dict)     # 탈락 가능 조건(예: 모니터 해상도 등급)
+    soft: dict[str, Any] = Field(default_factory=dict)     # 랭킹에만 쓰는 선호(예: 패널 종류)
+    assumed: list[str] = Field(default_factory=list)       # 조건 없이 기본값을 썼다고 표시할 키
+    notes: list[str] = Field(default_factory=list)         # 화면 안내용 보조 문구(잠정값 등)
+
+
+class PeripheralPick(BaseModel):
+    """[3-A]~[4] 종류별 1위 후보(E11). peripheral_payload의 items[] 항목 하나에 대응."""
+
+    kind: PeripheralKind
+    candidate: Candidate
+    score: float = 0.0
+    verdict: Verdict = "Pass"
+    checks: list[dict[str, Any]] = Field(default_factory=list)        # peripheral_payload().items[].checks
+    alternatives: list[Candidate] = Field(default_factory=list)       # 차순위 후보(payload 가공 시 상위 2개만 노출)
+
+
+class PeripheralResult(BaseModel):
+    """run_peripherals()의 전체 출력(E11~E13). peripheral_payload()가 이 값을 공개 계약 모양 dict로 가공한다."""
+
+    # "ready" = 하나 이상 pick / "empty" = 요청은 있었지만 조건에 맞는 후보가 0건(C6, 조용히 완화하지 않음)
+    # / "skipped" = peripherals 조건이 아예 없어 이 단계를 돌리지 않음(기존 PC 결과 불변 원칙)
+    status: Literal["ready", "empty", "skipped"] = "skipped"
+    picks: list[PeripheralPick] = Field(default_factory=list)
+    empty: list[dict[str, str]] = Field(default_factory=list)     # [{"kind", "reason"}] — peripheral_payload().empty
+    counts: dict[str, Any] = Field(default_factory=dict)          # 종류별 pool/pass/fail/pending, 조합 탐색 절단 여부
+    budget: dict[str, Any] | None = None                          # peripheral_budget_max 적용 시 조합 탐색 결과(합계 등)
+    # E11 — [3-C] 품목별 검증 결과(mode="per_item"). status가 "ready"일 때만 채워진다.
+    verification: VerificationResult | None = None
+    # E13 — [2]가 낸 품목별 요구사양([2] build_requirements 결과). status가 "ready"일 때만
+    # picks에 있는 종류만큼 채워진다. peripheral_payload()가 requirement/reason을 만드는 재료다
+    # — payload가 [1]의 원본 조건(values)을 다시 안 받아도 되게 여기 실어 둔다.
+    requirements: dict[str, PeripheralRequirement] = Field(default_factory=dict)
+
+
 # ── [5] 설명 생성 ───────────────────────────────────────────────────────
 class ExplanationDraftItem(BaseModel):
     slot: str
@@ -209,4 +267,7 @@ class PipelineResult(BaseModel):
     basket: Optional[BasketResult] = None
     verification: Optional[VerificationResult] = None
     explanation: Optional[Explanation] = None
+    # E11 — 주변기기 결과(계획 §3.3). peripherals 조건이 있을 때만 채워진다(없으면 None
+    # 그대로 — 컴퓨터 결과에는 영향 없음, "기존 결과 불변 원칙" §4).
+    peripherals: Optional[PeripheralResult] = None
     logs: list[str] = Field(default_factory=list)

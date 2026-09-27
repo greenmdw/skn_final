@@ -15,11 +15,18 @@ def test_slot_guide_ids_exist_in_data():
         assert set(guide_ids) <= ids, slot
 
 
-@pytest.mark.parametrize("slot", sorted(SLOT_GUIDE_IDS))
+@pytest.mark.parametrize("slot", sorted(slot for slot, ids in SLOT_GUIDE_IDS.items() if ids))
 def test_search_with_slot_only_returns_that_slots_guides(slot):
     # 질의가 다른 슬롯 얘기여도(임베딩이 그쪽을 더 가깝게 봐도) 슬롯 밖 가이드는 나오지 않는다.
     hits = search_care_guide("NVMe SSD 발열 서멀 스로틀링 히트싱크", k=5, slot=slot)
     assert hits and {h["id"] for h in hits} <= set(SLOT_GUIDE_IDS[slot])
+
+
+@pytest.mark.parametrize("slot", sorted(slot for slot, ids in SLOT_GUIDE_IDS.items() if not ids))
+def test_search_with_empty_guide_list_slot_returns_nothing(slot):
+    """주변기기 4종(E13)처럼 SLOT_GUIDE_IDS에 빈 튜플로 등록된 슬롯은 전 문서로 새지 않고
+    빈 결과를 낸다 — allowed=()라 아무 문서와도 안 걸린다(계획 §3.3 E13)."""
+    assert search_care_guide("NVMe SSD 발열 서멀 스로틀링 히트싱크", k=5, slot=slot) == []
 
 
 def test_search_without_slot_searches_all_guides():

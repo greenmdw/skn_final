@@ -14,8 +14,10 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from src.categories import load_category
-from src.dto import PipelineResult, RequirementSpec, Slots
+from src.dto import PipelineResult, RequirementSpec
 from src.engine.lang import fmt_money
+from src.engine.slots import slots_from_conditions as _slots_from_conditions
+from src.engine.stage3c_verify import AXIS_SLOTS as _AXIS_SLOTS
 from src.errors import Conflict, NotFound, ValidationFailed
 from src.pipeline import run_pipeline as _run_scenario
 
@@ -25,17 +27,6 @@ log = logging.getLogger(__name__)
 def run_from_scenario(scenario_name: str) -> PipelineResult:
     """개발용: 시나리오 파일로 파이프라인 1회 (DB 미사용)."""
     return _run_scenario(scenario_name, on_log=lambda _m: None)
-
-
-def _slots_from_conditions(category: str, cat_def: dict, values: dict) -> Slots:
-    defaults = cat_def.get("defaults") or {}
-    assumed = {k: v for k, v in defaults.items() if values.get(k) in (None, [], "")}
-    full = {**assumed, **values}
-    return Slots(
-        category=category, mode=full.get("mode", (cat_def.get("modes") or ["build"])[0]),
-        objective_text="(대화로 수집됨)", values=full,
-        assumed_keys=list(assumed.keys()), missing=[],
-    )
 
 
 def start_recommendation(
@@ -96,7 +87,8 @@ def start_recommendation(
 def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
     """백그라운드 태스크 — 엔진 [2]~[5] 실행 + 저장 + run 종료. 자체 커넥션을 연다."""
     from src.db import get_conn
-    from src.engine import stage2_requirement, stage3a_hardfilter, stage3b_rank, stage3c_verify, stage4_optimize, stage5_explain
+    from src.engine import stage2_requirement, stage3a_hardfilter, stage3b_rank, stage3c_verify, stage5_explain
+    from src.engine import research_loop
     from src.repo.catalog_repo import load_candidates_by_slot_from_db
     from src.repo.engine_repo import EngineRepo
     from src.repo.plan_repo import PlanRepo
@@ -155,13 +147,30 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
             rank = stage3b_rank.run(hf, spec, slots, noop)
             # 지금 쓰는 부품 자체를 다시 추천하지 않는다(같은 제품으로 '교체'하는 견적이 나왔다).
             already_owned = {(slot, key) for slot, info in current_tiers.items() for key in info["keys"]}
-            build = stage4_optimize.run(rank, spec, noop, exclude=already_owned)
-            build.list_id = str(revision_id)
-            verification = stage3c_verify.verify_build(
-                build,
-                category,
-                noop,
+            computer_rules = stage2_requirement.load_computer_rules()
+            compat_rules = computer_rules["verification"]
+            # 점수 영향이 큰 슬롯(보통 CPU·GPU)은 "스펙 데이터가 없다"는 이유만으로 빼지 않는다 —
+            # 그러면 성능이 눈에 띄게 낮은 구성이 "확인 필요 건수 감소"만으로 채택될 수 있다(리뷰 지적).
+            impact_slots = frozenset(computer_rules["ranking"].get("impact_slots", []))
+
+            def _verify(b, _round_index):
+                # E5 — chosen(슬롯→Candidate, provenance 포함)을 넘겨야 verify_build 가 쟁점에
+                # 카탈로그 출처 근거(evidence)를 붙인다. research_loop.resolve_chosen 이 [3-B] 가 남긴
+                # 전체 스펙(provenance 포함)으로 다시 찾아 준다.
+                b_chosen = research_loop.resolve_chosen(rank, b)
+                return stage3c_verify.verify_build(b, category, noop, chosen=b_chosen, spec=spec, rules=compat_rules)
+
+            def _choose_exclusion(b, v):
+                chosen = research_loop.resolve_chosen(rank, b)
+                return research_loop.rule_based_exclusion(b, v, chosen, spec, compat_rules, impact_slots=impact_slots)
+
+            # E1: [4] 세트 최적화 → [3-C] 검증을 최대 MAX_RESEARCH_ROUNDS회 돌며 "근사(확인 필요)" 누적을
+            # 규칙 기반으로 줄여 본다(C5). 데모 경로(pipeline._run_computer_branch)와 같은 루프 함수다.
+            build, verification, research_rounds = research_loop.run_set_with_research(
+                rank, spec, noop, verify=_verify, choose_exclusion=_choose_exclusion,
+                base_exclude=frozenset(already_owned),
             )
+            build.list_id = str(revision_id)
 
             # 부품·가격·검증은 여기서 이미 확정됐다. [5] 설명 문장(LLM)은 아직 안 돌았으므로
             # reason=None 으로 저장한다 — add_candidate가 자동으로 reason_status='pending' 처리.
@@ -241,6 +250,11 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
             games_row = _games_trace_row(spec)
             if games_row is not None:
                 trace_rows.insert(1, games_row)
+            # E1: 재탐색이 2라운드 이상 돌았을 때만 "왜 세트가 바뀌었는지"를 trace 에 남긴다.
+            # 신뢰도 숫자는 넣지 않는다(결정 0003) — 확인 필요 건수만으로 서술한다(엔진 쪽 순수 함수).
+            research_detail = research_loop.research_trace_detail(research_rounds)
+            if research_detail is not None:
+                trace_rows.insert(-1, ("세트 재검토", research_detail))
             trace = [{"step": s, "title": s, "detail": d} for s, d in trace_rows]
             # 관측 문장(7일 몰림 · 공유 리뷰어 · 5점 비율)은 슬롯별 evidence 에 있다.
             # 그것까지 실어야 검토자가 확인·반박할 수 있다 — 요약만으로는 못 한다.
@@ -283,12 +297,14 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
 
 def _store_validations(erepo, run_id: UUID, verification) -> None:
     """세트 검증 쟁점을 engine.validation_result 행으로 저장한다(결과 화면의 verification·구매 전 확인이 읽는다)."""
-    for issue in verification.targets[0].issues if verification.targets else []:
+    target = verification.targets[0] if verification.targets else None
+    for issue in target.issues if target else []:
         erepo.add_validation(
             run_id, rule_key=issue.axis, rule_version="v1", executor_version="v1",
             status="fail" if issue.penalty >= 15 else "unknown",
             severity="warning" if issue.penalty >= 15 else "info",
-            measured_values={"penalty": issue.penalty, "confidence": verification.targets[0].confidence},
+            measured_values={"penalty": issue.penalty, "confidence": target.confidence, "round": target.rounds,
+                             "evidence": issue.evidence},
             threshold={}, message=issue.text or issue.judge or issue.axis,
             checked_at=datetime.now(timezone.utc),
         )
@@ -363,7 +379,8 @@ def reverify_set(conn, revision_id: UUID, run: dict) -> None:
     build = BuildResult(list_id=str(revision_id), link_check=link_check,
                         budget={"max": budget_max, "used": total,
                                 "used_pct": round(total / budget_max * 100, 1) if budget_max else 0.0})
-    verification = stage3c_verify.verify_build(build, "computer")
+    verification = stage3c_verify.verify_build(
+        build, "computer", chosen=chosen, spec=spec, rules=load_computer_rules()["verification"])
     erepo.delete_validations(run["id"])
     _store_validations(erepo, run["id"], verification)
 
@@ -436,16 +453,7 @@ def explanation_text(summary: str, caveats: list[str]) -> str:
     return summary + "\n\n확인이 필요한 것: " + " · ".join(caveats)
 
 
-# 세트 검증 축([3-C] link_check 키 + 예산)이 어느 슬롯에 걸리는지. 검증은 세트 단위라 슬롯 정보가 없어서
-# 화면의 "구매 전 확인"에 나눠 실을 때만 이 표를 쓴다 — 없는 축은 전 슬롯 공통으로 본다.
-_AXIS_SLOTS: dict[str, tuple[str, ...]] = {
-    "socket": ("CPU", "메인보드"), "bios": ("CPU", "메인보드"),
-    "power": ("파워", "GPU", "CPU"), "gpu_len": ("GPU", "케이스"), "cooler_height": ("쿨러", "케이스"),
-    "memory": ("RAM", "메인보드"), "motherboard_case": ("메인보드", "케이스"), "cooler_socket": ("CPU", "쿨러"),
-    "psu_form": ("파워", "케이스"), "gpu_connector": ("GPU", "파워"), "psu_length": ("파워", "케이스"),
-    "gpu_slots": ("GPU", "케이스"), "radiator": ("쿨러", "케이스"), "ram_slots": ("RAM", "메인보드"),
-    "ram_speed": ("RAM", "메인보드"), "m2": ("저장장치", "메인보드"),
-}
+# _AXIS_SLOTS: [3-C] 검증 축 → 슬롯 매핑. 엔진(stage3c_verify.AXIS_SLOTS)으로 옮겨 여기선 import 해서 쓴다(E1).
 _SWAP_REASON_PREFIX = "사용자 요청으로 교체한 부품입니다"
 
 
@@ -708,20 +716,43 @@ def _explanation_extras(spec, tier_notes: list[str] | None = None) -> dict:
     if unknown:
         caveats.append(f"게임 {', '.join(repr(g) for g in unknown)}은(는) 요구사양 표에 없어 해상도 기준으로 구성했습니다 — "
                        "해당 게임의 권장 사양을 직접 확인해 주세요.")
+    # E7 — 인식된 게임 제목 중 팀 확인 전(provisional) 값이 하나라도 있으면 코드가 caveat 을 붙인다
+    # (LLM 문안 아님, 결정 0003과 같은 원칙 — 판정·수치는 코드). 표에 없는 게임 caveat 과는 별개다.
+    if "games_provisional" in spec.flags:
+        caveats.append("게임별 요구 등급은 배급사 권장 사양을 대략 옮긴 잠정값이라, "
+                       "구매 전 해당 게임의 공식 권장 사양을 확인해 주세요.")
     if caveats:
         out["extra_caveats"] = caveats
     return out
 
 
 def _games_trace_row(spec) -> tuple[str, str] | None:
-    """게임 제목이 요구 사양에 반영됐으면 추론 과정에 한 줄 — 화면 "분석 과정"에서 근거로 보인다."""
+    """게임 제목이 요구 사양에 반영됐으면 추론 과정에 한 줄 — 화면 "분석 과정"에서 근거로 보인다.
+
+    E7 — `game_titles`의 승인 상태(팀 확인 전 provisional / 배급사 권장 사양 확인된 approved)를
+    구분해 서술한다. 잠정값은 "반영했다"처럼 단정하지 않는다 — 후보를 실제로 탈락시키는 값인데
+    근거가 아직 팀 확인 전이기 때문이다(R-11).
+    """
     if "games_applied" not in spec.flags:
         return None
     gpu = (spec.targets.get("GPU") or {}).get("perf_tier_min")
     cpu = (spec.targets.get("CPU") or {}).get("perf_tier_min")
-    detail = "입력한 게임의 권장 사양을 반영해 최소 등급을 정했습니다"
-    if gpu is not None and cpu is not None:
-        detail += f" (GPU 등급 {gpu} 이상, CPU 등급 {cpu} 이상)"
+    tier_note = f" (GPU 등급 {gpu} 이상, CPU 등급 {cpu} 이상)" if gpu is not None and cpu is not None else ""
+    games = spec.games
+    approved = [g for g in games if g["status"] == "approved"]
+
+    if not games or not approved:
+        # 인식된 제목을 모두 잠정값으로 다룬다(games 를 못 얻은 방어적 경우도 포함) — 단정하지 않는다.
+        detail = "입력한 게임의 권장 사양을 대략 옮긴 잠정 기준으로 최소 등급을 정했습니다" + tier_note
+    elif len(approved) == len(games):
+        detail = "입력한 게임의 배급사 권장 사양을 확인해 최소 등급을 정했습니다" + tier_note
+    else:
+        per_title = [
+            f"{g['label']}: 배급사 권장 사양 확인({(g.get('source') or {}).get('checked_at')})"
+            if g["status"] == "approved" else f"{g['label']}: 잠정값"
+            for g in games
+        ]
+        detail = "게임별 요구 등급 확인 상태 — " + ", ".join(per_title) + tier_note
     unknown = _unknown_games(spec)
     if unknown:
         detail += f". 표에 없는 게임: {', '.join(unknown)}"

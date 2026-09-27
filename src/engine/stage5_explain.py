@@ -9,6 +9,8 @@
 """
 from __future__ import annotations
 
+import math
+
 from src.clients.llm_client import call_llm
 from src.dto import (BuildResult, Explanation, ExplanationDraft, ExplanationItem, RankResult,
                      VerificationResult)
@@ -71,13 +73,58 @@ def explain_manual(service, request):
     return service.answer(replace(request, purpose="recommendation"))
 
 
-def _contribution(build: BuildResult) -> dict[str, int]:
-    # TODO: RankResult 의 slot별 breakdown 을 전달받아
-    #   contribution[축] = Σ(slot_weight · breakdown[축]) / total 로 집계.
-    #   현재는 데모 고정값 (목업 A5: 가격 41 / 성능 33 / 호환성 26).
-    acc = {"가격": 41.0, "성능": 33.0, "호환성": 26.0}
-    total = sum(acc.values()) or 1
-    return {k: round(v / total * 100) for k, v in acc.items()}
+def _contribution(build: BuildResult, rank: RankResult | None) -> dict[str, int]:
+    """세트 기여도 — 뽑힌 각 품목의 [3-B] breakdown 에 실제 사용된 가중치(rank.weights_used)를
+    곱해 더한 뒤 _AXIS_MAP 으로 가격/성능/호환성 3축에 모은다. 리뷰·소음처럼 _AXIS_MAP 에 없는
+    축은 3축 배분에 들어가지 않는다 — 리뷰는 관측이지 배점이 아니다(docs/decisions/0001).
+
+    품목의 후보는 그 슬롯의 rank.slots[slot]["ranked"] 에서 먼저 찾고, 없으면(top-N 밖으로
+    잘렸으면) "pool"(전체 순위)에서 찾는다.
+
+    정규화는 3축 합을 100으로 맞춘 정수 퍼센트다. 단순 반올림은 합이 99/101이 될 수 있어,
+    최대 나머지법(largest remainder method) — 내림한 정수의 합이 100에 못 미치는 만큼을
+    소수부가 큰 축부터 1씩 올려 채운다 — 으로 합이 항상 정확히 100이 되게 한다.
+
+    rank 가 None 이거나, build.items 중 [3-B] 후보를 하나도 못 찾았거나, 3축 합이 0 이하이면
+    고정값을 지어내지 않고 빈 dict 를 낸다(호출부는 "계산 불가"로 로그·표시한다).
+
+    breakdown 값은 합산 전에 0 으로 클램프한다 — 밸런스 축(1 − |tier − ideal_tier| / 4)은 클램프가
+    없어 음수가 될 수 있는데, 음수 기여를 그대로 더하면 다른 축이 100% 를 넘거나 이 축이 음수
+    퍼센트로 나와 "기여도"라는 의미가 깨진다.
+    """
+    if rank is None:
+        return {}
+    acc = {"가격": 0.0, "성능": 0.0, "호환성": 0.0}
+    found_any = False
+    for it in build.items:
+        slot_info = rank.slots.get(it.slot) or {}
+        breakdown = None
+        for cands in (slot_info.get("ranked") or [], slot_info.get("pool") or []):
+            for c in cands:
+                if c.get("product_key") == it.product_key:
+                    breakdown = c.get("breakdown") or {}
+                    break
+            if breakdown is not None:
+                break
+        if breakdown is None:
+            continue
+        found_any = True
+        for axis, value in breakdown.items():
+            axis3 = _AXIS_MAP.get(axis)
+            if axis3 is None:
+                continue
+            acc[axis3] += max(0.0, value) * rank.weights_used.get(axis, 0.0)
+    if not found_any:
+        return {}
+    total = sum(acc.values())
+    if total <= 0:
+        return {}
+    raw = {k: v / total * 100 for k, v in acc.items()}
+    floors = {k: math.floor(v) for k, v in raw.items()}
+    remainder = 100 - sum(floors.values())
+    for k in sorted(raw, key=lambda k: raw[k] - floors[k], reverse=True)[:remainder]:
+        floors[k] += 1
+    return floors
 
 
 def _top_axes(rank: RankResult | None, slot: str, product_key: str) -> str:
@@ -210,7 +257,7 @@ def run(build: BuildResult, verification: VerificationResult, log: LogFn,
         rank: RankResult | None = None, *, conditions: dict | None = None,
         extra_caveats: list[str] | None = None, scope_note: str = "") -> Explanation:
     log("[5] 설명 생성 ...")
-    contrib = _contribution(build)
+    contrib = _contribution(build, rank)
     tgt = verification.targets[0] if verification.targets else None
     gray = tgt.gray_axes if tgt else []
 
@@ -239,7 +286,10 @@ def run(build: BuildResult, verification: VerificationResult, log: LogFn,
     summary = (draft.summary if draft and draft.summary else _fallback_summary(build)) + _extra_note(conditions) + scope_note
     if gray:
         log(f"      근거 미확인 축(화면에는 안 나감): {', '.join(gray)}")
-    log(f"      기여도: 가격 {contrib['가격']}% / 성능 {contrib['성능']}% / 호환성 {contrib['호환성']}%")
+    if contrib:
+        log(f"      기여도: 가격 {contrib['가격']}% / 성능 {contrib['성능']}% / 호환성 {contrib['호환성']}%")
+    else:
+        log("      기여도: 계산 불가(순위 정보 없음)")
     log(f"      문장: {'LLM' if draft else '규칙 템플릿'}")
     log(f"      headline: {headline}")
     n_obs = sum(1 for l in review_lines.values() if not l.startswith("리뷰 관측 없음"))

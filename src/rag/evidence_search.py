@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 # 시나리오 로더가 주입하는 미니 코퍼스 (list[dict]: {domain, axis, text, source_url, collected_at})
 _MINI_CORPUS: list[dict[str, Any]] = []
@@ -15,12 +15,16 @@ def load_mini_corpus(chunks: list[dict[str, Any]]) -> None:
 
 
 def evidence_search(
-    domain: str, query: str, filters: dict | None = None, k: int = 3
+    domain: str, query: str, filters: dict | None = None, k: int = 3,
+    log: Callable[[str], None] | None = None,
 ) -> list[dict]:
     """근거 청크 검색.
 
     시나리오가 load_mini_corpus()로 주입한 코퍼스에서 축(axis) 단위로 찾는다
     (stage3c_verify.verify_set 의 _debate_lines 경로).
+
+    log: 있으면 검색 건수를 알린다(선택). 실경로(recommendation_service)는 이 함수를 부르지 않지만,
+    호출부가 stdout 을 쓰는 콘솔 데모 밖(웹 서버 등)일 수 있어 print 대신 콜백으로만 알린다.
 
     Returns:
         각 dict: text(발췌 요약), source_url, collected_at, score. 0건이면 빈 리스트("회색").
@@ -37,6 +41,7 @@ def evidence_search(
         for i, c in enumerate(_MINI_CORPUS)
         if c.get("domain") == domain and (not axis or c.get("axis") == axis)
     ]
-    print(f"[MOCK] evidence_search(domain={domain!r}, axis={axis!r}) → {len(hits)}건")
+    if log is not None:
+        log(f"[MOCK] evidence_search(domain={domain!r}, axis={axis!r}) → {len(hits)}건")
     return hits[:k]
 

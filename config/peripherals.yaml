@@ -1,0 +1,263 @@
+# 주변기기(모니터·키보드·마우스·스피커) 정의 — 추천엔진 구현계획 §3.3 E8.
+#
+# 왜 config/categories/ 밖에 있는가: src/categories.py의 available_categories()가
+# categories/*.yaml 파일 이름을 그대로 세션의 카테고리 선택지로 훑는다(categories.py:40).
+# 이 파일을 그 디렉터리 안에 두면 "peripherals"가 새 카테고리로 화면에 나타난다.
+# 주변기기는 독립된 카테고리가 아니라 "computer" 요청의 부속 결과다(Category는 여전히
+# "computer" 하나뿐, src/dto.py) — 그래서 정의 파일도 카테고리 디렉터리 밖에 둔다.
+#
+# 가격의 성격: 여기서 다루는 가격은 전부 catalog.peripheral_price_snapshot 관측이며,
+# 판매처·관측일을 모른다("reference_snapshot"). PC 부품의 offer/offer_observation과
+# 달리 구매 가능한 가격이 아니고, PC 총액에도 합산하지 않는다(계획 §3.3, R-3).
+# 판매처·관측일이 있는 가격이 offer 경로로 들어오면(R-3) price_source가 "observed"로
+# 바뀐다 — 그 전까지 이 파일이 다루는 값은 전부 참고가다.
+#
+# E8 에서 채운 것은 kinds(스펙 컬럼 매핑)와 ranking(가중치), E9 가 채운 것은 parsing 이다.
+# requirements(요구사양 룩업)는 E10, verify(모니터↔PC 교차 검사)는 E12 가 채웠다.
+# hard_filters·preferences 절은 쓰지 않는다 — E11 은 requirements.<kind>.hard/soft 를 그대로
+# 평가한다. 로더(src/engine/peripheral_rules.py)는 두 이름을 "알려진 선택 절"로 예약만 해 둔다.
+schema_version: 1
+rule_set_version: peripheral-rules-v2   # v2: verify 절(E12) 추가
+
+kinds:
+  monitor:
+    label: 모니터
+    product_type: monitor   # catalog.product.product_type (docker exec db psql로 확인, db/seed_peripherals.py와 일치)
+    spec_table: catalog.monitor_spec
+    # DB 컬럼 → 엔진 spec 키. 값이 원문 텍스트(파싱 전)인 컬럼은 `_raw` 접미사를 붙여
+    # 이미 구조화된 값(숫자·불리언·배열)과 구분한다. 텍스트 해석은 E9(peripheral_parse.py)가 한다.
+    # product_url·manual_reference는 스펙이 아니라 출처 메타데이터라 여기 넣지 않는다
+    # (src/dto.py Candidate.provenance 주석과 같은 원칙 — 섞으면 [3-B] data_gap 감점이 메타데이터를 스펙으로 센다).
+    columns:
+      model_code: model_code_raw
+      screen_size_inch: screen_size_inch
+      resolution: resolution_raw            # 예: "2560x1440" → E9가 (w, h, class)로 해석
+      max_refresh_hz: refresh_hz            # 이미 숫자라 파싱 불필요
+      panel: panel_raw
+      response_ms_gtg: response_ms_gtg
+      brightness_nit: brightness_nit
+      curvature: curvature_raw
+      hdmi_version: hdmi_version_raw
+      hdmi_ports: hdmi_ports
+      dp_version: dp_version_raw
+      dp_ports: dp_ports
+      dp_connector: dp_connector_raw
+      usb_c_video_input: usb_c_video_input_raw
+      usb_c_power_w: usb_c_power_w
+      vesa_mount_mm: vesa_mount_mm_raw
+      port_limits: port_limits_raw
+      note: note_raw
+      weight_g: weight_g
+      size_mm: size_mm_raw
+
+  keyboard:
+    label: 키보드
+    product_type: keyboard
+    spec_table: catalog.keyboard_spec
+    columns:
+      switch_kind: switch_kind_raw
+      switch_method: switch_method_raw      # E10 소음 선호(quiet/noise_sensitive)가 볼 클릭형 여부
+      rapid_trigger: rapid_trigger          # 이미 boolean
+      connectivity: connectivity            # 이미 text[]
+      weight_g: weight_g
+      size_mm: size_mm_raw
+      connectivity_interface: connectivity_interface
+
+  mouse:
+    label: 마우스
+    product_type: mouse
+    spec_table: catalog.mouse_spec
+    columns:
+      model_number: model_number_raw
+      category_label: category_label_raw
+      form_factor: form_factor_raw
+      sensor: sensor_raw
+      dpi_range: dpi_range_raw              # 예: "100~8,000" → E9가 최댓값만 취함
+      polling_rate: polling_rate_raw        # 예: "125~2,000Hz" → E9가 최댓값(2000)만 취함. 84행 중 57행 공란(C6)
+      button_count: button_count_raw
+      switch_click: switch_click_raw
+      connectivity: connectivity
+      battery_power: battery_power_raw
+      color_options: color_options_raw
+      weight_g: weight_g
+      size_mm: size_mm_raw
+      connectivity_interface: connectivity_interface
+
+  speaker:
+    label: 스피커
+    product_type: speaker
+    spec_table: catalog.speaker_spec
+    columns:
+      speaker_form: speaker_form_raw
+      connectivity: connectivity
+      channels: channels_raw                # 예: "2.1" → E9가 채널 수로 해석
+      output_power: output_power_raw        # 예: "10W x2" → E9가 총 출력으로 해석
+      impedance: impedance_raw
+      signal_noise_ratio: signal_noise_ratio_raw
+      sensitivity: sensitivity_raw
+      power_source: power_source_raw
+      enclosure: enclosure_raw
+      note: note_raw
+      weight_g: weight_g
+      size_mm: size_mm_raw
+      connectivity_interface: connectivity_interface
+
+# 종류별 랭킹 가중치. 축은 가격/선호적합/데이터충실/리뷰 넷으로 고정.
+# 리뷰축은 항상 0 — 대조군이 PC 부품(REVIEW_RISK_CONTROL_SCOPE)이라 주변기기 관측은
+# 영구히 "모름"이기 때문이다(계획 E11, 현황 문서 §4.2). 나머지 세 축의 합은 1.
+# 값은 전부 잠정치다 — 실측 근거 없이 임의로 배분했고, R-2(데이터 보강) 이후 재조정 대상이다.
+ranking:
+  monitor:
+    weights: {가격: 0.35, 선호적합: 0.35, 데이터충실: 0.30, 리뷰: 0.0}   # 잠정값
+  keyboard:
+    weights: {가격: 0.40, 선호적합: 0.35, 데이터충실: 0.25, 리뷰: 0.0}   # 잠정값
+  mouse:
+    weights: {가격: 0.40, 선호적합: 0.35, 데이터충실: 0.25, 리뷰: 0.0}   # 잠정값
+  speaker:
+    weights: {가격: 0.45, 선호적합: 0.30, 데이터충실: 0.25, 리뷰: 0.0}   # 잠정값
+
+# E9 — 원문 스펙 텍스트 파서(src/engine/peripheral_parse.py)가 쓰는 분류표.
+# resolution_classes: 모니터 해상도 "WxH" → 등급 이름. data/peripherals/monitor_processed.csv
+# 실측 8종 해상도(1920x1080·2560x1440·3440x1440·3840x2160·5120x1440·5120x2160·5120x2880·
+# 6144x3456) 중 여기 없는 조합(5K 계열, 6144x3456 등)은 파싱 실패가 아니라 class="OTHER"로
+# 분류된다(계획 §3.3 E9) — 미분류일 뿐 원문 파싱 자체는 성공했다는 뜻이라 None과 구분한다.
+# 코드가 아니라 여기 값을 바꾸면 등급 분류가 바뀐다(peripheral_rules.py 로더가 형식을 검증).
+parsing:
+  resolution_classes:
+    FHD: [[1920, 1080]]
+    QHD: [[2560, 1440]]
+    QHD_WIDE: [[3440, 1440]]
+    UHD: [[3840, 2160]]
+
+# E10 — 종류별 요구사양 룩업(추천엔진_구현계획 §3.3 E10). 전부 **잠정값**이다 — 실측 근거
+# 없이 계획 표(§3.3 "표 | 종류 | 하드 조건 | 소프트 선호")의 예시를 그대로 옮겼고, R-2
+# (데이터 보강) 뒤 재조정 대상이다. 값을 만드는 코드는 src/engine/peripheral_requirement.py.
+#
+# 하드 조건은 monitor 에만 둔다. 나머지 셋(키보드·마우스·스피커)은 데이터 결손이 커서
+# (마우스 폴링레이트 84행 중 57행 공란 — C6) 하드 조건을 걸면 곧바로 빈 결과가 된다.
+# 대신 선호(soft)로만 쓰고 결손은 Pending 감점(E11)으로 다룬다.
+#
+# soft 항목의 형식은 E11(선언형 규칙 평가기)이 읽을 {key, op, value} 목록이다.
+# op ∈ min | max | equals | member_of | contains_any. 여기서는 형식 정의와 로더 검증만
+# 하고 평가(적합 여부 판정)는 하지 않는다 — 그건 E11의 몫이다. key 는 반드시 해당 종류의
+# "판정 가능 키"(kinds.<kind>.columns 의 엔진 키 ∪ peripheral_parse.PARSED_KEYS_BY_KIND)
+# 안에 있어야 한다(로더 검증).
+#
+# 여러 when 조건이 같은 판정 키를 겨냥하면(예: priority=quiet 와 noise_sensitive=true 가
+# 둘 다 switch_clicky 선호를 낸다) *뒤 조건이 앞 조건을 덮지 않고* prefs 목록에 전부
+# 쌓인다(src/engine/peripheral_requirement.py 의 _build_soft 참고) — 중복 선호를 하나로
+# 합치거나 가중치를 나누는 정책은 E11 이 정한다. E10 은 병합 정책을 미리 정하지 않는다.
+requirements:
+  monitor:
+    # 하드: PC 조건 resolution(FHD_144/QHD_165/4K) → 허용 resolution_class 목록 + 주사율
+    # 하한. "이상"이 아니라 "일치"로 두는 이유(계획 §3.3): PC 의 GPU 등급이 이 해상도를
+    # 목표로 잡혔다. 4K 모니터를 FHD 용 GPU 에 붙이면 성능 목표가 어긋난다.
+    hard:
+      # 해상도 enum → "정등급"(주 등급) 하나. 등급 이름은 위 parsing.resolution_classes 에
+      # 있어야 한다(로더 검증).
+      resolution_class_by_res:
+        FHD_144: FHD
+        QHD_165: QHD
+        "4K": UHD
+      # 정등급 → 하드 조건에 실제로 허용할 resolution_class 목록. 기본은 정등급 자기
+      # 자신만 포함한다 — QHD_165 에 QHD_WIDE(3440x1440)를 포함하지 않는다.
+      # 이유: GPU 목표가 16:9 QHD(2560x1440, 약 369만 화소) 기준으로 잡혔는데 QHD_WIDE 는
+      # 3440x1440(약 495만 화소)로 화소가 약 34% 더 많다 — 같은 GPU 등급으로는 목표
+      # 프레임을 못 미친다. 울트라와이드를 포함하도록 정책이 바뀌면 이 표에 QHD_WIDE 를
+      # 추가하면 된다(코드 변경 없음).
+      res_class_members:
+        FHD: [FHD]
+        QHD: [QHD]
+        UHD: [UHD]
+      # 해상도 enum → 주사율 하한(Hz). 계획 표: FHD_144→144, QHD_165→165, 4K→60(게임이면 120).
+      refresh_min_hz_by_res:
+        FHD_144: 144
+        QHD_165: 165
+        "4K": 60
+      # {해상도: {purpose: 하한}} — 있으면 refresh_min_hz_by_res 값을 덮어쓴다.
+      refresh_min_hz_purpose_override:
+        "4K":
+          game: 120
+    # 소프트: creation(창작) 용도면 IPS/OLED 패널을 선호한다. panel_raw 는 원문 텍스트라
+    # contains_any(원문 키워드 포함 여부)로 판정한다. 밝기·응답속도는 데이터가 있지만
+    # 계획 표가 구체적인 하한을 주지 않아(잠정값조차 없음) 이번 절에는 넣지 않는다 —
+    # 근거 없는 숫자를 지어내지 않는다(계획 §4 원칙 2).
+    soft:
+      - when: {purpose: creation}
+        prefs:
+          - {key: panel_raw, op: contains_any, value: [IPS, OLED]}
+
+  keyboard:
+    # priority=quiet 또는 noise_sensitive=true → 클릭형이 아닌 스위치 선호.
+    # purpose=game → 래피드 트리거·마그네틱 선호(계획 표는 "또는"이지만 서로 다른 스펙
+    # 키라 하나의 pref 로 합칠 수 없다 — 둘 다 별개 선호로 등재하고 적합도 합산은 E11 몫이다).
+    soft:
+      - when: {priority: quiet}
+        prefs:
+          - {key: switch_clicky, op: equals, value: false}
+      - when: {noise_sensitive: true}
+        prefs:
+          - {key: switch_clicky, op: equals, value: false}
+      - when: {purpose: game}
+        prefs:
+          - {key: switch_magnetic, op: equals, value: true}
+          - {key: rapid_trigger, op: equals, value: true}
+
+  mouse:
+    # purpose=game → 폴링레이트 1000Hz 이상. office/study → 무선. 블루투스는 별도 pref로
+    # 두지 않는다 — 전체 카탈로그(84행)에서 connectivity_bluetooth=true인 40행이 전부
+    # connectivity_wireless=true도 같이 갖고 있어(parse_connectivity가 블루투스를 무선의
+    # 부분집합으로 관측), connectivity_wireless=true 하나로 이미 블루투스 마우스를 포함한다.
+    # 둘 다 넣으면 "무선 또는 블루투스"가 AND처럼 겹세서 세지는 이중 계산이 된다
+    # (tests/test_peripheral_requirement.py::test_bluetooth_mice_are_always_also_wireless_in_full_catalog
+    # 가 이 사실을 고정한다 — 깨지면 이 가정을 다시 본다).
+    soft:
+      - when: {purpose: game}
+        prefs:
+          - {key: polling_hz_max, op: min, value: 1000}
+      - when: {purpose: office}
+        prefs:
+          - {key: connectivity_wireless, op: equals, value: true}
+      - when: {purpose: study}
+        prefs:
+          - {key: connectivity_wireless, op: equals, value: true}
+
+  speaker:
+    # office → USB 전원 계열(원문 키워드 포함). game → 2채널 이상.
+    soft:
+      - when: {purpose: office}
+        prefs:
+          - {key: power_source_raw, op: contains_any, value: [USB]}
+      - when: {purpose: game}
+        prefs:
+          - {key: channels, op: min, value: 2}
+
+# E12 — 모니터↔PC 교차 검사(추천엔진_구현계획 §3.3 E12). 코드는 src/engine/peripheral_cross.py.
+# 결과는 모니터 품목의 쟁점으로만 들어가고 PC 세트 신뢰도에는 영향을 주지 않는다.
+#
+# port_modes: 단자 버전 → 그 버전이 (DSC 없이) 낼 수 있는 해상도 등급별 최대 주사율(Hz).
+# **잠정값이며 출처 확인이 필요하다** — HDMI Forum·VESA 규격의 대역폭(HDMI 1.4 10.2Gbps,
+# 2.0 18Gbps, 2.1 48Gbps / DP 1.2 21.6Gbps, 1.4 32.4Gbps, 2.1 80Gbps)에서 8bit 색·일반
+# 블랭킹을 가정해 어림한 값이다. 표에 없는 등급(QHD_WIDE·OTHER)은 판정하지 않고 Pending이다.
+# 버전은 "주.부" 문자열로 적는다. 실제 버전이 표에 없으면(예: 2.0b) 그 이하 중 가장 높은
+# 버전의 행을 쓴다(peripheral_cross.mode_row).
+#
+# 그래픽카드 쪽 단자 데이터(gpu_spec 의 hdmi_version/dp_version/포트 수)는 아직 카탈로그에
+# 없다(R-1). 그래서 지금은 단자 검사가 항상 Pending 이다. GPU 후보 specs 에 gpu_keys 의 키가
+# 생기면(catalog_repo SELECT 추가만으로) 코드 변경 없이 ok/fail 로 판정된다.
+verify:
+  gpu_keys:
+    hdmi_version: hdmi_version
+    hdmi_ports: hdmi_ports
+    dp_version: dp_version
+    dp_ports: dp_ports
+    usb_c_video_out: usb_c_video_out     # USB-C(DP Alt)/Thunderbolt 영상 출력 여부(bool)
+  port_modes:                            # 잠정값 — 출처 필요
+    hdmi:
+      "1.4": {FHD: 120, QHD: 75, UHD: 30}
+      "2.0": {FHD: 240, QHD: 144, UHD: 60}
+      "2.1": {FHD: 360, QHD: 240, UHD: 144}
+    dp:
+      "1.2": {FHD: 240, QHD: 165, UHD: 60}
+      "1.4": {FHD: 360, QHD: 240, UHD: 120}
+      "2.1": {FHD: 480, QHD: 360, UHD: 240}
