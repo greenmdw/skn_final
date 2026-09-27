@@ -24,7 +24,7 @@ from uuid import UUID
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response
 
 from src import schemas
 from src.agent import spec_extraction_agent
@@ -35,7 +35,7 @@ from src.engine.owned_parts import preview_current_specs
 from src.engine.spec_text import parse_spec_text
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.errors import ServiceUnavailable, ValidationFailed
-from src.services import quote_chat_service, quote_review_service
+from src.services import quote_apply, quote_chat_service, quote_review_service, recommendation_service
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/pc", tags=["pc-check"])
@@ -130,6 +130,25 @@ def get_quote_review(list_id: UUID, principal: Principal = Depends(optional_prin
     with get_conn() as conn:
         review = quote_review_service.get_review(conn, list_id, principal)
     return _review_out(str(list_id), review)
+
+
+@router.post("/reviews/{list_id}/apply", response_model=schemas.QuoteApplyOut, status_code=201)
+def apply_quote_alternative(
+    list_id: UUID, body: schemas.QuoteApplyIn, response: Response, background_tasks: BackgroundTasks,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.QuoteApplyOut:
+    """비교 결과의 대안을 받아들여 새 계획을 만든다(CHK-08) — 고른 부품은 업그레이드 대상, 나머지는 견적 그대로 유지.
+    업그레이드 추천(mode=upgrade)을 재사용한다. 필수 조건이 다 있으면 바로 추천을 시작한다."""
+    with get_conn() as conn:
+        result = quote_apply.apply_alternative(conn, list_id, principal, body.slots)
+    if result["browser_token"]:
+        response.set_cookie("truefit_guest", result["browser_token"],
+                            httponly=True, samesite="lax", max_age=60 * 60 * 24 * 180)
+    if result["run_id"]:
+        background_tasks.add_task(recommendation_service.execute_recommendation,
+                                  UUID(result["revision_id"]), UUID(result["run_id"]))
+    return schemas.QuoteApplyOut(list_id=result["list_id"], slots=result["slots"], missing=result["missing"],
+                                 run_id=result["run_id"])
 
 
 @router.get("/reviews/{list_id}/parts/{slot}/compare", response_model=schemas.QuotePartCompareOut)

@@ -226,3 +226,23 @@ def test_a_reedited_review_keeps_the_same_conversation(client):
     client.post(f"/pc/reviews/{list_id}/messages", json={"text": "호환은?"})
     client.put(f"/pc/reviews/{list_id}", json={"current_specs": {"CPU": "라이젠 5 7600 250,000원"}})
     assert len(client.get(f"/pc/reviews/{list_id}/messages").json()["messages"]) == 2
+
+
+# ── 부품별 가격 서술 가드 (2026-09-27 실측 결함) ─────────────────────────────────────────
+
+def test_price_claims_guard_catches_a_state_attached_to_the_wrong_part(review):
+    from src.agent.quote_review_agent import price_claims_are_grounded
+    # 메인보드는 no_catalog(비교 안 함)인데 "비쌌다"고 잘못 붙인 문장 — 진짜 숫자만 쓰였어도 잡아야 한다.
+    bad = "GPU는 견적이 비쌌습니다. 메인보드도 비쌌습니다. RAM은 더 쌌습니다."
+    assert price_claims_are_grounded(bad, review) is False
+
+
+def test_price_claims_guard_accepts_a_correct_single_part_claim(review):
+    from src.agent.quote_review_agent import price_claims_are_grounded
+    assert price_claims_are_grounded("GPU는 견적이 더 저렴했습니다.", review) is True
+    assert price_claims_are_grounded("메인보드는 카탈로그에서 찾지 못해 비교하지 못했습니다.", review) is True
+
+
+def test_price_claims_guard_skips_clauses_with_several_parts_to_avoid_false_positives(review):
+    from src.agent.quote_review_agent import price_claims_are_grounded
+    assert price_claims_are_grounded("CPU와 GPU는 가격을 비교했습니다.", review) is True

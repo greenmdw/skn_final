@@ -175,6 +175,35 @@ def _numbers(text: str) -> set[str]:
     return {m.group(0).replace(",", "").rstrip(".") for m in _NUM_RE.finditer(text or "")}
 
 
+_SLOT_NAMES = ("CPU", "GPU", "RAM", "메인보드", "저장장치", "파워", "케이스", "쿨러")
+_PRICIER_PAT = re.compile(r"비싸|비쌌|웃돌|더\s*비쌈|가격이\s*높")
+_CHEAPER_PAT = re.compile(r"저렴|더\s*쌈|가격이\s*낮|보다\s*낮")
+
+
+def price_claims_are_grounded(reply: str, review: dict) -> bool:
+    """"메인보드는 비쌌고" 처럼, 실제로는 비교하지 않은(no_catalog 등) 부품에 비쌈/쌈을 붙이는 오류를 잡는다.
+
+    숫자 가드는 답의 숫자가 입력에 있었는지만 보므로, 진짜 숫자(합계 등)를 실제와 다른 부품에 붙이는 실수는
+    통과시킨다(2026-09-27 실측: 가격 비교 3부품 중 1건만 pricier인데 "CPU와 메인보드가 비쌌다"고 답함).
+    한 절에 부품 이름이 하나만 나오는 경우만 검사한다 — 여러 부품이 한 절에 섞이면 어느 쪽 서술인지
+    코드가 안전하게 가르지 못해 넘어간다(과탐 방지)."""
+    rows = {r["part"]: r["state"] for r in (review.get("prices") or {}).get("rows") or []}
+    if not rows:
+        return True
+    for clause in re.split(r"[.,]|이며|지만|그러나|그리고", reply):
+        present = [s for s in _SLOT_NAMES if s in clause]
+        if len(present) != 1:
+            continue
+        state = rows.get(present[0])
+        if state is None:
+            continue
+        if _PRICIER_PAT.search(clause) and state != "pricier":
+            return False
+        if _CHEAPER_PAT.search(clause) and state != "cheaper":
+            return False
+    return True
+
+
 def reply_is_grounded(reply: str, sources: list[str]) -> tuple[bool, set[str], list[str]]:
     """(통과 여부, 입력에 없던 숫자, 걸린 평가어)."""
     allowed: set[str] = set()
@@ -212,6 +241,7 @@ def run_turn(review: dict, history: list[tuple[str, str]], text: str,
     )
     reply = str(agent(text)).strip()
     ok, outside, bad = reply_is_grounded(reply, [prompt, text, *session.outputs])
+    ok = ok and price_claims_are_grounded(reply, review)
     if not ok:
         log.warning("quote review agent reply rejected (numbers %s, words %s) — replaced: %r", sorted(outside), bad, reply[:120])
         facts = pre or overview

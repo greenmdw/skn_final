@@ -225,6 +225,19 @@ class QuotePartCompareOut(BaseModel):
     note: str | None = None
 
 
+class QuoteApplyIn(BaseModel):
+    # 새 계획에서 업그레이드 대상으로 삼을 부품(견적에 적힌 값은 버리고 추천이 다시 고른다).
+    # 나머지 부품은 견적에 적힌 대로 유지한다.
+    slots: list[str] = Field(min_length=1, max_length=8)
+
+
+class QuoteApplyOut(BaseModel):
+    list_id: str                            # 새로 만들어진 계획(세션) id
+    slots: list[str]
+    missing: list[str] = Field(default_factory=list)   # 비어 있지 않으면 이 조건들을 먼저 채워야 추천을 받을 수 있다
+    run_id: str | None = None               # missing 이 비어 있으면 즉시 추천을 시작한 run id
+
+
 class QuoteChatIn(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
 
