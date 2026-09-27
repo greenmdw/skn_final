@@ -12,24 +12,64 @@ from collections.abc import Iterable
 from typing import Any
 
 from src.dto import Candidate
+from src.engine.compat_parse import parse_module_count
+from src.engine.quote_price import line_quantity, strip_price
 from src.engine.stage2_requirement import normalize_pc_slot
 
 # 모델 식별에 도움이 안 되는 말 — 비교에서 뺀다.
-_GENERIC = {"nvidia", "geforce", "amd", "radeon", "intel", "core", "ryzen", "gb", "tb", "mhz", "rgb", "ddr",
-            "그래픽카드", "그래픽", "프로세서", "메모리"}
+_GENERIC = {"nvidia", "geforce", "amd", "radeon", "intel", "core", "ryzen", "gb", "tb", "mhz", "rgb", "ddr", "x",
+            "그래픽카드", "그래픽", "프로세서", "메모리", "패키지", "정품", "벌크", "멀티팩", "한글"}
 _SOCKET = re.compile(r"\b(AM[345]|LGA\s*-?\s*\d{3,4})\b", re.IGNORECASE)
 _DDR = re.compile(r"\bDDR\s*([345])\b", re.IGNORECASE)
 _WATT = re.compile(r"(\d{3,4})\s*W\b", re.IGNORECASE)
-_MODEL_DIGITS = re.compile(r"\d{3,}")
+_CAPACITY = re.compile(r"\d+(gb|tb)")
+
+# 한글 표기·약칭 → 카탈로그 이름에 쓰는 영문 낱말. 견적 캡처·판매글은 "라이젠", "기가바이트", "WD"처럼 적는 게 흔한데
+# 카탈로그는 "Ryzen", "GIGABYTE", "Western Digital"이라 같은 제품인데도 낱말이 안 맞아 대응을 놓쳤다. 양쪽(글·카탈로그
+# 이름)에 같이 적용하므로 "커세어 (Corsair)"처럼 둘이 병기된 이름도 어느 쪽으로 적어도 맞는다.
+_ALIASES: dict[str, tuple[str, ...]] = {
+    "라이젠": ("ryzen",), "인텔": ("intel",), "코어": ("core",), "엔비디아": ("nvidia",), "지포스": ("geforce",),
+    "라데온": ("radeon",), "삼성전자": ("samsung",), "삼성": ("samsung",), "기가바이트": ("gigabyte",),
+    "에이수스": ("asus",), "아수스": ("asus",), "엠에스아이": ("msi",), "애즈락": ("asrock",),
+    "마이크로닉스": ("micronics",), "시소닉": ("seasonic",), "커세어": ("corsair",), "잘만": ("zalman",),
+    "리안리": ("lian", "li"), "쿨러마스터": ("cooler", "master"), "안텍": ("antec",), "프랙탈": ("fractal",),
+    "디자인": ("design",), "다크플래쉬": ("darkflash",), "다크플래시": ("darkflash",), "하이트": ("hyte",),
+    "써멀라이트": ("thermalright",), "써모라이트": ("thermalright",), "써멀테이크": ("thermaltake",),
+    "녹투아": ("noctua",), "딥쿨": ("deepcool",), "존스보": ("jonsbo",), "조너스본": ("jonsbo",),
+    "슈퍼플라워": ("superflower",), "에너맥스": ("enermax",), "몬테크": ("montech",), "판텍스": ("phanteks",),
+    "킹스톤": ("kingston",), "마이크론": ("micron",), "크루셜": ("crucial",), "에센코어": ("essencore",),
+    "클레브": ("klevv",), "팀그룹": ("teamgroup",), "지스킬": ("g", "skill"), "웨스턴디지털": ("western", "digital"),
+    "wd": ("western", "digital"), "토마호크": ("tomahawk",), "박격포": ("mortar",), "화이트": ("white",),
+    "블랙": ("black",), "풀모듈러": ("modular",),
+}
+# 유통사·판매처 표기 — 제품 식별에 안 쓴다(카탈로그 이름에 붙어 있어도 글에 없다고 대응을 포기하지 않는다).
+_GENERIC |= {"대원씨티에스", "서린", "피씨디렉트", "브이텍", "제이씨현", "코잇", "이엠텍", "다나와"}
 
 
 def _tokens(text: str) -> list[str]:
-    parts = (re.sub(r"[^0-9a-z가-힣]", "", p.lower()) for p in re.split(r"[\s,/()]+", str(text)))
-    return [p for p in parts if p]
+    t = str(text).lower()
+    t = re.sub(r"(rtx|gtx|rx|ryzen)(?=\d)", r"\1 ", t)                        # "RTX3060" -> "rtx 3060"
+    t = re.sub(r"([가-힣])(?=[a-z0-9])|([a-z0-9])(?=[가-힣])", lambda m: (m.group(1) or m.group(2)) + " ", t)  # "라이젠5"
+    parts = (p for p in re.split(r"[^0-9a-z가-힣]+", t) if p)
+    return [word for p in parts for word in _ALIASES.get(p, (p,))]
 
 
 def _significant(tokens: Iterable[str]) -> list[str]:
-    return [t for t in tokens if t not in _GENERIC and not re.fullmatch(r"\d+(gb|tb)", t)]
+    return [t for t in tokens if t not in _GENERIC and not _CAPACITY.fullmatch(t)]
+
+
+def _is_model_token(token: str) -> bool:
+    """모델 번호로 보이는 낱말 — 숫자가 들어 있고 두 글자 이상(i5·H9·P30·7600). 브랜드만 적은 글은 대응을 시도하지 않는다."""
+    return len(token) >= 2 and any(ch.isdigit() for ch in token)
+
+
+def _narrow_by_capacity(text: str, matches: list[Candidate]) -> list[Candidate]:
+    """같은 제품의 용량 변형(RAM 16/32GB, RTX 3050 6/8GB)은 이름 낱말이 같아 함께 걸린다 — 글에 용량이 있으면 그 용량만 남긴다."""
+    wanted = {t for t in _tokens(text) if _CAPACITY.fullmatch(t)}
+    if not wanted or len(matches) < 2:
+        return matches
+    narrowed = [c for c in matches if wanted & {t for t in _tokens(c.name) if _CAPACITY.fullmatch(t)}]
+    return narrowed or matches
 
 
 def _match_catalog(text: str, pool: list[Candidate]) -> list[Candidate]:
@@ -38,21 +78,36 @@ def _match_catalog(text: str, pool: list[Candidate]) -> list[Candidate]:
     "후보 ⊆ 글"인 이유: 실제 견적 캡처·판매글은 유통사·판매처 이름("피씨디렉트", "서린")이나 다른
     브랜드의 수식어("Colorful ... GAMING DUO")를 덧붙이는 게 관례라, 글에 그런 낱말이 섞여 있다고
     대응을 포기하면 실제 카탈로그에 있는 제품도 거의 못 찾는다(2026-09-22 실측). 그 여분 낱말은 후보
-    판정에 안 쓴다. 모델 번호로 보이는 토큰(숫자 3자리 이상)이 글에 하나는 있어야 시도한다. 대응된
+    판정에 안 쓴다. 모델 번호로 보이는 토큰이 글에 하나는 있어야 시도한다. 대응된
     후보 중 후보 이름 토큰이 가장 많이 채워진(=가장 구체적인) 것만 남긴다(RTX 3060 과 RTX 3060 Ti
-    는 애초에 "ti"가 글에 없으면 Ti 쪽이 방향성 검사에서 제외된다)."""
+    는 애초에 "ti"가 글에 없으면 Ti 쪽이 방향성 검사에서 제외된다). 글에 용량이 있으면 그 용량 변형만 남긴다."""
     wanted = _significant(_tokens(text))
-    if not wanted or not any(_MODEL_DIGITS.search(t) for t in wanted):
+    if not wanted or not any(_is_model_token(t) for t in wanted):
         return []
+    wanted_set = set(wanted)
     scored: list[tuple[int, Candidate]] = []
     for cand in pool:
         have = _significant(_tokens(cand.name))
-        if have and all(t in wanted for t in have):
-            scored.append((len(have), cand))
+        if have and all(t in wanted_set for t in have):
+            scored.append((len(set(have)), cand))
     if not scored:
         return []
     best = max(size for size, _ in scored)
-    return [cand for size, cand in scored if size == best]
+    return _narrow_by_capacity(text, [cand for size, cand in scored if size == best])
+
+
+def _match_nearest(text: str, pool: list[Candidate]) -> Candidate | None:
+    """정확한 대응이 없을 때 — 글이 카탈로그 이름보다 *짧게* 적힌 경우("5800X3D", "Corsair RM850e")에 글의 모든
+    낱말을 포함하는 후보가 딱 하나면 그것을 가장 비슷한 제품으로 본다. 정확한 대응이 아니다(뒤에 붙는 세대·
+    변형 표기 "G2", "ATX 3.1" 를 글이 안 적었을 수 있다): 호출하는 쪽이 "같은 제품인지 확인" 상태로 낮춰 보여 준다.
+    후보가 둘 이상이면 고르지 않는다(지어내지 않는다)."""
+    wanted = set(_significant(_tokens(text)))
+    # 칩셋 이름("B650M")만으로는 어느 보드인지 모른다 — 카탈로그에 그 칩셋 보드가 하나뿐이어도 고르지 않는다.
+    identifying = [t for t in wanted if _is_model_token(t) and len(t) >= 3 and re.sub(r"M$", "", t.upper()) not in _CHIPSET_SOCKET]
+    if not identifying and len(wanted) < 3:      # 제조사·시리즈 낱말이 더 있으면("MSI 박격포 B760M") 칩셋이어도 후보가 좁혀진다
+        return None
+    near = [c for c in pool if wanted <= set(_significant(_tokens(c.name)))]
+    return near[0] if len(near) == 1 else None
 
 
 def _common_specs(matches: list[Candidate]) -> dict[str, Any]:
@@ -117,6 +172,155 @@ def infer_board_socket(text: str) -> str | None:
     return _CHIPSET_SOCKET.get(chipset.group(1)) if chipset else None
 
 
+# ── 견적 글에서 더 읽는 스펙 ──────────────────────────────────────────────────────────────────
+# 카탈로그에 없는 부품도 견적 글에 적힌 표기("DDR5-5600 16GB x2", "mATX", "SFX-L", "360 수랭", "M.2 NVMe Gen4")에서
+# 호환 검사가 쓰는 값을 읽는다. 글에 그대로 적힌 값은 확정, 이름의 관례로 짐작한 값(칩셋의 M = mATX, 미들타워 = ATX
+# 지원 …)은 추정으로 구분한다. 읽지 못하면 채우지 않는다 — 호환 검사가 "확인 못 함"으로 넘긴다.
+_RAM_SPEED = re.compile(r"DDR[345]\s*[-_ ]\s*(\d{4,5})|(\d{4,5})\s*(?:MHZ|MT/?S)", re.IGNORECASE)
+_RAM_KIT = re.compile(r"(\d{1,3})\s*G(?:B)?\)?\s*[x×*]\s*(\d)\b", re.IGNORECASE)
+_RAM_SIZE = re.compile(r"(\d{1,3})\s*GB?\b", re.IGNORECASE)
+_BOARD_CHIPSET_M = re.compile(r"(?<![A-Z0-9])[ABHXZ]\d{3}M(?![A-Z0-9])")
+_RADIATORS = (120, 140, 240, 280, 360, 420, 480)
+
+
+def _ram_specs(text: str) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    speed = _RAM_SPEED.search(text)
+    if speed:
+        out["speed_mts"] = int(speed.group(1) or speed.group(2))
+    kit = _RAM_KIT.search(text)
+    if kit:
+        each, count = int(kit.group(1)), int(kit.group(2))
+        out["capacity_gb"], out["module_config"] = each * count, f"{each}GB × {count}"
+    else:
+        size = _RAM_SIZE.search(text)
+        if size:
+            out["capacity_gb"] = int(size.group(1))
+    return out
+
+
+def _vram_from_text(text: str) -> int | None:
+    """"RTX 4060 Ti 8GB" 의 8 — 그래픽카드 글에 적힌 VRAM(2~48GB 로 읽히는 값만)."""
+    m = re.search(r"(?<![\d.])(\d{1,2})\s*GB\b", text, re.IGNORECASE)
+    return int(m.group(1)) if m and 2 <= int(m.group(1)) <= 48 else None
+
+
+def _scale_ram_to_quote(specs: dict[str, Any], text: str) -> dict[str, Any]:
+    """카탈로그 RAM 은 낱개("16GB × 1") 상품일 수 있는데 견적은 "16GB x2"·"2개"로 여러 장을 적는다 — 그 장수만큼
+    총 용량과 모듈 수를 맞춘다. 안 그러면 32GB 를 산 견적이 16GB 로 읽혀 용량 부족·슬롯 검사가 틀린다."""
+    per = parse_module_count(specs.get("module_config")) or 1
+    wanted = line_quantity(text)
+    capacity = specs.get("capacity_gb")
+    if wanted == per or not isinstance(capacity, (int, float)) or not per:
+        return specs
+    each = capacity / per
+    scaled = dict(specs)
+    scaled["capacity_gb"] = int(each * wanted) if float(each * wanted).is_integer() else each * wanted
+    scaled["module_config"] = f"{int(each) if float(each).is_integer() else each}GB × {wanted}"
+    return scaled
+
+
+def _board_form(text: str) -> tuple[str | None, bool]:
+    """(폼팩터, 추정 여부). 글에 적힌 표기가 우선이고, 없으면 칩셋 뒤의 M(B650M·H610M)을 mATX 로 짐작한다."""
+    upper = text.upper()
+    if re.search(r"E-?ATX", upper):
+        return "E-ATX", False
+    if re.search(r"MINI[\s-]?ITX|미니\s*ITX|(?<![A-Z])ITX", upper):
+        return "Mini-ITX", False
+    if re.search(r"M-?ATX|MICRO[\s-]?ATX|마이크로\s*ATX", upper):
+        return "mATX", False
+    if re.search(r"(?<![A-Z0-9])ATX(?![A-Z0-9])", upper):
+        return "ATX", False
+    return ("mATX", True) if _BOARD_CHIPSET_M.search(upper) else (None, False)
+
+
+def _psu_form(text: str) -> tuple[str | None, bool]:
+    upper = text.upper()
+    for pattern, name in ((r"SFX[\s-]*L", "SFX-L"), (r"SFX", "SFX"), (r"TFX", "TFX")):
+        if re.search(pattern, upper):
+            return name, False
+    # "ATX 3.1" 은 원래 규격 이름이지만 SFX·TFX 표기가 없는 파워는 사실상 ATX 폼팩터다 — 추정으로 남긴다.
+    return ("ATX", True) if "ATX" in upper else (None, False)
+
+
+_TOWER_FORMS = (                      # 타워 크기 표기 → 지원하는 가장 큰 보드(그보다 작은 보드는 다 들어간다)
+    (r"풀\s*타워|빅\s*타워|FULL[\s-]?TOWER", "E-ATX"),
+    (r"미들\s*타워|MID[\s-]?TOWER|미드\s*타워", "ATX"),
+    (r"미니\s*타워|마이크로\s*타워|MINI[\s-]?TOWER", "mATX"),
+)
+
+
+def _case_forms(text: str) -> tuple[list[str] | None, bool]:
+    upper = text.upper()
+    listed: list[str] = []
+    for pattern, name in ((r"E-?ATX", "E-ATX"), (r"(?<![A-Z0-9-])ATX(?![A-Z0-9])", "ATX"),
+                          (r"M-?ATX|MICRO[\s-]?ATX", "mATX"), (r"MINI[\s-]?ITX|(?<![A-Z])ITX", "Mini-ITX")):
+        if re.search(pattern, upper) and name not in listed:
+            listed.append(name)
+    if listed:
+        return listed, False
+    for pattern, name in _TOWER_FORMS:
+        if re.search(pattern, upper):
+            return [name], True
+    return None, False
+
+
+def _cooler_specs(text: str) -> tuple[dict[str, Any], set[str]]:
+    upper = text.upper()
+    out: dict[str, Any] = {}
+    inferred: set[str] = set()
+    if re.search(r"수랭|일체형|AIO|LIQUID|워터", upper):
+        out["cooling_type"] = "Liquid (AIO)"
+        rad = [int(n) for n in re.findall(r"(?<![0-9])(\d{3})(?![0-9])", upper) if int(n) in _RADIATORS]
+        if rad:
+            out["radiator_mm"], _ = rad[-1], inferred.add("radiator_mm")      # 이름 끝의 숫자가 라디에이터 크기인 게 관례
+    elif re.search(r"공랭|(?<![A-Z])AIR(?![A-Z])|타워형|TOWER", upper):
+        out["cooling_type"] = "Air"
+    height = re.search(r"(?:높이|HEIGHT)\s*:?\s*(\d{2,3})\s*MM", upper)
+    if height:
+        out["height_mm"] = int(height.group(1))
+    return out, inferred
+
+
+def _storage_specs(text: str) -> tuple[dict[str, Any], set[str]]:
+    upper = text.upper()
+    out: dict[str, Any] = {}
+    inferred: set[str] = set()
+    if re.search(r"M\.?2|NVME|엔브이엠이", upper):
+        out["form_factor"] = "M.2 2280" if "2280" in upper else "M.2"
+    elif re.search(r"SATA|사타|2\.5", upper):
+        out["form_factor"] = "2.5-inch SATA"
+    size = re.search(r"(?<![\d.])(\d+(?:\.\d+)?)\s*(TB|GB)\b", upper)
+    if size:
+        out["capacity_gb"] = round(float(size.group(1)) * (1000 if size.group(2) == "TB" else 1))
+    gen = re.search(r"PCI[E]?\s*-?\s*(\d)(?:\.0)?|GEN\s*-?\s*(\d)", upper)
+    if gen and "form_factor" in out and out["form_factor"].startswith("M.2"):
+        out["interface"] = f"PCIe {gen.group(1) or gen.group(2)}.0 x4"
+    return out, inferred
+
+
+def _extra_specs_from_text(slot: str, text: str) -> tuple[dict[str, Any], set[str]]:
+    if slot == "RAM":
+        return _ram_specs(text), set()
+    if slot == "메인보드":
+        form, guessed = _board_form(text)
+        return ({"form_factor": form}, {"form_factor"} if guessed else set()) if form else ({}, set())
+    if slot == "파워":
+        form, guessed = _psu_form(text)
+        return ({"form_factor": form}, {"form_factor"} if guessed else set()) if form else ({}, set())
+    if slot == "케이스":
+        forms, guessed = _case_forms(text)
+        out: dict[str, Any] = {}
+        if forms:
+            out["supports_form_factors"] = forms
+        return out, ({"supports_form_factors"} if guessed else set())
+    if slot == "쿨러":
+        return _cooler_specs(text)
+    if slot == "저장장치":
+        return _storage_specs(text)
+    return {}, set()
+
+
 def _specs_from_text(slot: str, text: str) -> tuple[dict[str, Any], set[str]]:
     """카탈로그와 대응되지 않을 때 글에서 읽는다. (스펙, 규칙으로 *추정*한 키). 글에 그대로 적힌 값은 확정,
     모델명·칩셋 규칙으로 얻은 값은 추정으로 구분해 남긴다."""
@@ -140,6 +344,10 @@ def _specs_from_text(slot: str, text: str) -> tuple[dict[str, Any], set[str]]:
         watt = _WATT.search(text)
         if watt:
             specs["wattage_w"] = int(watt.group(1))
+    extra, extra_inferred = _extra_specs_from_text(slot, text)
+    for key, value in extra.items():
+        specs.setdefault(key, value)                 # 위에서 이미 읽은 값(소켓·DDR·용량)을 덮지 않는다
+    inferred |= {k for k in extra_inferred if k in extra and specs.get(k) == extra[k]}
     return specs, inferred
 
 
@@ -158,12 +366,38 @@ def resolve_owned_parts(current_specs: Any, by_slot: dict[str, list[Candidate]],
         text = given.get(slot)
         if not text or not str(text).strip():
             continue
-        text = str(text).strip()
-        # RAM 은 용량("32GB")만으로는 제품을 특정할 수 없어 카탈로그 대응을 하지 않는다.
-        matches = [] if slot == "RAM" else _match_catalog(text, by_slot.get(slot, []))
+        text = strip_price(str(text).strip())      # 견적에 적힌 가격("520,000원")은 이름 매칭·스펙 읽기에 섞지 않는다
+        if not text:
+            continue
+        # RAM 은 용량("32GB")만으로는 제품을 특정할 수 없다 — 모델 번호(속도 등)와 제조사 이름이 함께 있어야
+        # 대응되므로 "DDR5 32GB" 만 적은 글은 여기서 대응되지 않는다(모델 토큰 조건 + 카탈로그 이름의 제조사 낱말).
+        matches = _match_catalog(text, by_slot.get(slot, []))
         if matches:
-            owned[slot] = {"name": matches[0].name if len(matches) == 1 else text,
-                           "specs": _common_specs(matches), "source": "catalog"}
+            # 카탈로그 가격은 후보가 하나로 좁혀졌거나 모두 같을 때만 — 용량 변형이 남아 있으면 어느 가격인지 모른다(가격 비교용).
+            prices = {c.price for c in matches if c.price}
+            specs = _common_specs(matches)
+            variant_mismatch = False
+            if slot == "RAM":
+                specs = _scale_ram_to_quote(specs, text)
+            elif slot == "GPU":
+                # 같은 GPU 모델의 VRAM 변형(RTX 4060 Ti 8GB/16GB) — 글에 적힌 용량이 카탈로그와 다르면 글을 따르고,
+                # 카탈로그 가격은 다른 변형의 것이라 비교에 쓰지 않는다.
+                written_vram = _vram_from_text(text)
+                catalog_vram = specs.get("vram_gb")
+                if written_vram and catalog_vram and written_vram != catalog_vram:
+                    specs = {**specs, "vram_gb": float(written_vram)}
+                    variant_mismatch = True
+            elif slot == "저장장치":
+                written = _storage_specs(text)[0].get("capacity_gb")          # 같은 모델의 용량 변형 — 글에 적힌 용량이 우선
+                if written:
+                    specs = {**specs, "capacity_gb": written}
+            owned[slot] = {"name": matches[0].name if len(matches) == 1 else text, "specs": specs, "source": "catalog",
+                           "catalog_price": prices.pop() if len(prices) == 1 and not variant_mismatch else None,
+                           "product_key": matches[0].product_key if len(matches) == 1 else None}
+            continue
+        nearest = _match_nearest(text, by_slot.get(slot, []))
+        if nearest is not None:
+            owned[slot] = {"name": text, "specs": dict(nearest.specs), "source": "candidate", "candidate": nearest.name}
             continue
         specs, inferred = _specs_from_text(slot, text)
         owned[slot] = {"name": text, "specs": specs,
@@ -195,7 +429,12 @@ def constrain_targets(spec) -> None:
         spec.targets["RAM"]["type"] = board_mem
 
 
-_PREVIEW_STATE = {"catalog": "ok", "text": "warn", "inferred": "warn", "unverified": "warn"}
+_SPEC_LABEL = {
+    "socket": "소켓", "mem_type": "메모리 규격", "wattage_w": "용량(W)", "speed_mts": "속도(MT/s)",
+    "capacity_gb": "용량(GB)", "module_config": "구성", "form_factor": "크기", "supports_form_factors": "지원 보드 크기",
+    "cooling_type": "방식", "radiator_mm": "라디에이터(mm)", "height_mm": "높이(mm)", "interface": "인터페이스",
+}
+_PREVIEW_STATE = {"catalog": "ok", "candidate": "warn", "text": "warn", "inferred": "warn", "unverified": "warn"}
 
 
 def _preview_note(info: dict[str, Any]) -> str:
@@ -209,7 +448,10 @@ def _preview_note(info: dict[str, Any]) -> str:
         return " · ".join(bits) if bits else "카탈로그 제품과 일치"
     if source == "unverified":
         return "확인 가능한 스펙이 없습니다."
-    parts = [f"{k}: {v}" for k, v in specs.items()]
+    if source == "candidate":
+        bits = [str(v) for v in (specs.get("socket"), specs.get("mem_type")) if v]
+        return f"카탈로그의 '{info['candidate']}'와 가장 비슷합니다 — 같은 제품인지 확인하세요" + (" · " + " · ".join(bits) if bits else "")
+    parts = [f"{_SPEC_LABEL.get(k, k)}: {'/'.join(map(str, v)) if isinstance(v, list) else v}" for k, v in specs.items()]
     prefix = "모델명·칩셋 규칙으로 추정 — " if info.get("inferred") else "글에서 읽음 — "
     return prefix + (", ".join(parts) if parts else "세부 스펙 없음")
 
@@ -234,7 +476,7 @@ def preview_current_specs(current_specs: Any, by_slot: dict[str, list[Candidate]
             continue
         original = str(text).strip()
         info = owned[slot]                    # resolve_owned_parts는 text가 있으면 반드시 항목을 만든다
-        matched = info["name"] if info["source"] == "catalog" else original
+        matched = info["name"]                # 카탈로그 대응이면 카탈로그 이름, 아니면 가격 표기를 뺀 사용자 문구
         rows.append({"part": slot, "original": original, "matched": matched,
                     "matched_note": _preview_note(info), "state": _PREVIEW_STATE[info["source"]]})
     return rows
@@ -280,7 +522,7 @@ def _fill_platform(owned: dict[str, dict[str, Any]], values: dict, targets: set[
         for slot in ("CPU", "메인보드"):
             text = given.get(slot)
             if slot in targets and text:
-                guess, _ = _specs_from_text(slot, str(text))
+                guess, _ = _specs_from_text(slot, strip_price(text))
                 if guess.get("socket"):
                     socket, basis = guess["socket"], {"kind": "replaced", "slot": slot, "model": str(text).strip()}
                     break

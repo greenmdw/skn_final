@@ -72,15 +72,16 @@ def test_inferred_values_are_labelled_and_explicit_text_is_not():
 
 def test_board_memory_type_follows_the_socket_only_when_it_is_unambiguous():
     assert _owned({"메인보드": "MSI B450 Tomahawk"})["메인보드"]["specs"] == {"socket": "AM4", "mem_type": "DDR4"}
-    assert _owned({"메인보드": "GIGABYTE B650M K"})["메인보드"]["specs"] == {"socket": "AM5", "mem_type": "DDR5"}
-    # LGA1700 은 보드마다 DDR4/DDR5 다 -> 소켓만, 메모리는 모름 (이름에 D4 가 있으면 읽는다)
-    assert _owned({"메인보드": "MSI PRO B760M-P"})["메인보드"]["specs"] == {"socket": "LGA1700"}
-    assert _owned({"메인보드": "ASUS PRIME H610M-K D4"})["메인보드"]["specs"] == {"socket": "LGA1700", "mem_type": "DDR4"}
+    assert _owned({"메인보드": "GIGABYTE B650M K"})["메인보드"]["specs"] == {"socket": "AM5", "mem_type": "DDR5", "form_factor": "mATX"}
+    # LGA1700 은 보드마다 DDR4/DDR5 다 -> 소켓만, 메모리는 모름 (이름에 D4 가 있으면 읽는다). 칩셋 뒤 M 은 mATX 로 짐작한다.
+    assert _owned({"메인보드": "MSI PRO B760M-P"})["메인보드"]["specs"] == {"socket": "LGA1700", "form_factor": "mATX"}
+    assert _owned({"메인보드": "ASUS PRIME H610M-K D4"})["메인보드"]["specs"] == {
+        "socket": "LGA1700", "mem_type": "DDR4", "form_factor": "mATX"}
 
 
 def test_explicit_ddr_in_the_text_is_confirmed_not_inferred():
     board = _owned({"메인보드": "MSI B760M DDR5"})["메인보드"]
-    assert board["specs"]["mem_type"] == "DDR5" and board.get("inferred") == ["socket"]
+    assert board["specs"]["mem_type"] == "DDR5" and "mem_type" not in board["inferred"] and "socket" in board["inferred"]
 
 
 def test_inferred_socket_constrains_the_platform_like_a_confirmed_one():

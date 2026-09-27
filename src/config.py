@@ -38,6 +38,7 @@ CONDITIONS_AGENT: bool = os.getenv("CONDITIONS_AGENT", "0") == "1"
 # 결과 화면 대화 에이전트(src/agent/result_agent.py, Strands). "1" 이면 /session/{id}/result-message 의
 # 자유 텍스트를 LLM 도구 호출(후보 조회·교체·담기/빼기·수량·시점·근거 설명)로 처리한다. 기본 "0" — 규칙 경로.
 RESULT_AGENT: bool = os.getenv("RESULT_AGENT", "0") == "1"
+QUOTE_REVIEW_AGENT: bool = os.getenv("QUOTE_REVIEW_AGENT", "0") == "1"    # 견적 점검 되묻기(CHAT-04) — 꺼져 있으면 규칙 경로
 # 조립 가이드 에이전트(src/agent/assembly_guide_agent.py, Strands Agents SDK). "1"이면 결과 화면의
 # 확정된 부품 목록으로 조립 순서·주의사항 가이드를 만든다. 기본 "0" — opt-in. MOCK_MODE=1이거나
 # OPENAI_API_KEY·LLM_MODEL이 비면 켜도 규칙 기반 폴백(검색은 실제로 하되 문장은 템플릿)으로 간다.
