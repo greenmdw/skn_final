@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header
 from src import schemas
 from src.auth.deps import Principal, optional_principal
 from src.db import get_conn
-from src.services import list_service
+from src.services import list_service, notification_service
 
 router = APIRouter(prefix="/lists", tags=["lists"])
 
@@ -68,3 +68,11 @@ def set_alert(
             conn, list_id, principal, enabled=body.enabled, target_amount=body.target_amount
         )
     return {"price_watch": schemas.PriceWatchOut(**result["price_watch"]).model_dump()}
+
+
+@router.get("/{list_id}/alert", response_model=schemas.PriceWatchOut)
+def get_alert(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.PriceWatchOut:
+    """목표가 추적 현재 상태 — 지금 카탈로그 관측가 기준 총액·목표가·도달 여부·최근 판정 시각."""
+    with get_conn() as conn:
+        status = notification_service.get_watch_status(conn, list_id, principal)
+    return schemas.PriceWatchOut(**status)

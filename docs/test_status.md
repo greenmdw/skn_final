@@ -18,7 +18,10 @@ Starlette/AnyIO의 외부 의존성 deprecation warning 1건이 있다.
 
 ## 현재 DB 계약과 테스트 격리
 
-- baseline은 `0000_schema.sql`부터 `0003_triggers.sql`까지 정확히 4개다.
+- baseline은 `0000_schema.sql`부터 `0004_notification_events.sql`까지 정확히 5개다(2026-09-27,
+  ACC-02 목표가 알림 판정·발송을 위해 `notification.price_watch_evaluation`·
+  `notification.notification_event`를 되살리며 5번째 파일 추가 — 두 테이블은 2026-09-12에 한 번
+  제거됐다가 팀 재확인 후 복원됨).
 - `test_schema_reduction.py`는 실제 DB의 테이블 51개를 이름으로 비교하고,
   제거된 구조의 부재, JSON 저장 컬럼 타입·기본값·NULL 제약,
   마이그레이션 체크섬과 시드 재실행 멱등성을 검증한다.

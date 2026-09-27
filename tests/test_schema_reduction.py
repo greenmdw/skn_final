@@ -22,6 +22,7 @@ MIGRATIONS = ROOT / "db/migrations"
 # The compact migration chain creates only objects that survive in the final schema.
 EXPECTED_CHAIN = [
     "0000_schema.sql", "0001_constraints.sql", "0002_indexes.sql", "0003_triggers.sql",
+    "0004_notification_events.sql",
 ]
 # 현재 baseline의 명시적 계약. 같은 개수의 다른 테이블로 바뀌어도 실패해야 한다.
 EXPECTED_TABLES = {
@@ -70,6 +71,8 @@ EXPECTED_TABLES = {
     "identity.conversation",
     "identity.message",
     "notification.price_watch",
+    "notification.price_watch_evaluation",
+    "notification.notification_event",
     "planning.plan",
     "planning.plan_condition",
     "planning.plan_node",
@@ -78,11 +81,13 @@ EXPECTED_TABLES = {
     "planning.requirement",
 }
 # 제거된 저장 구조는 다시 생성하지 않는다.
+# notification.notification_event · notification.price_watch_evaluation 은 2026-09-12 팀 결정으로
+# 여기 있었으나, 2026-09-30 기획서(ACC-02)가 목표가 알림 판정 이력·발송 관리를 다시 요구해 팀 재확인
+# (2026-09-27) 뒤 0004_notification_events.sql 로 되살렸다 — EXPECTED_TABLES 로 옮김.
 REMOVED_TABLES = [
     "planning.owned_item", "planning.fulfillment_allocation",
     "identity.user_preference", "catalog.product_category_membership",
     "engine.candidate_evidence", "engine.validation_target", "engine.validation_evidence",
-    "notification.notification_event", "notification.price_watch_evaluation",
 ]
 REMOVED_SCHEMAS = ["rag", "dataset", "shared"]
 # 통합 planning.item 모델은 현재 계약에 없다.
