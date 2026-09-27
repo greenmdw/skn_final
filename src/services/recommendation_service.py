@@ -901,14 +901,30 @@ def _parse_swap_request(text: str, known_slots: set[str]) -> tuple[str | None, s
     return slot, direction, is_question
 
 
-def handle_result_message(
+def handle_result_message(conn, revision_id: UUID, text: str) -> dict:
+    """결과 화면 채팅 — 실제 처리는 `_handle_result_message_inner`, 여기서는 그 앞뒤로 대화를 저장한다
+    (CHAT-08). 조건 대화(session_service)와 같은 `identity.conversation`에 시간순으로 쌓여, 저장한
+    견적을 다시 열면 `GET /session/{id}`가 조건 대화·결과 대화를 이어서 그대로 복원한다 — 새 API가
+    필요 없다. 에이전트가 이어 말하기 맥락을 볼 때도 이 DB 이력을 쓴다(`result_agent._history_messages`)."""
+    from src.repo.plan_repo import PlanRepo
+    from src.repo.user_repo import ConversationRepo
+
+    conversation_id = PlanRepo(conn).get_revision(revision_id)["conversation_id"]
+    turn = _handle_result_message_inner(conn, revision_id, text)
+    convo = ConversationRepo(conn)
+    convo.add_message(conversation_id, "user", text)
+    convo.add_message(conversation_id, "assistant", turn["reply"])
+    return turn
+
+
+def _handle_result_message_inner(
     conn,
     revision_id: UUID,
     text: str,
 ) -> dict:
-    """결과 화면 채팅. 에이전트(RESULT_AGENT=1)가 있으면 도구 호출로 후보 조회·교체·담기/빼기·근거 설명을
-    처리하고, 없거나 실패하면 아래 규칙 경로 — "그래픽카드를 더 저렴한 걸로" 같은 요청만 해석하고
-    슬롯·방향을 못 찾으면 아무것도 바꾸지 않고 이해하지 못했다는 답만 돌려준다."""
+    """결과 화면 채팅의 실제 처리. 에이전트(RESULT_AGENT=1)가 있으면 도구 호출로 후보 조회·교체·담기/빼기·
+    근거 설명을 처리하고, 없거나 실패하면 아래 규칙 경로 — "그래픽카드를 더 저렴한 걸로" 같은 요청만
+    해석하고 슬롯·방향을 못 찾으면 아무것도 바꾸지 않고 이해하지 못했다는 답만 돌려준다."""
     from src.agent import result_agent
     if result_agent.available():
         _require_done_run(conn, revision_id)
