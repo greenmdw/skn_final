@@ -243,6 +243,32 @@ def test_price_claims_guard_accepts_a_correct_single_part_claim(review):
     assert price_claims_are_grounded("메인보드는 카탈로그에서 찾지 못해 비교하지 못했습니다.", review) is True
 
 
-def test_price_claims_guard_skips_clauses_with_several_parts_to_avoid_false_positives(review):
+def test_price_claims_guard_skips_a_clause_with_no_direction_word(review):
     from src.agent.quote_review_agent import price_claims_are_grounded
     assert price_claims_are_grounded("CPU와 GPU는 가격을 비교했습니다.", review) is True
+
+
+def _prices_review(states: dict[str, str]) -> dict:
+    return {"prices": {"rows": [{"part": part, "state": state} for part, state in states.items()]}}
+
+
+def test_price_claims_guard_applies_a_joint_claim_to_every_part_named_in_the_clause():
+    """"A와 B는 X" 는 한국어 문법상 A·B 둘 다 X 라는 뜻이다 — 절 하나에 부품이 여럿이어도 방향이 하나면
+    전부 검사한다(2026-09-28 실측 결함: "CPU와 RAM은 견적이 비싸고"에서 RAM은 실제 cheaper인데 놓쳤다)."""
+    from src.agent.quote_review_agent import price_claims_are_grounded
+
+    review = _prices_review({"CPU": "pricier", "RAM": "cheaper", "저장장치": "cheaper"})
+    bad = "CPU와 RAM은 견적이 비싸고, 저장장치는 견적이 더 쌉니다."
+    assert price_claims_are_grounded(bad, review) is False
+
+    good = "CPU와 파워는 견적이 비싸고, RAM과 저장장치는 견적이 더 쌉니다."
+    review2 = _prices_review({"CPU": "pricier", "파워": "pricier", "RAM": "cheaper", "저장장치": "cheaper"})
+    assert price_claims_are_grounded(good, review2) is True
+
+
+def test_price_claims_guard_skips_a_clause_whose_direction_is_ambiguous():
+    """한 절에 비쌈·쌈 방향어가 둘 다 있으면 어느 부품에 어느 방향이 붙는지 코드가 못 가른다 — 건너뛴다."""
+    from src.agent.quote_review_agent import price_claims_are_grounded
+
+    review = _prices_review({"CPU": "cheaper", "GPU": "pricier"})
+    assert price_claims_are_grounded("CPU는 비싸고 GPU는 저렴합니다", review) is True

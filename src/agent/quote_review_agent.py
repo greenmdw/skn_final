@@ -185,22 +185,27 @@ def price_claims_are_grounded(reply: str, review: dict) -> bool:
 
     숫자 가드는 답의 숫자가 입력에 있었는지만 보므로, 진짜 숫자(합계 등)를 실제와 다른 부품에 붙이는 실수는
     통과시킨다(2026-09-27 실측: 가격 비교 3부품 중 1건만 pricier인데 "CPU와 메인보드가 비쌌다"고 답함).
-    한 절에 부품 이름이 하나만 나오는 경우만 검사한다 — 여러 부품이 한 절에 섞이면 어느 쪽 서술인지
-    코드가 안전하게 가르지 못해 넘어간다(과탐 방지)."""
+
+    한 절에 부품이 여러 개 나와도(", CPU와 RAM은 견적이 비싸고"처럼) 절 안의 방향이 하나로만 정해지면
+    (비쌈 또는 쌈 중 하나만 나오면) 그 절에 언급된 **모든** 부품에 같은 서술이 적용된 것으로 보고 각각
+    대조한다 — "A와 B는 X"는 A·B 둘 다 X 라는 뜻이라 한국어 문법상 안전하다. 실측(2026-09-28)으로 확인한
+    사례: "CPU와 RAM은 견적이 비싸고"에서 RAM은 실제로 cheaper인데 검사를 건너뛰어 놓쳤다. 절 안에 비쌈·쌈
+    방향어가 둘 다 있으면(어느 부품에 어느 방향이 붙는지 코드가 못 가른다) 그 절은 건너뛴다(과탐 방지)."""
     rows = {r["part"]: r["state"] for r in (review.get("prices") or {}).get("rows") or []}
     if not rows:
         return True
     for clause in re.split(r"[.,]|이며|지만|그러나|그리고", reply):
         present = [s for s in _SLOT_NAMES if s in clause]
-        if len(present) != 1:
+        if not present:
             continue
-        state = rows.get(present[0])
-        if state is None:
+        claims_pricier, claims_cheaper = bool(_PRICIER_PAT.search(clause)), bool(_CHEAPER_PAT.search(clause))
+        if claims_pricier == claims_cheaper:      # 둘 다(방향 모호) 또는 둘 다 아님(방향 서술 없음)
             continue
-        if _PRICIER_PAT.search(clause) and state != "pricier":
-            return False
-        if _CHEAPER_PAT.search(clause) and state != "cheaper":
-            return False
+        claimed = "pricier" if claims_pricier else "cheaper"
+        for slot in present:
+            state = rows.get(slot)
+            if state is not None and state != claimed:
+                return False
     return True
 
 
