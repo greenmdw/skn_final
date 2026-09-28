@@ -1,4 +1,6 @@
-"""[5] 기여도 실계산 — _contribution 이 [3-B] breakdown × rank.weights_used 로 3축을 낸다.
+"""[5] 기여도 실계산 — _contribution 이 [3-B] breakdown × rank.weights_used 를 [3-B] 축 이름 그대로 낸다.
+
+축을 가격/성능/호환성 3축으로 묶지 않는다 — 결과 화면(ContributionCard)과 HTTP 계약이 가격·성능·밸런스·리뷰·호환여유를 쓴다.
 
 고정값(41/33/26)을 지어내지 않는다는 원칙(docs/decisions, E4) 을 확인한다.
 """
@@ -23,26 +25,27 @@ def test_price_only_weight_gives_all_contribution_to_price():
         {"CPU": {"ranked": [{"product_key": "x",
                              "breakdown": {"가격": 1.0, "성능": 0.5, "밸런스": 0.3, "호환여유": 0.2}}]}},
     )
-    assert s5._contribution(build, rank) == {"가격": 100, "성능": 0, "호환성": 0}
+    assert s5._contribution(build, rank) == {"가격": 100, "성능": 0, "밸런스": 0, "호환여유": 0}
 
 
-def test_balance_and_compat_margin_both_fold_into_compat_axis():
+def test_balance_and_compat_margin_stay_separate_axes():
     build = _build(BuildItem(slot="GPU", product_key="y", name="Y", price=1))
     rank = _rank(
         {"가격": 0.0, "성능": 0.0, "밸런스": 0.5, "호환여유": 0.5},
         {"GPU": {"ranked": [{"product_key": "y",
                              "breakdown": {"가격": 1.0, "성능": 1.0, "밸런스": 0.4, "호환여유": 0.6}}]}},
     )
-    assert s5._contribution(build, rank) == {"가격": 0, "성능": 0, "호환성": 100}
+    assert s5._contribution(build, rank) == {"가격": 0, "성능": 0, "밸런스": 40, "호환여유": 60}
 
 
-def test_axis_outside_axis_map_only_gives_empty_dict():
+def test_review_axis_is_included_as_its_own_axis():
+    # 결정 0001 은 리뷰 단위 진위 판정을 금지할 뿐 랭킹의 리뷰 축은 허용한다 — 점수에 든 만큼 보여준다.
     build = _build(BuildItem(slot="CPU", product_key="x", name="X", price=1))
     rank = _rank(
         {"가격": 0.0, "성능": 0.0, "밸런스": 0.0, "호환여유": 0.0, "리뷰": 1.0},
         {"CPU": {"ranked": [{"product_key": "x", "breakdown": {"리뷰": 0.75}}]}},
     )
-    assert s5._contribution(build, rank) == {}
+    assert s5._contribution(build, rank) == {"리뷰": 100}
 
 
 def test_rank_none_gives_empty_dict():
@@ -67,7 +70,7 @@ def test_falls_back_to_pool_when_not_in_ranked():
                  "pool": [{"product_key": "other", "breakdown": {"가격": 1.0}},
                           {"product_key": "x", "breakdown": {"가격": 1.0}}]}},
     )
-    assert s5._contribution(build, rank) == {"가격": 100, "성능": 0, "호환성": 0}
+    assert s5._contribution(build, rank) == {"가격": 100}
 
 
 def test_result_sums_to_100_including_rounding_remainder_case():
@@ -82,12 +85,12 @@ def test_result_sums_to_100_including_rounding_remainder_case():
     )
     result = s5._contribution(build, rank)
     assert sum(result.values()) == 100
-    assert set(result) == {"가격", "성능", "호환성"}
+    assert set(result) == {"가격", "성능", "밸런스", "호환여유"}
 
 
 def test_negative_balance_breakdown_is_clamped_to_zero_not_negative_share():
     # 밸런스 축(1 - |tier-ideal|/4)은 클램프가 없어 음수가 될 수 있다 — 음수를 그대로 더하면
-    # 호환성이 음수 퍼센트로 나오거나 다른 축이 100%를 넘는다. 0으로 클램프해 모든 축이 0 이상,
+    # 밸런스가 음수 퍼센트로 나오거나 다른 축이 100%를 넘는다. 0으로 클램프해 모든 축이 0 이상,
     # 합은 항상 100이어야 한다.
     build = _build(BuildItem(slot="CPU", product_key="a", name="A", price=1))
     rank = _rank(
@@ -100,7 +103,7 @@ def test_negative_balance_breakdown_is_clamped_to_zero_not_negative_share():
     assert sum(result.values()) == 100
 
 
-def test_run_logs_computation_unavailable_when_rank_missing(caplog=None):
+def test_run_logs_no_rank_info_when_rank_missing(caplog=None):
     from src.dto import VerificationResult
 
     logs: list[str] = []
@@ -108,4 +111,4 @@ def test_run_logs_computation_unavailable_when_rank_missing(caplog=None):
     e = s5.run(build, VerificationResult(list_id="L", category="computer", mode="set"),
               logs.append, rank=None)
     assert e.contribution == {}
-    assert any("계산 불가" in line for line in logs)
+    assert any("기여도: (순위 정보 없음)" in line for line in logs)

@@ -9,8 +9,6 @@
 """
 from __future__ import annotations
 
-import math
-
 from src.clients.llm_client import call_llm
 from src.dto import (BuildResult, Explanation, ExplanationDraft, ExplanationItem, RankResult,
                      VerificationResult)
@@ -19,8 +17,6 @@ from src.engine.lang import fmt_money
 from src.engine.prompts import explain_system
 from src.repo.review_repo import (OBS_LABEL, default_risk_store, default_suspect_counts,
                                  is_obs_flag, parse_obs_flag, risk_store_note)
-
-_AXIS_MAP = {"가격": "가격", "성능": "성능", "밸런스": "호환성", "호환여유": "호환성"}
 
 # 앞 넷: 지시문 문구가 결과에 들어오면 모델이 프롬프트를 베낀 것이다 — 실제로 한 번 그랬다.
 # 마지막 여섯: 평가·마케팅 표현 — 규칙 7 위반(실호출에서 "강력한 성능"처럼 새나온 적 있다).
