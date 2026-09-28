@@ -1,0 +1,34 @@
+:root {
+  color-scheme: dark;
+  background: #071116;
+  font-family: Arial, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root,
+.app-shell {
+  width: 100%;
+  min-width: 320px;
+  height: 100%;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+}
+
+.truefit-screen {
+  display: block;
+  width: 111.111111%;
+  height: 111.111111%;
+  border: 0;
+  background: #071116;
+  transform: scale(0.9);
+  transform-origin: top left;
+}

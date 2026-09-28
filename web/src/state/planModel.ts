@@ -2,18 +2,10 @@ import { wonFmt } from '../utils/format'
 import type { CurrentPlan, SavedSetup } from './types'
 import { isMockApi } from '../api'
 import { QUIET_LABEL } from './conditionLabels'
+export { parseBudget } from './budget'
 
 export function planTotal(plan: CurrentPlan): number {
   return plan.items.reduce((sum, part) => sum + part.price, 0)
-}
-
-// Explicit budget field accepts won amounts only, with optional separators/unit.
-export function parseBudget(value: string): number | null | undefined {
-  const text = value.trim()
-  if (!text) return null
-  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)\s*원?$/.test(text)) return undefined
-  const amount = Number(text.replace(/[,\s원]/g, ''))
-  return Number.isSafeInteger(amount) && amount > 0 && amount <= 100000000 ? amount : undefined
 }
 
 export function localDate(): string {

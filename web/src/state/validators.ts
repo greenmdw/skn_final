@@ -36,4 +36,3 @@ export function isPlanState(value: unknown): value is PlanState {
     ['intent', 'performance', 'quiet'].every(key => text(value[key])) && (value.checkSnapshot === null || isCheckDraft(value.checkSnapshot)) &&
     (value.currentPlan === null || isPlan(value.currentPlan)) && (value.stage !== 4 || value.currentPlan !== null)
 }
-

@@ -8,7 +8,7 @@ export const chat: Api['chat'] = {
     if (topic === 'intent') {
       await delay(450)
       return {
-        text: '요청하신 조건을 기록했어요. 성능 목표를 선택해주세요. 예산은 PC 구성 패널에서 직접 확인·수정할 수 있어요.',
+        text: '요청하신 조건과 예산을 기록했어요. 성능 목표를 선택해주세요.',
         choices: [
           { label: 'QHD 144Hz', value: 'QHD 144Hz' }, { label: 'QHD 60Hz', value: 'QHD 60Hz' }, { label: '잘 모르겠어요', value: '추천값' },
         ],
