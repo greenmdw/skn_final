@@ -18,7 +18,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from src.auth.origin import OriginCheckMiddleware
-from src.config import APP_NAME, FRONTEND_DIR, FRONTEND_MODE, WEB_DIST_DIR, assert_production_secret_safe
+from src.config import (
+    APP_NAME, FRONTEND_DIR, FRONTEND_MODE, IS_PRODUCTION, WEB_DIST_DIR, assert_production_secret_safe,
+)
 from src.db import close_pool
 from src.errors import TruefitError
 from src.frontend_serving import mount_frontend
@@ -39,8 +41,10 @@ app.include_router(auth.router)
 app.include_router(session.router)
 app.include_router(lists.router)
 app.include_router(reviews.router)
-app.include_router(dev.router)
 app.include_router(pc_check.router)
+# /dev/* 는 DB 없이 파이프라인을 돌리는 개발용 진입점이라 운영(APP_ENV=production)에는 열지 않는다.
+if not IS_PRODUCTION:
+    app.include_router(dev.router)
 
 
 @app.exception_handler(TruefitError)

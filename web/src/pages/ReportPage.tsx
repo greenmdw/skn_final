@@ -10,6 +10,7 @@ import { useToast } from '../state/ToastContext'
 import { assemblyGuide } from '../data/assemblyGuide'
 import { useDocumentTitle } from '../hooks/useDocumentTitle'
 import { isMockApi } from '../api'
+import { QUIET_LABEL } from '../state/conditionLabels'
 
 export function ReportPage() {
   const { setupId } = useParams()
@@ -65,7 +66,7 @@ function ReportView({ report }: { report: SavedSetup }) {
         </div>
         <div className="report-panel">
           <h2>{report.plan.mode === 'upgrade' ? '업그레이드 구매 리스트' : '구매 리스트'}</h2>
-          <p style={{ whiteSpace: 'pre-line' }}>사용 목적: {report.plan.conditions.intent || '미입력'}<br />성능: {report.plan.conditions.performance || '미입력'} · 소음: {report.plan.conditions.quiet || '미입력'}<br />예산: {report.plan.budget === null ? '미설정' : wonFmt(report.plan.budget)}</p>
+          <p style={{ whiteSpace: 'pre-line' }}>사용 목적: {report.plan.conditions.intent || '미입력'}<br />성능: {report.plan.conditions.performance || '미입력'} · {QUIET_LABEL}: {report.plan.conditions.quiet || '미입력'}<br />예산: {report.plan.budget === null ? '미설정' : wonFmt(report.plan.budget)}</p>
           {report.plan.checkSnapshot && <ul>{report.plan.checkSnapshot.rows.map(row => <li key={row.part}>기존 {row.part}: {row.matched}</li>)}</ul>}
           <p>책상: {report.desk.deskWidth} × {report.desk.deskDepth} × {report.desk.deskHeight}mm</p>
           <div className="report-table-wrap" tabIndex={0} role="region" aria-label="구매 리스트 표, 작은 화면에서는 가로로 스크롤하세요">
@@ -89,8 +90,21 @@ function ReportView({ report }: { report: SavedSetup }) {
         </div>
         <div className="report-panel">
           <h2>조립·설치 가이드</h2>
-          {assemblyGuide(report.plan).map((step, i) => <p key={i}>{i + 1}. {step}</p>)}
-          <p>{isMockApi ? '(목업 예시 문장입니다)' : '(일반 조립 안내입니다. 부품별 설명서를 함께 확인해주세요.)'}</p>
+          {report.careGuide?.length ? <>
+            <p>{report.plan.mode === 'upgrade'
+              ? 'PC 전원을 끄고 전원 케이블을 분리한 뒤 정전기를 방전하고 케이스 옆면을 여세요. 교체하는 부품은 기존 부품의 케이블과 고정 나사를 풀어 분리한 다음, 아래 순서로 장착합니다.'
+              : '정전기 방지 장갑을 착용하거나 금속 부분을 만져 정전기를 방전하고, 케이스를 평평한 곳에 놓고 시작하세요. 아래 순서대로 조립합니다.'}</p>
+            <ol className="guide-steps">
+              {report.careGuide.map((step, i) => <li key={i}>
+                {step.title && <strong>{step.title}</strong>}
+                {step.lines.map((line, j) => <p key={j}>{line.label && <span className={'guide-label ' + (line.label === '확인' ? 'caution' : 'install')}>{line.label}</span>}{line.text}</p>)}
+              </li>)}
+            </ol>
+            <p className="setup-hint">부품 설치·주의사항 문서를 검색해 만든 안내입니다. 부품별 제품 설명서를 함께 확인해주세요.</p>
+          </> : <>
+            {assemblyGuide(report.plan).map((step, i) => <p key={i}>{i + 1}. {step}</p>)}
+            <p>{isMockApi ? '(목업 예시 문장입니다)' : '(일반 조립 안내입니다. 부품별 설명서를 함께 확인해주세요.)'}</p>
+          </>}
         </div>
         <p className="setup-hint">확정 시점 {confirmedAt}</p>
       </div>

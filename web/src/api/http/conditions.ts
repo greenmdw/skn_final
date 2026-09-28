@@ -1,6 +1,6 @@
 import type { Api, ConditionTurnResult } from '../types'
 import { request } from './client'
-import { choicesFromWire, fieldsFromWire, replyTextFromWire } from './mapping'
+import { budgetWarningFromWire, choicesFromWire, fieldsFromWire, replyTextFromWire } from './mapping'
 import type { WireConditionState } from './wire'
 
 // 인터뷰(용도·예산·우선순위 등)를 서버의 조건 세션에 연결한다. 서버는 조건 추출 에이전트(LLM, CONDITIONS_AGENT=1일 때)가
@@ -20,6 +20,7 @@ function toResult(sessionId: string, state: WireConditionState): ConditionTurnRe
     fields: fieldsFromWire(state.fields),
     choices: choicesFromWire(state.next_question),
     canRecommend: state.can_recommend,
+    budgetWarning: budgetWarningFromWire(state.budget_warning),
   }
 }
 
@@ -28,6 +29,10 @@ export const conditions: Api['conditions'] = {
     const id = sessionId ?? await createSession()
     const state = await request<WireConditionState>('POST', '/session/' + id + '/message', { text })
     return toResult(id, state)
+  },
+  async answer(sessionId, questionId, selected) {
+    const state = await request<WireConditionState>('POST', '/session/' + sessionId + '/answer', { question_id: questionId, selected })
+    return toResult(sessionId, state)
   },
   async patch(sessionId, field, value) {
     const state = await request<WireConditionState>('PATCH', '/session/' + sessionId + '/slot', { field, value })

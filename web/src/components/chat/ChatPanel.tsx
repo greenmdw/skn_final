@@ -1,6 +1,6 @@
 import { useEffect, useRef, type FormEvent, type KeyboardEvent } from 'react'
 import { usePlan } from '../../state/PlanContext'
-import type { ChatMessage } from '../../state/types'
+import type { ChatChoice, ChatMessage } from '../../state/types'
 
 function BotFace() {
   return (
@@ -10,7 +10,7 @@ function BotFace() {
   )
 }
 
-function MessageBubble({ message, onChoice }: { message: ChatMessage; onChoice: (value: string) => void }) {
+function MessageBubble({ message, onChoice }: { message: ChatMessage; onChoice: (choice: ChatChoice) => void }) {
   return (
     <div className={'message ' + message.role}>
       {message.role === 'bot' && <BotFace />}
@@ -18,7 +18,7 @@ function MessageBubble({ message, onChoice }: { message: ChatMessage; onChoice: 
         {message.text}
         {message.choices && <div className="choice-row">
           {message.choices.map(choice => (
-            <button key={choice.value} type="button" onClick={() => onChoice(choice.value)}>{choice.label}</button>
+            <button key={choice.value} type="button" onClick={() => onChoice(choice)}>{choice.label}</button>
           ))}
         </div>}
       </div>

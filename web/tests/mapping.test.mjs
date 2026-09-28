@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  backendSlotFromRowPart, checksFromWire, choicesFromWire, compatChecksFromWire, compatFromWire, fieldsFromWire, partExplanation, suggestionFromPlan, wantsPartExplanation, currentSpecsFromRows, gamesFromText, itemFromWire, planFromResult, priorityFromText, purposeFromText, replyTextFromWire, resolutionFromText, reviewRowsFromWire,
+  backendSlotFromRowPart, guideStepsFromWire, budgetNoticeFromWire, budgetWarningFromWire, checksFromWire, choicesFromWire, compatChecksFromWire, compatFromWire, contributionFromWire, fieldsFromWire, partExplanation, suggestionFromPlan, wantsPartExplanation, currentSpecsFromRows, gamesFromText, itemFromWire, planFromResult, priorityFromText, purposeFromText, replyTextFromWire, resolutionFromText, reviewRowsFromWire,
   setupFromReport, slotKey, upgradePartsFromText,
 } from '../src/api/http/mapping.ts'
 
@@ -223,7 +223,11 @@ test('조건 세션 필드: 값을 그대로 옮기고, 모르는 status는 miss
 test('다음 질문 선택지: 객관식이면 칩으로, 자유 텍스트·선택지 없음·질문 없음이면 undefined', () => {
   const single = { id: 'q_priority', field: 'priority', text: '가장 중요한 건?', select: 'single',
     options: [{ value: 'performance', label: '성능 우선' }, { value: 'value', label: '가성비' }] }
-  assert.deepEqual(choicesFromWire(single), [{ label: '성능 우선', value: 'performance' }, { label: '가성비', value: 'value' }])
+  // 화면에는 label 만 보이고, value 는 서버 내부 값이라 어느 질문의 답인지(questionId)와 함께 /answer 로 보낸다.
+  assert.deepEqual(choicesFromWire(single), [
+    { label: '성능 우선', value: 'performance', questionId: 'q_priority' },
+    { label: '가성비', value: 'value', questionId: 'q_priority' },
+  ])
   assert.equal(choicesFromWire({ ...single, select: 'free', options: [] }), undefined)
   assert.equal(choicesFromWire({ ...single, options: [] }), undefined)
   assert.equal(choicesFromWire(null), undefined)
@@ -246,4 +250,78 @@ test('사양 매칭 미리보기 응답 → 표 행: 판정만 옮기고 origina
     { part: 'GPU', original: 'RTX 4070 SUPER', originalNote: '', matched: 'NVIDIA GeForce RTX 4070 SUPER', matchedNote: '카탈로그 제품과 일치', state: 'ok', stateLabel: '확인' },
     { part: '메인보드', original: '아무 보드', originalNote: '', matched: '아무 보드', matchedNote: '확인 가능한 스펙이 없습니다.', state: 'warn', stateLabel: '확인 필요' },
   ])
+})
+
+test('기여도: 큰 축부터 정렬하고, 없거나 비면 undefined — 옛 목업 값(41/33/26)으로 채우지 않는다', () => {
+  assert.deepEqual(contributionFromWire({ status: 'ready', contribution: { 가격: 20, 성능: 50, 리뷰: 30 } }), [
+    { axis: '성능', percent: 50 }, { axis: '리뷰', percent: 30 }, { axis: '가격', percent: 20 },
+  ])
+  assert.equal(contributionFromWire({ status: 'ready', contribution: null }), undefined)
+  assert.equal(contributionFromWire({ status: 'ready', contribution: {} }), undefined)
+  assert.equal(contributionFromWire({ status: 'pending' }), undefined)
+  assert.equal(contributionFromWire(undefined), undefined)
+})
+
+test('추천 결과 → 계획에 기여도가 실린다', () => {
+  const plan = planFromResult({ list_id: 'l', status: 'done', items: [], explanation: { status: 'ready', contribution: { 가격: 60, 성능: 40 } }, error: null },
+    { mode: 'new', budget: null, conditions: { intent: '', performance: '', quiet: '' }, checkSnapshot: null })
+  assert.deepEqual(plan.contribution, [{ axis: '가격', percent: 60 }, { axis: '성능', percent: 40 }])
+})
+
+test('예산 사전 경고: 보여 줄 문장이 있을 때만 경고다', () => {
+  assert.deepEqual(budgetWarningFromWire({ level: 'infeasible', message: '예산이 부족해요', estimated_min: 2, budget: 1 }), { level: 'infeasible', message: '예산이 부족해요' })
+  assert.equal(budgetWarningFromWire({ level: 'tight', message: null, estimated_min: 2, budget: 3 }), null)
+  assert.equal(budgetWarningFromWire(null), null)
+  assert.equal(budgetWarningFromWire(undefined), null)
+})
+
+test('용도: "게임"이라는 말 없이 게임 제목만 적어도 game — 아니면 게임 요구사양이 서버로 안 간다', () => {
+  assert.equal(purposeFromText('사이버펑크 2077 FHD 돌아가는 pc 200만원'), 'game')
+  assert.equal(purposeFromText('엘든링 QHD로 돌리고 싶어'), 'game')
+  assert.deepEqual(gamesFromText('사이버펑크 2077 FHD 돌아가는 pc 200만원'), ['사이버펑크 2077'])
+  // 게임 제목이 없으면 종전대로
+  assert.equal(purposeFromText('영상 편집용'), 'creation')
+  assert.equal(purposeFromText('그냥 컴퓨터 하나 필요해'), 'other')
+  // 제목이 있어도 다른 용도 단어가 먼저 게임으로 잡히는 종전 규칙은 그대로다("게임"이 있으면 game)
+  assert.equal(purposeFromText('게임도 하고 영상 편집도 해요'), 'game')
+})
+
+test('예산 남김 안내: 문장이 있을 때만 화면용으로 옮기고, 추천 결과에도 실린다', () => {
+  const wire = { message: '예산 2,000,000원 중 1,516,788원을 썼어요.', budget: 2000000, spent: 1516788, remaining: 483212, suggest_priority: 'performance' }
+  assert.deepEqual(budgetNoticeFromWire(wire), { message: wire.message, remaining: 483212 })
+  assert.equal(budgetNoticeFromWire(null), undefined)
+  assert.equal(budgetNoticeFromWire(undefined), undefined)
+  const plan = planFromResult({ list_id: 'l', status: 'done', items: [], explanation: { status: 'ready' }, budget_notice: wire, error: null },
+    { mode: 'new', budget: 2000000, conditions: { intent: '', performance: '', quiet: '' }, checkSnapshot: null })
+  assert.deepEqual(plan.budgetNotice, { message: wire.message, remaining: 483212 })
+})
+
+test('조립·설치 가이드: 서버 문장을 단계(제목 + 설치/확인 줄)로 나눈다', () => {
+  const text = '1. 케이스 — 다크플래쉬 DLM21\n   설치: 옆판을 열고 눕히세요.\n   확인: 팬 장착 개수를 보세요.\n2. GPU — RTX 4070 SUPER\n   설치: PCIe 슬롯에 끝까지 꽂으세요.\n   확인: 파워 용량을 확인하세요.'
+  assert.deepEqual(guideStepsFromWire({ status: 'ready', text }), [
+    { title: '케이스 — 다크플래쉬 DLM21', lines: [{ label: '설치', text: '옆판을 열고 눕히세요.' }, { label: '확인', text: '팬 장착 개수를 보세요.' }] },
+    { title: 'GPU — RTX 4070 SUPER', lines: [{ label: '설치', text: 'PCIe 슬롯에 끝까지 꽂으세요.' }, { label: '확인', text: '파워 용량을 확인하세요.' }] },
+  ])
+})
+
+test('조립·설치 가이드: 에이전트식 마크다운·글머리·모르는 줄도 버리지 않는다', () => {
+  const text = '1) **CPU — Ryzen 7**\n- 설치: 삼각형 표시를 맞추세요\n※ 핀을 만지지 마세요'
+  assert.deepEqual(guideStepsFromWire({ status: 'ready', text }), [
+    { title: 'CPU — Ryzen 7', lines: [{ label: '설치', text: '삼각형 표시를 맞추세요' }, { label: '', text: '※ 핀을 만지지 마세요' }] },
+  ])
+})
+
+test('조립·설치 가이드: 준비 전·실패·빈 문장·없음이면 undefined — 화면이 일반 안내로 대신한다', () => {
+  assert.equal(guideStepsFromWire({ status: 'pending', text: null }), undefined)
+  assert.equal(guideStepsFromWire({ status: 'failed', text: null }), undefined)
+  assert.equal(guideStepsFromWire({ status: 'ready', text: '  \n ' }), undefined)
+  assert.equal(guideStepsFromWire(null), undefined)
+  assert.equal(guideStepsFromWire(undefined), undefined)
+})
+
+test('리포트 → 저장한 구성에 가이드가 실리고, 없으면 careGuide 는 undefined', () => {
+  const report = { list_id: 'l', name: 'n', planned_purchase_at: null, target_amount: null, memo: '', total: 1, confirmed_at: '2026-09-26T00:00:00Z', items: [] }
+  const withGuide = setupFromReport({ ...report, care_guide: { status: 'ready', text: '1. GPU — X\n   설치: 꽂으세요.' } }, undefined)
+  assert.deepEqual(withGuide.careGuide, [{ title: 'GPU — X', lines: [{ label: '설치', text: '꽂으세요.' }] }])
+  assert.equal(setupFromReport(report, undefined).careGuide, undefined)
 })

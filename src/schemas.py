@@ -122,6 +122,161 @@ class OwnedPartsPreviewOut(BaseModel):
     rows: list[OwnedPartsPreviewRow] = Field(default_factory=list)
 
 
+# ── PC 견적 점검: 비교 분석 결과 저장 (CHK-04·CHK-09) ──
+class QuoteCompatCheckOut(BaseModel):
+    axis: str
+    label: str
+    state: Literal["ok", "fail", "unknown", "skipped"]   # unknown = 스펙을 몰라 확인 못 함(비호환 아님)
+    detail: str
+
+
+class QuoteCompatOut(BaseModel):
+    checks: list[QuoteCompatCheckOut] = Field(default_factory=list)
+    summary: dict[str, int] = Field(default_factory=dict)
+    incompatible: list[str] = Field(default_factory=list)   # 확정된 비호환 검사(axis)만
+
+
+class QuotePriceRowOut(BaseModel):
+    part: str
+    matched: str | None = None          # 카탈로그와 같은 제품으로 확정된 경우의 카탈로그 이름
+    quoted: int | None = None           # 견적에 적힌 가격(원)
+    catalog: int | None = None          # 우리 카탈로그 가격(원)
+    quantity: int = 1                   # 견적 한 줄의 개수("16GB x2" = 2) — 카탈로그 가격을 이 개수에 맞춰 견줌
+    diff: int | None = None
+    diff_pct: float | None = None
+    state: Literal["cheaper", "similar", "pricier", "no_quote_price", "no_catalog"]
+    detail: str
+
+
+class QuotePricesOut(BaseModel):
+    available: bool                     # False = 견적에 가격이 없어 비교하지 않음(P10)
+    reason: str | None = None
+    rows: list[QuotePriceRowOut] = Field(default_factory=list)
+    summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class QuoteConditionsIn(BaseModel):
+    """용도 대비 균형(CHK-06)을 판단할 사용자 조건 — 추천 조건과 같은 값 체계."""
+    purpose: Literal["game", "creation", "office", "study", "other"] | None = None
+    resolution: Literal["FHD_144", "QHD_165", "4K"] | None = None
+    priority: Literal["performance", "value", "quiet"] | None = None    # 안 주면 추천엔진 기본 가중치(우리 추천 비교용)
+    games: list[str] = Field(default_factory=list, max_length=15)
+    budget_max: int | None = Field(default=None, ge=0, le=100_000_000)
+
+
+class QuoteReviewIn(OwnedPartsPreviewIn):
+    # None = 보내지 않음(수정 시 이전 조건 유지), 값이 없는 객체({}) = 조건 지움.
+    conditions: QuoteConditionsIn | None = None
+
+
+class QuoteBalanceRowOut(BaseModel):
+    part: str
+    aspect: str                                         # 성능 등급 · VRAM · 용량 · 예산 · 예산 비중
+    state: Literal["short", "excess", "ok", "unknown"]  # 부족 · 과함 · 충족 · 확인 못 함
+    detail: str
+    measured: float | None = None
+    target: float | None = None
+
+
+class QuoteBalanceOut(BaseModel):
+    available: bool                                     # False = 조건이 없어 판단하지 않음
+    reason: str | None = None
+    requirement: dict[str, Any] | None = None           # 판단 기준(용도·해상도 → 요구 등급·용량)
+    rows: list[QuoteBalanceRowOut] = Field(default_factory=list)
+    summary: dict[str, int] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
+
+
+class QuoteCompareSideOut(BaseModel):
+    name: str | None = None
+    price: int | None = None
+    perf_tier: float | None = None
+    confirmed: bool | None = None       # 견적 쪽만 — 카탈로그와 같은 제품으로 확정됐는가
+    quantity: int | None = None
+
+
+class QuoteCompareRowOut(BaseModel):
+    part: str
+    quote: QuoteCompareSideOut | None = None     # None = 견적에 이 부품이 없음
+    ours: QuoteCompareSideOut
+    same_product: bool
+    price_diff: int | None = None                # 견적 − 우리 추천
+    price_diff_pct: float | None = None
+    price_state: Literal["cheaper", "similar", "pricier"] | None = None
+    tier_diff: float | None = None
+    detail: str
+
+
+class QuoteCompareOut(BaseModel):
+    available: bool                              # False = 같은 조건을 만들 수 없어 비교하지 않음
+    reason: str | None = None
+    conditions_used: dict[str, Any] | None = None
+    ours: dict[str, Any] | None = None           # 우리 추천 구성(items · total · link_check · incompatible)
+    rows: list[QuoteCompareRowOut] = Field(default_factory=list)
+    summary: dict[str, Any] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
+
+
+class QuotePartCompareOut(BaseModel):
+    slot: str
+    baseline: dict[str, Any]                            # 견적 속 부품(이름·가격·성능 등급·리뷰)
+    candidates: list[dict[str, Any]] = Field(default_factory=list)   # 비교 대상 — 스펙 표·가격 차이·호환 변화·리뷰
+    unmatched_targets: list[str] = Field(default_factory=list)       # 요청했지만 카탈로그에서 못 찾은 제품
+    note: str | None = None
+
+
+class QuoteApplyIn(BaseModel):
+    # 새 계획에서 업그레이드 대상으로 삼을 부품(견적에 적힌 값은 버리고 추천이 다시 고른다).
+    # 나머지 부품은 견적에 적힌 대로 유지한다.
+    slots: list[str] = Field(min_length=1, max_length=8)
+
+
+class QuoteApplyOut(BaseModel):
+    list_id: str                            # 새로 만들어진 계획(세션) id
+    slots: list[str]
+    missing: list[str] = Field(default_factory=list)   # 비어 있지 않으면 이 조건들을 먼저 채워야 추천을 받을 수 있다
+    run_id: str | None = None               # missing 이 비어 있으면 즉시 추천을 시작한 run id
+
+
+class QuoteChatIn(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+
+
+class QuoteChatOut(BaseModel):
+    reply: str
+    evidence: list[str] = Field(default_factory=list)      # 답의 근거가 된 분석 블록(호환 검사 · 가격 비교 …)
+    via: Literal["agent", "rules"]                          # 어느 경로로 답했는가
+
+
+class QuoteChatMessageOut(BaseModel):
+    id: str
+    role: Literal["user", "assistant", "system"]
+    text: str
+    created_at: str
+
+
+class QuoteChatHistoryOut(BaseModel):
+    messages: list[QuoteChatMessageOut] = Field(default_factory=list)
+
+
+class QuoteReviewInputOut(BaseModel):
+    current_specs: dict[str, str] = Field(default_factory=dict)
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    input_hash: str
+
+
+class QuoteReviewOut(BaseModel):
+    list_id: str
+    version: int
+    input: QuoteReviewInputOut
+    parts: list[OwnedPartsPreviewRow] = Field(default_factory=list)   # 인식·카탈로그 매칭 표
+    compat: QuoteCompatOut
+    prices: QuotePricesOut | None = None    # 가격 비교(CHK-05) — 이 기능 이전에 저장된 결과에는 없다
+    balance: QuoteBalanceOut | None = None  # 용도 대비 균형(CHK-06) — 이 기능 이전에 저장된 결과에는 없다
+    compare: QuoteCompareOut | None = None  # 우리 추천과 비교(CHK-07) — 이 기능 이전에 저장된 결과에는 없다
+    computed_at: str
+
+
 # ── 조건 대화 (§D-4-1) ──
 class MessageOut(BaseModel):
     id: str
@@ -147,6 +302,15 @@ class NextQuestionOut(BaseModel):
     options: list[dict] = Field(default_factory=list)
 
 
+class BudgetWarningOut(BaseModel):
+    """추천 전 예산 사전 경고 — 요구 성능의 최저가 합계(하한)가 예산과 어떻게 맞는지."""
+
+    level: Literal["tight", "infeasible", "ok"]   # ok 는 예산 문제는 없고 message 만 있는 경우(요구를 채우는 후보 없음)
+    message: str | None = None
+    estimated_min: int
+    budget: int
+
+
 class ConditionState(BaseModel):
     list_id: str
     category: str | None = None
@@ -158,6 +322,7 @@ class ConditionState(BaseModel):
     next_question: NextQuestionOut | None = None
     can_recommend: bool = False
     accepts_spec_file: bool = False
+    budget_warning: BudgetWarningOut | None = None   # 예산이 빠듯/불가능할 때만 채운다
 
 
 # ── recommend / result (§D-4-2) ──
@@ -189,6 +354,8 @@ class ExplanationOut(BaseModel):
     status: str            # pending | ready | failed
     headline: str | None = None
     text: str | None = None
+    # 추천 당시 구성이 어느 축(가격·성능·밸런스·리뷰·호환여유)에서 점수를 얻었는지, 합 100(%). 교체 뒤에도 그대로다.
+    contribution: dict[str, int] | None = None
 
 
 class ProductOut(BaseModel):
@@ -346,6 +513,16 @@ class CompatCheckOut(BaseModel):
     detail: str
 
 
+class BudgetNoticeOut(BaseModel):
+    """예산을 많이 남긴 이유 안내 — 우선순위(가성비·저소음)가 싼 쪽을 골라서 남은 경우에만 채운다."""
+
+    message: str
+    budget: int
+    spent: int
+    remaining: int
+    suggest_priority: Literal["performance"] = "performance"   # 남은 예산으로 성능을 올리려면 다시 추천받을 우선순위
+
+
 class RecommendResultOut(BaseModel):
     """저장된 추천 실행 결과의 공개 API 계약 (docs/frontend_외부수정요청.md §D-4-2)."""
 
@@ -363,6 +540,7 @@ class RecommendResultOut(BaseModel):
     verification: VerificationOut = Field(default_factory=lambda: VerificationOut(status="pending"))
     compat_checks: list[CompatCheckOut] = Field(default_factory=list)     # PC 호환 검사별 상세 (done 일 때만)
     explanation: ExplanationOut = Field(default_factory=lambda: ExplanationOut(status="pending"))
+    budget_notice: BudgetNoticeOut | None = None       # 예산이 많이 남았고 그 이유가 우선순위일 때만 (done 일 때만)
     reasoning_log: list[dict] = Field(default_factory=list)
     data_notice: str = "상품·가격·리뷰는 합성 데이터입니다."
     # 04 리스트 확정 "메모" 초기값 — 조건·구성·직접 바꾼 것·확인 필요 사항을 코드가 정리한 문장 (done 일 때만)

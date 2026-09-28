@@ -46,6 +46,8 @@ export interface PlanState {
   fields: ConditionField[]
   /** 백엔드가 판단한 "지금 추천 가능" 여부. 목업 모드에서는 쓰지 않는다. */
   canRecommend: boolean
+  /** 추천 전 예산 사전 경고 — 요구 성능의 최저가 합계가 예산에 빠듯하거나 못 미칠 때만 있다. */
+  budgetWarning: BudgetWarning | null
   selectedPart: PartKey
   deskUnlocked: boolean
   deskWidth: number
@@ -60,6 +62,11 @@ export interface ChatMessage {
   choices?: ChatChoice[]
 }
 
+/** 조립·설치 가이드 한 줄. label 은 서버가 "설치:"·"확인:" 으로 나눈 것, 못 나눈 문장은 빈 문자열. */
+export interface GuideLine { label: '설치' | '확인' | ''; text: string }
+/** 조립·설치 가이드 한 단계(부품 하나). 서버가 표준 조립 순서로 정렬해서 준다. */
+export interface GuideStep { title: string; lines: GuideLine[] }
+
 export interface SavedSetup {
   id: string
   title: string
@@ -70,6 +77,8 @@ export interface SavedSetup {
   plan: CurrentPlan
   desk: DeskState
   checkDraft: CheckDraft
+  /** 서버가 부품 설치·확인 문서(RAG)에서 찾아 만든 조립·설치 가이드. 서버 리포트에만 있다(없으면 일반 안내를 보여 준다). */
+  careGuide?: GuideStep[]
 }
 
 export interface DeskState {
@@ -100,10 +109,25 @@ export interface CompatNotice {
   unchecked: string[]
 }
 
+export interface BudgetWarning {
+  level: 'tight' | 'infeasible' | 'ok'
+  message: string
+}
+
+/** 예산을 많이 남긴 이유 안내(서버가 문장을 만든다). 성능 우선으로 다시 추천받는 길을 함께 안내한다. */
+export interface BudgetNotice { message: string; remaining: number }
+
+/** 추천 구성이 점수를 얻은 축별 비율(%, 합 100). 축 이름(가격·성능·밸런스·리뷰·호환여유)은 서버가 정한다. */
+export interface ContributionShare { axis: string; percent: number }
+
 export interface CurrentPlan {
   id: string
   mode: PlanMode
   items: PlanItem[]
+  /** 예산이 많이 남은 이유와 성능 우선 재추천 안내. 서버 새 구성 추천에만 있다. */
+  budgetNotice?: BudgetNotice
+  /** 추천 당시 구성의 축별 기여도. 서버 추천에만 있다(부품을 바꿔도 추천 당시 값 그대로다). */
+  contribution?: ContributionShare[]
   /** 세트 전체 호환 점검 결과. 서버 추천에만 있다 */
   compat?: CompatNotice
   /** 호환 검사별 상세. 서버 추천에만 있다 */
@@ -113,7 +137,8 @@ export interface CurrentPlan {
   checkSnapshot: CheckDraft | null
 }
 
-export interface ChatChoice { label: string; value: string }
+/** 채팅 선택지. questionId 가 있으면 서버 조건 질문의 선택지 — value 는 서버 내부 값이라 화면에는 label 만 보인다. */
+export interface ChatChoice { label: string; value: string; questionId?: string }
 
 export interface ReviewRow {
   part: string

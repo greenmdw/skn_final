@@ -4,6 +4,8 @@ import { BudgetOverview } from './BudgetOverview'
 import { PartsList } from './PartsList'
 import { DigitalTwin } from './DigitalTwin'
 import { CompatNotice } from './CompatNotice'
+import { ContributionCard } from './ContributionCard'
+import { BudgetNoticeCard } from './BudgetNoticeCard'
 import { isMockApi } from '../../api'
 
 export function ResultPanel({ onOpenDeskModal }: { onOpenDeskModal: () => void }) {
@@ -21,7 +23,9 @@ export function ResultPanel({ onOpenDeskModal }: { onOpenDeskModal: () => void }
       <p className="setup-hint">{isMockApi ? '아래는 샘플 업그레이드입니다. 실제 추천·호환성 분석은 아직 연결되지 않았습니다.' : '입력하지 않은 유지 부품 정보(플랫폼·메모리 종류·파워 용량)는 확인하지 못한 채 추천합니다. 구매 전에 호환성을 다시 확인해주세요.'}</p>
     </section>}
     <BudgetOverview />
+    <BudgetNoticeCard />
     <CompatNotice />
+    <ContributionCard />
     <button className="analyze-btn" type="button" style={{ margin: '14px 0 18px' }} onClick={() => navigate('/plan/confirm')}>이 구성으로 리스트 확정하기 →</button>
     <PartsList />
     <DigitalTwin onOpenDeskModal={onOpenDeskModal} />

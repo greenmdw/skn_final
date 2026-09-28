@@ -49,7 +49,7 @@ def _require_login(conn, principal: Principal) -> UUID:
     return auth_service.require_active_user(conn, principal)["id"]
 
 
-def _price_watch_out(watch: dict | None, fallback_target_amount) -> dict:
+def _price_watch_out(nrepo: NotificationRepo, watch: dict | None, fallback_target_amount) -> dict:
     if watch is None:
         return {
             "enabled": False, "target_amount": fallback_target_amount,
@@ -61,7 +61,14 @@ def _price_watch_out(watch: dict | None, fallback_target_amount) -> dict:
     status = {"unknown": "waiting", "above": "tracking", "reached": "reached"}.get(
         watch["last_condition_state"], "waiting"
     )
-    return {"enabled": True, "target_amount": target, "status": status, "latest_total": None, "observed_at": None}
+    # ACC-02: 판정 이력(notification.price_watch_evaluation)이 이제 생기므로, 그중 최신 값을 보여준다
+    # (전엔 이 테이블이 없어 항상 None 이었다 — db/migrations/0004_notification_events.sql).
+    latest = nrepo.latest_evaluation(watch["id"])
+    return {
+        "enabled": True, "target_amount": target, "status": status,
+        "latest_total": int(latest["amount"]) if latest and latest["amount"] is not None else None,
+        "observed_at": latest["evaluated_at"].isoformat() if latest else None,
+    }
 
 
 def list_conversations(conn, principal: Principal) -> list[dict]:
@@ -215,7 +222,7 @@ def get_report(conn, list_id: UUID, principal: Principal) -> dict:
         "confirmed_at": revision["confirmed_at"].isoformat(),
         "items": items,
         "price_watch": _price_watch_out(
-            watch, int(revision["target_amount"]) if revision["target_amount"] is not None else None
+            NotificationRepo(conn), watch, int(revision["target_amount"]) if revision["target_amount"] is not None else None
         ),
         "care_guide": care_guide,
         "data_notice": ("PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. 리뷰 요약은 합성 데이터입니다."
@@ -238,7 +245,7 @@ def set_alert(conn, list_id: UUID, principal: Principal, *, enabled: bool, targe
         if existing is not None and existing["state"] == "active":
             nrepo.pause(existing["id"])
             existing = nrepo.get_for_revision(revision["id"])
-        return {"price_watch": _price_watch_out(existing, confirmed_target)}
+        return {"price_watch": _price_watch_out(nrepo, existing, confirmed_target)}
 
     # target_amount 미지정 시 기존 watch에 이미 설정된 값 → 확정 스냅샷 목표가 순으로 fallback.
     amount = target_amount
@@ -250,4 +257,4 @@ def set_alert(conn, list_id: UUID, principal: Principal, *, enabled: bool, targe
         raise ValidationFailed("목표 금액을 입력해 주세요.", field="target_amount")
     ends_at = datetime.now(timezone.utc) + timedelta(days=_PRICE_WATCH_WINDOW_DAYS)
     watch = nrepo.upsert_active(revision["id"], target_amount=amount, ends_at=ends_at)
-    return {"price_watch": _price_watch_out(watch, confirmed_target)}
+    return {"price_watch": _price_watch_out(nrepo, watch, confirmed_target)}

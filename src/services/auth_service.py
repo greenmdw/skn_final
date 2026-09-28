@@ -12,6 +12,7 @@ from uuid import UUID
 
 from src.auth import codes, jwt, passwords
 from src.auth.deps import Principal
+from src.db import get_pool
 from src.config import (
     JWT_TTL_DAYS,
     LOGIN_LOCK_MINUTES,
@@ -55,6 +56,12 @@ def _to_user_out(row: dict) -> dict:
     }
 
 
+def _issue_token(user_id: UUID, email: str, password_updated_at, *, ttl_seconds: int) -> str:
+    """방금 DB 에서 읽은 password_updated_at 보다 뒤의 iat 로 발급한다(jwt.issue 의 after 참고)."""
+    after = password_updated_at.timestamp() if password_updated_at is not None else None
+    return jwt.issue(user_id, email, ttl_seconds=ttl_seconds, after=after)
+
+
 def _merge_guest_data(conn, user_id: UUID, browser_token: str | None) -> None:
     if not browser_token:
         return
@@ -66,8 +73,11 @@ def _require_active_session(user: dict, principal: Principal) -> None:
     if user is None or user["status"] != "active":
         raise Unauthorized("로그인이 필요합니다.")
     if user["password_updated_at"] is not None:
-        floor_epoch = int(user["password_updated_at"].timestamp())
-        if principal.session_iat is None or principal.session_iat < floor_epoch:
+        # 마이크로초까지 그대로 비교한다(초 단위로 버리면 가입/변경 직후 발급된
+        # 정상 토큰도 같은 초의 password_updated_at과 우연히 겹쳐 스스로를
+        # 무효화할 수 있다). 그래도 정확히 같은 시각이면(경계) 무효화 쪽(<=).
+        floor_epoch = user["password_updated_at"].timestamp()
+        if principal.session_iat is None or principal.session_iat <= floor_epoch:
             raise Unauthorized("세션이 만료되었습니다. 다시 로그인해주세요.")
 
 
@@ -116,33 +126,50 @@ def signup(conn, principal: Principal, *, email: str, password: str, display_nam
         marketing_agreed_at=now if marketing_agreed else None,
     )
     _merge_guest_data(conn, row["id"], principal.browser_token)
-    token = jwt.issue(row["id"], row["email"], ttl_seconds=JWT_TTL_DAYS * 86_400)
+    token = _issue_token(row["id"], row["email"], row["password_updated_at"], ttl_seconds=JWT_TTL_DAYS * 86_400)
     return _to_user_out(row), token
 
 
 def login(conn, principal: Principal, *, email: str, password: str, remember: bool) -> tuple[dict, str]:
     normalized_email = _normalize_email(email)
-    repo = UserRepo(conn)
-    row = repo.get_for_login(normalized_email)
-    if row is None or row["status"] != "active":
-        passwords.verify_password(_DUMMY_PASSWORD_HASH, password)
-        raise Unauthorized("이메일 또는 비밀번호가 올바르지 않습니다.", code="invalid_credentials")
 
-    if row["locked_until"] is not None and row["locked_until"] > datetime.now(timezone.utc):
-        raise AccountLocked("로그인 시도 초과로 잠시 잠겼습니다. 잠시 후 다시 시도해주세요.")
+    # 판정(SELECT ... FOR UPDATE)과 그 결과로 나오는 쓰기(실패 기록 또는 로그인 성공
+    # 기록)를 전부 이 함수 전용 커넥션·트랜잭션 하나로 묶어서 항상 커밋한다. 이유 둘:
+    # 1) conn 은 요청 전체를 감싸는 트랜잭션이다 — 아래서 Unauthorized 를 던지면
+    #    get_conn()이 그걸 보고 전부 롤백해서, 방금 기록한 실패 횟수·잠금이 함께
+    #    사라진다(로그인 잠금이 영원히 안 걸리던 버그의 원인).
+    # 2) FOR UPDATE 로 행을 잠가서 "비밀번호 변경 진행 중인 계정"의 로그인이 그
+    #    변경을 기다렸다가 새 비밀번호로 판정하게 한다(P6 review R1) — 이 잠금을
+    #    conn(요청 전체 트랜잭션)에서 걸면 이 함수가 끝날 때까지 안 풀려서 같은 요청의
+    #    다른 쓰기와 얽힐 수 있어, 전용 커넥션에서만 잡고 여기서 바로 커밋해 푼다.
+    # 예외는 이 블록 밖에서 던진다 — 블록 안에서 던지면 이 전용 트랜잭션마저 롤백된다.
+    pending_error: Exception | None = None
+    user: dict | None = None
+    with get_pool().connection() as work_conn:
+        with work_conn.transaction():
+            repo = UserRepo(work_conn)
+            row = repo.get_for_login_locked(normalized_email)
+            if row is None or row["status"] != "active":
+                passwords.verify_password(_DUMMY_PASSWORD_HASH, password)
+                pending_error = Unauthorized("이메일 또는 비밀번호가 올바르지 않습니다.", code="invalid_credentials")
+            elif row["locked_until"] is not None and row["locked_until"] > datetime.now(timezone.utc):
+                pending_error = AccountLocked("로그인 시도 초과로 잠시 잠겼습니다. 잠시 후 다시 시도해주세요.")
+            elif row["password_hash"] is None or not passwords.verify_password(row["password_hash"], password):
+                repo.record_login_failure(row["id"], max_failures=LOGIN_MAX_FAILURES, lock_minutes=LOGIN_LOCK_MINUTES)
+                pending_error = Unauthorized("이메일 또는 비밀번호가 올바르지 않습니다.", code="invalid_credentials")
+            else:
+                if passwords.needs_rehash(row["password_hash"]):
+                    repo.update_password(row["id"], passwords.hash_password(password))
+                repo.record_login_success(row["id"])
+                user = repo.get(row["id"])
 
-    if row["password_hash"] is None or not passwords.verify_password(row["password_hash"], password):
-        repo.record_login_failure(row["id"], max_failures=LOGIN_MAX_FAILURES, lock_minutes=LOGIN_LOCK_MINUTES)
-        raise Unauthorized("이메일 또는 비밀번호가 올바르지 않습니다.", code="invalid_credentials")
+    if pending_error is not None:
+        raise pending_error
 
-    if passwords.needs_rehash(row["password_hash"]):
-        repo.update_password(row["id"], passwords.hash_password(password))
-    repo.record_login_success(row["id"])
-    _merge_guest_data(conn, row["id"], principal.browser_token)
-
-    user = repo.get(row["id"])
+    assert user is not None
+    _merge_guest_data(conn, user["id"], principal.browser_token)
     ttl_seconds = JWT_TTL_DAYS * 86_400 if remember else SESSION_TTL_HOURS * 3_600
-    token = jwt.issue(user["id"], user["email"], ttl_seconds=ttl_seconds)
+    token = _issue_token(user["id"], user["email"], user["password_updated_at"], ttl_seconds=ttl_seconds)
     return _to_user_out(user), token
 
 
@@ -186,8 +213,8 @@ def change_password(conn, principal: Principal, *, current_password: str, new_pa
         raise Unauthorized("현재 비밀번호가 올바르지 않습니다.", code="invalid_password")
     _check_password_strength(new_password)
 
-    repo.update_password(principal.user_id, passwords.hash_password(new_password))
-    return jwt.issue(principal.user_id, user["email"], ttl_seconds=JWT_TTL_DAYS * 86_400)
+    password_updated_at = repo.update_password(principal.user_id, passwords.hash_password(new_password))
+    return _issue_token(principal.user_id, user["email"], password_updated_at, ttl_seconds=JWT_TTL_DAYS * 86_400)
 
 
 def withdraw(conn, principal: Principal, *, password: str) -> None:

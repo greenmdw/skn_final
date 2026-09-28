@@ -12,4 +12,7 @@ export const conditions: Api['conditions'] = {
     await delay(100)
     return { sessionId, reply: '', fields: [], canRecommend: false }
   },
+  async answer(sessionId) {
+    return { sessionId, reply: '', fields: [], canRecommend: false }
+  },
 }

@@ -18,7 +18,10 @@ Starlette/AnyIO의 외부 의존성 deprecation warning 1건이 있다.
 
 ## 현재 DB 계약과 테스트 격리
 
-- baseline은 `0000_schema.sql`부터 `0003_triggers.sql`까지 정확히 4개다.
+- baseline은 `0000_schema.sql`부터 `0004_notification_events.sql`까지 정확히 5개다(2026-09-27,
+  ACC-02 목표가 알림 판정·발송을 위해 `notification.price_watch_evaluation`·
+  `notification.notification_event`를 되살리며 5번째 파일 추가 — 두 테이블은 2026-09-12에 한 번
+  제거됐다가 팀 재확인 후 복원됨).
 - `test_schema_reduction.py`는 실제 DB의 테이블 51개를 이름으로 비교하고,
   제거된 구조의 부재, JSON 저장 컬럼 타입·기본값·NULL 제약,
   마이그레이션 체크섬과 시드 재실행 멱등성을 검증한다.
@@ -28,7 +31,7 @@ Starlette/AnyIO의 외부 의존성 deprecation warning 1건이 있다.
 - 사전 준비한 DB를 직접 지정할 때는 고정 테스트 이메일이 남아 있지 않은 새 테스트 DB를 사용한다.
 - `TRUEFIT_REQUIRE_TEST_DB=1`에서는 개발 DB 보호로 차단된 접속을 skip으로 바꾸지 않는다.
 
-## 알려진 인증 결함 — strict xfail 7건
+## 알려진 인증 결함 — strict xfail 1건
 
 아래 항목은 정상 동작으로 인정하지 않는다. 기존 보안 기대를 유지하면서
 정확히 알려진 assertion에서만 `KnownAuthGap`을 발생시킨다.
@@ -37,14 +40,16 @@ Starlette/AnyIO의 외부 의존성 deprecation warning 1건이 있다.
 
 | 추적 ID | 미구현·결함 | 테스트 수 |
 |---|---|---:|
-| AUTH-01 | 이메일 사용 가능 확인 요청 제한 없음 | 1 |
-| AUTH-02 | 로그인 실패 예외가 실패 횟수 갱신까지 롤백하여 계정 잠금 불가 | 2 |
-| AUTH-03 | 초 단위 JWT가 같은 초에 변경된 비밀번호의 이전 토큰을 허용 | 2 |
-| AUTH-04 | 로그인 비밀번호 조회에 행 잠금이 없어 동시 변경 시 이전 해시 사용 가능 | 1 |
-| AUTH-05 | 탈퇴 시 이용약관·개인정보·마케팅 동의 시각 미삭제 | 1 |
+| AUTH-01 | 이메일 사용 가능 확인 요청 제한 없음(데모 범위 보류, `routers/auth.py` TODO §A-4) | 1 |
 
-탈퇴의 계정 익명화·비밀번호 삭제·토큰 거절 검증은 일반 통과 테스트로 유지하고,
-동의 시각 삭제만 별도 xfail로 분리했다. 애플리케이션 인증 코드는 이번 작업에서 변경하지 않았다.
+### 해결된 결함 (xfail 표시 제거)
+
+| 추적 ID | 해결 |
+|---|---|
+| AUTH-02 | `auth_service.login()`이 판정과 실패·성공 기록을 전용 트랜잭션 하나로 묶어 먼저 커밋한 뒤 예외를 던진다. |
+| AUTH-03 | JWT `iat`를 초 단위로 버리지 않고 float로 두고 경계를 `<=`로 비교한다. 발급 토큰은 DB가 기록한 `password_updated_at`보다 뒤 `iat`를 보장한다(앱·DB 시계 차이로 방금 발급한 토큰이 무효화되지 않게). `jti`로 같은 시각 발급 토큰도 서로 다르다. |
+| AUTH-04 | 로그인 판정 조회를 `SELECT ... FOR UPDATE`(`get_for_login_locked`)로 바꿔 동시 비밀번호 변경 뒤에 서게 했다. 이 잠금은 `login()` 전용 커넥션에서만 잡고 바로 커밋해 푼다. |
+| AUTH-05 | 탈퇴 시 `terms_version`·`terms_agreed_at`(`app_user_terms_pair_check`로 세트)·`privacy_agreed_at`·`marketing_agreed_at`을 모두 지운다. |
 
 ## 선택 의존성과 데이터
 

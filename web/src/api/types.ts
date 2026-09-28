@@ -1,4 +1,4 @@
-import type { ChatChoice, CheckDraft, ConditionField, CurrentPlan, PartKey, PlanMode, ReviewRow, SavedSetup } from '../state/types'
+import type { BudgetWarning, ChatChoice, CheckDraft, ConditionField, CurrentPlan, PartKey, PlanMode, ReviewRow, SavedSetup } from '../state/types'
 
 // 화면이 백엔드에 기대하는 계약입니다. 실제 서버를 붙일 때는 이 인터페이스(Api)를 그대로 구현하면 됩니다.
 
@@ -58,6 +58,8 @@ export interface ConditionTurnResult {
   choices?: ChatChoice[]
   /** 필수 조건을 다 채워서 지금 추천을 받을 수 있는지. */
   canRecommend: boolean
+  /** 예산이 요구 성능의 최저가에 빠듯하거나 못 미칠 때의 사전 경고(추천을 막지는 않는다). */
+  budgetWarning?: BudgetWarning | null
 }
 
 // ---- 추천 구성 ----
@@ -107,6 +109,8 @@ export interface Api {
   conditions: {
     /** 인터뷰 자유 텍스트 한 턴. sessionId가 없으면 새 조건 세션을 만든다. */
     send(sessionId: string | null, text: string): Promise<ConditionTurnResult>
+    /** 선택지(칩)를 눌렀을 때 — 서버 질문의 답으로 그대로 보낸다(자유 문장으로 내부 값을 보내지 않는다). */
+    answer(sessionId: string, questionId: string, selected: string[]): Promise<ConditionTurnResult>
     /** 화면에서 직접 값을 바꿨을 때(예산 입력창 등) 세션에 반영한다. */
     patch(sessionId: string, field: string, value: unknown): Promise<ConditionTurnResult>
   }

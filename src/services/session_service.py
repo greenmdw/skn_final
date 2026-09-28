@@ -110,6 +110,11 @@ def _build_fields(cat_def: dict, values: dict) -> list[dict]:
             continue                       # 필요 없는 조건부 필드는 화면 목록에 안 낸다
         value = _field_value(meta, values)
         status = "confirmed" if meta["key"] in values and value is not None else "missing"
+        # 사용자가 안 정했어도 엔진이 기본값으로 계산하는 필드(해상도 FHD_144 등)는 그 값을 "가정"으로 보여 준다 —
+        # 안 그러면 화면은 "확인 중"인데 실제로는 이미 그 기본값으로 추천이 만들어진다.
+        default = (cat_def.get("defaults") or {}).get(meta["key"])
+        if value is None and default is not None:
+            value, status = default, "assumed"
         out.append({
             "key": meta["key"], "label": meta.get("label"), "value": value,
             "display": _display(meta, value, _option_label_map(cat_def, meta["key"])),
@@ -218,6 +223,7 @@ def _state(conn, list_id: UUID, principal: Principal) -> dict:
                 "next_question": None, "can_recommend": False, "accepts_spec_file": False,
                 "revision_id": str(revision["id"]), "lock_version": revision["lock_version"]}
     cat_def = _category(category)
+    from src.services.recommendation_service import assess_budget_feasibility   # 순환 import 피해 지연 import
     return {
         "list_id": str(list_id), "category": category, "mode": values.get("mode"),
         "messages": _messages_out(message_rows),
@@ -225,6 +231,7 @@ def _state(conn, list_id: UUID, principal: Principal) -> dict:
         "next_question": _next_question(cat_def, values),
         "can_recommend": not compute_missing(cat_def, values),
         "accepts_spec_file": category == "computer" and values.get("mode") == "upgrade",
+        "budget_warning": assess_budget_feasibility(conn, category, values),
         "revision_id": str(revision["id"]), "lock_version": revision["lock_version"],
     }
 

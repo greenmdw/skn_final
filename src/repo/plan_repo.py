@@ -7,6 +7,11 @@ from psycopg.types.json import Jsonb
 from src.db.base import Repo
 
 
+# 견적 점검(타사 견적 비교 분석) 결과를 리비전에 붙여 두는 조건 키. 추천 입력(조건 값)이 아니라 결과라서
+# load_full 이 조건 목록에서 빼고, 저장해도 lock_version 을 올리지 않는다(이미 끝난 추천을 stale 로 만들지 않는다).
+QUOTE_REVIEW_KEY = "quote_review"
+
+
 class PlanRepo(Repo):
     def published_domain_version(self, category: str) -> dict | None:
         return self._one(
@@ -144,13 +149,15 @@ class PlanRepo(Repo):
         """같은 리비전의 조건·요구사항 변경을 하나의 행 잠금으로 직렬화한다."""
         self._one("SELECT id FROM planning.plan_revision WHERE id=%s FOR UPDATE", (revision_id,))
 
-    def upsert_condition(self, revision_id: UUID, key: str, value: dict, origin: str, source_message_id: UUID | None = None) -> UUID:
+    def upsert_condition(self, revision_id: UUID, key: str, value: dict, origin: str, source_message_id: UUID | None = None,
+                         *, bump_version: bool = True) -> UUID:
         self.lock_revision(revision_id)
         old = self._one("SELECT id FROM planning.plan_condition WHERE revision_id=%s AND condition_key=%s AND status='active' FOR UPDATE", (revision_id, key))
         if old:
             self._exec("UPDATE planning.plan_condition SET status='superseded', updated_at=now() WHERE id=%s", (old["id"],))
         row = self._one("INSERT INTO planning.plan_condition (revision_id, condition_key, value, origin, source_message_id, supersedes_id) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id", (revision_id, key, Jsonb(value), origin, source_message_id, old["id"] if old else None))
-        self._exec("UPDATE planning.plan_revision SET lock_version=lock_version+1, updated_at=now() WHERE id=%s AND state='draft'", (revision_id,))
+        if bump_version:
+            self._exec("UPDATE planning.plan_revision SET lock_version=lock_version+1, updated_at=now() WHERE id=%s AND state='draft'", (revision_id,))
         return row["id"]
 
     def clear_condition(self, revision_id: UUID, key: str) -> None:
@@ -222,7 +229,7 @@ class PlanRepo(Repo):
         revision = self.get_revision(revision_id)
         if revision is None:
             raise ValueError("revision not found")
-        revision["conditions"] = self._all("SELECT condition_key, value, origin FROM planning.plan_condition WHERE revision_id=%s AND status='active' ORDER BY created_at", (revision_id,))
+        revision["conditions"] = self._all("SELECT condition_key, value, origin FROM planning.plan_condition WHERE revision_id=%s AND status='active' AND condition_key<>%s ORDER BY created_at", (revision_id, QUOTE_REVIEW_KEY))
         revision["nodes"] = self._all("SELECT * FROM planning.plan_node WHERE revision_id=%s ORDER BY position, created_at", (revision_id,))
         revision["requirements"] = self._all("SELECT * FROM planning.requirement WHERE revision_id=%s AND status='active'", (revision_id,))
         return revision

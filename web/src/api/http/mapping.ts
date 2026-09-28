@@ -1,6 +1,6 @@
 // 화면 모델(CurrentPlan · SavedSetup)과 백엔드 모델 사이의 순수 변환 함수 모음.
 // 프레임워크·네트워크에 기대지 않아 Node 로 바로 테스트한다(web/tests/mapping.test.mjs) — 그래서 타입만 import 한다.
-import type { ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, CurrentPlan, DeskState, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
+import type { BudgetNotice, BudgetWarning, ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, ContributionShare, CurrentPlan, DeskState, GuideStep, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
 import type { UpgradeSuggestion } from '../types'
 import type { WireCompatCheck, WireConditionState, WireField, WireItem, WireNextQuestion, WireOwnedPartsPreviewRow, WireReport, WireReportItem, WireResult, WireReview, WireText } from './wire'
 
@@ -23,7 +23,9 @@ export type Priority = 'performance' | 'value' | 'quiet'
 export type Resolution = 'FHD_144' | 'QHD_165' | '4K'
 
 export function purposeFromText(text: string): Purpose {
-  if (/게임|겜|배그|배틀그라운드|롤|리그|발로란트|오버워치|FPS|gaming|game/i.test(text)) return 'game'
+  // 게임 제목만 적고 "게임"이라는 말은 안 쓴 문장("사이버펑크 2077 FHD 돌아가는 PC")도 게임 용도다. 용도가 other 로 가면
+  // plans.ts 가 games 를 서버에 안 보내서 게임 요구사양(GPU 등급 등)이 통째로 빠진다.
+  if (/게임|겜|배그|배틀그라운드|롤|리그|발로란트|오버워치|FPS|gaming|game/i.test(text) || gamesFromText(text).length) return 'game'
   if (/영상|편집|렌더|프리미어|모델링|3D|디자인|작업|creat|edit|render/i.test(text)) return 'creation'
   if (/사무|문서|오피스|업무|엑셀|office/i.test(text)) return 'office'
   if (/학습|공부|인강|학생|수업|study/i.test(text)) return 'study'
@@ -130,7 +132,7 @@ export function fieldsFromWire(fields: WireField[]): ConditionField[] {
 /** 다음 질문이 객관식(single/multi)이면 선택지 칩으로, 자유 텍스트 질문이거나 더 물을 게 없으면 undefined. */
 export function choicesFromWire(question: WireNextQuestion | null): ChatChoice[] | undefined {
   if (!question || question.select === 'free' || !question.options.length) return undefined
-  return question.options.map(o => ({ label: String(o.label ?? o.value), value: String(o.value) }))
+  return question.options.map(o => ({ label: String(o.label ?? o.value), value: String(o.value), questionId: question.id }))
 }
 
 /** 이번 턴에 대한 챗봇 답변 — 방금 쌓인 마지막 assistant 메시지. 없으면(응답 형식이 어긋나면) 빈 문자열. */
@@ -211,6 +213,24 @@ export function compatFromWire(verification: WireResult['verification']): Compat
   return { problems: texts('major'), unchecked: texts('minor') }
 }
 
+/** 서버가 준 축별 기여도(합 100) → 큰 순서로 화면용 목록. 없거나 비어 있으면 undefined(가짜 값을 채우지 않는다). */
+export function contributionFromWire(explanation: WireResult['explanation'] | undefined): ContributionShare[] | undefined {
+  const raw = explanation?.contribution
+  if (!raw) return undefined
+  const shares = Object.entries(raw).map(([axis, percent]) => ({ axis, percent })).sort((a, b) => b.percent - a.percent)
+  return shares.length ? shares : undefined
+}
+
+/** 서버가 만든 "예산을 남긴 이유" 안내 → 화면용. 없으면 undefined. */
+export function budgetNoticeFromWire(notice: WireResult['budget_notice']): BudgetNotice | undefined {
+  return notice?.message ? { message: notice.message, remaining: notice.remaining } : undefined
+}
+
+/** 조건 세션의 예산 사전 경고 → 화면용. 보여 줄 문장이 없으면 경고가 아니다. */
+export function budgetWarningFromWire(warning: WireConditionState['budget_warning']): BudgetWarning | null {
+  return warning?.message ? { level: warning.level, message: warning.message } : null
+}
+
 /** 서버의 업그레이드 추천 결과 → 점검 화면의 제안 카드. 서버가 계산하지 않는 값(성능 변화 폭·소비전력)은 비워 둔다(화면이 안 보인다). */
 export function suggestionFromPlan(plan: CurrentPlan, draft: CheckDraft): UpgradeSuggestion | null {
   const item = plan.items[0]
@@ -253,6 +273,8 @@ export function planFromResult(result: WireResult, context: PlanContext): Curren
     items: result.items.filter(item => item.selected).map(itemFromWire),
     compat: compatFromWire(result.verification),
     compatChecks: compatChecksFromWire(result.compat_checks),
+    contribution: contributionFromWire(result.explanation),
+    budgetNotice: budgetNoticeFromWire(result.budget_notice),
     budget: context.budget, conditions: { ...context.conditions },
     checkSnapshot: context.checkSnapshot ? structuredClone(context.checkSnapshot) : null,
   }
@@ -289,6 +311,31 @@ function dateOnly(value: string | null, fallbackIso: string): string {
   return source.slice(0, 10)
 }
 
+/**
+ * 서버의 조립·설치 가이드 문장 → 단계 목록. 서버 폴백은 "1. 슬롯 — 부품명 / 설치: … / 확인: …" 모양이고, 에이전트가 쓴 문장은
+ * 모양이 조금 다를 수 있어서(마크다운 굵게 · 글머리 기호) 그런 장식은 벗기고, 못 알아보는 줄은 그 단계의 일반 문장으로 둔다.
+ * 준비 전·실패·빈 문장이면 undefined — 화면이 일반 조립 안내로 대신한다(없는 가이드를 지어내지 않는다).
+ */
+export function guideStepsFromWire(guide: WireReport['care_guide']): GuideStep[] | undefined {
+  if (!guide || guide.status !== 'ready' || !guide.text?.trim()) return undefined
+  const steps: GuideStep[] = []
+  for (const raw of guide.text.split(/\r?\n/)) {
+    const line = raw.replace(/\*\*/g, '').trim()
+    if (!line) continue
+    const detail = line.match(/^[-*•]?\s*(설치|확인)\s*[:：]\s*(.+)$/)
+    if (detail) {
+      if (!steps.length) steps.push({ title: '', lines: [] })
+      steps[steps.length - 1].lines.push({ label: detail[1] as '설치' | '확인', text: detail[2].trim() })
+      continue
+    }
+    const title = line.match(/^\d+[.)]\s*(.+)$/)
+    if (title) { steps.push({ title: title[1].trim(), lines: [] }); continue }
+    if (!steps.length) steps.push({ title: '', lines: [] })
+    steps[steps.length - 1].lines.push({ label: '', text: line })
+  }
+  return steps.length ? steps : undefined
+}
+
 export function setupFromReport(report: WireReport, extras: SetupExtras | undefined): SavedSetup {
   const plan: CurrentPlan = {
     id: report.list_id, mode: extras?.mode ?? 'new',
@@ -304,5 +351,6 @@ export function setupFromReport(report: WireReport, extras: SetupExtras | undefi
     savedAt: report.confirmed_at, plan,
     desk: extras?.desk ?? { ...DEFAULT_DESK },
     checkDraft: extras?.checkDraft ?? { question: '', budget: '', rows: [] },
+    careGuide: guideStepsFromWire(report.care_guide),
   }
 }

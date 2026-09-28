@@ -150,8 +150,8 @@ def test_text_without_a_model_number_is_not_matched_to_a_catalog_part():
 
 def test_ram_is_never_matched_by_capacity_only_the_ddr_generation_is_read():
     ram = _owned({"RAM": "DDR4 32GB"})["RAM"]
-    assert ram["source"] == "text" and ram["specs"] == {"mem_type": "DDR4"}
-    assert _owned({"RAM": "32GB"})["RAM"]["source"] == "unverified"
+    assert ram["source"] == "text" and ram["specs"] == {"mem_type": "DDR4", "capacity_gb": 32}   # 용량은 읽지만 제품은 특정하지 않는다
+    assert _owned({"RAM": "32GB"})["RAM"]["specs"] == {"capacity_gb": 32}
 
 
 def test_specs_readable_from_plain_text_are_used_when_the_catalog_has_no_match():

@@ -14,15 +14,15 @@
   그 점검이 찾은 문제(소켓·전력·크기·예산)를 적어 모델이 그대로 전하게 한다. 순위·요약 문장은 다시 만들지
   않으니 전체 재구성은 화면의 "다른 구성 보기".
 - 도구는 순차 실행(`SequentialToolExecutor`) — 요청 스레드의 psycopg 연결 하나를 같이 쓴다.
-- 대화 이력은 프로세스 메모리(run_id 별 최근 N턴)에만 둔다. 결과 화면 채팅은 서버에 저장되지 않는
-  계약이라 재시작하면 사라진다. "두 번째 걸로" 같은 이어 말하기는 이 이력으로 통한다.
+- 대화는 `identity.message`에 저장된다(CHAT-08, 2026-09-27 — 이전엔 프로세스 메모리뿐이라 재시작하면
+  사라졌다). 저장·복원은 `recommendation_service.handle_result_message`가 맡고, 여기서는 이번 run이
+  생긴 뒤의 턴만 최근 N개 가져와 "두 번째 걸로" 같은 이어 말하기 맥락으로 쓴다(`_db_history`).
 - `available()` 이 False(MOCK_MODE·키 없음·`RESULT_AGENT=0`)면 규칙 경로.
 """
 from __future__ import annotations
 
 import logging
 import re
-from collections import deque
 from dataclasses import dataclass, field
 from uuid import UUID
 
@@ -33,7 +33,6 @@ from src.errors import NotFound
 log = logging.getLogger(__name__)
 
 _HISTORY_TURNS = 8
-_HISTORY: dict[str, deque] = {}     # run_id → deque[(user, assistant)]
 
 
 def available() -> bool:
@@ -326,9 +325,37 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
     ])
 
 
-def _history_messages(run_id: str) -> list[dict]:
+def _db_history(conn, revision_id: UUID, run_id: str, limit: int = _HISTORY_TURNS) -> list[tuple[str, str]]:
+    """DB(identity.message)에서 이번 run의 결과 화면 채팅만 최근 N턴 — 프로세스 메모리(재시작하면
+    사라지던 예전 `_HISTORY`) 대신이다(CHAT-08). 조건 대화(session_service)는 같은 conversation에
+    더 앞서 쌓여 있지만, 이 run이 생기기 전(created_at 이전) 것들이라 여기서는 제외한다 — 결과
+    화면 에이전트에게 "게임용 컴퓨터 맞춰주세요" 같은 조건 대화 턴을 섞어 넣으면 구성표 얘기를
+    하는 이 에이전트의 맥락과 안 맞는다. 저장(대화 이력 전체를 화면에 복원하는 것)은
+    `GET /session/{id}`가 이미 하므로 여기서는 에이전트가 볼 맥락만 좁힌다."""
+    from src.repo.plan_repo import PlanRepo
+    from src.repo.user_repo import ConversationRepo
+
+    conversation_id = PlanRepo(conn).get_revision(revision_id)["conversation_id"]
+    row = conn.execute("SELECT created_at FROM engine.recommendation_run WHERE id=%s", (UUID(run_id),)).fetchone()
+    cutoff_at = row[0] if row else None
+    messages = ConversationRepo(conn).messages(conversation_id)
+    if cutoff_at is not None:
+        messages = [m for m in messages if m["created_at"] >= cutoff_at]
+
+    pairs: list[tuple[str, str]] = []
+    pending: str | None = None
+    for m in messages:
+        if m["role"] == "user":
+            pending = m["content"]
+        elif m["role"] == "assistant" and pending is not None:
+            pairs.append((pending, m["content"]))
+            pending = None
+    return pairs[-limit:]
+
+
+def _history_messages(pairs: list[tuple[str, str]]) -> list[dict]:
     msgs = []
-    for u, a in _HISTORY.get(run_id, ()):
+    for u, a in pairs:
         msgs.append({"role": "user", "content": [{"text": u}]})
         msgs.append({"role": "assistant", "content": [{"text": a}]})
     return msgs
@@ -384,7 +411,8 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str) -> TurnResult:
     from strands.tools.executors import SequentialToolExecutor
 
     run_id = result["run_id"]
-    hist_rows = [{"role": "user", "content": u} for u, _ in _HISTORY.get(run_id, ())]
+    pairs = _db_history(conn, revision_id, run_id)
+    hist_rows = [{"role": "user", "content": u} for u, _ in pairs]
     session = ResultSession(conn=conn, revision_id=revision_id, result=result)
     prefetched = _prefetch_explanations(session, text)
     prompt = system_prompt(result, text, hist_rows, prefetched)
@@ -392,7 +420,7 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str) -> TurnResult:
         model=_model(),
         system_prompt=prompt,
         tools=make_tools(session),
-        messages=_history_messages(run_id),
+        messages=_history_messages(pairs),
         tool_executor=SequentialToolExecutor(),   # 도구들이 요청 스레드의 DB 연결 하나를 같이 쓴다
         callback_handler=None,
     )
@@ -411,7 +439,7 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str) -> TurnResult:
         if not ok or bad_words:
             log.warning("result agent reply rejected (numbers %s, words %s) — replaced: %r", sorted(outside), bad_words, reply[:120])
             reply = _guarded_reply(session, prefetched)
-    _HISTORY.setdefault(run_id, deque(maxlen=_HISTORY_TURNS)).append((text, reply))
+    # 대화 저장은 호출자(recommendation_service.handle_result_message)가 한다 — 여기서 두 번 쓰지 않는다.
     if session.changed:
         session.refresh()
     return TurnResult(reply=reply, result=session.result, trace=list(session.trace), changed=session.changed)

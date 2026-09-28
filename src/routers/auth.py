@@ -5,15 +5,25 @@
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Request, Response
 
 from src import schemas
+from src.auth import ratelimit
 from src.auth.deps import Principal, optional_principal
-from src.config import COOKIE_NAME, COOKIE_SECURE, JWT_TTL_DAYS
+from src.config import COOKIE_NAME, COOKIE_SECURE, EMAIL_CHECK_LIMIT_PER_MIN, JWT_TTL_DAYS, TRUST_FORWARDED_FOR
 from src.db import get_conn
+from src.errors import RateLimited
 from src.services import auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _client_ip(request: Request) -> str:
+    if TRUST_FORWARDED_FOR:
+        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if forwarded:
+            return forwarded
+    return request.client.host if request.client else "unknown"
 
 
 def _set_session_cookie(response: Response, token: str, *, remember: bool) -> None:
@@ -109,8 +119,10 @@ def withdraw(
 
 
 @router.get("/email-availability", response_model=schemas.EmailAvailabilityOut)
-def email_availability(email: str) -> schemas.EmailAvailabilityOut:
-    # TODO(§A-4): IP당 rate limit(분당 30회) — 데모 범위에서는 보류.
+def email_availability(email: str, request: Request) -> schemas.EmailAvailabilityOut:
+    # 가입 여부를 캐 가는 열거 공격을 막는다 — IP당 분당 EMAIL_CHECK_LIMIT_PER_MIN 회(§A-4).
+    if not ratelimit.allow(f"email-availability:{_client_ip(request)}", limit=EMAIL_CHECK_LIMIT_PER_MIN, window_seconds=60):
+        raise RateLimited("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")
     with get_conn() as conn:
         available = auth_service.check_email_availability(conn, email)
     return schemas.EmailAvailabilityOut(available=available)

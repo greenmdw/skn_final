@@ -30,7 +30,9 @@ def test_result_summary_message_returns_saved_explanation(monkeypatch):
     )
     monkeypatch.setattr(recommendation_service, "get_stored_result", lambda conn, revision_id: stored)
 
-    out = recommendation_service.handle_result_message(None, None, "이 구성 총평 알려줘")
+    # handle_result_message(공개 함수)는 이제 채팅을 identity.message에 저장한다(CHAT-08) — 그 저장까지
+    # 이 순수 로직 테스트에서 흉내 낼 필요는 없으니, 저장 전 실제 처리부(_handle_result_message_inner)를 본다.
+    out = recommendation_service._handle_result_message_inner(None, None, "이 구성 총평 알려줘")
 
     assert out == {"reply": "부품 균형이 잘 맞는 구성입니다.", "result": stored}
 
@@ -44,6 +46,6 @@ def test_result_summary_message_has_a_pending_reply(monkeypatch):
     )
     monkeypatch.setattr(recommendation_service, "get_stored_result", lambda conn, revision_id: stored)
 
-    out = recommendation_service.handle_result_message(None, None, "요약해 줘")
+    out = recommendation_service._handle_result_message_inner(None, None, "요약해 줘")
 
     assert out["reply"] == "전체 구성 총평을 아직 준비하고 있어요. 잠시 후 다시 물어봐 주세요."

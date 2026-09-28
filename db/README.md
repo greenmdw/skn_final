@@ -53,6 +53,7 @@ python db/migrate.py status
 | `0001_constraints.sql` | PK · UNIQUE · 모든 FK |
 | `0002_indexes.sql` | 부분 UNIQUE와 성능 인덱스 |
 | `0003_triggers.sql` | `updated_at` 자동 갱신 트리거 |
+| `0004_notification_events.sql` | 목표가 알림 판정 이력·발송 관리(`notification.price_watch_evaluation`·`notification.notification_event`, ACC-02). 2026-09-12에 제거됐다가 2026-09-30 기획서 요구로 2026-09-27 팀 재확인 후 복원 |
 
 phase 방식(테이블 전부 → 제약 전부 → 인덱스 전부)을 쓴 이유는 스키마 간 순환 참조가 있기 때문이다.
 
