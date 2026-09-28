@@ -513,8 +513,11 @@ def _show(value) -> str:
 def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules: dict) -> list[dict]:
     """호환 검사별 결과 — 무엇을 무엇과 비교했고 결과가 어땠는지. 화면의 "호환성 점검 상세"와 pc_link_check 가 같이 쓴다.
 
-    각 항목: {axis, label, state, detail}. state 는 ok(통과) / unknown(스펙을 몰라 확인 못 함) / fail(확정된 비호환) /
+    각 항목: {axis, label, state, detail, missing_slots, inputs}. state 는 ok(통과) / unknown(스펙을 몰라 확인 못 함) / fail(확정된 비호환) /
     skipped(이번 견적에서 바뀌는 부품이 없어 보지 않음 — 업그레이드에서 GPU 만 바꾸는데 CPU 소켓을 묻지 않는다).
+    missing_slots 는 값이 없어 근사(unknown)가 된 "쪽" 슬롯만(둘 다 알면 빈 튜플) — 재탐색 루프(E1)가 뺄 슬롯을 고르는 데 쓴다.
+    inputs 는 비교에 실제로 쓴 [{slot, key, value}] — [3-C](E5)가 후보의 provenance 와 엮어 근거(evidence)를
+    만드는 데 쓴다. key 는 이 규칙 문서(verification 절)에 적힌 spec 키 이름과 같다. skipped 행은 빈 리스트.
     상세 문장은 코드가 아는 값만 옮긴다. `rules` 는 규칙 문서의 verification 절.
     """
     from src.engine.stage3c_verify import axis_label
@@ -527,24 +530,38 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
 
     rows: list[dict] = []
 
-    def add(axis: str, slots: tuple[str, ...], state: str, detail: str, data_missing: bool = False) -> None:
+    def add(axis: str, slots: tuple[str, ...], state: str, detail: str, data_missing: bool = False,
+            missing_slots: tuple[str, ...] = (), inputs: tuple[tuple[str, str, object], ...] = ()) -> None:
         # data_missing: 스펙 데이터가 비어 있어 못 본 것 — pc_link_check 가 이 중 확장 열 검사는 감점·이슈로 세지 않는다.
+        # missing_slots: 값이 없어 근사가 된 "쪽" 슬롯만(양쪽 다 알면 빈 튜플) — 재탐색 루프(E1)가 뺄 슬롯을 고르는 데 쓴다.
+        # inputs: (slot, key, value) — 비교에 실제로 쓴 값(E5 근거 연결용).
         if not any(s in chosen for s in slots):
-            state, detail = "skipped", "이번 견적에서 바뀌는 부품이 아니라 확인하지 않았습니다."
+            state, detail, missing_slots, inputs = "skipped", "이번 견적에서 바뀌는 부품이 아니라 확인하지 않았습니다.", (), ()
             data_missing = False
-        rows.append({"axis": axis, "label": axis_label(axis), "state": state, "detail": detail, "data_missing": data_missing})
+        rows.append({"axis": axis, "label": axis_label(axis), "state": state, "detail": detail,
+                     "data_missing": data_missing, "missing_slots": tuple(missing_slots),
+                     "inputs": [{"slot": s, "key": k, "value": v} for s, k, v in inputs]})
 
     def missing(*pairs: tuple[str, object]) -> str:
         return " · ".join(f"{name}: {_show(value)}" for name, value in pairs) + " — 스펙 정보가 부족해 확인하지 못했습니다."
+
+    def absent(*pairs: tuple[str, object]) -> tuple[str, ...]:
+        """(슬롯, 값) 중 값이 빈 슬롯만 골라낸다 — missing_slots 계산용."""
+        def empty(v: object) -> bool:
+            return v is None or (isinstance(v, (str, list, tuple, set)) and len(v) == 0)
+        return tuple(slot for slot, value in pairs if empty(value))
 
     # 소켓
     r = rules["socket"]
     cs, bs = specs_of("CPU").get(r["cpu_spec"]), specs_of("메인보드").get(r["mainboard_spec"])
     if cs and bs:
         add("socket", ("CPU", "메인보드"), "ok" if cs == bs else "fail",
-            f"CPU {name_of('CPU')}({cs}) {'=' if cs == bs else '≠'} 메인보드 {name_of('메인보드')}({bs})")
+            f"CPU {name_of('CPU')}({cs}) {'=' if cs == bs else '≠'} 메인보드 {name_of('메인보드')}({bs})",
+            inputs=(("CPU", r["cpu_spec"], cs), ("메인보드", r["mainboard_spec"], bs)))
     else:
-        add("socket", ("CPU", "메인보드"), "unknown", missing(("CPU 소켓", cs), ("메인보드 소켓", bs)))
+        add("socket", ("CPU", "메인보드"), "unknown", missing(("CPU 소켓", cs), ("메인보드 소켓", bs)),
+            missing_slots=absent(("CPU", cs), ("메인보드", bs)),
+            inputs=(("CPU", r["cpu_spec"], cs), ("메인보드", r["mainboard_spec"], bs)))
     socket_failed = bool(cs and bs and cs != bs)
 
     # 메모리 규격
@@ -552,50 +569,65 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
     rt, bm = specs_of("RAM").get(r["ram_spec"]), specs_of("메인보드").get(r["mainboard_spec"])
     if rt and bm:
         add("memory", ("RAM", "메인보드"), "ok" if rt == bm else "fail",
-            f"RAM {rt} {'=' if rt == bm else '≠'} 메인보드 {bm}")
+            f"RAM {rt} {'=' if rt == bm else '≠'} 메인보드 {bm}",
+            inputs=(("RAM", r["ram_spec"], rt), ("메인보드", r["mainboard_spec"], bm)))
     else:
-        add("memory", ("RAM", "메인보드"), "unknown", missing(("RAM 규격", rt), ("메인보드 메모리", bm)))
+        add("memory", ("RAM", "메인보드"), "unknown", missing(("RAM 규격", rt), ("메인보드 메모리", bm)),
+            missing_slots=absent(("RAM", rt), ("메인보드", bm)),
+            inputs=(("RAM", r["ram_spec"], rt), ("메인보드", r["mainboard_spec"], bm)))
 
     # 메인보드 ↔ 케이스 크기
     r = rules["motherboard_case"]
     bf, cf = specs_of("메인보드").get(r["mainboard_spec"]), specs_of("케이스").get(r["case_spec"])
     fits = _form_fits(bf, cf) if bf and cf else None
     if fits is None:
-        add("motherboard_case", ("메인보드", "케이스"), "unknown", missing(("메인보드 크기", bf), ("케이스 지원 크기", cf)))
+        add("motherboard_case", ("메인보드", "케이스"), "unknown", missing(("메인보드 크기", bf), ("케이스 지원 크기", cf)),
+            missing_slots=absent(("메인보드", bf), ("케이스", cf)),
+            inputs=(("메인보드", r["mainboard_spec"], bf), ("케이스", r["case_spec"], cf)))
     else:
         add("motherboard_case", ("메인보드", "케이스"), "ok" if fits else "fail",
-            f"메인보드 {bf} {'→ 케이스가 지원' if fits else '은(는) 케이스가 지원하지 않는'} {_show(cf)}")
+            f"메인보드 {bf} {'→ 케이스가 지원' if fits else '은(는) 케이스가 지원하지 않는'} {_show(cf)}",
+            inputs=(("메인보드", r["mainboard_spec"], bf), ("케이스", r["case_spec"], cf)))
 
     # GPU 길이
     r = rules["gpu_length"]
     gl, mg = specs_of("GPU").get(r["gpu_spec"]), specs_of("케이스").get(r["case_spec"])
     if gl is not None and mg is not None:
         add("gpu_len", ("GPU", "케이스"), "ok" if gl <= mg else "fail",
-            f"GPU 길이 {gl}mm {'≤' if gl <= mg else '>'} 케이스 허용 {mg}mm")
+            f"GPU 길이 {gl}mm {'≤' if gl <= mg else '>'} 케이스 허용 {mg}mm",
+            inputs=(("GPU", r["gpu_spec"], gl), ("케이스", r["case_spec"], mg)))
     else:
-        add("gpu_len", ("GPU", "케이스"), "unknown", missing(("GPU 길이", gl), ("케이스 허용 길이", mg)))
+        add("gpu_len", ("GPU", "케이스"), "unknown", missing(("GPU 길이", gl), ("케이스 허용 길이", mg)),
+            missing_slots=absent(("GPU", gl), ("케이스", mg)),
+            inputs=(("GPU", r["gpu_spec"], gl), ("케이스", r["case_spec"], mg)))
 
     # 쿨러 높이
     r = rules["cooler_height"]
     ch, mc = specs_of("쿨러").get(r["cooler_spec"]), specs_of("케이스").get(r["case_spec"])
     if ch is not None and mc is not None:
         add("cooler_height", ("쿨러", "케이스"), "ok" if ch <= mc else "fail",
-            f"쿨러 높이 {ch}mm {'≤' if ch <= mc else '>'} 케이스 허용 {mc}mm")
+            f"쿨러 높이 {ch}mm {'≤' if ch <= mc else '>'} 케이스 허용 {mc}mm",
+            inputs=(("쿨러", r["cooler_spec"], ch), ("케이스", r["case_spec"], mc)))
     elif ch is None and "liquid" in str(specs_of("쿨러").get("cooling_type") or "").lower():
         add("cooler_height", ("쿨러", "케이스"), "unknown",
             "수랭(AIO) 쿨러는 높이 대신 라디에이터 크기로 확인해야 하는데 케이스의 라디에이터 지원 정보가 없어 확인하지 못했습니다.")
     else:
-        add("cooler_height", ("쿨러", "케이스"), "unknown", missing(("쿨러 높이", ch), ("케이스 허용 높이", mc)))
+        add("cooler_height", ("쿨러", "케이스"), "unknown", missing(("쿨러 높이", ch), ("케이스 허용 높이", mc)),
+            missing_slots=absent(("쿨러", ch), ("케이스", mc)),
+            inputs=(("쿨러", r["cooler_spec"], ch), ("케이스", r["case_spec"], mc)))
 
     # 쿨러 지원 소켓
     r = rules["cooler_socket"]
     sup = specs_of("쿨러").get(r["cooler_spec"])
     ok_socket = socket_supported(cs, sup)
     if ok_socket is None:
-        add("cooler_socket", ("CPU", "쿨러"), "unknown", missing(("CPU 소켓", cs), ("쿨러 지원 소켓", sup)))
+        add("cooler_socket", ("CPU", "쿨러"), "unknown", missing(("CPU 소켓", cs), ("쿨러 지원 소켓", sup)),
+            missing_slots=absent(("CPU", cs), ("쿨러", sup)),
+            inputs=(("CPU", "socket", cs), ("쿨러", r["cooler_spec"], sup)))
     else:
         add("cooler_socket", ("CPU", "쿨러"), "ok" if ok_socket else "fail",
-            f"CPU 소켓 {cs} {'∈' if ok_socket else '∉'} 쿨러 지원 소켓 {sup}")
+            f"CPU 소켓 {cs} {'∈' if ok_socket else '∉'} 쿨러 지원 소켓 {sup}",
+            inputs=(("CPU", "socket", cs), ("쿨러", r["cooler_spec"], sup)))
 
     # CPU 계열 ↔ 메인보드 지원 계열(BIOS)
     board_family = specs_of("메인보드").get(rules["bios"]["mainboard_spec"])
@@ -605,11 +637,14 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
     elif family_ok is None:
         add("bios", ("CPU", "메인보드"), "unknown",
             missing(("CPU", _cpu_name(chosen, spec)), ("메인보드 지원 CPU 계열", board_family))
-            .replace("스펙 정보가 부족해", "CPU 이름의 세대·계열을 읽지 못했거나 보드의 지원 목록이 없어"))
+            .replace("스펙 정보가 부족해", "CPU 이름의 세대·계열을 읽지 못했거나 보드의 지원 목록이 없어"),
+            missing_slots=absent(("CPU", _cpu_name(chosen, spec)), ("메인보드", board_family)),
+            inputs=(("메인보드", rules["bios"]["mainboard_spec"], board_family),))
     else:
         add("bios", ("CPU", "메인보드"), "ok" if family_ok else "fail",
             f"CPU {_cpu_name(chosen, spec)} {'∈' if family_ok else '∉'} 메인보드 지원 계열 {board_family}"
-            + (" (출고 BIOS 버전은 데이터에 없어 확인하지 않음)" if family_ok else ""))
+            + (" (출고 BIOS 버전은 데이터에 없어 확인하지 않음)" if family_ok else ""),
+            inputs=(("메인보드", rules["bios"]["mainboard_spec"], board_family),))
 
     # 전력
     r = rules["power"]
@@ -620,32 +655,43 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
     factor = r["psu_capacity_factor"]
     recommended = specs_of("GPU").get("recommended_psu_w")
     one_side = ("GPU" in chosen) != ("파워" in chosen)
+    cpu_power_key = r.get("cpu_peak_spec") if peak is not None else r["cpu_spec"]
     if cw is not None and gw is not None and pw is not None:
         total, limit = cw + gw, pw * factor
         add("power", ("CPU", "GPU", "파워"), "ok" if total <= limit else "fail",
-            f"{cpu_label} {cw}W + GPU {gw}W = {total}W {'≤' if total <= limit else '>'} 파워 {pw}W × {factor} = {limit:.0f}W")
+            f"{cpu_label} {cw}W + GPU {gw}W = {total}W {'≤' if total <= limit else '>'} 파워 {pw}W × {factor} = {limit:.0f}W",
+            inputs=(("CPU", cpu_power_key, cw), ("GPU", r["gpu_spec"], gw), ("파워", r["psu_spec"], pw)))
     elif r.get("use_gpu_recommended_psu", True) and one_side and recommended and pw is not None:
         # 권장 파워를 넘으면 실패는 아니지만 CPU 전력을 몰라 완전한 확인은 아니다 — "근사"로 남긴다(실패면 확정 비호환).
         add("power", ("CPU", "GPU", "파워"), "unknown" if pw >= recommended else "fail",
             f"제조사 권장 파워 {recommended}W {'≤' if pw >= recommended else '>'} 파워 {pw}W"
-            + (" — 그러나 CPU 전력을 몰라 전체 소비전력은 확인하지 못했습니다." if pw >= recommended else ""))
+            + (" — 그러나 CPU 전력을 몰라 전체 소비전력은 확인하지 못했습니다." if pw >= recommended else ""),
+            missing_slots=("CPU",) if pw >= recommended else (),
+            inputs=(("GPU", "recommended_psu_w", recommended), ("파워", r["psu_spec"], pw)))
     elif pw is not None and (spec.targets.get("파워") or {}).get("wattage_min") and pw < spec.targets["파워"]["wattage_min"]:
-        add("power", ("CPU", "GPU", "파워"), "fail", f"파워 {pw}W < 요구 최소 {spec.targets['파워']['wattage_min']}W")
+        add("power", ("CPU", "GPU", "파워"), "fail", f"파워 {pw}W < 요구 최소 {spec.targets['파워']['wattage_min']}W",
+            inputs=(("파워", r["psu_spec"], pw),))
     else:
-        add("power", ("CPU", "GPU", "파워"), "unknown", missing(("CPU 전력", cw), ("GPU 전력", gw), ("파워 용량", pw)))
+        add("power", ("CPU", "GPU", "파워"), "unknown", missing(("CPU 전력", cw), ("GPU 전력", gw), ("파워 용량", pw)),
+            missing_slots=absent(("CPU", cw), ("GPU", gw), ("파워", pw)),
+            inputs=(("CPU", cpu_power_key, cw), ("GPU", r["gpu_spec"], gw), ("파워", r["psu_spec"], pw)))
 
     # 파워 폼팩터 ↔ 케이스
     r = rules["psu_form"]
     pf, cpf = specs_of("파워").get(r["psu_spec"]), specs_of("케이스").get(r["case_spec"])
     verdict = psu_fits_case(pf, cpf)
     if verdict is None:
-        add("psu_form", ("파워", "케이스"), "unknown", missing(("파워 크기", pf), ("케이스 지원 파워", cpf)))
+        add("psu_form", ("파워", "케이스"), "unknown", missing(("파워 크기", pf), ("케이스 지원 파워", cpf)),
+            missing_slots=absent(("파워", pf), ("케이스", cpf)),
+            inputs=(("파워", r["psu_spec"], pf), ("케이스", r["case_spec"], cpf)))
     elif verdict == "adapter":
         add("psu_form", ("파워", "케이스"), "unknown",
-            f"파워 {pf}은(는) 케이스 지원 {cpf}보다 작아 어댑터 브래킷이 있어야 들어갑니다.")
+            f"파워 {pf}은(는) 케이스 지원 {cpf}보다 작아 어댑터 브래킷이 있어야 들어갑니다.",
+            inputs=(("파워", r["psu_spec"], pf), ("케이스", r["case_spec"], cpf)))
     else:
         add("psu_form", ("파워", "케이스"), verdict,
-            f"파워 {pf} {'→ 케이스가 지원' if verdict == 'ok' else '은(는) 케이스가 지원하는 가장 큰 크기보다 큽니다'} {cpf}")
+            f"파워 {pf} {'→ 케이스가 지원' if verdict == 'ok' else '은(는) 케이스가 지원하는 가장 큰 크기보다 큽니다'} {cpf}",
+            inputs=(("파워", r["psu_spec"], pf), ("케이스", r["case_spec"], cpf)))
 
     # GPU 전원 커넥터 ↔ 파워 — 종류와 개수. 개수 데이터(파워 PCIe 8핀·16핀 개수)가 있으면 개수까지, 없으면 표기(종류)만 본다.
     r = rules["gpu_connector"]
@@ -653,29 +699,37 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
     pc = specs_of("파워").get(r["psu_spec"])
     n_pcie, n_16 = specs_of("파워").get(r["psu_pcie_count_spec"]), specs_of("파워").get(r["psu_16_count_spec"])
     count_state, count_detail = gpu_power_count_fit(gc, ga, n_pcie, n_16)
+    count_inputs = (("GPU", r["gpu_spec"], gc), ("GPU", r["aux_spec"], ga),
+                    ("파워", r["psu_pcie_count_spec"], n_pcie), ("파워", r["psu_16_count_spec"], n_16))
     if count_state in ("ok", "fail"):
-        add("gpu_connector", ("GPU", "파워"), count_state, f"GPU {gc} — {count_detail}")
+        add("gpu_connector", ("GPU", "파워"), count_state, f"GPU {gc} — {count_detail}", inputs=count_inputs)
     elif count_state == "adapter":
-        add("gpu_connector", ("GPU", "파워"), "unknown", f"GPU {gc} — {count_detail}")
+        add("gpu_connector", ("GPU", "파워"), "unknown", f"GPU {gc} — {count_detail}", inputs=count_inputs)
     else:
         verdict = gpu_connector_fit(gc, ga, pc)
+        conn_inputs = (("GPU", r["gpu_spec"], gc), ("GPU", r["aux_spec"], ga), ("파워", r["psu_spec"], pc))
         if verdict is None:
-            add("gpu_connector", ("GPU", "파워"), "unknown", missing(("GPU 전원 커넥터", gc), ("파워 제공 커넥터", pc)))
+            add("gpu_connector", ("GPU", "파워"), "unknown", missing(("GPU 전원 커넥터", gc), ("파워 제공 커넥터", pc)),
+                missing_slots=absent(("GPU", gc), ("파워", pc)), inputs=conn_inputs)
         elif verdict == "adapter":
             add("gpu_connector", ("GPU", "파워"), "unknown",
-                f"GPU는 {gc}인데 파워는 {pc}만 제공합니다 — GPU에 동봉된 어댑터로 연결해야 합니다.")
+                f"GPU는 {gc}인데 파워는 {pc}만 제공합니다 — GPU에 동봉된 어댑터로 연결해야 합니다.", inputs=conn_inputs)
         else:
             need = "보조 전원 불필요" if (str(ga or "").upper() == "X" or "슬롯" in str(gc)) else f"GPU {gc} ← 파워 {pc}"
-            add("gpu_connector", ("GPU", "파워"), "ok", need + " (파워의 커넥터 개수 데이터가 없어 개수는 확인하지 않음)")
+            add("gpu_connector", ("GPU", "파워"), "ok", need + " (파워의 커넥터 개수 데이터가 없어 개수는 확인하지 않음)",
+                inputs=conn_inputs)
 
     # 파워 길이 ↔ 케이스
     r = rules["psu_length"]
     pl, cl = specs_of("파워").get(r["psu_spec"]), specs_of("케이스").get(r["case_spec"])
     if pl is not None and cl is not None:
         add("psu_length", ("파워", "케이스"), "ok" if pl <= cl else "fail",
-            f"파워 길이 {pl}mm {'≤' if pl <= cl else '>'} 케이스 허용 {cl}mm")
+            f"파워 길이 {pl}mm {'≤' if pl <= cl else '>'} 케이스 허용 {cl}mm",
+            inputs=(("파워", r["psu_spec"], pl), ("케이스", r["case_spec"], cl)))
     else:
-        add("psu_length", ("파워", "케이스"), "unknown", missing(("파워 길이", pl), ("케이스 허용 파워 길이", cl)), data_missing=True)
+        add("psu_length", ("파워", "케이스"), "unknown", missing(("파워 길이", pl), ("케이스 허용 파워 길이", cl)), data_missing=True,
+            missing_slots=absent(("파워", pl), ("케이스", cl)),
+            inputs=(("파워", r["psu_spec"], pl), ("케이스", r["case_spec"], cl)))
 
     # GPU 두께 ↔ 케이스 확장 슬롯
     r = rules["gpu_slots"]
@@ -683,9 +737,12 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
     need_slots = slots_needed(thick)
     if need_slots is not None and expansion is not None:
         add("gpu_slots", ("GPU", "케이스"), "ok" if need_slots <= expansion else "fail",
-            f"GPU 두께 {thick}슬롯 → {need_slots}칸 {'≤' if need_slots <= expansion else '>'} 케이스 확장 슬롯 {expansion}칸")
+            f"GPU 두께 {thick}슬롯 → {need_slots}칸 {'≤' if need_slots <= expansion else '>'} 케이스 확장 슬롯 {expansion}칸",
+            inputs=(("GPU", r["gpu_spec"], thick), ("케이스", r["case_spec"], expansion)))
     else:
-        add("gpu_slots", ("GPU", "케이스"), "unknown", missing(("GPU 두께", thick), ("케이스 확장 슬롯", expansion)), data_missing=True)
+        add("gpu_slots", ("GPU", "케이스"), "unknown", missing(("GPU 두께", thick), ("케이스 확장 슬롯", expansion)), data_missing=True,
+            missing_slots=absent(("GPU", need_slots), ("케이스", expansion)),
+            inputs=(("GPU", r["gpu_spec"], thick), ("케이스", r["case_spec"], expansion)))
 
     # 수랭(AIO) 라디에이터 ↔ 케이스
     r = rules["radiator"]
@@ -693,18 +750,22 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
     cooling = str(cool.get("cooling_type") or "")
     if cooling and "liquid" not in cooling.lower():
         rows.append({"axis": "radiator", "label": axis_label("radiator"), "state": "skipped", "data_missing": False,
-                     "detail": "공랭 쿨러라 라디에이터 검사를 하지 않았습니다."})
+                     "detail": "공랭 쿨러라 라디에이터 검사를 하지 않았습니다.", "missing_slots": (), "inputs": []})
     else:
         rad = cool.get(r["cooler_spec"])
         places = {name: parse_size_list(specs_of("케이스").get(key)) for name, key in zip(("전면", "상단", "후면"), r["case_specs"])}
         sizes = {n for v in places.values() for n in v}
+        rad_inputs = (("쿨러", r["cooler_spec"], rad),) + tuple(
+            ("케이스", key, specs_of("케이스").get(key)) for key in r["case_specs"])
         if rad is not None and sizes:
             where = [name for name, v in places.items() if int(rad) in v]
             add("radiator", ("쿨러", "케이스"), "ok" if where else "fail",
-                f"라디에이터 {rad}mm → 케이스 " + (f"{'·'.join(where)} 장착 가능" if where else f"지원 크기 {sorted(sizes)}mm 에 없음"))
+                f"라디에이터 {rad}mm → 케이스 " + (f"{'·'.join(where)} 장착 가능" if where else f"지원 크기 {sorted(sizes)}mm 에 없음"),
+                inputs=rad_inputs)
         else:
             add("radiator", ("쿨러", "케이스"), "unknown",
-                missing(("쿨러 라디에이터", rad), ("케이스 라디에이터 지원", sorted(sizes) or None)), data_missing=True)
+                missing(("쿨러 라디에이터", rad), ("케이스 라디에이터 지원", sorted(sizes) or None)), data_missing=True,
+                missing_slots=absent(("쿨러", rad), ("케이스", sizes)), inputs=rad_inputs)
 
     # RAM 모듈 수·총용량 ↔ 메인보드 슬롯·최대 용량
     r = rules["ram_slots"]
@@ -717,23 +778,34 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
     if capacity is not None and max_capacity is not None:
         parts.append(f"RAM 총 {capacity}GB {'≤' if capacity <= max_capacity else '>'} 메인보드 최대 {max_capacity}GB")
         bad = bad or capacity > max_capacity
+    ram_slots_inputs = (("RAM", r["ram_module_spec"], specs_of("RAM").get(r["ram_module_spec"])),
+                        ("RAM", r["ram_capacity_spec"], capacity),
+                        ("메인보드", r["board_slots_spec"], dimm),
+                        ("메인보드", r["board_max_capacity_spec"], max_capacity))
     if parts:
-        add("ram_slots", ("RAM", "메인보드"), "fail" if bad else "ok", " · ".join(parts))
+        add("ram_slots", ("RAM", "메인보드"), "fail" if bad else "ok", " · ".join(parts), inputs=ram_slots_inputs)
     else:
         add("ram_slots", ("RAM", "메인보드"), "unknown",
-            missing(("RAM 모듈 구성", specs_of("RAM").get(r["ram_module_spec"])), ("메인보드 DIMM 슬롯", dimm)), data_missing=True)
+            missing(("RAM 모듈 구성", specs_of("RAM").get(r["ram_module_spec"])), ("메인보드 DIMM 슬롯", dimm)), data_missing=True,
+            missing_slots=tuple(s for s, cond in (("RAM", modules is None and capacity is None),
+                                                    ("메인보드", dimm is None and max_capacity is None)) if cond),
+            inputs=ram_slots_inputs)
 
     # RAM 속도 ↔ 메인보드 최대 속도 (넘어도 비호환이 아니라 낮은 속도로 동작)
     r = rules["ram_speed"]
     speed, max_speed = specs_of("RAM").get(r["ram_spec"]), specs_of("메인보드").get(r["board_spec"])
+    ram_speed_inputs = (("RAM", r["ram_spec"], speed), ("메인보드", r["board_spec"], max_speed))
     if speed is not None and max_speed is not None:
         if speed <= max_speed:
-            add("ram_speed", ("RAM", "메인보드"), "ok", f"RAM {speed}MT/s ≤ 메인보드 최대 {max_speed}MT/s")
+            add("ram_speed", ("RAM", "메인보드"), "ok", f"RAM {speed}MT/s ≤ 메인보드 최대 {max_speed}MT/s",
+                inputs=ram_speed_inputs)
         else:
             add("ram_speed", ("RAM", "메인보드"), "unknown",
-                f"RAM {speed}MT/s 가 메인보드 최대 {max_speed}MT/s 를 넘어 낮은 속도로 동작할 수 있습니다.")
+                f"RAM {speed}MT/s 가 메인보드 최대 {max_speed}MT/s 를 넘어 낮은 속도로 동작할 수 있습니다.",
+                inputs=ram_speed_inputs)
     else:
-        add("ram_speed", ("RAM", "메인보드"), "unknown", missing(("RAM 속도", speed), ("메인보드 최대 메모리 속도", max_speed)), data_missing=True)
+        add("ram_speed", ("RAM", "메인보드"), "unknown", missing(("RAM 속도", speed), ("메인보드 최대 메모리 속도", max_speed)), data_missing=True,
+            missing_slots=absent(("RAM", speed), ("메인보드", max_speed)), inputs=ram_speed_inputs)
 
     # M.2 SSD ↔ 메인보드 M.2 슬롯·세대
     r = rules["m2"]
@@ -741,21 +813,26 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
     ssd_form, ssd_iface = str(ssd.get(r["ssd_form_spec"]) or ""), ssd.get(r["ssd_interface_spec"])
     board = specs_of("메인보드")
     m2_slots, board_gens = board.get(r["board_slots_spec"]), parse_pcie_gens(board.get(r["board_gen_spec"]))
+    m2_inputs = (("저장장치", r["ssd_form_spec"], ssd_form or None), ("저장장치", r["ssd_interface_spec"], ssd_iface),
+                 ("메인보드", r["board_slots_spec"], m2_slots), ("메인보드", r["board_gen_spec"], board.get(r["board_gen_spec"])))
     if ssd_form and "M.2" not in ssd_form:
         rows.append({"axis": "m2", "label": axis_label("m2"), "state": "skipped", "data_missing": False,
-                     "detail": f"SSD({ssd_form})는 M.2 슬롯을 쓰지 않아 검사하지 않았습니다."})
+                     "detail": f"SSD({ssd_form})는 M.2 슬롯을 쓰지 않아 검사하지 않았습니다.", "missing_slots": (), "inputs": []})
     elif not ssd_form or m2_slots is None:
-        add("m2", ("저장장치", "메인보드"), "unknown", missing(("SSD 폼팩터", ssd_form or None), ("메인보드 M.2 슬롯", m2_slots)), data_missing=True)
+        add("m2", ("저장장치", "메인보드"), "unknown", missing(("SSD 폼팩터", ssd_form or None), ("메인보드 M.2 슬롯", m2_slots)), data_missing=True,
+            missing_slots=absent(("저장장치", ssd_form or None), ("메인보드", m2_slots)), inputs=m2_inputs)
     elif m2_slots == 0 and "SATA" not in ssd_form.upper():
-        add("m2", ("저장장치", "메인보드"), "fail", f"M.2 SSD({ssd_form})인데 메인보드에 M.2 슬롯이 없습니다.")
+        add("m2", ("저장장치", "메인보드"), "fail", f"M.2 SSD({ssd_form})인데 메인보드에 M.2 슬롯이 없습니다.", inputs=m2_inputs)
     else:
         ssd_gens = parse_pcie_gens(ssd_iface)
         if ssd_gens and board_gens and max(board_gens) < max(ssd_gens):
             add("m2", ("저장장치", "메인보드"), "unknown",
-                f"SSD는 PCIe {max(ssd_gens):g} 지원인데 메인보드 M.2 는 최대 PCIe {max(board_gens):g} 이라 낮은 속도로 동작합니다.")
+                f"SSD는 PCIe {max(ssd_gens):g} 지원인데 메인보드 M.2 는 최대 PCIe {max(board_gens):g} 이라 낮은 속도로 동작합니다.",
+                inputs=m2_inputs)
         else:
             add("m2", ("저장장치", "메인보드"), "ok",
-                f"M.2 슬롯 {m2_slots}개" + (f" · SSD PCIe {max(ssd_gens):g} ≤ 슬롯 최대 {max(board_gens):g}" if ssd_gens and board_gens else ""))
+                f"M.2 슬롯 {m2_slots}개" + (f" · SSD PCIe {max(ssd_gens):g} ≤ 슬롯 최대 {max(board_gens):g}" if ssd_gens and board_gens else ""),
+                inputs=m2_inputs)
     return rows
 
 

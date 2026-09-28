@@ -27,7 +27,16 @@ def load_category(category: str) -> dict:
 
 
 def verify_branch(category: str) -> str:
-    """'set' = [4]→[3-C] (컴퓨터)."""
+    """'set' = [4] 세트 최적화 → [3-C] 세트 검증(완성 세트 1건, 컴퓨터가 이 값을 쓴다).
+
+    'per_item' = [4] 없이 [3-A] 하드 필터 → [3-B] 랭킹 → [3-C] 품목별 검증(품목 각각을
+    독립적으로 판정 — 계획 §3.3 E11, `stage3c_verify.verify_per_item`). 아직 이 값을 쓰는
+    카테고리는 없다(`pipeline._run_per_item_branch`가 그 자리를 예약해 둔다). 주변기기
+    (모니터·키보드·마우스·스피커)가 이 판정 방식을 실제로 쓰지만, 독립 카테고리가 아니라
+    컴퓨터 요청의 부속 결과라서 `verify_branch`가 아니라 컴퓨터(set) 분기 뒤
+    `pipeline._run_peripherals`가 `peripherals` 조건이 있을 때만 별도로 부른다
+    (`src/engine/peripheral_select.run_peripherals`).
+    """
     return load_category(category)["verify_branch"]
 
 

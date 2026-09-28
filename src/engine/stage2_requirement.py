@@ -13,6 +13,7 @@ from pathlib import Path
 
 import yaml
 
+from src.categories import load_category
 from src.dto import RequirementSpec, Slots
 from src.engine import LogFn
 
@@ -68,6 +69,30 @@ def _check_ranking_priority(ranking: dict) -> None:
 _TIER_KEYS = ("gpu", "cpu", "ram_gb", "vram_gb")
 
 
+_GAME_TITLE_ENTRY_KEYS = {"aliases", "tier", "status", "source"}
+_GAME_TITLE_STATUSES = {"provisional", "approved"}
+_GAME_SOURCE_KEYS = {"url", "excerpt", "checked_at"}
+_CHECKED_AT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _check_game_title_source(key: str, status: str, source) -> None:
+    """E7 — 출처·승인 상태. `source`는 선택이지만 `approved`면 url·checked_at이 있어야 한다.
+
+    값 자체(URL이 실재하는지, 발췌가 정확한지)는 여기서 확인하지 않는다 — 수집·승인은 R-11.
+    """
+    if source is not None:
+        if not isinstance(source, dict) or set(source) - _GAME_SOURCE_KEYS:
+            raise RequirementRuleError(f"PC 게임 요구사양 출처 오류: {key}")
+        for field in _GAME_SOURCE_KEYS:
+            if field in source and not (isinstance(source[field], str) and source[field].strip()):
+                raise RequirementRuleError(f"PC 게임 요구사양 출처 오류: {key}.{field}")
+        checked_at = source.get("checked_at")
+        if checked_at is not None and not _CHECKED_AT_RE.match(checked_at):
+            raise RequirementRuleError(f"PC 게임 요구사양 확인일 형식 오류(YYYY-MM-DD): {key}")
+    if status == "approved" and not (source and source.get("url") and source.get("checked_at")):
+        raise RequirementRuleError(f"PC 게임 요구사양 승인(approved) 상태인데 출처가 없음: {key}")
+
+
 def _check_game_titles(titles) -> None:
     if titles is None:
         return
@@ -75,12 +100,18 @@ def _check_game_titles(titles) -> None:
         raise RequirementRuleError("PC 게임 요구사양 표 오류")
     seen: dict[str, str] = {}
     for key, entry in titles.items():
-        tier = entry.get("tier") if isinstance(entry, dict) else None
-        aliases = entry.get("aliases") if isinstance(entry, dict) else None
+        if not isinstance(entry, dict) or set(entry) - _GAME_TITLE_ENTRY_KEYS:
+            raise RequirementRuleError(f"PC 게임 요구사양 오류: {key}")
+        tier = entry.get("tier")
+        aliases = entry.get("aliases")
         if (not isinstance(tier, dict) or set(tier) != set(_TIER_KEYS)
                 or not all(isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0 for v in tier.values())
                 or not aliases or not all(isinstance(a, str) and _norm_game(a) for a in aliases)):
             raise RequirementRuleError(f"PC 게임 요구사양 오류: {key}")
+        status = entry.get("status", "provisional")
+        if status not in _GAME_TITLE_STATUSES:
+            raise RequirementRuleError(f"PC 게임 요구사양 상태(status) 오류: {key}")
+        _check_game_title_source(key, status, entry.get("source"))
         for alias in aliases:
             other = seen.setdefault(_norm_game(alias), key)
             if other != key:
@@ -104,6 +135,35 @@ def _check_purpose_profile(purpose: str, profile, req: dict, verification: dict)
             verification.get("efficiency_order") or []):
         raise RequirementRuleError(f"{where}알 수 없는 파워 등급")
     _check_power_and_budget({**req, **{k: v for k, v in profile.items() if k != "tier"}}, where)
+
+
+_REVIEW_FOCUS_TOP_KEYS = {"priority", "purpose", "noise_sensitive", "assembly"}
+
+
+def _check_review_focus(explanation: dict) -> None:
+    """explanation.review_focus (F-1, src/engine/review_focus.py 가 읽는 절) 검증.
+
+    선택 절이다 — 없으면 통과. 최상위 키는 slot_schema 의 조건 슬롯 이름 넷뿐이고, 하위 키는
+    그 슬롯의 enum 값(bool 은 True/False, YAML 의 `true:`/`false:` 가 그렇게 파싱된다)이어야
+    한다. 값은 비지 않은 문자열 리스트(리뷰 축 이름) — 정렬 순서만 바꾸므로 축 이름 자체가
+    코퍼스에 실제로 있는지는 여기서 보지 않는다(테스트가 담당).
+    """
+    focus = explanation.get("review_focus")
+    if focus is None:
+        return
+    if not isinstance(focus, dict) or not focus or set(focus) - _REVIEW_FOCUS_TOP_KEYS:
+        raise RequirementRuleError("PC 리뷰 축 정렬 규칙(review_focus) 최상위 키 오류")
+    schema = load_category("computer")["slot_schema"]
+    for top_key, sub_table in focus.items():
+        if not isinstance(sub_table, dict) or not sub_table:
+            raise RequirementRuleError(f"PC 리뷰 축 정렬 규칙 오류: {top_key}")
+        field = schema.get(top_key) or {}
+        valid_keys: set = {True, False} if field.get("type") == "bool" else set(field.get("values") or [])
+        for sub_key, axes in sub_table.items():
+            if sub_key not in valid_keys:
+                raise RequirementRuleError(f"PC 리뷰 축 정렬 규칙 오류: {top_key}.{sub_key}")
+            if not isinstance(axes, list) or not axes or not all(isinstance(a, str) and a for a in axes):
+                raise RequirementRuleError(f"PC 리뷰 축 정렬 규칙 오류: {top_key}.{sub_key} 축 목록")
 
 
 @lru_cache(maxsize=8)
@@ -133,6 +193,7 @@ def _load_computer_rules(path: Path) -> dict:
     for purpose, profile in (req.get("purpose_profiles") or {}).items():
         _check_purpose_profile(purpose, profile, req, verification)
     _check_game_titles(req.get("game_titles"))
+    _check_review_focus(data.get("explanation") or {})
     return data
 
 
@@ -168,6 +229,29 @@ def match_games(raw, rules: dict | None = None) -> tuple[list[str], list[dict], 
         elif hit not in keys:
             keys.append(hit)
     return keys, [titles[k]["tier"] for k in keys], unknown
+
+
+def game_title_status(key: str, rules: dict | None = None) -> dict:
+    """E7 — 표 키의 출처·승인 상태(D). 화면 문구가 "잠정값"과 "확인됨"을 구분하는 데 쓴다.
+
+    표에 없는 키(방어적으로 대비 — 정상 경로에선 match_games가 이미 걸러낸 키만 온다)는
+    출처가 없다는 뜻으로 provisional·source=None을 준다.
+    """
+    titles = ((rules or load_computer_rules())["requirements"].get("game_titles")) or {}
+    entry = titles.get(key) or {}
+    return {"status": entry.get("status", "provisional"), "source": entry.get("source")}
+
+
+def game_title_label(key: str, rules: dict | None = None) -> str:
+    """E7 — 화면에 보여줄 게임 표시명. 별칭 중 한글이 섞인 첫 별칭, 없으면 첫 별칭, 별칭 자체가
+    없으면(표에 없는 키 방어) key 그대로. 내부 식별자(`lol`, `cyberpunk` 등)를 화면에 그대로
+    노출하지 않기 위함이다.
+    """
+    titles = ((rules or load_computer_rules())["requirements"].get("game_titles")) or {}
+    aliases = (titles.get(key) or {}).get("aliases") or []
+    if not aliases:
+        return key
+    return next((a for a in aliases if re.search(r"[가-힣]", a)), aliases[0])
 
 
 # 업그레이드 대상 부품 표기(칩 값·자유 표기)를 슬롯 이름으로. 표에 없으면 unresolved 로 남긴다.
@@ -256,8 +340,18 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
         log(f"      업그레이드 대상: {', '.join(targets) or '(없음)'}")
     if "resolution" in slots.assumed_keys and not profile:
         flags.append("resolution_assumed")
+    games_list: list[dict] = []
     if game_keys:
         flags.append("games_applied")
+        # E7 — 제목별 출처·승인 상태를 spec.games 에 구조화해 싣는다(서비스 쪽 _games_trace_row 가
+        # 읽는다). 하나라도 아직 팀 확인 전(provisional)이면 games_provisional 을 세워 [5] caveat
+        # 의 근거로 쓴다. games_applied/games_provisional 플래그는 기존 소비처
+        # (stage3b_rank의 "games_applied" in spec.flags) 를 위해 그대로 유지한다.
+        for key in game_keys:
+            status_info = game_title_status(key, rules)
+            games_list.append({"key": key, "label": game_title_label(key, rules), **status_info})
+        if any(g["status"] != "approved" for g in games_list):
+            flags.append("games_provisional")
     for name in unknown_games:
         unresolved.append({"key": "games", "value": name, "reason": "요구사양 표에 없는 게임"})
 
@@ -278,6 +372,7 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
         budget={"total": budget_total, "alloc": alloc, "feasibility": feasibility},
         flags=flags,
         unresolved=unresolved,
+        games=games_list,
     )
 
 

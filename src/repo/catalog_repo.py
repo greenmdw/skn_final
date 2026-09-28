@@ -144,19 +144,29 @@ def pc_catalog_key(product_type: str, brand: str, model: str) -> str:
     return f"{product_type}:{brand}:{model}".lower().replace(" ", "-")
 
 # (스펙 컬럼 목록, 스펙 테이블) — WHERE/가격 조인은 _build_query가 공통으로 붙인다.
+# E5 — s.spec_url, s.status_checked_at 과 테이블별 출처 컬럼(dimension_source_url 등)을 SELECT 에만
+# 추가한다(쓰기 없음). _provenance_from_row 가 이 컬럼들로 Candidate.provenance 를 채운다.
 _SPEC_QUERIES: dict[str, tuple[str, str]] = {
-    "cpu": ("s.socket, s.tdp_w, s.memory_type, s.lineup, s.max_power_w, s.family", "catalog.cpu_spec"),
+    "cpu": ("s.socket, s.tdp_w, s.memory_type, s.lineup, s.max_power_w, s.family, "
+            "s.spec_url, s.status_checked_at, s.power_family_source_url, s.perf_score_source_url", "catalog.cpu_spec"),
     "motherboard": ("s.socket, s.memory_type, s.form_factor, s.supported_cpu_family, s.dimm_slots, s.max_memory_gb, "
-                    "s.max_memory_speed_mts, s.m2_slots, s.m2_pcie_gen, s.sata_ports, s.min_bios", "catalog.mainboard_spec"),
-    "ram": ("s.memory_type, s.total_capacity_gb, s.speed_mts, s.module_config, s.height_mm", "catalog.ram_spec"),
+                    "s.max_memory_speed_mts, s.m2_slots, s.m2_pcie_gen, s.sata_ports, s.min_bios, "
+                    "s.spec_url, s.status_checked_at, s.expansion_source_url", "catalog.mainboard_spec"),
+    "ram": ("s.memory_type, s.total_capacity_gb, s.speed_mts, s.module_config, s.height_mm, "
+            "s.spec_url, s.status_checked_at, s.height_source_url", "catalog.ram_spec"),
     "gpu": ("s.length_mm, s.power_w, s.vram_gb, s.lineup, s.recommended_psu_w, s.power_connector, s.aux_power, "
-            "s.height_mm, s.slot_thickness", "catalog.gpu_spec"),
-    "ssd": ("s.interface, s.protocol, s.form_factor, s.capacity_options", "catalog.ssd_spec"),
+            "s.height_mm, s.slot_thickness, "
+            "s.spec_url, s.status_checked_at, s.dimension_source_url, s.perf_score_source_url", "catalog.gpu_spec"),
+    "ssd": ("s.interface, s.protocol, s.form_factor, s.capacity_options, "
+            "s.spec_url, s.status_checked_at", "catalog.ssd_spec"),
     "psu": ("s.wattage_w, s.efficiency_rating, s.form_factor, s.gpu_power_connector, s.length_mm, s.pcie_8pin_count, "
-            "s.connector_12v2x6_count", "catalog.psu_spec"),
+            "s.connector_12v2x6_count, "
+            "s.spec_url, s.status_checked_at, s.dimension_source_url", "catalog.psu_spec"),
     "case": ("s.gpu_max_length_mm, s.cpu_cooler_height_mm, s.supported_motherboard, s.psu_form_factor, s.max_psu_length_mm, "
-             "s.expansion_slots, s.radiator_front_mm, s.radiator_top_mm, s.radiator_rear_mm, s.color", "catalog.case_spec"),
-    "cooler": ("s.cooler_height_mm, s.supported_socket, s.cooling_type, s.radiator_mm", "catalog.cooler_spec"),
+             "s.expansion_slots, s.radiator_front_mm, s.radiator_top_mm, s.radiator_rear_mm, s.color, "
+             "s.spec_url, s.status_checked_at, s.expansion_source_url", "catalog.case_spec"),
+    "cooler": ("s.cooler_height_mm, s.supported_socket, s.cooling_type, s.radiator_mm, "
+               "s.spec_url, s.status_checked_at", "catalog.cooler_spec"),
 }
 
 
@@ -325,6 +335,120 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
     return specs
 
 
+# E5 — 출처 컬럼 → 그 컬럼이 뒷받침하는 engine specs 키(_specs_from_row 가 쓰는 이름과 맞춘다).
+# 매핑 근거: 스키마(db/migrations/0000_schema.sql)에서 출처 컬럼과 나란히 추가된, 이름으로 뜻이
+# 분명한 필드만 담는다. 애매한 필드(예: mainboard 의 sata_ports·min_bios, cpu 의 perf_score — engine
+# specs 가 아직 쓰지 않음)는 넣지 않는다 — 넣지 않은 키는 evidence 생성 쪽에서 spec_url(제품 페이지)로
+# 대체된다.
+_SOURCE_COLUMN_BY_KEY: dict[str, dict[str, tuple[str, ...]]] = {
+    "cpu": {"power_family_source_url": ("max_power_w", "family")},
+    "gpu": {"dimension_source_url": ("length_mm", "height_mm", "slot_thickness")},
+    "mainboard": {"expansion_source_url": ("dimm_slots", "max_memory_gb", "max_memory_speed_mts", "m2_slots")},
+    "psu": {"dimension_source_url": ("length_mm",)},
+    "ram": {"height_source_url": ("height_mm",)},
+    "case": {"expansion_source_url": ("expansion_slots",)},
+}
+
+
+def _provenance_from_row(product_type: str, row: dict) -> dict:
+    """DB 행 -> Candidate.provenance. spec_url 이 없으면 빈 dict(출처 없음)."""
+    spec_url = row.get("spec_url")
+    if not spec_url:
+        return {}
+    prov: dict = {"spec_url": spec_url}
+    checked_at = row.get("status_checked_at")
+    if checked_at is not None:
+        prov["checked_at"] = checked_at.isoformat() if hasattr(checked_at, "isoformat") else str(checked_at)
+    by_key: dict[str, str] = {}
+    for source_col, keys in _SOURCE_COLUMN_BY_KEY.get(product_type, {}).items():
+        url = row.get(source_col)
+        if url:
+            for key in keys:
+                by_key[key] = url
+    if by_key:
+        prov["by_key"] = by_key
+    return prov
+
+
+# ── 주변기기(모니터·키보드·마우스·스피커) 후보 로더 — 계획 §3.3 E9 ────────────────
+# 컬럼 목록은 config/peripherals.yaml 의 kinds.<kind>.columns 에서 만든다(PC 로더의
+# _SPEC_QUERIES 처럼 직접 나열하지 않는다). 그 값들은 설정 파일에서 왔으므로(신뢰 못 할
+# 입력은 아니지만) SQL 에 직접 문자열 포매팅하지 않고 psycopg.sql.Identifier 로 감싼다.
+_PERIPHERAL_META_COLUMNS: dict[str, tuple[str, ...]] = {
+    "monitor": ("product_url", "manual_reference"),
+    "keyboard": ("product_url", "manual_reference"),
+    "mouse": ("product_url", "manual_reference", "software_url"),
+    "speaker": ("product_url", "manual_reference"),
+}
+
+
+def _build_peripheral_query(kdef: dict, meta_columns: tuple[str, ...]):
+    from psycopg import sql
+
+    select_cols = [sql.SQL("s.{}").format(sql.Identifier(c))
+                   for c in [*kdef["columns"], *meta_columns]]
+    return sql.SQL("""
+        SELECT p.id, v.id AS variant_id, p.brand, p.model, p.image_url,
+               ps.price_krw AS price, ps.price_observed_at,
+               {cols}
+        FROM catalog.product p
+        JOIN {spec_table} s ON s.product_id = p.id
+        JOIN catalog.product_variant v ON v.product_id = p.id AND v.variant_key = 'default'
+        JOIN catalog.peripheral_price_snapshot ps ON ps.product_id = p.id
+        WHERE p.product_type = %(product_type)s AND ps.price_krw IS NOT NULL
+    """).format(
+        cols=sql.SQL(", ").join(select_cols),
+        # peripheral_price_snapshot 의 기본키가 product_id 하나뿐이라(0001_constraints.sql)
+        # 상품당 행이 최대 1개다 — 그래서 이 조인이 이미 "최신"(=유일한) 가격이다. LATERAL/
+        # ORDER BY 로 최신을 고를 필요가 없다(PC offer_observation 과 다른 점).
+        spec_table=sql.Identifier(*kdef["spec_table"].split(".")),
+    )
+
+
+def load_peripheral_candidates(conn) -> dict[str, list[Candidate]]:
+    """주변기기(모니터·키보드·마우스·스피커) 후보 로더 (계획 §3.3 E9).
+
+    catalog.product + kind별 spec 테이블 + product_variant(default) + peripheral_price_snapshot
+    을 조인한다. catalog.offer/offer_observation 은 조인하지 않는다 — 주변기기 가격은
+    출처·관측일을 모르는 참고가뿐이라(R-3 전까지) offer_observation_id 는 항상 None,
+    price_source 는 항상 "reference_snapshot"이다. 가격(price_krw)이 없는 상품은 후보에서
+    뺀다(PC 로더 load_candidates_by_slot_from_db 와 같은 원칙).
+
+    specs/provenance 조립은 src/engine/peripheral_catalog.py 의 build_peripheral_specs/
+    build_peripheral_provenance 를 쓴다 — DB 없는 mock CSV 로더
+    (load_peripheral_candidates_from_csv)와 같은 함수를 공유해서 같은 상품에 같은 결과를 낸다.
+    """
+    from psycopg.rows import dict_row
+
+    from src.engine.peripheral_catalog import build_peripheral_provenance, build_peripheral_specs
+    from src.engine.peripheral_rules import kind_def, load_peripheral_rules, peripheral_kinds
+
+    rules = load_peripheral_rules()
+    out: dict[str, list[Candidate]] = {}
+    with conn.cursor(row_factory=dict_row) as cur:
+        for kind in peripheral_kinds(rules):
+            kdef = kind_def(kind, rules)
+            meta_columns = _PERIPHERAL_META_COLUMNS[kind]
+            cur.execute(_build_peripheral_query(kdef, meta_columns),
+                        {"product_type": kdef["product_type"]})
+            for row in cur.fetchall():
+                observed_at = row.get("price_observed_at")
+                out.setdefault(kind, []).append(Candidate(
+                    product_key=pc_catalog_key(kdef["product_type"], row["brand"], row["model"]),
+                    slot=kind,
+                    name=f"{row['brand']} {row['model']}",
+                    brand=row["brand"],
+                    variant_id=str(row["variant_id"]),
+                    offer_observation_id=None,
+                    price=int(row["price"]),
+                    price_source="reference_snapshot",
+                    price_observed_at=observed_at.isoformat() if hasattr(observed_at, "isoformat") else observed_at,
+                    specs=build_peripheral_specs(kind, row, rules),
+                    provenance=build_peripheral_provenance(kind, row),
+                ))
+    return out
+
+
 def load_candidates_by_slot_from_db(conn) -> dict[str, list[Candidate]]:
     """실제 수집 카탈로그(0015_pc_parts_category_specs.sql)에서 슬롯별 후보를 읽는다.
     가격 관측이 없는(quality_status='valid' 행이 없는) 상품은 후보에서 빠진다 —
@@ -352,5 +476,6 @@ def load_candidates_by_slot_from_db(conn) -> dict[str, list[Candidate]]:
                     brand=row["brand"],
                     price=int(price),
                     specs=_specs_from_row(product_type, row),
+                    provenance=_provenance_from_row(product_type, row),
                 ))
     return out

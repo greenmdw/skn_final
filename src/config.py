@@ -103,6 +103,9 @@ ROOT: Path = Path(__file__).resolve().parent.parent
 DATA_DIR: Path = ROOT / "data"
 CONFIG_DIR: Path = ROOT / "config"
 CATEGORY_DIR: Path = CONFIG_DIR / "categories"
+# 주변기기 정의(E8) — categories/ 밖. available_categories()가 categories/*.yaml만 세션
+# 카테고리 선택지로 훑으므로, 여기 두면 프론트 카테고리 화면에 새 항목이 생기지 않는다.
+PERIPHERAL_RULES_PATH: Path = CONFIG_DIR / "peripherals.yaml"
 SCENARIO_DIR: Path = DATA_DIR / "scenarios"
 FRONTEND_DIR: Path = ROOT / "frontend"
 WEB_DIST_DIR: Path = ROOT / "web" / "dist"   # 새 React 프론트 빌드 결과(cd web && npm run build)

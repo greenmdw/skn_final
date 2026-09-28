@@ -1,6 +1,6 @@
 """부품 사용 가이드·주의 문구 RAG — [3-C] "구매 전 확인"(checks)이 인용하는 근거.
 
-data/pc_care_guides.json(합성 작성, 16개)을 프로세스 시작 시 한 번 임베딩해서 들고 있다가,
+data/pc_care_guides.json(합성 작성, 18개)을 프로세스 시작 시 한 번 임베딩해서 들고 있다가,
 품목별 질의(부품명 + 슬롯)로 가장 관련 있는 조각을 코사인 유사도로 찾는다. 문서가 이 정도
 개수면 벡터DB 없이 인메모리 검색으로 충분하다 — 별도 서비스도, 스키마도 필요 없다.
 
@@ -74,6 +74,10 @@ SLOT_GUIDE_IDS: dict[str, tuple[str, ...]] = {
     "파워": ("psu_rating", "psu_cabling"),
     "케이스": ("case_airflow", "case_spec_clearance"),
     "쿨러": ("cooler_height_clearance", "cpu_cooler_socket"),
+    # 주변기기 4종(계획 §3.3 E13) — 가이드 문서가 아직 없다(작성은 R-12). 여기 등록을
+    # 빼면 slot이 SLOT_GUIDE_IDS에 없는 것으로 취급돼 allowed=None이 되고, 전 문서(PC용)를
+    # 검색해 엉뚱한 PC 가이드가 모니터·키보드 등에 붙는다 — 빈 튜플로 명시해 그 폴백을 막는다.
+    "monitor": (), "keyboard": (), "mouse": (), "speaker": (),
 }
 
 

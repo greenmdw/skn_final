@@ -1,7 +1,7 @@
 # PC requirement, ranking, and set-compatibility policy. Change schema_version when
 # the structure changes; change rule_set_version when policy values change.
 schema_version: 1
-rule_set_version: computer-rules-v10
+rule_set_version: computer-rules-v11
 
 requirements:
   default_resolution: FHD_144
@@ -199,3 +199,21 @@ ranking:
     cpu_tdp_w: [65, 200]
     gpu_power_w: [75, 450]
     cooler_type: {"Air (Dual-Tower)": 0.8, "Air (Single-Tower)": 0.6, "Liquid (AIO)": 0.6, "Air (Low-Profile)": 0.2}
+
+# 조건에 맞는 리뷰 축 문장을 먼저 보여주는 정렬 규칙(F-1, src/engine/review_focus.py 가 읽는다).
+# 정렬만 한다 — 점수·랭킹에는 안 쓴다(결정 0001). 축 이름은 data/review_summaries.json 의
+# top_summaries[].axis 에 실제로 나오는 값만 썼다(25개 축 중 일부, 2026-09-23 확인). 어떤 조건에
+# 어떤 축을 먼저 보여줄지의 매핑 자체는 팀 확인 전 잠정값이다 — 데모가 그럴듯해 보이는 것과
+# 사용자 검증을 거친 것은 다르다.
+explanation:
+  review_focus:            # 조건 → 먼저 보일 리뷰 축 (정렬만, 점수 아님 — 결정 0001). 값은 잠정.
+    priority:
+      quiet:       [소음, 팬소음, 코일소음, 발열, 쿨링, 냉각성능]
+      performance: [게임성능, 오버클럭, 순차속도, 냉각성능]
+    purpose:
+      game:        [게임성능, 발열]
+      creation:    [순차속도, 안정성, 발열]
+    noise_sensitive:
+      true:        [소음, 팬소음, 코일소음]
+    assembly:
+      self:        [설치난이도, 조립편의, 클리어런스, 방열판높이, 케이블]
