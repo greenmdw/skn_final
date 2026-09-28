@@ -21,7 +21,7 @@ POOL = {
 def test_catalog_match_is_ok_and_uses_the_real_product_name():
     rows = preview_current_specs({"CPU": "Ryzen 7 7800X3D"}, POOL, SLOT_STRUCTURE)
     assert rows == [{"part": "CPU", "original": "Ryzen 7 7800X3D", "matched": "AMD Ryzen 7 7800X3D",
-                     "matched_note": "AM5", "state": "ok"}]
+                     "matched_note": "AM5", "state": "ok", "match_status": "confirmed", "candidate_count": None}]
 
 
 def test_catalog_match_note_also_shows_wattage_when_thats_the_shared_spec():
@@ -37,7 +37,8 @@ def test_catalog_match_note_also_shows_wattage_when_thats_the_shared_spec():
 def test_unrecognisable_text_is_warn_and_echoes_the_original():
     rows = preview_current_specs({"메인보드": "옛날에 산 알 수 없는 보드"}, POOL, SLOT_STRUCTURE)
     assert rows == [{"part": "메인보드", "original": "옛날에 산 알 수 없는 보드", "matched": "옛날에 산 알 수 없는 보드",
-                     "matched_note": "확인 가능한 스펙이 없습니다.", "state": "warn"}]
+                     "matched_note": "확인 가능한 스펙이 없습니다.", "state": "warn",
+                     "match_status": "unmatched", "candidate_count": None}]
 
 
 def test_model_name_rule_inference_is_warn_with_a_note_that_says_so():

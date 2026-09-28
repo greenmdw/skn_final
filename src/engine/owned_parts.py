@@ -393,7 +393,11 @@ def resolve_owned_parts(current_specs: Any, by_slot: dict[str, list[Candidate]],
                     specs = {**specs, "capacity_gb": written}
             owned[slot] = {"name": matches[0].name if len(matches) == 1 else text, "specs": specs, "source": "catalog",
                            "catalog_price": prices.pop() if len(prices) == 1 and not variant_mismatch else None,
-                           "product_key": matches[0].product_key if len(matches) == 1 else None}
+                           "product_key": matches[0].product_key if len(matches) == 1 else None,
+                           # 후보가 여럿(용량·색상 등만 다른 동점) 남으면 어느 제품인지 확정 못 한 것이다 —
+                           # common_specs·호환 검사엔 그대로 쓰되(공통값이라 안전), 화면 표시(match_status)는
+                           # "확정"과 구분한다. 1개면 그냥 확정 매칭.
+                           "candidate_count": len(matches)}
             continue
         nearest = _match_nearest(text, by_slot.get(slot, []))
         if nearest is not None:
@@ -435,6 +439,15 @@ _SPEC_LABEL = {
     "cooling_type": "방식", "radiator_mm": "라디에이터(mm)", "height_mm": "높이(mm)", "interface": "인터페이스",
 }
 _PREVIEW_STATE = {"catalog": "ok", "candidate": "warn", "text": "warn", "inferred": "warn", "unverified": "warn"}
+# state(ok/warn) 두 가지로는 화면이 "확정"과 "여러 후보 중 공통값만 씀(모호함)"을 구분하지 못한다 —
+# match_status 는 그 구분을 낸다. state 는 하위 호환을 위해 그대로 둔다.
+_MATCH_STATUS = {"candidate": "candidate", "text": "inferred", "inferred": "inferred", "unverified": "unmatched"}
+
+
+def _match_status(info: dict[str, Any]) -> str:
+    if info["source"] == "catalog":
+        return "ambiguous" if (info.get("candidate_count") or 1) > 1 else "confirmed"
+    return _MATCH_STATUS[info["source"]]
 
 
 def _preview_note(info: dict[str, Any]) -> str:
@@ -445,7 +458,11 @@ def _preview_note(info: dict[str, Any]) -> str:
         bits = [str(v) for v in (specs.get("socket"), specs.get("mem_type")) if v]
         if watt:
             bits.append(f"{watt}W")
-        return " · ".join(bits) if bits else "카탈로그 제품과 일치"
+        detail = " · ".join(bits) if bits else "카탈로그 제품과 일치"
+        count = info.get("candidate_count") or 1
+        if count > 1:      # 용량·색상 등만 다른 후보가 동점으로 남음 — 어느 제품인지 확정 못 함(공통값만 사용)
+            return f"후보 {count}개 · 공통값만 사용" + (f" ({detail})" if bits else "")
+        return detail
     if source == "unverified":
         return "확인 가능한 스펙이 없습니다."
     if source == "candidate":
@@ -464,7 +481,10 @@ def preview_current_specs(current_specs: Any, by_slot: dict[str, list[Candidate]
     화면에 보이는 매칭과 실제 추천 계산의 매칭이 서로 다른 기준으로 갈리는 일이 없다.
     반환: slot_structure 순서로, 텍스트를 적어 준 슬롯만. state는 화면(ReviewRow)과 같은
     ok(카탈로그와 확정 대응) / warn(글에서 읽었거나 추정, 또는 확인 가능한 스펙 없음) 두 가지뿐이다
-    — "모름"을 비호환으로 단정하지 않는 것과 같은 원칙으로, 매칭 실패도 다른 상태로 부풀리지 않는다."""
+    — "모름"을 비호환으로 단정하지 않는 것과 같은 원칙으로, 매칭 실패도 다른 상태로 부풀리지 않는다.
+    match_status 는 warn 안에서 더 세분화한다: confirmed(단일 확정) / ambiguous(후보 여럿이 동점 —
+    candidate_count 로 몇 개인지) / candidate(가장 비슷한 제품, 다른 제품일 수 있음) / inferred(글·모델명
+    규칙으로 일부 스펙만 읽음) / unmatched(대응 자체를 못 찾음). state·matched_note 는 기존 그대로 둔다."""
     if not isinstance(current_specs, dict):
         return []
     given = {(normalize_pc_slot(k) or str(k).strip()): v for k, v in current_specs.items()}
@@ -477,8 +497,11 @@ def preview_current_specs(current_specs: Any, by_slot: dict[str, list[Candidate]
         original = str(text).strip()
         info = owned[slot]                    # resolve_owned_parts는 text가 있으면 반드시 항목을 만든다
         matched = info["name"]                # 카탈로그 대응이면 카탈로그 이름, 아니면 가격 표기를 뺀 사용자 문구
+        status = _match_status(info)
         rows.append({"part": slot, "original": original, "matched": matched,
-                    "matched_note": _preview_note(info), "state": _PREVIEW_STATE[info["source"]]})
+                    "matched_note": _preview_note(info), "state": _PREVIEW_STATE[info["source"]],
+                    "match_status": status,
+                    "candidate_count": info.get("candidate_count") if status == "ambiguous" else None})
     return rows
 
 

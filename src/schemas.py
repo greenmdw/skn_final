@@ -116,6 +116,12 @@ class OwnedPartsPreviewRow(BaseModel):
     matched: str
     matched_note: str
     state: Literal["ok", "warn"]
+    # state(ok/warn)보다 세분화된 값 — 화면이 "확정"과 "모호함"을 구분해서 보여줄 때 쓴다.
+    # confirmed=단일 확정 · ambiguous=후보 여럿 동점(공통값만 사용, candidate_count 참고) ·
+    # candidate=가장 비슷한 제품(다른 제품일 수 있음) · inferred=글·모델명 규칙으로 일부만 읽음 ·
+    # unmatched=대응 자체를 못 찾음.
+    match_status: Literal["confirmed", "ambiguous", "candidate", "inferred", "unmatched"] = "confirmed"
+    candidate_count: int | None = None   # match_status가 ambiguous일 때만(동점 후보 개수)
 
 
 class OwnedPartsPreviewOut(BaseModel):

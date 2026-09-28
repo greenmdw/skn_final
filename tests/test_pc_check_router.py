@@ -36,7 +36,8 @@ def test_unknown_model_comes_back_warn_without_being_invented():
     assert res.status_code == 200
     rows = res.json()["rows"]
     assert rows == [{"part": "GPU", "original": "제가 만든 그래픽카드", "matched": "제가 만든 그래픽카드",
-                     "matched_note": "확인 가능한 스펙이 없습니다.", "state": "warn"}]
+                     "matched_note": "확인 가능한 스펙이 없습니다.", "state": "warn",
+                     "match_status": "unmatched", "candidate_count": None}]
 
 
 def test_no_login_or_session_required():
