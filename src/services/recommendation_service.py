@@ -29,17 +29,6 @@ def run_from_scenario(scenario_name: str) -> PipelineResult:
     return _run_scenario(scenario_name, on_log=lambda _m: None)
 
 
-def _slots_from_conditions(category: str, cat_def: dict, values: dict) -> Slots:
-    defaults = cat_def.get("defaults") or {}
-    assumed = {k: v for k, v in defaults.items() if values.get(k) in (None, [], "")}
-    full = {**assumed, **values}
-    return Slots(
-        category=category, mode=full.get("mode", (cat_def.get("modes") or ["build"])[0]),
-        objective_text="(대화로 수집됨)", values=full,
-        assumed_keys=list(assumed.keys()), missing=[],
-    )
-
-
 # 예산의 이 비율 이상을 남겼을 때만 안내한다 — 조금 남는 건 흔해서 알릴 일이 아니다.
 UNDERSPENT_RATIO = 0.15
 # 우선순위가 "싼 쪽"을 고르게 하는 것들의 설명. 성능 우선은 예산을 채우는 쪽이라 여기 없다.
@@ -155,6 +144,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
     from src.db import get_conn
     from src.engine import feasibility as feasibility_engine
     from src.engine import stage2_requirement, stage3a_hardfilter, stage3b_rank, stage3c_verify, stage4_optimize, stage5_explain
+    from src.engine import research_loop
     from src.repo.catalog_repo import load_candidates_by_slot_from_db
     from src.repo.engine_repo import EngineRepo
     from src.repo.plan_repo import PlanRepo
