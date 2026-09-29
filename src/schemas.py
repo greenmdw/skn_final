@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -323,6 +324,30 @@ class ConditionState(BaseModel):
     can_recommend: bool = False
     accepts_spec_file: bool = False
     budget_warning: BudgetWarningOut | None = None   # 예산이 빠듯/불가능할 때만 채운다
+
+
+class PreviousFieldOut(BaseModel):
+    key: str
+    label: str | None = None
+    display: str
+
+
+class PreviousConditionsOut(BaseModel):
+    """GET /session/previous — 지난 목록에서 이어 쓸 조건(A1). 값은 resume 을 부를 때만 복사된다."""
+    list_id: str
+    name: str
+    confirmed: bool
+    last_active_at: str
+    fields: list[PreviousFieldOut]
+    summary: str
+
+
+class PreviousLookupOut(BaseModel):
+    previous: PreviousConditionsOut | None = None
+
+
+class ResumeIn(BaseModel):
+    from_list_id: UUID
 
 
 # ── recommend / result (§D-4-2) ──

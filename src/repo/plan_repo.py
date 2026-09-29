@@ -81,6 +81,31 @@ class PlanRepo(Repo):
             (user_id, user_id, guest_session_hash, guest_session_hash),
         )
 
+    def latest_previous(self, *, user_id: UUID | None, guest_session_hash: str | None, category: str,
+                        mode: str | None = None, exclude_list_id: UUID | None = None) -> dict | None:
+        """같은 사용자(로그인 계정 또는 게스트 토큰)의 가장 최근 다른 목록 — 같은 카테고리(·mode)이고
+        category·mode 말고도 채운 조건이 하나 이상 있는 것만. 새 세션에서 "지난번 조건으로 이어서"를 묻는 데 쓴다."""
+        return self._one(
+            "SELECT p.id AS list_id, p.name, pr.id AS revision_id, pr.state, "
+            "GREATEST(p.updated_at, pr.updated_at) AS last_active_at "
+            "FROM planning.plan p "
+            "JOIN planning.plan_revision pr ON pr.id=p.current_revision_id "
+            "JOIN identity.conversation c ON c.id=p.conversation_id "
+            "WHERE p.status='active' AND (%s::uuid IS NULL OR p.id<>%s) AND ("
+            "  (%s::uuid IS NOT NULL AND c.user_id=%s) OR "
+            "  (%s::uuid IS NULL AND %s::text IS NOT NULL AND c.guest_session_hash=%s)"
+            ") AND EXISTS (SELECT 1 FROM planning.plan_condition pc WHERE pc.revision_id=pr.id "
+            "  AND pc.status='active' AND pc.condition_key='category' AND pc.value->>'value'=%s) "
+            "AND (%s::text IS NULL OR EXISTS (SELECT 1 FROM planning.plan_condition pc WHERE pc.revision_id=pr.id "
+            "  AND pc.status='active' AND pc.condition_key='mode' AND pc.value->>'value'=%s)) "
+            "AND EXISTS (SELECT 1 FROM planning.plan_condition pc WHERE pc.revision_id=pr.id "
+            "  AND pc.status='active' AND pc.condition_key NOT IN ('category', 'mode', %s) "
+            "  AND pc.value->'value' IS NOT NULL AND pc.value->'value'<>'null'::jsonb) "
+            "ORDER BY last_active_at DESC LIMIT 1",
+            (exclude_list_id, exclude_list_id, user_id, user_id, user_id, guest_session_hash, guest_session_hash,
+             category, mode, mode, QUOTE_REVIEW_KEY),
+        )
+
     def get_summary(self, list_id: UUID) -> dict | None:
         """PATCH /lists/{id} 응답(ListSummary)용 — list_owned와 같은 모양의 단건 조회."""
         return self._one(
