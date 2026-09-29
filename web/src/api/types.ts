@@ -44,6 +44,12 @@ export interface ChatReply {
 // 새 PC를 만드는 인터뷰(용도·예산·우선순위 등)는 서버의 조건 세션(POST /session/{id}/message)이 처리한다.
 // 서버는 조건 추출 에이전트(LLM, CONDITIONS_AGENT=1일 때)가 있으면 그걸로, 없으면 규칙 추출(slot_rules)로
 // 자유 문장에서 예산·용도·우선순위 등을 뽑는다 — 화면은 결과(fields)만 반영하면 된다.
+/** 지난 목록에서 이어 쓸 조건(GET /session/previous). summary는 서버가 규칙으로 만든 한 문장이다. */
+export interface PreviousConditions {
+  listId: string
+  summary: string
+}
+
 export interface ConditionTurnResult {
   /** 세션이 없어서 새로 만들었으면 그 id. 이후 대화는 이 id로 이어간다. */
   sessionId: string
@@ -132,6 +138,10 @@ export interface Api {
     patch(sessionId: string, field: string, value: unknown): Promise<ConditionTurnResult>
     /** 저장돼 있던 조건 세션이 서버에 아직 있고 내 것인지. 없거나 내 것이 아니면 false (알 수 없으면 true) */
     exists(sessionId: string): Promise<boolean>
+    /** 같은 사용자(계정·게스트 쿠키)의 지난 목록에서 이어 쓸 조건. 없으면 null — 값은 resume 전까지 복사되지 않는다. */
+    previous(): Promise<PreviousConditions | null>
+    /** 지난 목록의 조건을 이 세션에 복사한다. sessionId가 없으면 새 조건 세션을 만든다. */
+    resume(sessionId: string | null, fromListId: string): Promise<ConditionTurnResult>
   }
   plans: {
     recommend(request: RecommendRequest): Promise<CurrentPlan>

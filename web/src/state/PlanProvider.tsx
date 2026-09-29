@@ -131,6 +131,26 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const sendConditionAnswer = useCallback((sessionId: string, questionId: string, value: string) => {
     runConditionTurn(() => api.conditions.answer(sessionId, questionId, [value]))
   }, [runConditionTurn])
+  // 새로 시작할 때 같은 사용자의 지난 목록이 있으면 그 조건으로 이어갈지 묻는다(A1). 값은 "이어서 하기"를 눌러야
+  // 서버가 복사한다 — 묻기만 하고 자동으로 채우지 않는다. 조회가 실패해도 인사말만 남고 조용히 넘어간다.
+  const offerPrevious = useCallback(() => {
+    const mine = epoch.current
+    api.conditions.previous()
+      .then(previous => {
+        if (!previous || mine !== epoch.current || stateRef.current.stage !== 0) return
+        addMessage('bot', previous.summary, [
+          { label: '이어서 하기', value: 'resume', resumeFrom: previous.listId },
+          { label: '새로 시작', value: 'fresh', startFresh: true },
+        ])
+      })
+      .catch(() => {})
+  }, [addMessage])
+  const offeredOnMount = useRef(false)      // StrictMode 개발 모드는 effect 를 두 번 돌린다 — 한 번만 묻는다
+  useEffect(() => {
+    if (offeredOnMount.current || restored?.state.stage) return
+    offeredOnMount.current = true
+    offerPrevious()
+  }, [restored, offerPrevious])
 
   const handleInput = useCallback((text: string) => {
     const clean = text.trim()
@@ -158,13 +178,24 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   // 보낸다 — 예전에는 값 문자열을 그대로 말풍선에 띄우고 자유 문장으로 보내서 "value" 가 보였다.
   const handleChoice = useCallback((choice: ChatChoice) => {
     const sessionId = stateRef.current.sessionId
+    if (choice.resumeFrom) {
+      addMessage('user', choice.label)
+      const from = choice.resumeFrom
+      runConditionTurn(() => api.conditions.resume(stateRef.current.sessionId, from))
+      return
+    }
+    if (choice.startFresh) {
+      addMessage('user', choice.label)
+      addMessage('bot', '좋아요, 새로 시작할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.')
+      return
+    }
     if (choice.questionId && sessionId && stateRef.current.stage <= 2) {
       addMessage('user', choice.label)
       sendConditionAnswer(sessionId, choice.questionId, choice.value)
       return
     }
     handleInput(choice.value)
-  }, [addMessage, sendConditionAnswer, handleInput])
+  }, [addMessage, sendConditionAnswer, handleInput, runConditionTurn])
   // 현재 조건(예산 포함)으로 서버 추천을 새로 받는다. 처음 시작할 때와, 구성이 나온 뒤 예산을 바꿨을 때 같이 쓴다.
   const runAnalysis = useCallback((intro: string) => {
     const current = stateRef.current
@@ -282,7 +313,8 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     setAnalyzingIndex(0)
     setCustomHeading(null)
     showToast('새로운 설계를 시작합니다.')
-  }, [cancelPending, updateState, showToast])
+    offerPrevious()
+  }, [cancelPending, updateState, showToast, offerPrevious])
   const loadFromSavedSetup = useCallback((setup: SavedSetup) => {
     cancelPending()
     const plan = structuredClone(setup.plan)
