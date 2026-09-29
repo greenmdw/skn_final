@@ -152,16 +152,19 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {})
   }, [])
-  // 로그인·로그아웃은 페이지를 새로 읽지 않으므로 사용자가 바뀔 때마다 다시 묻는다 — 앱을 연 순간(로그인 전)에
-  // 한 번만 물으면 로그인한 사용자의 지난 견적을 놓친다. 같은 사용자로는 한 번만(StrictMode 는 effect 를 두 번 돌린다).
+  // 작업이 비어 있을 때(stage 0)만 묻고, 사용자가 바뀌거나(로그인·로그아웃은 페이지를 새로 읽지 않는다) 작업이
+  // 다시 비워지면(새 설계·로그아웃·세션 소실로 dropStaleSession) 다시 묻는다. 앱을 연 순간 한 번만 물으면 로그인한
+  // 사용자의 지난 견적을 놓친다. 같은 사용자·같은 빈 작업으로는 한 번만(StrictMode 는 effect 를 두 번 돌린다).
   const authUser = useAuthUser()
+  const idle = state.stage === 0
   const offeredFor = useRef<string | null>(null)
   useEffect(() => {
+    if (!idle) { offeredFor.current = null; return }
     const who = authUser?.email ?? ''
-    if (offeredFor.current === who || restored?.state.stage) return
+    if (offeredFor.current === who) return
     offeredFor.current = who
     offerPrevious()
-  }, [authUser, restored, offerPrevious])
+  }, [authUser, idle, offerPrevious])
 
   const handleInput = useCallback((text: string) => {
     const clean = text.trim()
@@ -324,8 +327,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     setAnalyzingIndex(0)
     setCustomHeading(null)
     showToast('새로운 설계를 시작합니다.')
-    offerPrevious()
-  }, [cancelPending, updateState, showToast, offerPrevious])
+  }, [cancelPending, updateState, showToast])
   const loadFromSavedSetup = useCallback((setup: SavedSetup) => {
     cancelPending()
     const plan = structuredClone(setup.plan)
