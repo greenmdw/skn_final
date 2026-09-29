@@ -1,16 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { ChatChoice, ChatMessage, CheckDraft, PartKey, PlanState, SavedSetup } from './types'
+import type { ChatChoice, ChatMessage, CheckDraft, CurrentPlan, PartKey, PlanState, SavedSetup } from './types'
 import { createCheckDraft } from '../data/checkDraftSeed'
 import { parseBudget, planTotal } from './planModel'
-import { api, errorMessage, isMockApi, type ChatTopic } from '../api'
-import type { ConditionTurnResult } from '../api/types'
+import { api, ApiError, errorMessage, SESSION_GONE, type ChatTopic } from '../api'
+import { onLogout } from './authStore'
+import type { ConditionTurnResult, ItemPatch } from '../api/types'
 import { readWorkspace, WORKSPACE_KEY } from './storage'
 import { wonFmt } from '../utils/format'
 import { newId } from '../utils/id'
 import { useToast } from './ToastContext'
 import { PlanContext, type PlanContextValue } from './PlanContext'
 
-const INITIAL_GREETING = '안녕하세요! TrueFit입니다.\n어떤 PC가 필요하신가요?\n\n하고 싶은 일과 원하는 성능을 말씀해주세요.' + (isMockApi ? ' 현재 추천은 샘플 데이터로 제공됩니다.' : '')
+const INITIAL_GREETING = '안녕하세요! TrueFit입니다.\n어떤 PC가 필요하신가요?\n\n하고 싶은 일과 원하는 성능을 말씀해주세요.'
 const initialState: PlanState = {
   stage: 0, mode: 'new', intent: '', performance: '', quiet: '', budget: 2500000,
   currentPlan: null, checkSnapshot: null, selectedPart: 'cpu',
@@ -72,6 +73,26 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     setMessages(prev => [...prev, makeMessage(role, text, choices)])
   }, [])
 
+  // 브라우저에 남아 있던 작업의 서버 세션이 없어졌거나 내 것이 아니면(로그아웃 · 다른 계정 · 삭제) 작업을 비우고 새로 시작한다.
+  const dropStaleSession = useCallback((notice: string) => {
+    cancelPending()
+    updateState(() => ({ ...initialState }))
+    setCheckDraft(createCheckDraft())
+    setMessages([makeMessage('bot', INITIAL_GREETING), makeMessage('bot', notice)])
+    setAnalyzingIndex(0)
+    setCustomHeading(null)
+    setBusy(false)
+  }, [cancelPending, updateState])
+  // 화면을 열 때 저장된 세션이 아직 유효한지 서버에 물어본다. 알 수 없으면(네트워크 오류) 그대로 둔다.
+  const checkSession = useCallback(() => {
+    const id = stateRef.current.sessionId
+    if (!id) return
+    api.conditions.exists(id).then(ok => {
+      if (!ok && stateRef.current.sessionId === id) dropStaleSession('이전에 하던 작업을 서버에서 찾을 수 없어요. 로그아웃했거나 다른 계정일 수 있어요. 조건을 다시 말씀해 주세요.')
+    }).catch(() => {})
+  }, [dropStaleSession])
+  useEffect(() => onLogout(() => dropStaleSession('로그아웃해서 작업 중이던 구성을 비웠어요. 새로 시작해 주세요.')), [dropStaleSession])
+
   // 실서버 인터뷰 한 턴: 조건 세션(에이전트가 있으면 LLM, 없으면 규칙)이 자유 문장에서 예산·용도·우선순위 등을
   // 뽑아 돌려준다. 뽑힌 값(특히 예산)을 그 자리에서 state에 반영해야 GoalPanel이 바로 바뀐다 — 화면이 직접
   // 정규식으로 다시 해석하지 않는다(그러면 서버 판정과 화면 표시가 어긋날 수 있다).
@@ -97,9 +118,13 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         })
         addMessage('bot', turn.reply || '조건을 반영했어요.', turn.choices)
       })
-      .catch(error => { if (mine === epoch.current) addMessage('bot', errorMessage(error, '답변을 반영하지 못했습니다. 잠시 후 다시 시도해주세요.')) })
+      .catch(error => {
+        if (mine !== epoch.current) return
+        if (error instanceof ApiError && error.code === SESSION_GONE) dropStaleSession(error.message)
+        else addMessage('bot', errorMessage(error, '답변을 반영하지 못했습니다. 잠시 후 다시 시도해주세요.'))
+      })
       .finally(() => { if (mine === epoch.current) setBusy(false) })
-  }, [addMessage, updateState])
+  }, [addMessage, updateState, dropStaleSession])
   const sendConditionTurn = useCallback((text: string) => {
     runConditionTurn(() => api.conditions.send(stateRef.current.sessionId, text))
   }, [runConditionTurn])
@@ -123,26 +148,17 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         })
         .catch(error => { if (mine === epoch.current) addMessage('bot', errorMessage(error, '답변을 받지 못했습니다. 잠시 후 다시 시도해주세요.')) })
     }
-    if (current.stage <= 2 && !isMockApi) {
+    if (current.stage <= 2) {
       sendConditionTurn(clean)
-    } else if (current.stage === 0) {
-      updateState(prev => ({ ...prev, intent: clean, stage: 1 }))
-      askApi('intent')
-    } else if (current.stage === 1) {
-      updateState(prev => ({ ...prev, performance: clean, stage: 2 }))
-      askApi('performance')
-    } else if (current.stage === 2) {
-      updateState(prev => ({ ...prev, quiet: clean }))
-      addMessage('bot', '조건을 기록했어요. PC 구성 패널에서 예산을 확인한 뒤 AI 구성 분석 시작 버튼을 눌러주세요.')
     } else if (current.stage === 3) {
-      addMessage('bot', isMockApi ? '샘플 구성을 준비 중입니다. 완료 후 이어서 질문해주세요.' : '구성을 만드는 중입니다. 완료 후 이어서 질문해주세요.')
+      addMessage('bot', '구성을 만드는 중입니다. 완료 후 이어서 질문해주세요.')
     } else askApi('followup')
   }, [addMessage, updateState, sendConditionTurn])
   // 선택지(칩)를 누르면: 서버 질문의 선택지는 화면에 라벨("가성비")을 내 말로 보여 주고, 내부 값("value")은 구조화된 답변으로
   // 보낸다 — 예전에는 값 문자열을 그대로 말풍선에 띄우고 자유 문장으로 보내서 "value" 가 보였다.
   const handleChoice = useCallback((choice: ChatChoice) => {
     const sessionId = stateRef.current.sessionId
-    if (!isMockApi && choice.questionId && sessionId && stateRef.current.stage <= 2) {
+    if (choice.questionId && sessionId && stateRef.current.stage <= 2) {
       addMessage('user', choice.label)
       sendConditionAnswer(sessionId, choice.questionId, choice.value)
       return
@@ -167,26 +183,26 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       if (mine !== epoch.current) return
       clearTimers()
       updateState(prev => ({ ...prev, stage: 4, currentPlan: plan }))
-      addMessage('bot', isMockApi ? '샘플 구성이 준비됐어요. 부품과 예산을 확인한 뒤 리스트를 저장할 수 있습니다.' : '구성이 준비됐어요. 부품과 예산을 확인한 뒤 리스트를 확정할 수 있습니다.')
+      addMessage('bot', '구성이 준비됐어요. 부품과 예산을 확인한 뒤 리스트를 확정할 수 있습니다.')
     }).catch(error => {
       if (mine !== epoch.current) return
       clearTimers()
+      if (error instanceof ApiError && error.code === SESSION_GONE) { dropStaleSession(error.message); return }
       updateState(prev => ({ ...prev, stage: 2, currentPlan: null }))
       addMessage('bot', errorMessage(error, '구성을 만들지 못했습니다.') + ' 조건을 확인한 뒤 AI 구성 분석 시작 버튼을 다시 눌러주세요.')
     })
-  }, [cancelPending, clearTimers, later, addMessage, updateState])
+  }, [cancelPending, clearTimers, later, addMessage, updateState, dropStaleSession])
   const startAnalysis = useCallback(() => {
     const current = stateRef.current
     // 실서버는 세션이 판정한 can_recommend를 그대로 따른다 — 한 문장에 조건이 다 담겨 있으면 1턴만에 열릴 수 있다.
-    // 목업은 세션이 없어 예전처럼 3단계를 다 거쳤는지(정해진 질문에 다 답했는지)로 본다.
-    const ready = isMockApi ? current.stage >= 2 && !!current.quiet : current.canRecommend
+    const ready = current.canRecommend
     if (!ready) return
-    runAnalysis(isMockApi ? '입력 조건을 보관하고 샘플 구성을 준비합니다. 실제 분석은 아직 연결되지 않았습니다.' : '입력한 조건으로 부품 후보와 가격, 호환성을 분석합니다. 잠시만 기다려주세요.')
+    runAnalysis('입력한 조건으로 부품 후보와 가격, 호환성을 분석합니다. 잠시만 기다려주세요.')
   }, [runAnalysis])
   // 결과 화면의 "성능 우선으로 다시 추천받기" — 우선순위만 세션에 바꿔 두고 같은 조건으로 다시 계산한다.
   const retryWithPerformance = useCallback(() => {
     const current = stateRef.current
-    if (isMockApi || !current.sessionId || current.mode !== 'new') return
+    if (!current.sessionId || current.mode !== 'new') return
     api.conditions.patch(current.sessionId, 'priority', 'performance').then(turn => {
       updateState(prev => ({ ...prev, fields: turn.fields, canRecommend: turn.canRecommend, budgetWarning: turn.budgetWarning ?? null,
         quiet: turn.fields.find(f => f.key === 'priority')?.display ?? '성능 우선' }))
@@ -195,11 +211,45 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   }, [updateState, runAnalysis, showToast])
   const refreshPlan = useCallback(() => {
     const plan = stateRef.current.currentPlan
-    if (isMockApi || !plan) return
+    if (!plan) return
     api.plans.refresh(plan)
       .then(next => updateState(prev => (prev.currentPlan?.id === next.id ? { ...prev, currentPlan: { ...next, budget: prev.currentPlan.budget } } : prev)))
       .catch(() => {})
   }, [updateState])
+  // 서버가 돌려준 새 구성으로 화면을 바꾼다. 예산은 화면에서 정한 값을 그대로 둔다.
+  const applyPlan = useCallback((next: CurrentPlan) => {
+    updateState(prev => (prev.currentPlan?.id === next.id ? { ...prev, currentPlan: { ...next, budget: prev.currentPlan.budget } } : prev))
+  }, [updateState])
+  const loadAlternatives = useCallback((itemId: string) => {
+    const plan = stateRef.current.currentPlan
+    return plan ? api.plans.alternatives(plan, itemId) : Promise.resolve([])
+  }, [])
+  const swapItem = useCallback(async (itemId: string, candidateId: string) => {
+    const plan = stateRef.current.currentPlan
+    if (!plan) return false
+    const before = plan.items.find(item => item.id === itemId)
+    try {
+      const next = await api.plans.swap(plan, itemId, candidateId)
+      applyPlan(next)
+      const after = next.items.find(item => item.id === itemId)
+      if (before && after) addMessage('bot', `${before.type}를 ${after.name}(으)로 바꿨어요. 가격과 예산, 호환 검사를 다시 계산했어요.`)
+      return true
+    } catch (error) {
+      showToast(errorMessage(error, '부품을 바꾸지 못했습니다. 잠시 후 다시 시도해주세요.'))
+      return false
+    }
+  }, [applyPlan, addMessage, showToast])
+  const updateItem = useCallback(async (itemId: string, patch: ItemPatch) => {
+    const plan = stateRef.current.currentPlan
+    if (!plan) return false
+    try {
+      applyPlan(await api.plans.updateItem(plan, itemId, patch))
+      return true
+    } catch (error) {
+      showToast(errorMessage(error, '변경하지 못했습니다. 잠시 후 다시 시도해주세요.'))
+      return false
+    }
+  }, [applyPlan, showToast])
   const selectPart = useCallback((key: PartKey) => updateState(prev => ({ ...prev, selectedPart: key })), [updateState])
   const setBudget = useCallback((budget: number | null) => {
     if (budget !== null && (!Number.isSafeInteger(budget) || budget < 1 || budget > 100000000)) return
@@ -207,14 +257,14 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     updateState(prev => ({ ...prev, budget, currentPlan: prev.currentPlan ? { ...prev.currentPlan, budget } : null }))
     // 예산창에서 직접 고친 값도 조건 세션에 바로 반영해 둔다 — 채팅으로 말한 값과 예산창 값이 다를 때, 다음 대화
     // 턴과 최종 추천이 같은(가장 최근에 정한) 값을 보게 한다. 실패해도 화면 값은 이미 바뀌었고, 추천 시점에 다시 맞춘다.
-    if (!isMockApi && before.sessionId) {
+    if (before.sessionId) {
       api.conditions.patch(before.sessionId, 'budget_max', budget)
         .then(turn => updateState(prev => ({ ...prev, fields: turn.fields, canRecommend: turn.canRecommend, budgetWarning: turn.budgetWarning ?? null })))
         .catch(() => {})
     }
     // 서버는 조건이 바뀌면 그 추천을 낡은 것으로 보고 확정을 거절한다(stale_recommendation). 그래서 서버 추천이 나온 뒤에
     // 예산을 바꾸면 새 예산으로 다시 추천받는다 — 직접 바꾼 부품은 새 구성으로 초기화된다. 목업은 서버가 없어 화면 값만 바꾼다.
-    if (!isMockApi && before.stage === 4 && before.currentPlan && budget !== before.budget) {
+    if (before.stage === 4 && before.currentPlan && budget !== before.budget) {
       runAnalysis('예산을 바꿔서 새 예산으로 구성을 다시 계산합니다. 직접 바꾼 부품은 새 구성으로 초기화돼요.')
     }
   }, [updateState, runAnalysis])
@@ -241,7 +291,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       selectedPart: plan.items.find(p => p.key)?.key ?? 'cpu', stage: 4 }))
     setCheckDraft(structuredClone(setup.checkDraft))
     setMessages([makeMessage('bot', setup.title + ' 구성을 복원했습니다.\n총 ' + wonFmt(planTotal(plan)))])
-    setCustomHeading({ title: setup.title, desc: isMockApi ? '이 브라우저에 임시 저장한 구성' : '확정한 구성' })
+    setCustomHeading({ title: setup.title, desc: '확정한 구성' })
     showToast('저장한 구성을 불러왔습니다.')
   }, [cancelPending, updateState, showToast])
   const startUpgradeMode = useCallback(async () => {
@@ -258,7 +308,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       if (mine !== epoch.current) return false
       updateState(prev => ({ ...prev, mode: 'upgrade', selectedPart: plan.items.find(p => p.key)?.key ?? 'gpu', stage: 4, budget,
         intent: snapshot.question, performance: '', quiet: '', checkSnapshot: snapshot, currentPlan: plan }))
-      setMessages([makeMessage('user', snapshot.question), makeMessage('bot', isMockApi ? '입력한 질문·예산·부품을 가져왔습니다. 아래 변경 부품은 샘플이며 실제 추천·호환성 분석은 아직 연결되지 않았습니다.' : '입력한 질문·예산·부품을 가져왔습니다. 입력하지 않은 유지 부품 정보는 확인하지 못한 채 추천하니, 구매 전에 호환성을 다시 확인해주세요.')])
+      setMessages([makeMessage('user', snapshot.question), makeMessage('bot', '입력한 질문·예산·부품을 가져왔습니다. 입력하지 않은 유지 부품 정보는 확인하지 못한 채 추천하니, 구매 전에 호환성을 다시 확인해주세요.')])
       setCustomHeading(null)
       return true
     } catch (error) {
@@ -268,8 +318,8 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   }, [checkDraft, cancelPending, updateState, showToast])
   const value = useMemo<PlanContextValue>(() => ({
     state, checkDraft, updateCheckDraft, messages, busy, starterHidden: state.stage > 0, analyzingIndex, customHeading,
-    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
+    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
   }), [state, checkDraft, updateCheckDraft, messages, busy, analyzingIndex, customHeading,
-    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode])
+    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode])
   return <PlanContext.Provider value={value}>{children}</PlanContext.Provider>
 }

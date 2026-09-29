@@ -2,9 +2,10 @@ import type { Api } from '../types'
 import { ApiError } from '../types'
 import { request, sleep } from './client'
 import {
-  currentSpecsFromRows, gamesFromText, planFromResult, priorityFromText, purposeFromText, resolutionFromText, upgradePartsFromText,
+  alternativesFromWire, currentSpecsFromRows, gamesFromText, planFromResult, priorityFromText, purposeFromText, resolutionFromText, upgradePartsFromText,
 } from './mapping'
-import type { WireResult, WireSessionState } from './wire'
+import { asSessionGone } from './session'
+import type { WireAlternative, WireResult, WireSessionState } from './wire'
 
 const POLL_MS = 700
 const RESULT_TIMEOUT_MS = 60_000
@@ -59,7 +60,9 @@ export const plans: Api['plans'] = {
       // 인터뷰 세션 재사용: 용도·우선순위 등은 이미 에이전트/규칙이 반영해 뒀다. 예산은 화면(BudgetEditor)에서
       // 마지막으로 정한 값을 세션에 다시 맞춰서 보낸다 — 채팅 중 값과 예산창 값이 다를 수 있어서다.
       listId = sessionId
-      await request('PATCH', '/session/' + listId + '/slot', { field: 'budget_max', value: budget })
+      try {
+        await request('PATCH', '/session/' + listId + '/slot', { field: 'budget_max', value: budget })
+      } catch (error) { throw asSessionGone(error) }   // 저장된 세션이 없거나 내 것이 아니면 화면이 작업을 비우고 새로 시작한다
     } else {
       const created = await request<{ list_id: string }>('POST', '/session')
       listId = created.list_id
@@ -97,5 +100,17 @@ export const plans: Api['plans'] = {
     const next = planFromResult(result, { mode: plan.mode, budget: plan.budget, conditions: plan.conditions, checkSnapshot: plan.checkSnapshot })
     if (!next.items.length) throw new ApiError('저장된 추천 결과에 부품이 없습니다.', 'EMPTY_RESULT')
     return next
+  },
+  async alternatives(plan, itemId) {
+    const { items } = await request<{ items: WireAlternative[] }>('GET', `/session/${plan.id}/items/${itemId}/alternatives`)
+    return alternativesFromWire(items)
+  },
+  async swap(plan, itemId, candidateId) {
+    const result = await request<WireResult>('POST', `/session/${plan.id}/items/${itemId}/swap`, { candidate_id: candidateId })
+    return planFromResult(result, { mode: plan.mode, budget: plan.budget, conditions: plan.conditions, checkSnapshot: plan.checkSnapshot })
+  },
+  async updateItem(plan, itemId, patch) {
+    const result = await request<WireResult>('PATCH', `/session/${plan.id}/items/${itemId}`, patch)
+    return planFromResult(result, { mode: plan.mode, budget: plan.budget, conditions: plan.conditions, checkSnapshot: plan.checkSnapshot })
   },
 }

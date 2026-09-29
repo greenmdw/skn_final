@@ -10,8 +10,7 @@
 
 html,
 body,
-#root,
-.app-shell {
+#root {
   width: 100%;
   min-width: 320px;
   height: 100%;
@@ -23,19 +22,19 @@ body {
   overflow: hidden;
 }
 
-.truefit-screen {
-  display: block;
-  width: 111.111111%;
-  height: 111.111111%;
-  border: 0;
-  background: #071116;
-  transform: scale(0.9);
-  transform-origin: top left;
-}
-
-/* 로그인·회원가입 등 React 로 옮긴 화면은 body 가 overflow:hidden 이라 스스로 스크롤한다. */
+/* 로그인·회원가입 등은 body 가 overflow:hidden 이라 스스로 스크롤한다. */
 .auth-scroll {
   width: 100%;
   height: 100%;
   overflow-y: auto;
+}
+
+/* 메인·시작 방식 선택 화면도 스스로 스크롤한다. */
+.mk-scroll {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  background: #05090c;
+  color: #f4f7f7;
+  font-family: 'Pretendard', 'IBM Plex Sans KR', 'Malgun Gothic', sans-serif;
 }

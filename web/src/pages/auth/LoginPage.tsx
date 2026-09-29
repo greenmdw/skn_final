@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../../api'
 import { setAuthUser } from '../../state/authStore'
 import AuthLayout from './AuthLayout'
@@ -7,6 +7,9 @@ import { authErrorMessage, validEmail } from './messages'
 
 export default function LoginPage() {
   const navigate = useNavigate()
+  const [params] = useSearchParams()
+  const next = params.get('next')
+  const target = next && next.startsWith('/') && !next.startsWith('//') ? next : '/'   // 로그인 뒤 돌아갈 곳(같은 사이트 안만)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(false)
@@ -25,7 +28,7 @@ export default function LoginPage() {
     setBusy(true)
     try {
       setAuthUser(await api.auth.login({ email: emailValue, password, remember }))
-      navigate('/')
+      navigate(target)
     } catch (err) {
       setBusy(false)
       if ((err as { code?: string }).code === 'invalid_credentials') setInvalid({ email: true, password: true })

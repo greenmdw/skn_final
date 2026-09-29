@@ -1,6 +1,5 @@
 import { wonFmt } from '../utils/format'
 import type { CurrentPlan, SavedSetup } from './types'
-import { isMockApi } from '../api'
 import { QUIET_LABEL } from './conditionLabels'
 export { parseBudget } from './budget'
 
@@ -15,7 +14,7 @@ export function localDate(): string {
 
 export function reportText(setup: SavedSetup): string {
   const plan = setup.plan
-  return [setup.title, (isMockApi ? '이 브라우저에 임시 저장 · 구매 예정: ' : '구매 예정: ') + setup.date,
+  return [setup.title, '구매 예정: ' + setup.date,
     '유형: ' + (plan.mode === 'upgrade' ? '업그레이드' : '신규 구성'),
     '질문: ' + plan.conditions.intent, '성능: ' + plan.conditions.performance, QUIET_LABEL + ': ' + plan.conditions.quiet,
     '예산: ' + (plan.budget === null ? '미입력' : wonFmt(plan.budget)),

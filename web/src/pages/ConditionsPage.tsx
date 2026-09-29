@@ -18,10 +18,13 @@ function valueText(field: ConditionField): string {
 }
 
 export default function ConditionsPage() {
-  const { state, startAnalysis } = usePlan()
+  const { state, startAnalysis, checkSession } = usePlan()
   const navigate = useNavigate()
   const running = state.stage === 3
   const previousStage = useRef(state.stage)
+
+  // 브라우저에 남아 있던 작업이 지금 계정의 것이 아니거나 서버에서 없어졌으면, 추천을 누르기 전에 미리 비우고 새로 시작한다.
+  useEffect(() => { checkSession() }, [checkSession])
 
   // 추천 계산(3)이 끝나 결과(4)가 생기면 결과 화면으로 간다. 결과를 이미 가진 채 이 화면을 다시 열었을 때는 머문다.
   useEffect(() => {

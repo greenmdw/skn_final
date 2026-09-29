@@ -1,5 +1,5 @@
 import type { Api } from '../types'
-import { mockApi } from '../mock'
+import { ApiError } from '../types'
 import { request } from './client'
 import { partExplanation, planFromResult, wantsPartExplanation } from './mapping'
 import type { WireResult } from './wire'
@@ -11,7 +11,7 @@ const MAX_LENGTH = 300   // 서버(ResultMessageIn)가 받는 최대 글자 수
 export const chat: Api['chat'] = {
   async reply(request_) {
     const { topic, text, plan, selectedPart } = request_
-    if (topic !== 'followup' || !plan) return mockApi.chat.reply(request_)
+    if (topic !== 'followup' || !plan) throw new ApiError('이 대화는 결과 화면에서만 사용할 수 있습니다.', 'CHAT_NOT_AVAILABLE')
     const part = plan.items.find(item => item.key === selectedPart)
     if (part && wantsPartExplanation(text)) return { text: partExplanation(part) }
     if (text.length > MAX_LENGTH) return { text: `메시지는 ${MAX_LENGTH}자 이내로 입력해주세요.` }
@@ -19,5 +19,4 @@ export const chat: Api['chat'] = {
     const next = planFromResult(result, { mode: plan.mode, budget: plan.budget, conditions: plan.conditions, checkSnapshot: plan.checkSnapshot })
     return { text: reply, plan: next }
   },
-  reviewReply: mockApi.chat.reviewReply,
 }

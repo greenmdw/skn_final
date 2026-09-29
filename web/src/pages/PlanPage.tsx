@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import AlternativesDialog from '../components/AlternativesDialog'
 import BudgetDonut from '../components/BudgetDonut'
 import PlannerShell from '../components/PlannerShell'
 import ProductThumb from '../components/ProductThumb'
+import type { PurchaseTiming } from '../api'
 import { usePlan } from '../state/PlanContext'
 import type { CompatCheck, PlanItem } from '../state/types'
 import { wonFmt } from '../utils/format'
@@ -24,7 +26,12 @@ function CheckSummary({ checks }: { checks: CompatCheck[] }) {
   )
 }
 
-function PartRow({ item, open, onToggle }: { item: PlanItem; open: boolean; onToggle: () => void }) {
+const TIMING_LABEL: Record<PurchaseTiming, string> = { now: '지금 구매', soon: '곧 구매', later: '나중에 구매' }
+
+function PartRow({ item, open, busy, onToggle, onCompare, onQty, onTiming }: {
+  item: PlanItem; open: boolean; busy: boolean
+  onToggle: () => void; onCompare: () => void; onQty: (qty: number) => void; onTiming: (timing: PurchaseTiming) => void
+}) {
   return (
     <div className="pl-part">
       <button type="button" className="pl-part-row" onClick={onToggle} aria-expanded={open}>
@@ -51,11 +58,34 @@ function PartRow({ item, open, onToggle }: { item: PlanItem; open: boolean; onTo
               ? <ul>{item.checks.map(text => <li key={text}>{text}</li>)}</ul>
               : <p style={{ color: '#92a4b2' }}>서버가 준 확인 항목이 없어요.</p>}
           </div>
+          <div className="pl-box pl-controls">
+            <h4>수량과 구매 시점 {busy && <span className="pl-busy" role="status">반영 중…</span>}</h4>
+            {item.qty != null && (
+              <div className="pl-stepper">
+                <button type="button" aria-label="수량 줄이기" disabled={busy || item.qty <= 1} onClick={() => onQty(item.qty! - 1)}>−</button>
+                <b className="pl-mono" aria-live="polite">{item.qty}</b>
+                <button type="button" aria-label="수량 늘리기" disabled={busy || item.qty >= 99} onClick={() => onQty(item.qty! + 1)}>+</button>
+                <span className="pl-note">개</span>
+              </div>
+            )}
+            {item.timing && (
+              <select className="pl-select" value={item.timing} disabled={busy} aria-label="구매 시점" onChange={event => onTiming(event.target.value as PurchaseTiming)}>
+                {(Object.keys(TIMING_LABEL) as PurchaseTiming[]).map(t => <option key={t} value={t}>{TIMING_LABEL[t]}</option>)}
+              </select>
+            )}
+          </div>
           <div className="pl-box">
             <h4>리뷰</h4>
             {item.rating !== '-' || item.reviews !== '없음'
               ? <p><b style={{ fontSize: 20 }}>★ {item.rating}</b> <span style={{ marginLeft: 8 }}>리뷰 {item.reviews}</span></p>
               : <p style={{ color: '#92a4b2' }}>이 제품의 리뷰 관측이 아직 없어요.</p>}
+          </div>
+          <div className="pl-compare-bar">
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>다른 {item.type} 제품과 비교</div>
+              <div className="pl-note" style={{ marginTop: 4 }}>가격·사양·리뷰를 나란히 보고 바꿀 수 있어요.</div>
+            </div>
+            <button type="button" className="pl-btn ghost" style={{ padding: '9px 14px', fontSize: 13 }} disabled={busy} onClick={onCompare}>제품 비교하기 →</button>
           </div>
         </div>
       )}
@@ -64,14 +94,17 @@ function PartRow({ item, open, onToggle }: { item: PlanItem; open: boolean; onTo
 }
 
 export default function PlanPage() {
-  const { state, retryWithPerformance, refreshPlan } = usePlan()
+  const { state, retryWithPerformance, refreshPlan, checkSession, selectPart, updateItem } = usePlan()
   const navigate = useNavigate()
   const plan = state.currentPlan
   const [openId, setOpenId] = useState<string | null>(null)
   const [checksOpen, setChecksOpen] = useState(false)
+  const [comparing, setComparing] = useState<PlanItem | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
 
-  // 수량 정보가 없는 옛 구성(예전에 저장된 것)이면 서버의 최신 결과로 한 번 다시 읽는다.
-  const stale = !!plan && plan.items.some(item => item.qty == null)
+  // 수량·구매 시점 정보가 없는 옛 구성(예전에 저장된 것)이면 서버의 최신 결과로 한 번 다시 읽는다.
+  const stale = !!plan && plan.items.some(item => item.qty == null || item.timing == null)
+  useEffect(() => { checkSession() }, [checkSession])
   useEffect(() => { if (stale) refreshPlan() }, [stale, refreshPlan])
   useEffect(() => { if (!plan && state.stage !== 3) navigate('/start', { replace: true }) }, [plan, state.stage, navigate])
   if (!plan) return <PlannerShell chatTitle="결과 대화" placeholder="예: CPU를 더 싼 걸로 바꿔줘"><div className="pl-page"><div className="pl-note">추천 결과를 불러오는 중이에요…</div></div></PlannerShell>
@@ -79,6 +112,11 @@ export default function PlanPage() {
   const budget = plan.budget
   const summary = [state.intent, budget !== null ? Math.round(budget / 10000).toLocaleString('ko-KR') + '만 원' : '', state.quiet].filter(Boolean).join(' · ')
   const checks = plan.compatChecks ?? []
+  async function change(item: PlanItem, patch: { qty?: number; timing?: PurchaseTiming }) {
+    setBusyId(item.id)
+    await updateItem(item.id, patch)
+    setBusyId(null)
+  }
 
   return (
     <PlannerShell chatTitle="결과 대화" placeholder="예: CPU를 더 싼 걸로 바꿔줘">
@@ -108,7 +146,10 @@ export default function PlanPage() {
 
         <div className="pl-card">
           {plan.items.map(item => (
-            <PartRow key={item.id} item={item} open={openId === item.id} onToggle={() => setOpenId(openId === item.id ? null : item.id)} />
+            <PartRow key={item.id} item={item} open={openId === item.id} busy={busyId === item.id}
+              onToggle={() => { setOpenId(openId === item.id ? null : item.id); if (item.key) selectPart(item.key) }}
+              onCompare={() => setComparing(item)}
+              onQty={qty => void change(item, { qty })} onTiming={timing => void change(item, { timing })} />
           ))}
           {checks.length > 0 && (
             <div className="pl-checks">
@@ -141,12 +182,14 @@ export default function PlanPage() {
             <div className="t">주변기기도 맞출까요?</div>
             <div style={{ fontSize: 13, marginTop: 4 }}>모니터·키보드·마우스·스피커를 이어서 고를 수 있어요.</div>
           </div>
-          <Link to="/screen/peri">주변기기 이어서 짜기</Link>
+          <Link to="/peripherals">주변기기 이어서 짜기</Link>
         </div>
-        <div style={{ display: 'flex', gap: 12 }}>
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <Link className="pl-btn" style={{ textDecoration: 'none' }} to="/cart">장바구니에 담기</Link>
           <Link className="pl-btn ghost" style={{ textDecoration: 'none' }} to="/start">조건 바꾸기</Link>
         </div>
       </div>
+      {comparing && <AlternativesDialog item={comparing} onClose={() => setComparing(null)} />}
     </PlannerShell>
   )
 }
