@@ -10,6 +10,7 @@ import { wonFmt } from '../utils/format'
 import { newId } from '../utils/id'
 import { useToast } from './ToastContext'
 import { PlanContext, type PlanContextValue } from './PlanContext'
+import { useAuthUser } from './authStore'
 
 const INITIAL_GREETING = '안녕하세요! TrueFit입니다.\n어떤 PC가 필요하신가요?\n\n하고 싶은 일과 원하는 성능을 말씀해주세요.'
 const initialState: PlanState = {
@@ -133,24 +134,34 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   }, [runConditionTurn])
   // 새로 시작할 때 같은 사용자의 지난 목록이 있으면 그 조건으로 이어갈지 묻는다(A1). 값은 "이어서 하기"를 눌러야
   // 서버가 복사한다 — 묻기만 하고 자동으로 채우지 않는다. 조회가 실패해도 인사말만 남고 조용히 넘어간다.
+  // 가장 나중에 보낸 조회의 답만 쓰고, 앞서 붙인 제안(다른 사용자로 물었던 것)은 지운다.
+  const offerSeq = useRef(0)
   const offerPrevious = useCallback(() => {
     const mine = epoch.current
+    const seq = ++offerSeq.current
     api.conditions.previous()
       .then(previous => {
-        if (!previous || mine !== epoch.current || stateRef.current.stage !== 0) return
-        addMessage('bot', previous.summary, [
-          { label: '이어서 하기', value: 'resume', resumeFrom: previous.listId },
-          { label: '새로 시작', value: 'fresh', startFresh: true },
-        ])
+        if (seq !== offerSeq.current || mine !== epoch.current || stateRef.current.stage !== 0) return
+        setMessages(prev => {
+          const kept = prev.filter(m => !m.choices?.some(c => c.resumeFrom))
+          return previous ? [...kept, makeMessage('bot', previous.summary, [
+            { label: '이어서 하기', value: 'resume', resumeFrom: previous.listId },
+            { label: '새로 시작', value: 'fresh', startFresh: true },
+          ])] : kept
+        })
       })
       .catch(() => {})
-  }, [addMessage])
-  const offeredOnMount = useRef(false)      // StrictMode 개발 모드는 effect 를 두 번 돌린다 — 한 번만 묻는다
+  }, [])
+  // 로그인·로그아웃은 페이지를 새로 읽지 않으므로 사용자가 바뀔 때마다 다시 묻는다 — 앱을 연 순간(로그인 전)에
+  // 한 번만 물으면 로그인한 사용자의 지난 견적을 놓친다. 같은 사용자로는 한 번만(StrictMode 는 effect 를 두 번 돌린다).
+  const authUser = useAuthUser()
+  const offeredFor = useRef<string | null>(null)
   useEffect(() => {
-    if (offeredOnMount.current || restored?.state.stage) return
-    offeredOnMount.current = true
+    const who = authUser?.email ?? ''
+    if (offeredFor.current === who || restored?.state.stage) return
+    offeredFor.current = who
     offerPrevious()
-  }, [restored, offerPrevious])
+  }, [authUser, restored, offerPrevious])
 
   const handleInput = useCallback((text: string) => {
     const clean = text.trim()
