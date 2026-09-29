@@ -25,9 +25,6 @@ COPY db/ ./db/
 COPY main.py .
 COPY --from=web /web/dist ./web/dist
 
-# 이미지에는 새 React 앱만 들어 있다 — 빌드가 빠지면 옛 화면으로 조용히 넘어가지 않고 시작 시 오류로 멈춘다.
-ENV TRUEFIT_FRONTEND=spa
-
 EXPOSE 8000
 
 CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]

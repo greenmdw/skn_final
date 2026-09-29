@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 
 from src.auth.origin import OriginCheckMiddleware
 from src.config import (
-    APP_NAME, FRONTEND_DIR, FRONTEND_MODE, IS_PRODUCTION, WEB_DIST_DIR, assert_production_secret_safe,
+    APP_NAME, IS_PRODUCTION, WEB_DIST_DIR, assert_production_secret_safe,
 )
 from src.db import close_pool
 from src.errors import TruefitError
@@ -66,5 +66,5 @@ def health() -> dict:
 
 
 # 프론트는 API 라우터를 모두 등록한 뒤 마지막에 붙인다 — API 경로가 정적 파일·SPA 폴백보다 우선한다.
-# web/dist 가 있으면 새 React 앱, 없으면 옛 frontend/ (src/frontend_serving.py).
-FRONTEND_SERVING = mount_frontend(app, web_dist=WEB_DIST_DIR, legacy_dir=FRONTEND_DIR, mode=FRONTEND_MODE)
+# web/dist 가 있으면 React 앱을 서빙하고, 없으면 API만 뜬다 (src/frontend_serving.py).
+FRONTEND_SERVING = mount_frontend(app, web_dist=WEB_DIST_DIR)
