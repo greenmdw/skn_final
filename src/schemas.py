@@ -350,6 +350,22 @@ class ResumeIn(BaseModel):
     from_list_id: UUID
 
 
+class PreviousComparisonOut(BaseModel):
+    """GET /session/{id}/previous-comparison — 이전 견적과 비교(B1). available=False 면 reason 만 있다.
+    reasons 는 {slot, label, kind(requirement|unexplained), claim, evidence[], source} — 문장(text)은 이것만 가지고 만든다."""
+    available: bool
+    reason: str | None = None
+    text: str
+    previous_list_id: str | None = None
+    previous_label: str | None = None
+    condition_changes: list[dict] = Field(default_factory=list)
+    part_changes: list[dict] = Field(default_factory=list)
+    unchanged: list[str] = Field(default_factory=list)
+    reasons: list[dict] = Field(default_factory=list)
+    totals: dict | None = None
+    caveats: list[str] = Field(default_factory=list)
+
+
 # ── recommend / result (§D-4-2) ──
 class RecommendIn(BaseModel):
     strategy: Optional[Literal["default", "alternative"]] = "default"

@@ -8,7 +8,7 @@ from src.categories import available_categories, load_category
 from src.engine import slot_rules
 from src.engine.spec_text import parse_spec_text
 from src.errors import Conflict, FileTooLarge, NotFound, ValidationFailed
-from src.repo.plan_repo import PlanRepo
+from src.repo.plan_repo import RESUMED_FROM_KEY, PlanRepo
 from src.repo.user_repo import ConversationRepo
 
 log = logging.getLogger(__name__)
@@ -482,6 +482,9 @@ def resume_previous(conn, list_id: UUID, from_list_id: UUID, principal: Principa
     msg_id = convo.add_message(current["conversation_id"], "user", _RESUME_USER_TEXT)
     for key, value in carried.items():
         repo.upsert_condition(current["id"], key, {"value": value}, "inferred", msg_id)
+    # 어느 목록에서 이어왔는지 — 나중에 결과를 그 견적과 비교한다(B1). 추천 입력이 아니다.
+    repo.upsert_condition(current["id"], RESUMED_FROM_KEY, {"value": str(from_list_id)}, "inferred", msg_id,
+                          bump_version=False)
     values.update(carried)
     nq = _next_question(cat_def, values)
     lead = "지난 조건을 가져왔어요. 바뀐 게 있으면 말씀해 주세요."

@@ -97,3 +97,57 @@ def test_other_guests_cannot_see_or_resume_my_list(client, other_client):
     theirs = _start(other_client)
     r = other_client.post(f"/session/{theirs}/resume", json={"from_list_id": mine})
     assert r.status_code == 404
+
+
+# ── 이전 견적 비교(B1) ──
+
+def _recommend(client: TestClient, lid: str) -> dict:
+    assert client.post(f"/session/{lid}/recommend", json={}).status_code == 202
+    result = client.get(f"/session/{lid}/result").json()
+    assert result["status"] == "done", result
+    return result
+
+
+def test_resumed_list_is_compared_with_the_list_it_came_from(client):
+    old = _start(client, purpose="game", budget_max=1_500_000, priority="value", resolution="FHD_144")
+    _recommend(client, old)
+    _start(client, purpose="office", budget_max=800_000)            # 더 최근 목록이 있어도 이어온 목록과 비교한다
+    new = _start(client)
+    client.post(f"/session/{new}/resume", json={"from_list_id": old})
+    client.patch(f"/session/{new}/slot", json={"field": "resolution", "value": "QHD_165"})
+    _recommend(client, new)
+
+    c = client.get(f"/session/{new}/previous-comparison").json()
+    assert c["available"] and c["previous_list_id"] == old
+    assert [x["key"] for x in c["condition_changes"]] == ["resolution"]
+    for reason in c["reasons"]:
+        # QHD 로 올라 요구가 바뀐 부품만 인과를 말한다
+        if reason["kind"] == "requirement":
+            assert reason["evidence"] == ["해상도·주사율 FHD 144Hz → QHD 165Hz"]
+    assert "견적과 비교했어요" in c["text"]
+
+    reply = client.post(f"/session/{new}/result-message", json={"text": "지난번이랑 뭐가 달라?"}).json()["reply"]
+    assert reply == c["text"]
+
+
+def test_without_resume_the_latest_list_with_a_result_is_used(client):
+    old = _start(client, purpose="game", budget_max=1_500_000, priority="value")
+    _recommend(client, old)
+    _start(client, purpose="office", budget_max=800_000)            # 추천을 안 받은 목록은 비교 대상이 아니다
+    new = _start(client, purpose="game", budget_max=2_000_000, priority="value")
+    _recommend(client, new)
+    c = client.get(f"/session/{new}/previous-comparison").json()
+    assert c["available"] and c["previous_list_id"] == old
+    assert [x["key"] for x in c["condition_changes"]] == ["budget_max"]
+
+
+def test_nothing_to_compare_for_a_first_or_foreign_list(client, other_client):
+    mine = _start(client, purpose="game", budget_max=1_500_000, priority="value")
+    _recommend(client, mine)
+    c = client.get(f"/session/{mine}/previous-comparison").json()
+    assert c["available"] is False and "이전 견적이 없어요" in c["text"]
+
+    theirs = _start(other_client, purpose="game", budget_max=1_500_000, priority="value")
+    _recommend(other_client, theirs)
+    assert other_client.get(f"/session/{theirs}/previous-comparison").json()["available"] is False
+    assert other_client.get(f"/session/{mine}/previous-comparison").status_code == 404
