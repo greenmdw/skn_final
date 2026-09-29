@@ -177,7 +177,7 @@ export function itemFromWire(item: WireItem): PlanItem {
   if (item.alternatives_count > 0) tags.push('대안 ' + item.alternatives_count + '개')
   return {
     id: item.item_id, key, type: item.slot_label, name: item.product.name,
-    price: item.price * item.qty,
+    price: item.price * item.qty, qty: item.qty, unitPrice: item.price,
     meta: item.slot_label + ' · ' + (item.product.spec_summary || item.product.brand || item.product.name),
     source: priceSourceText(item),
     action: timing.action, actionClass: timing.actionClass,
@@ -187,6 +187,7 @@ export function itemFromWire(item: WireItem): PlanItem {
     tags, checks: checksFromWire(item.checks),
     rating: ratingText(item.review), reviews: reviewsText(item.review),
     label: key ? SHORT_LABEL[key] : item.slot_label.slice(0, 4),
+    imageUrl: item.product.image_url ?? null,
   }
 }
 
@@ -297,7 +298,7 @@ function reportItem(item: WireReportItem, index: number): PlanItem {
   const key = slotKey(item.slot)
   return {
     id: item.slot + '-' + index, key, type: item.slot_label, name: item.product.name,
-    price: item.price * item.qty,
+    price: item.price * item.qty, qty: item.qty, unitPrice: item.price,
     meta: item.slot_label, source: '확정 시점 가격',
     action: (TIMING[item.timing] ?? TIMING.now).action, actionClass: (TIMING[item.timing] ?? TIMING.now).actionClass,
     score: '', fit: item.evidence_text ?? '', reasonTitle: item.slot_label + ' 추천 이유', tags: [],

@@ -12,4 +12,7 @@ export const auth: Api['auth'] = {
     return null
   },
   async logout() {},
+  async checkEmail() {
+    return true
+  },
 }

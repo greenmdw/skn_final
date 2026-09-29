@@ -32,6 +32,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<PlanState>(restored?.state ? { ...initialState, ...restored.state } : initialState)
   const [checkDraft, setCheckDraft] = useState<CheckDraft>(restored?.checkDraft ?? createCheckDraft())
   const [messages, setMessages] = useState<ChatMessage[]>(() => [makeMessage('bot', restored?.state.stage ? '작성 중인 구성을 복원했습니다. 입력한 조건을 확인하고 이어서 진행하세요.' : INITIAL_GREETING)])
+  const [busy, setBusy] = useState(false)
   const [analyzingIndex, setAnalyzingIndex] = useState(0)
   const [customHeading, setCustomHeading] = useState<{ title: string; desc: string } | null>(null)
   const stateRef = useRef(state)
@@ -76,6 +77,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   // 정규식으로 다시 해석하지 않는다(그러면 서버 판정과 화면 표시가 어긋날 수 있다).
   const runConditionTurn = useCallback((call: () => Promise<ConditionTurnResult>) => {
     const mine = epoch.current
+    setBusy(true)
     call()
       .then(turn => {
         if (mine !== epoch.current) return
@@ -96,6 +98,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         addMessage('bot', turn.reply || '조건을 반영했어요.', turn.choices)
       })
       .catch(error => { if (mine === epoch.current) addMessage('bot', errorMessage(error, '답변을 반영하지 못했습니다. 잠시 후 다시 시도해주세요.')) })
+      .finally(() => { if (mine === epoch.current) setBusy(false) })
   }, [addMessage, updateState])
   const sendConditionTurn = useCallback((text: string) => {
     runConditionTurn(() => api.conditions.send(stateRef.current.sessionId, text))
@@ -190,6 +193,13 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       runAnalysis('성능 우선으로 바꿔서 남은 예산까지 활용해 구성을 다시 계산합니다.')
     }).catch(error => showToast(errorMessage(error, '우선순위를 바꾸지 못했습니다. 잠시 후 다시 시도해주세요.')))
   }, [updateState, runAnalysis, showToast])
+  const refreshPlan = useCallback(() => {
+    const plan = stateRef.current.currentPlan
+    if (isMockApi || !plan) return
+    api.plans.refresh(plan)
+      .then(next => updateState(prev => (prev.currentPlan?.id === next.id ? { ...prev, currentPlan: { ...next, budget: prev.currentPlan.budget } } : prev)))
+      .catch(() => {})
+  }, [updateState])
   const selectPart = useCallback((key: PartKey) => updateState(prev => ({ ...prev, selectedPart: key })), [updateState])
   const setBudget = useCallback((budget: number | null) => {
     if (budget !== null && (!Number.isSafeInteger(budget) || budget < 1 || budget > 100000000)) return
@@ -257,9 +267,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     }
   }, [checkDraft, cancelPending, updateState, showToast])
   const value = useMemo<PlanContextValue>(() => ({
-    state, checkDraft, updateCheckDraft, messages, starterHidden: state.stage > 0, analyzingIndex, customHeading,
-    handleInput, handleChoice, startAnalysis, retryWithPerformance, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
-  }), [state, checkDraft, updateCheckDraft, messages, analyzingIndex, customHeading,
-    handleInput, handleChoice, startAnalysis, retryWithPerformance, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode])
+    state, checkDraft, updateCheckDraft, messages, busy, starterHidden: state.stage > 0, analyzingIndex, customHeading,
+    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
+  }), [state, checkDraft, updateCheckDraft, messages, busy, analyzingIndex, customHeading,
+    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode])
   return <PlanContext.Provider value={value}>{children}</PlanContext.Provider>
 }

@@ -11,6 +11,7 @@ export interface WireProduct {
   name: string
   brand: string
   spec_summary: string | null
+  image_url?: string | null
 }
 
 export interface WireItem {

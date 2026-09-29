@@ -18,6 +18,8 @@ export interface Part {
   rating: string
   reviews: string
   label: string
+  /** 서버 카탈로그의 제품 이미지 주소. 없으면 화면이 카테고리 아이콘을 보여 준다 */
+  imageUrl?: string | null
 }
 
 export type PlanMode = 'new' | 'upgrade'
@@ -91,7 +93,12 @@ export interface DeskState {
 export interface PlanItem extends Omit<Part, 'price'> {
   id: string
   key: PartKey | null
+  /** 이 줄의 합계 금액 = 단가 × 수량 */
   price: number
+  /** 수량. 서버가 준 값. 없으면(예전에 저장된 구성 등) 화면에 표시하지 않는다 */
+  qty?: number
+  /** 개당 가격(서버가 준 단가) */
+  unitPrice?: number
 }
 
 export interface CompatCheck {

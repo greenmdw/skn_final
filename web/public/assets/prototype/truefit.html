@@ -199,8 +199,9 @@ a:hover{color:#9fe0fb;text-decoration:underline}
 <span>True<span>Fit</span></span>
 </button>
 <div class="tf-home-auth">
-<button sc-camel-on-click="{{ openLogin }}">로그인</button>
-<button sc-camel-on-click="{{ openSignup }}">회원가입</button>
+<sc-if value="{{ guest }}"><button sc-camel-on-click="{{ openLogin }}">로그인</button>
+<button sc-camel-on-click="{{ openSignup }}">회원가입</button></sc-if>
+<sc-if value="{{ loggedIn }}"><span style="font-size:13px;color:#92a4b2">{{ userLabel }}</span><button sc-camel-on-click="{{ logout }}">로그아웃</button></sc-if>
 </div>
 </header>
 </sc-if>
@@ -216,14 +217,10 @@ a:hover{color:#9fe0fb;text-decoration:underline}
 </sc-for>
 </nav>
 <div style="flex:1"></div>
-<sc-if value="{{ showJump }}" hint-placeholder-val="{{ true }}">
-<sc-raw-select value="{{ screen }}" sc-camel-on-change="{{ onJump }}" style="height:32px;border:1px solid #233744;border-radius:8px;background:#0c1820;font-size:12px;padding:0 8px;font-family:'JetBrains Mono',monospace">
-<sc-for list="{{ jumpList }}" as="j" hint-placeholder-count="9"><option value="{{ j.v }}">{{ j.l }}</option></sc-for>
-</sc-raw-select>
-</sc-if>
 <button sc-camel-on-click="{{ openDrawer }}" style="border:1px solid #233744;background:#0d1a23;border-radius:8px;height:32px;padding:0 12px;font-size:13px;cursor:pointer;white-space:nowrap">저장한 견적</button>
 <button sc-camel-on-click="{{ goCart }}" style="border:0;background:#60edc0;color:#06241b;border-radius:8px;height:32px;padding:0 12px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:8px">장바구니<span style="font-family:'JetBrains Mono',monospace;font-size:11px;background:#0d1a23;color:#f4f7f7;border-radius:5px;padding:1px 5px">{{ cartCount }}</span></button>
 <div style="font-size:13px;color:#92a4b2">{{ userLabel }}</div>
+<sc-if value="{{ loggedIn }}"><button sc-camel-on-click="{{ logout }}" style="border:1px solid #233744;background:#0d1a23;border-radius:8px;height:32px;padding:0 12px;font-size:13px;cursor:pointer;white-space:nowrap;color:#f4f7f7">로그아웃</button></sc-if>
 </div>
 </sc-if>
 <div style="flex:1;min-height:0;display:flex">
@@ -1069,34 +1066,7 @@ COOLER: 정품 기본 쿨러</textarea>
 </div>
 </sc-if>
 
-<sc-if value="{{ login }}">
-<div style="position:absolute;inset:0;z-index:22;display:grid;place-items:center;padding:24px">
-<div sc-camel-on-click="{{ closeAll }}" style="position:absolute;inset:0;background:rgba(23,24,27,0.4)"></div>
-<div data-screen-label="UI-02 로그인" style="position:relative;width:380px;max-width:100%;background:#0d1a23;border-radius:16px;padding:28px;display:flex;flex-direction:column;gap:14px;box-shadow:0 20px 50px rgba(0,0,0,0.18)">
-<div style="font-size:19px;font-weight:700">{{ loginTitle }}</div>
-<div style="font-size:13px;color:#92a4b2;line-height:1.55">{{ loginSub }}</div>
-<input placeholder="이메일" sc-camel-default-value="dongwon@truefit.kr" style="height:42px;box-sizing:border-box;border:1px solid #233744;border-radius:10px;padding:0 12px;font-size:14px">
-<input type="password" placeholder="비밀번호" sc-camel-default-value="password" style="height:42px;box-sizing:border-box;border:1px solid #233744;border-radius:10px;padding:0 12px;font-size:14px">
-<button sc-camel-on-click="{{ doLogin }}" style="border:0;background:#60edc0;color:#06241b;border-radius:10px;padding:13px;font-size:15px;font-weight:600;cursor:pointer">로그인</button>
-<div style="font-size:12px;color:#92a4b2;text-align:center">계정이 없으면 <button sc-camel-on-click="{{ switchToSignup }}" style="border:0;background:transparent;padding:0;font-size:12px;color:#66c8f2;text-decoration:underline;cursor:pointer">회원가입</button></div>
-</div>
-</div>
-</sc-if>
 
-<sc-if value="{{ signup }}">
-<div style="position:absolute;inset:0;z-index:22;display:grid;place-items:center;padding:24px">
-<div sc-camel-on-click="{{ closeAll }}" style="position:absolute;inset:0;background:rgba(23,24,27,0.4)"></div>
-<div data-screen-label="UI-02b 회원가입" style="position:relative;width:380px;max-width:100%;background:#0d1a23;border-radius:16px;padding:28px;display:flex;flex-direction:column;gap:14px;box-shadow:0 20px 50px rgba(0,0,0,0.18)">
-<div style="font-size:19px;font-weight:700">회원가입하고 시작하기</div>
-<div style="font-size:13px;color:#92a4b2;line-height:1.55">이메일 하나로 바로 시작할 수 있어요. 지금까지 게스트로 짠 견적과 채팅도 계정에 합쳐져요.</div>
-<input placeholder="이름" style="height:42px;box-sizing:border-box;border:1px solid #233744;border-radius:10px;padding:0 12px;font-size:14px">
-<input placeholder="이메일" style="height:42px;box-sizing:border-box;border:1px solid #233744;border-radius:10px;padding:0 12px;font-size:14px">
-<input type="password" placeholder="비밀번호" style="height:42px;box-sizing:border-box;border:1px solid #233744;border-radius:10px;padding:0 12px;font-size:14px">
-<button sc-camel-on-click="{{ doSignup }}" style="border:0;background:#60edc0;color:#06241b;border-radius:10px;padding:13px;font-size:15px;font-weight:600;cursor:pointer">회원가입</button>
-<div style="font-size:12px;color:#92a4b2;text-align:center">이미 계정이 있으면 <button sc-camel-on-click="{{ switchToLogin }}" style="border:0;background:transparent;padding:0;font-size:12px;color:#66c8f2;text-decoration:underline;cursor:pointer">로그인</button></div>
-</div>
-</div>
-</sc-if>
 </div>
 </div>
 </div>
@@ -1208,7 +1178,7 @@ class Component extends DCLogic {
     draft: '', typing: false, running: false, openPart: 'gpu', hoverSeg: null, chooserMode: 'all',
     usage: null, budget: null, priority: null, chipsExpanded: false, chips: [],
     cpuAlt: false, gpuUp: false, restored: false,
-    drawer: false, bridge: false, login: false, loginNext: null, signup: false, loggedIn: false, savedModal: false, savedCmpId: null,
+    drawer: false, bridge: false, loggedIn: false, userName: '', savedModal: false, savedCmpId: null,
     budgetMode: 'rest', inherited: false, sel: { monitor: true, keyboard: true, mouse: true, speaker: true }, monRes: null, mouseAlt: false,
     uploadTab: 'image', mbFixed: false, psuFixed: false, cmpOpen: false, cmpSlot: 'GPU', cmpContext: 'quote', cmpPick: {}, swapped: {}, planSwapped: {},
     cartSource: 'pc', cartHasPeri: false, refsOpen: false,
@@ -1222,8 +1192,28 @@ class Component extends DCLogic {
     },
   };
 
+  // 로그인 상태·화면 이동은 바깥 React 앱(App.tsx)이 맡는다. 이 화면은 postMessage 로만 주고받는다.
+  toParent(msg) { if (window.parent !== window) window.parent.postMessage(msg, location.origin); }
+  nav(path) { this.toParent({ tfNav: path }); }
+  componentDidMount() {
+    this.onAuthMsg = e => {
+      if (e.origin !== location.origin || !e.data) return;
+      if ('tfAuth' in e.data) {
+        const u = e.data.tfAuth;
+        this.setState({ loggedIn: !!u, userName: u ? u.name : '' });
+      }
+      if ('tfScreen' in e.data) {   // 바깥 React 화면의 메뉴에서 온 이동 요청
+        const sc = e.data.tfScreen;
+        if (sc === 'drawer') this.setState({ drawer: true });
+        else if (sc === 'peri') this.goPeri(false);
+        else this.go(sc);
+      }
+    };
+    window.addEventListener('message', this.onAuthMsg);
+    this.toParent({ tfReady: true });
+  }
   componentDidUpdate() { const el = this.chatRef.current; if (el) el.scrollTop = el.scrollHeight; }
-  componentWillUnmount() { clearTimeout(this.runT); clearTimeout(this.replyT); }
+  componentWillUnmount() { window.removeEventListener('message', this.onAuthMsg); clearTimeout(this.runT); clearTimeout(this.replyT); }
 
   fmt(n) { return n.toLocaleString('ko-KR') + '원'; }
   sgn(n) { return (n > 0 ? '+' : n < 0 ? '-' : '') + Math.abs(n).toLocaleString('ko-KR') + '원'; }
@@ -1238,8 +1228,10 @@ class Component extends DCLogic {
   }
 
   go(screen, extra) {
+    // 조건 대화·추천 결과는 React 화면(/start, /plan)이 맡는다.
+    if (screen === 'start' || screen === 'plan') { this.nav('/' + screen); return; }
     this.setState(
-      { screen, drawer: false, bridge: false, login: false, savedModal: false, cmpOpen: false, ...(extra || {}) },
+      { screen, drawer: false, bridge: false, savedModal: false, cmpOpen: false, ...(extra || {}) },
       () => { if (this.mainRef.current) this.mainRef.current.scrollTop = 0; },
     );
   }
@@ -1619,14 +1611,11 @@ class Component extends DCLogic {
       { name: 'danawa 견적 0921 점검', kind: '받은 견적', date: '9월 21일', total: '1,173,000원', chats: 4, last: '이 파워로 충분해?', open: () => this.go('review') },
       { name: '작업용 모니터·키보드', kind: '주변기기', date: '9월 18일', total: '527,000원', chats: 7, last: '키보드 더 조용한 거 있어?', open: () => this.goPeri(false, 'periPlan') },
     ];
-    const jumpList = [['home', 'UI-01 메인'], ['start', 'UI-03 새 PC 조건'], ['plan', 'UI-04 추천 결과'], ['check', 'UI-05 견적 업로드'], ['review', 'UI-06 비교 분석'], ['peri', 'UI-07 주변기기 조건'], ['periPlan', 'UI-08 주변기기 추천'], ['cart', 'UI-10 장바구니'], ['report', 'UI-11 리포트']].map(([v, l]) => ({ v, l }));
-    const loginSaved = s.loginNext === 'saved';
 
     return {
-      is, navs, screen: scr, jumpList, showJump: this.props.showScreenJump ?? true,
+      is, navs, screen: scr,
       chooserAll: s.chooserMode !== 'pc',
-      onJump: e => { const v = e.target.value; if (v === 'peri' || v === 'periPlan') this.goPeri(s.inherited, v); else if (v === 'cart' || v === 'report') this.go(v, { cartHasPeri: true, inherited: true }); else this.go(v); },
-      cartCount: bodyItems.length + cartPeri.length, userLabel: s.loggedIn ? '문동원 님' : '게스트',
+      cartCount: bodyItems.length + cartPeri.length, userLabel: s.loggedIn ? `${s.userName} 님` : '게스트', loggedIn: s.loggedIn, guest: !s.loggedIn, logout: () => this.toParent({ tfLogout: true }),
       mainRef: this.mainRef, chatRef: this.chatRef,
       goHome: () => this.go('home'), goStart: () => this.go('start'), goCheck: () => this.go('check'), goReview: () => this.go('review'),
       goBasketAll: () => this.go('choose', { chooserMode: 'all' }), goBasketPc: () => this.go('choose', { chooserMode: 'pc' }),
@@ -1634,16 +1623,10 @@ class Component extends DCLogic {
       goCart: () => this.go('cart', scr === 'periPlan' ? { cartHasPeri: true } : scr === 'plan' ? { cartSource: 'pc' } : {}),
       goCartQuote: () => this.go('cart', { cartSource: 'quote' }),
       openDrawer: () => this.setState({ drawer: true }), openBridge: () => this.setState({ bridge: true }),
-      openLogin: () => this.setState({ login: true, loginNext: 'report' }),
-      openSignup: () => this.setState({ signup: true }),
-      switchToSignup: () => this.setState({ login: false, signup: true }),
-      switchToLogin: () => this.setState({ signup: false, login: true, loginNext: null }),
-      closeAll: () => this.setState({ drawer: false, bridge: false, login: false, signup: false, savedModal: false }),
-      drawer: s.drawer, bridge: s.bridge, login: s.login, signup: s.signup, saved,
-      loginTitle: loginSaved ? '로그인하고 저장한 견적 불러오기' : '로그인하고 확정하기',
-      loginSub: loginSaved ? '저장한 견적은 로그인한 계정에만 있어요. 지금 점검 중인 견적은 그대로 남아요.' : '지금까지 게스트로 짠 견적과 채팅은 계정에 합쳐져요.',
-      doLogin: () => loginSaved ? this.setState({ loggedIn: true, login: false, savedModal: true }) : this.go('report', { loggedIn: true }),
-      doSignup: () => this.setState({ loggedIn: true, signup: false }),
+      openLogin: () => this.nav('/login'),
+      openSignup: () => this.nav('/signup'),
+      closeAll: () => this.setState({ drawer: false, bridge: false, savedModal: false }),
+      drawer: s.drawer, bridge: s.bridge, saved,
       reqs, chipsOn, chipsRec, hasOn: chipsOn.length > 0, hasRec: chipsRec.length > 0,
       chipMore: ordered.length > 6, chipMoreLabel: s.chipsExpanded ? '접기' : `+${ordered.length - 6}개 더`,
       toggleChips: () => this.setState({ chipsExpanded: !s.chipsExpanded }),
@@ -1678,7 +1661,7 @@ class Component extends DCLogic {
         }
       },
       chkCompat, chkPrice, priceSummary,
-      openSavedPick: () => s.loggedIn ? this.setState({ savedModal: true }) : this.setState({ login: true, loginNext: 'saved' }),
+      openSavedPick: () => s.loggedIn ? this.setState({ savedModal: true }) : this.nav('/login'),
       savedModal: s.savedModal, savedPcList, savedCmp: !!sv, savedCmpName: sv ? sv.name : '', savedRows, savedFoot, closeSavedCmp: () => this.setState({ savedCmpId: null }),
       inherited: s.inherited, periBudgetLabel: s.budgetMode === 'rest' ? `본체 확정 후 잔액 ${fmt(budget - bodySum)} + 추가 입력 60만 원` : '총예산 210만 원 중 60만 원 배분',
       periPick, specConds, feelConds, peris, monChecks, periTotal: fmt(periSum), periRemain: fmt(600000 - periSum),
@@ -1687,7 +1670,7 @@ class Component extends DCLogic {
       cartGroups, cartNoPeri: !cartPeri.length, cartPeriTotal: fmt(cartPeriSum), cartPeriNone: !cartPeri.length, grandTotal: fmt(grand),
       hasBudgetLine: s.cartSource === 'pc', budgetLine: grand <= cartBudget ? `예산 ${fmt(cartBudget)} 대비 잔액 ${fmt(cartBudget - grand)}` : `예산 ${fmt(cartBudget)} 대비 ${fmt(grand - cartBudget)} 초과`,
       listName: s.listName, onName: e => this.setState({ listName: e.target.value }), chatCount,
-      confirm: () => s.loggedIn ? this.go('report') : this.setState({ login: true, loginNext: 'report' }),
+      confirm: () => s.loggedIn ? this.go('report') : this.nav('/login'),
       reportGroups, reportTotal: fmt(reportTotal), showGuide, noGuide: !showGuide, guide,
       refsOpen: s.refsOpen, refsChev: s.refsOpen ? '▲' : '▼', toggleRefs: () => this.setState({ refsOpen: !s.refsOpen }), refs: this.REFS.map(t => ({ t })),
       showChat: !!ck, chatTitle: ck ? titles[scr][0] : '', chatSub: ck ? titles[scr][1] : '',

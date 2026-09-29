@@ -91,4 +91,11 @@ export const plans: Api['plans'] = {
     if (!plan.items.length) throw new ApiError('추천 결과에 부품이 없습니다. 조건을 바꿔 다시 시도해주세요.', 'EMPTY_RESULT')
     return plan
   },
+  async refresh(plan) {
+    const result = await request<WireResult>('GET', `/session/${plan.id}/result`)
+    if (result.status !== 'done') throw new ApiError('저장된 추천 결과를 다시 읽지 못했습니다.', 'NOT_READY')
+    const next = planFromResult(result, { mode: plan.mode, budget: plan.budget, conditions: plan.conditions, checkSnapshot: plan.checkSnapshot })
+    if (!next.items.length) throw new ApiError('저장된 추천 결과에 부품이 없습니다.', 'EMPTY_RESULT')
+    return next
+  },
 }

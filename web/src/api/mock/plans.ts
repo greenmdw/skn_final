@@ -28,4 +28,7 @@ export const plans: Api['plans'] = {
       checkSnapshot: checkSnapshot ? structuredClone(checkSnapshot) : null,
     } satisfies CurrentPlan
   },
+  async refresh(plan) {
+    return plan
+  },
 }

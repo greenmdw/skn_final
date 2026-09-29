@@ -32,3 +32,10 @@ body {
   transform: scale(0.9);
   transform-origin: top left;
 }
+
+/* 로그인·회원가입 등 React 로 옮긴 화면은 body 가 overflow:hidden 이라 스스로 스크롤한다. */
+.auth-scroll {
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+}

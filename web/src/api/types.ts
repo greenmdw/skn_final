@@ -16,7 +16,7 @@ export function errorMessage(error: unknown, fallback: string): string {
 }
 
 // ---- 인증 ----
-export interface LoginRequest { email: string; password: string }
+export interface LoginRequest { email: string; password: string; remember?: boolean }
 export interface SignupRequest { name: string; email: string; password: string; marketingConsent: boolean }
 export interface AuthUser { name: string; email: string }
 
@@ -101,6 +101,8 @@ export interface Api {
     /** 지금 로그인한 사용자. 로그인하지 않았으면 null */
     me(): Promise<AuthUser | null>
     logout(): Promise<void>
+    /** 가입 화면의 이메일 중복 확인. 사용할 수 있으면 true */
+    checkEmail(email: string): Promise<boolean>
   }
   chat: {
     reply(request: ChatReplyRequest): Promise<ChatReply>
@@ -116,6 +118,8 @@ export interface Api {
   }
   plans: {
     recommend(request: RecommendRequest): Promise<CurrentPlan>
+    /** 이 브라우저에 남아 있던 구성을 서버의 최신 결과(수량·이미지·호환 검사 등)로 다시 읽는다. 읽지 못하면 오류 */
+    refresh(plan: CurrentPlan): Promise<CurrentPlan>
   }
   checks: {
     suggestUpgrade(draft: CheckDraft): Promise<UpgradeSuggestion>

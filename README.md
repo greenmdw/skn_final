@@ -19,7 +19,16 @@
 | `config/`, `data/` | 카테고리 설정, 시드·리뷰 데이터 (`data/reviews/`는 [README](data/reviews/README.md) 참고) |
 | `tests/` | pytest |
 
-화면은 `web/public/assets/prototype/truefit.html` 프로토타입을 React 앱이 iframe으로 띄우는 구조입니다. 옛 `frontend/` 정적 페이지는 삭제됐고, 프론트는 `web/`만 씁니다.
+화면은 React(`web/src`)로 옮기는 중입니다. 옮긴 화면은 백엔드 API와 연결돼 있고, 아직 안 옮긴 화면은 `web/public/assets/prototype/truefit.html` 프로토타입(가짜 데이터)을 iframe으로 띄웁니다. 옛 `frontend/` 정적 페이지는 삭제됐고, 프론트는 `web/`만 씁니다.
+
+| 화면 | 경로 | 상태 |
+|---|---|---|
+| 로그인, 회원가입 | `/login`, `/signup` | React, 백엔드 연결 |
+| 조건 대화 | `/start` | React, 백엔드 연결 |
+| 추천 결과 | `/plan` | React, 백엔드 연결 (부품 교체·결과 대화·확정은 미완) |
+| 메인, 받은 견적 점검, 주변기기, 장바구니, 리포트, 저장한 견적 | `/`, `/screen/<이름>` | 프로토타입(가짜 데이터) |
+
+새 화면은 프로토타입 HTML에 더하지 않고 `web/src/pages/`에 React 컴포넌트로 만듭니다. 서버 통신은 `web/src/api/`, 화면 상태는 `web/src/state/`에 있습니다.
 
 ## 준비물
 
