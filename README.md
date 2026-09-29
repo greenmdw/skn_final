@@ -1,107 +1,107 @@
-# TrueFit — Purpose-Driven Shopping Planner
+# TrueFit — 목적성 쇼핑 플래너
 
-> Current scope: PC recommendations, in Korean. Baby-products support and the English UI were removed on 2026-09-21 (see git history).
+> 현재 범위는 PC 추천(한국어)입니다. 유아용품 지원과 영어 UI는 2026-09-21에 제거했습니다(git 이력 참고).
 
-**English** · [한국어](README.ko.md)
+[English](README.md) · **한국어**
 
-> *"A quiet gaming PC for around ₩1,500,000."*
-> TrueFit turns a goal like that into a budget-checked shopping list, with the reasons, the open checks, and what the review data actually shows — and leaves the decision to the person.
+> *"150만 원쯤으로 조용한 게임용 PC."* — *"8개월 아기 외출에 필요한 것 전부."*
+> TrueFit은 이런 목적을 예산에 맞춘 구매 목록으로 바꾸고, 이유·아직 열린 확인 항목·리뷰 데이터가 실제로 보여주는 것을 함께 내놓습니다. 결정은 사람이 합니다.
 
-Built with the **Strands Agents SDK** for the AWS *Agents for Humans* hackathon, **Everyday Agents** track (home, money, family). MIT licensed.
+**Strands Agents SDK**로 만들었고, AWS *Agents for Humans* 해커톤 **Everyday Agents** 트랙(집·돈·가족)에 냅니다. MIT 라이선스.
 
-## The problem
+## 문제
 
-Buying for a purpose is a research chore that repeats every time: a PC build is eight parts that must fit each other (socket, power, size) and a budget. The two sources people rely on are the least trustworthy — review scores that can be gamed, and recommendation sites that hand out a number without saying why.
+목적이 있는 구매는 매번 반복되는 조사 노동입니다. PC 조립은 서로 맞아야 하는 부품 8개(소켓·전력·크기)와 예산입니다. 사람들이 기대는 두 정보원이 가장 믿기 어렵습니다 — 조작될 수 있는 리뷰 점수, 그리고 이유 없이 숫자만 주는 추천 사이트.
 
-TrueFit is built on three refusals:
+TrueFit은 세 가지를 거부하는 데서 출발합니다.
 
-1. **No verdict without a method.** It never says a review is fake or a part is "the best". It reports what can be checked, in plain words — *"60 reviews (about 29%) were posted within the same week; for similar parts, usually only about 5% are"* — with the source figures one click away, and lets the reader decide.
-2. **Numbers from code, words from the model.** Ranking, verification, budget math and every value that gets stored are computed; the language model only turns free text into structured conditions and turns stored facts into sentences.
-3. **The agent proposes, the person decides.** Every recommendation is editable, every edit is a tool call on the same persisted plan, and nothing is purchased — links go to sellers.
+1. **방법 없는 판정은 없다.** 리뷰가 허위라거나 어떤 부품이 "최고"라고 말하지 않습니다. 확인 가능한 것만 쉬운 말로 냅니다 — *"리뷰 60건(약 29%)이 같은 일주일에 몰려 올라왔어요. 비슷한 부품은 보통 5% 정도만 그래요"* — 원문 수치는 한 번 펼치면 보이고, 판단은 읽는 사람의 몫입니다.
+2. **숫자는 코드, 말은 모델.** 순위·검증·예산 계산·저장되는 모든 값은 코드가 계산합니다. 언어 모델은 자유 텍스트를 구조화된 조건으로 바꾸고, 저장된 사실을 문장으로 바꾸는 일만 합니다.
+3. **에이전트는 제안하고 사람이 결정한다.** 모든 추천은 편집할 수 있고, 모든 편집은 같은 저장된 계획 위의 도구 호출이며, 아무것도 대신 사지 않습니다 — 링크는 판매처로 갑니다.
 
-## What it does
+## 무엇을 하나
 
-Category → conditions chat → recommendation → confirm → report, in one browser flow. No login is needed until you save.
+카테고리 → 조건 대화 → 추천 → 확정 → 리포트, 브라우저 한 흐름입니다. 저장하기 전까지 로그인은 필요 없습니다.
 
-| Step | What happens |
+| 단계 | 하는 일 |
 |---|---|
-| **Conditions** | Chips for required fields, free text for everything else. A Strands agent turns *"quiet gaming PC, around ₩1,500,000, Elden Ring, white case if possible"* into typed, validated conditions and asks for whatever is still missing |
-| **Recommendation** | The engine builds candidates per slot, filters, ranks (review observations demote, never exclude), optimizes the set, verifies it and re-searches once if confidence is low. Each item carries a reason, *before-you-buy* checks that cite a care guide, and plain-language review observations — what stands out against similar parts, never a verdict |
-| **Edit by talking** | *"Swap the CPU for a cheaper one and tell me why the GPU was picked"* — a second Strands agent looks up alternatives, swaps, changes quantity or timing, or explains from stored evidence only |
-| **Confirm & report** | Name, purchase date, target amount, memo; the confirmed snapshot keeps seller links and an optional target-price watch |
+| **조건** | 필수 항목은 칩으로, 나머지는 자유 텍스트로. Strands 에이전트가 *"조용한 게임용 PC, 150만 원쯤, 엘든링, 가능하면 흰색 케이스"* 를 타입·검증을 거친 조건으로 바꾸고 빠진 것을 이어서 묻습니다 |
+| **추천** | 엔진이 슬롯별 후보를 만들고, 거르고, 순위를 매기고(리뷰 관측은 강등만, 제외 없음), 세트를 최적화하고, 검증하고, 신뢰도가 낮으면 한 번 재탐색합니다. 품목마다 이유, 사용 가이드를 인용한 *구매 전 확인*, 비슷한 부품과 견줘 눈에 띄는 점을 쉬운 문장으로 쓴 리뷰 관측이 붙습니다 — 판정은 없습니다 |
+| **말로 편집** | *"CPU 더 싼 걸로 바꾸고 GPU는 왜 골랐는지 알려줘"* — 두 번째 Strands 에이전트가 대안을 조회하고, 교체하고, 수량·시점을 바꾸거나, 저장된 근거로만 설명합니다 |
+| **확정·리포트** | 이름·구매 예정일·목표 금액·메모. 확정 스냅샷은 판매처 링크와 선택 사항인 목표가 추적을 유지합니다 |
 
-The engine builds **PC configurations**: it optimizes the set, then verifies it as a whole. The UI and the server speak Korean.
+엔진은 **PC 구성**을 만듭니다: 세트를 최적화한 뒤 전체를 검증합니다. UI와 서버는 한국어를 씁니다.
 
-## Built on Strands Agents
+## Strands Agents 위에서
 
-Two agents, both opt-in, both constructed per request with the plan's current state in their tools.
+에이전트 둘, 모두 opt-in, 모두 요청마다 계획의 현재 상태를 도구 안에 담아 새로 만듭니다.
 
-| Agent | Turn | Tools | What the code enforces |
+| 에이전트 | 턴 | 도구 | 코드가 강제하는 것 |
 |---|---|---|---|
-| **Conditions agent** — [`src/agent/conditions_agent.py`](src/agent/conditions_agent.py) | `POST /session/{id}/message` | `set_condition` · `add_extra_condition` · `clear_condition` | Only fields in `config/categories/<cat>.yaml`'s `slot_schema` exist. Enum, type, range and currency are checked in the tool; a bad value comes back as an error string the model must correct. Which fields are required and what to ask next is computed by the service after every tool call and fed back. The agent never touches the database — its patches are applied by `session_service` with the same origin tag as the rule-based path |
-| **Result agent** — [`src/agent/result_agent.py`](src/agent/result_agent.py) | `POST /session/{id}/result-message` | `list_alternatives` · `swap` · `set_qty` · `set_timing` · `remove_or_restore` · `explain` | Every tool wraps an existing service call, so ownership checks and totals recomputation are the same as for the buttons. `swap` only accepts a candidate the service knows for that item — a forged id is rejected. `explain` returns the stored reason, budget share, verification issues and review observation — it cannot rate a part or a review |
+| **조건 에이전트** — [`src/agent/conditions_agent.py`](src/agent/conditions_agent.py) | `POST /session/{id}/message` | `set_condition` · `add_extra_condition` · `clear_condition` | `config/categories/<cat>.yaml`의 `slot_schema`에 있는 필드만 존재합니다. enum·타입·범위·통화는 도구 안에서 검사하고, 틀린 값은 오류 문자열로 돌아가 모델이 고칩니다. 무엇이 필수이고 다음에 무엇을 물을지는 도구 호출마다 서비스가 다시 계산해 넘겨줍니다. 에이전트는 DB를 만지지 않습니다 — 패치는 `session_service`가 규칙 경로와 같은 origin 표지로 적용합니다 |
+| **결과 에이전트** — [`src/agent/result_agent.py`](src/agent/result_agent.py) | `POST /session/{id}/result-message` | `list_alternatives` · `swap` · `set_qty` · `set_timing` · `remove_or_restore` · `explain` | 모든 도구가 기존 서비스 호출을 감싸므로 소유권 검사와 합계 재계산이 버튼과 같습니다. `swap`은 서비스가 그 품목에 대해 아는 후보만 받습니다 — 지어낸 id는 거부됩니다. `explain`은 저장된 이유·예산 비중·검증 쟁점·리뷰 관측을 돌려줍니다 — 부품이나 리뷰에 점수를 매길 수 없습니다 |
 
 ```python
 @tool
 def set_condition(field: str, value: str) -> str:
-    """Set one condition field. Amounts keep the unit the user said ("$1,500", "150만원") — code converts."""
-    return draft.set(field, value)        # validates against the category schema; returns an error string on failure
+    """조건 필드 하나를 설정한다. 금액은 사용자가 말한 단위 그대로("$1,500", "150만원") — 환산은 코드가 한다."""
+    return draft.set(field, value)        # 카테고리 스키마로 검증; 실패하면 오류 문자열을 돌려준다
 
 agent = Agent(
     model=OpenAIModel(client_args={"api_key": OPENAI_API_KEY}, model_id=LLM_MODEL, params={"temperature": 0.2}),
-    system_prompt=system_prompt(draft, text, history),   # field list, chip→value map, remaining required fields
+    system_prompt=system_prompt(draft, text, history),   # 필드 목록, 칩→값 매핑, 남은 필수 항목
     tools=make_tools(draft),
     messages=_history(history),
-    tool_executor=SequentialToolExecutor(),                # tools mutate one draft in order
+    tool_executor=SequentialToolExecutor(),                # 도구들이 한 draft 를 순서대로 고친다
 )
-result = agent(text)                                       # reply for the person; draft.patches for the service
+result = agent(text)                                       # 사람에게 줄 답변; draft.patches 는 서비스가 쓴다
 ```
 
-What is non-obvious about the setup:
+이 구성에서 뻔하지 않은 점:
 
-- **Tools are the only way to change state, and they are validated like an API.** `"150만원"` becomes `budget_max=1,500,000`; `"purple"` for the priority field comes back as an error listing the allowed values (`performance`, `value`, `quiet`) and the model retries. Every call and its outcome is logged per turn.
-- **The service, not the agent, decides what is required.** After each tool call the tool result carries the recomputed missing-field list and the next question, so the model asks exactly what the rule engine would have asked — and stops when `can_recommend` flips.
-- **The result agent operates on the persisted plan, not on a transcript.** Swaps and edits go through the same code path as the UI buttons and are visible there immediately. A swap does not silently re-verify the build; the tool result says so and the agent relays it.
-- **Same model, two jobs, one rule.** The engine uses the same OpenAI client for the verification-issue sentences and the explanation, but only ever with facts it computed. Turning the model off (`MOCK_MODE=1`) leaves every number unchanged and replaces the prose with placeholders.
+- **상태를 바꾸는 길은 도구뿐이고, 도구는 API처럼 검증된다.** `"150만원"`은 `budget_max=1,500,000`이 되고, 우선순위 필드에 `"purple"`을 넣으면 허용값(`performance`, `value`, `quiet`)을 적은 오류가 돌아와 모델이 다시 부릅니다. 모든 호출과 결과는 턴마다 기록됩니다.
+- **무엇이 필수인지는 에이전트가 아니라 서비스가 정한다.** 도구 호출마다 결과에 다시 계산한 빠진 항목 목록과 다음 질문이 실리므로, 모델은 규칙 엔진이 물었을 것을 정확히 묻고 `can_recommend`가 켜지면 멈춥니다.
+- **결과 에이전트는 대화 기록이 아니라 저장된 계획 위에서 움직인다.** 교체와 편집은 UI 버튼과 같은 코드 경로를 지나 화면에 바로 보입니다. 교체가 조용히 재검증되지는 않습니다 — 도구 결과가 그 사실을 적고 에이전트가 그대로 전합니다.
+- **같은 모델, 두 가지 일, 하나의 규칙.** 엔진은 같은 OpenAI 클라이언트로 검증 쟁점 문장과 설명을 쓰지만, 자신이 계산한 사실만 넘깁니다. 모델을 끄면(`MOCK_MODE=1`) 숫자는 하나도 안 바뀌고 문장만 자리표시로 바뀝니다.
 
-Enable: `MOCK_MODE=0 · LLM_PROVIDER=openai · LLM_MODEL · OPENAI_API_KEY` plus `CONDITIONS_AGENT=1` / `RESULT_AGENT=1`. The model provider is one function (`_model()`); Strands' Bedrock model class drops in there. Design notes *(Korean)*: [conditions agent](docs/조건대화_에이전트_strands.md) · [result agent](docs/결과화면_에이전트_strands.md).
+켜기: `MOCK_MODE=0 · LLM_PROVIDER=openai · LLM_MODEL · OPENAI_API_KEY` + `CONDITIONS_AGENT=1` / `RESULT_AGENT=1`. 모델 제공자는 함수 하나(`_model()`)라 Strands의 Bedrock 모델 클래스를 그 자리에 끼우면 됩니다. 설계 문서: [조건 대화 에이전트](docs/조건대화_에이전트_strands.md) · [결과 화면 에이전트](docs/결과화면_에이전트_strands.md).
 
-## How it works
+## 어떻게 동작하나
 
-![Architecture](docs/architecture.png)
+![아키텍처](docs/architecture.png)
 
 <details>
-<summary>Mermaid source</summary>
+<summary>Mermaid 원본</summary>
 
 ```mermaid
 flowchart LR
-  U["Person<br/>browser (Korean)"]
-  subgraph App["TrueFit — FastAPI, one origin, 38 operations"]
+  U["사람<br/>브라우저(한국어)"]
+  subgraph App["TrueFit — FastAPI, 단일 오리진, 작업 38개"]
     direction TB
-    SVC["Services<br/>session · recommendation · lists · auth · reviews"]
+    SVC["서비스<br/>session · recommendation · lists · auth · reviews"]
     subgraph Strands["Strands Agents SDK"]
-      CA["Conditions agent<br/>set_condition · add_extra_condition · clear_condition"]
-      RA["Result agent<br/>list_alternatives · swap · set_qty · set_timing<br/>remove_or_restore · explain"]
+      CA["조건 에이전트<br/>set_condition · add_extra_condition · clear_condition"]
+      RA["결과 에이전트<br/>list_alternatives · swap · set_qty · set_timing<br/>remove_or_restore · explain"]
     end
-    ENG["Recommendation engine<br/>requirement → candidates → hard filter → rank<br/>→ optimize ⇄ verify → explain"]
+    ENG["추천 엔진<br/>요구사양 → 후보 → 하드필터 → 순위<br/>→ 최적화 ⇄ 검증 → 설명"]
   end
-  subgraph Ev["Evidence"]
-    RX["Review relation axis<br/>Amazon Reviews'23 → per-product facts"]
-    CG["Care-guide RAG<br/>18 guides, in-memory embeddings"]
-    MR["Manual search provider<br/>local-file, outside the RDB"]
+  subgraph Ev["근거"]
+    RX["리뷰 관계·행동 축<br/>Amazon Reviews'23 → 상품별 관측 사실"]
+    CG["사용 가이드 RAG<br/>18건, 인메모리 임베딩"]
+    MR["설명서 검색 제공자<br/>local-file, RDB 밖"]
   end
-  DB[("PostgreSQL 16<br/>10 schemas · 38 tables")]
-  LLM["OpenAI via Strands OpenAIModel<br/>chat + embeddings"]
-  U -- "free text, chips, edits" --> SVC
+  DB[("PostgreSQL 16<br/>스키마 10 · 테이블 38")]
+  LLM["OpenAI (Strands OpenAIModel)<br/>chat + embeddings"]
+  U -- "자유 텍스트, 칩, 편집" --> SVC
   SVC --> CA
   SVC --> RA
   SVC --> ENG
-  CA -- "schema-validated patches" --> SVC
-  RA -- "existing service calls only" --> SVC
+  CA -- "스키마로 검증된 패치" --> SVC
+  RA -- "기존 서비스 호출만" --> SVC
   ENG --> RX
   ENG --> CG
   ENG --> MR
-  ENG -- "issue sentences · explanation" --> LLM
+  ENG -- "쟁점 문장 · 설명" --> LLM
   CA --> LLM
   RA --> LLM
   SVC --> DB
@@ -109,101 +109,101 @@ flowchart LR
 
 </details>
 
-- **Engine** (`src/engine`): intent → requirement → candidates → hard filter → rank → optimize the set ⇄ verify, re-search once below the confidence threshold → explain. `POST …/recommend` answers `202` at once; the run persists requirements, candidates, checks and explanation and `GET …/result` polls.
-- **Review evidence** (`src/workers/relation_axis.py`): without reading a single review text, a batch over Amazon Reviews'23 (43.9 M reviews, 18.3 M accounts) computes per-product observations — share of reviews in the busiest 7-day window, reviewers shared with other products, one-off accounts, verified-purchase rate — each against the median of the same product category (11,457 PC-part products with ≥30 reviews; 7-day burst median 5.5%, 99th percentile 20.5%). No manipulation labels exist, so there is **no detection rate and no "cleaned" rating** ([decision 0001](docs/decisions/0001-정제-후-평점을-판정기-없이-내지-않는다.md) *(Korean)*). Observations demote a candidate in ranking; they never exclude it. On screen they are rendered from the numbers as plain Korean sentences, and when the server has no figure — review count, set confidence — nothing is shown in its place ([decision 0003](docs/decisions/0003-데모-화면에서-세트-신뢰도·회색축·표시용-리뷰-수를-뺀다.md) *(Korean)*).
-- **Before-you-buy checks** (`src/rag/care_guides.py`): 18 synthetic part care guides embedded in memory at start-up; the closest passage is quoted per item.
-- **Frontend** (`web/`): a React + TypeScript app served by the API on the same origin (`src/frontend_serving.py`). Sign-in, recommendation, confirm and report call the API; chat replies and the quote-check screen are still mock. Build it with `cd web && npm ci && npm run build`. The older static pages in `frontend/` still exist but their baby and English UI no longer work.
+- **엔진**(`src/engine`): 의도 → 요구사양 → 후보 → 하드필터 → 순위 → 세트 최적화 ⇄ 검증, 신뢰도 문턱 아래면 한 번 재탐색 → 설명. `POST …/recommend`는 즉시 `202`를 돌려주고, 실행이 요구사양·후보·검사·설명을 저장하며 `GET …/result`로 폴링합니다.
+- **리뷰 근거**(`src/workers/relation_axis.py`): 리뷰 본문을 한 줄도 읽지 않고, Amazon Reviews'23(리뷰 4,390만 건, 계정 1,830만 개) 배치가 상품별 관측을 냅니다 — 가장 붐빈 7일 창에 몰린 리뷰 비율, 다른 상품과 공유하는 리뷰어, 리뷰가 한 건뿐인 계정, 구매 확인 비율 — 각각 같은 상품 부류의 중앙값과 대조합니다(리뷰 30건 이상 PC 부품 11,457개; 7일 몰림 중앙값 5.5%, 99백분위 20.5%). 조작 라벨이 없으므로 **탐지율도 "정제" 평점도 없습니다**([결정 0001](docs/decisions/0001-정제-후-평점을-판정기-없이-내지-않는다.md)). 관측은 순위에서 후보를 강등할 뿐 제외하지 않습니다. 화면에는 수치에서 두 언어로 렌더한 쉬운 문장으로 나가고, 서버가 모르는 값 — 리뷰 수, 세트 신뢰도 — 은 그 자리에 아무것도 내지 않습니다([결정 0003](docs/decisions/0003-데모-화면에서-세트-신뢰도·회색축·표시용-리뷰-수를-뺀다.md)).
+- **구매 전 확인**(`src/rag/care_guides.py`): 합성 부품 사용 가이드 18건을 기동 시 인메모리로 임베딩하고 품목마다 가장 가까운 문장을 인용합니다.
+- **프론트**(`web/`): API가 같은 오리진에서 서빙하는 React + TypeScript 앱(`src/frontend_serving.py`). 로그인·추천·확정·리포트는 API를 부르고, 채팅 답변과 견적 점검 화면은 아직 목업입니다. `cd web && npm ci && npm run build`로 빌드합니다. `frontend/`의 옛 정적 페이지는 남아 있지만 유아·영어 UI는 더 이상 동작하지 않습니다.
 
-## Run it
+## 돌려보기
 
-Python **3.11** and [`uv`](https://docs.astral.sh/uv/). Configuration comes from environment variables, with `.env` as fallback (`.env.example` lists them).
+Python **3.11**과 [`uv`](https://docs.astral.sh/uv/). 설정은 환경변수로, 없으면 `.env`(`.env.example`에 목록).
 
-**A. Console, no database, no key**
+**A. 콘솔 — DB도 키도 없이**
 
 ```bash
 uv sync --locked
-uv run python main.py computer_pass        # 8 slots, verified in one round (mock LLM, injected scores)
-uv run python main.py computer_research    # score 72 → swap a candidate → 86
+uv run python main.py computer_pass        # 8개 슬롯, 검증 1회 통과 (목 LLM, 주입된 점수)
+uv run python main.py computer_research    # 점수 72 → 후보 교체 → 86
 ```
 
-**B. Web UI with PostgreSQL**
+**B. 웹 UI + PostgreSQL**
 
 ```bash
-cp .env.example .env                        # MOCK_MODE=1, agents off
+cp .env.example .env                        # MOCK_MODE=1, 에이전트 꺼짐
 docker compose up -d db
 export DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit
-uv run python db/setup_all.py                                # compact migrations · domains · 51 PC parts · review summaries
-uv run uvicorn src.api:app --reload --port 8000              # http://127.0.0.1:8000 · API docs at /docs
+uv run python db/setup_all.py                                # 마이그레이션 15개 · 도메인 · PC 부품 51개 · 리뷰 요약
+uv run uvicorn src.api:app --reload --port 8000              # http://127.0.0.1:8000 · API 문서 /docs
 ```
 
-[`db/README.md`](db/README.md) *(Korean)* is the canonical DB guide (includes a conda route without Docker).
+DB 표준 문서는 [`db/README.md`](db/README.md)(Docker 없이 conda로 하는 방법 포함).
 
-**C. Real model and agents** — in `.env`: `MOCK_MODE=0`, `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-4o-mini`, `OPENAI_API_KEY=…`, `CONDITIONS_AGENT=1`, `RESULT_AGENT=1`. Run tests with `MOCK_MODE=1 uv run python -m pytest -q`, since the suite reads `.env` too.
+**C. 실제 모델과 에이전트** — `.env`에 `MOCK_MODE=0`, `LLM_PROVIDER=openai`, `LLM_MODEL=gpt-4o-mini`, `OPENAI_API_KEY=…`, `CONDITIONS_AGENT=1`, `RESULT_AGENT=1`. 테스트도 `.env`를 읽으므로 `MOCK_MODE=1 uv run python -m pytest -q`로 돌립니다.
 
-**D. Docker** — `docker compose up -d --build` (db + api), then `docker compose exec api python db/setup_all.py`. Set `JWT_SECRET` (the dev default is refused when `APP_ENV=production`), `COOKIE_SECURE=1` behind HTTPS, `ALLOWED_ORIGINS` only if the UI lives on another origin. The image omits `scripts/`.
+**D. Docker** — `docker compose up -d --build`(db + api) 뒤 `docker compose exec api python db/setup_all.py`. `JWT_SECRET`을 바꾸고(`APP_ENV=production`이면 개발 기본값을 거부), HTTPS 뒤에서는 `COOKIE_SECURE=1`, UI가 다른 오리진에 있을 때만 `ALLOWED_ORIGINS`. 이미지에 `scripts/`가 없습니다.
 
-## Status — measured 2026-09-14
+## 현재 상태 — 2026-09-14 실측
 
-| | Works | Not yet |
+| | 되는 것 | 아직 |
 |---|---|---|
-| PC | Full flow: conditions → run → reasons, checks, review observations, alternatives, swap, qty/timing, result chat → confirm → report → price watch, all persisted | Synthetic prices; compatibility is approximate (socket, power, size); a swap does not re-verify |
-| Agents | Both agents verified in real sessions with `gpt-4o-mini` | Need an OpenAI key; off by default |
-| Accounts | Email + password, httpOnly JWT, guest → account merge, withdrawal | Email verification and password reset deferred; `/auth/request-code`, `/auth/verify` are stubs |
-| Reviews | Relation-axis facts for 25 of 51 demo parts in ranking, explanation and `GET /reviews/summary` | Review *writing* is out of demo scope; no collector for live sources yet |
-| Data | 10 schemas / 38 tables, one-shot setup, RDS-compatible SQL | No live price or spec feed; notification and learning workers are stubs |
+| PC | 전체 흐름: 조건 → 실행 → 이유·확인·리뷰 관측·대안·교체·수량/시점·결과 대화 → 확정 → 리포트 → 목표가 추적, 전부 저장 | 합성 가격. 호환은 근사(소켓·전력·크기). 교체 뒤 재검증 없음 |
+| 에이전트 | 실제 세션에서 둘 다 확인(`gpt-4o-mini`) | OpenAI 키 필요. 기본은 꺼짐 |
+| 계정 | 이메일+비밀번호, httpOnly JWT, 게스트 → 계정 병합, 탈퇴 | 이메일 인증·비밀번호 재설정은 미룸. `/auth/request-code`, `/auth/verify`는 스텁 |
+| 리뷰 | 데모 부품 51개 중 25개의 관계 축 관측이 순위·설명·`GET /reviews/summary`에 | 리뷰 *작성*은 데모 범위 밖. 실제 소스 수집기 없음 |
+| 데이터 | 스키마 10 / 테이블 38, 원샷 셋업, RDS 호환 SQL | 실시간 가격·스펙 연동 없음. 알림·학습 워커는 스텁 |
 
-Tests on a fresh seeded DB, mock model: **747 passed, 7 failed, 6 skipped** (30 s); the 7 failures are the auth-hardening acceptance tests below. Verified by hand the same day: the PC flow over HTTP (`scripts/e2e_smoke.py`, 39/39) and the new web app up to the sign-in step.
+새 시드 DB·목 모델에서 테스트 **747 passed, 7 failed, 6 skipped**(30초). 실패 7건은 아래 인증 강화 수용 테스트입니다. 같은 날 손으로 확인: PC HTTP 흐름(`scripts/e2e_smoke.py` 39/39)과 새 웹 앱의 로그인 직전까지.
 
 <details>
-<summary>The 7 failures, by cause</summary>
+<summary>실패 7건의 원인</summary>
 
-- 7 — auth-hardening acceptance tests not yet satisfied: rate limit on `email-availability`, lock-counter reset, JWT invalidation right after a password change, consent-timestamp erasure on withdrawal
-- Skips: pandas not installed (2), tests that demand their own throwaway DB (6)
+- 7 — 아직 충족 못 한 인증 강화 수용 테스트: `email-availability` 속도 제한, 잠금 카운터 초기화, 비밀번호 변경 직후 JWT 무효화, 탈퇴 시 동의 시각 삭제
+- 건너뜀: pandas 미설치(2), 전용 일회용 DB를 요구하는 테스트(6)
 </details>
 
 <details>
-<summary>API surface (38 operations, <code>/docs</code>)</summary>
+<summary>API (작업 38개, <code>/docs</code>)</summary>
 
-| Group | Operations | State |
+| 그룹 | 작업 | 상태 |
 |---|---|---|
-| `/session` (14) | create, get, category, slot, message, answer, reset, spec-file, recommend (202), result, item patch, alternatives, swap, result-message | Working, no login |
-| `/lists` (6) | list, rename, delete, confirm (`If-Match`), report, alert | Working; confirm/report/alert need login |
-| `/auth` (10) | signup, login, logout, me (GET/PATCH), password, withdraw, email-availability | Working; request-code, verify → 501 |
-| `/reviews` (5) | summary/{product_key} (engine key, summary key or ASIN); pending, part, publish | Working; build → 501 |
-| `/dev` (2), `/health` | scenario runs without a DB; liveness | Guard `/dev` before public exposure |
+| `/session` (14) | 생성, 조회, category, slot, message, answer, reset, spec-file, recommend (202), result, 품목 patch, alternatives, swap, result-message | 동작, 로그인 불필요 |
+| `/lists` (6) | 목록, 이름 변경, 삭제, confirm (`If-Match`), report, alert | 동작. 확정·리포트·알림은 로그인 |
+| `/auth` (10) | signup, login, logout, me (GET/PATCH), password, withdraw, email-availability | 동작. request-code, verify → 501 |
+| `/reviews` (5) | summary/{product_key} (엔진 키·요약 키·ASIN); pending, part, publish | 동작. build → 501 |
+| `/dev` (2), `/health` | DB 없는 시나리오 실행; 생존 확인 | 공개 전 `/dev`를 막을 것 |
 
-Errors share one envelope `{"error": {"code", "message", "field"}}`. Frontend contract: [`docs/frontend_외부수정요청.md`](docs/frontend_외부수정요청.md) *(Korean)*.
+오류 봉투는 하나: `{"error": {"code", "message", "field"}}`. 프론트 계약: [`docs/frontend_외부수정요청.md`](docs/frontend_외부수정요청.md).
 </details>
 
-## Next
+## 다음
 
-3. Auth hardening the tests already describe; email verification and password reset.
-4. Re-verify after a swap; real spec and price feeds; exact compatibility rules.
-5. A review collector that captures author hash, posting time and variant subject from the first record ([what to capture](docs/review_collector.md) *(Korean)*), then a labeling protocol — only after that, a cleaned rating.
-6. Price tracking and notifications (workers are stubs).
+3. 테스트가 이미 적어 둔 인증 강화. 이메일 인증과 비밀번호 재설정.
+4. 교체 뒤 재검증. 실제 스펙·가격 연동. 정확한 호환 규칙.
+5. 첫 레코드부터 작성자 해시·게시 시각·옵션 단위 대상을 잡는 리뷰 수집기([수집 시점에 잡을 것](docs/review_collector.md)), 그다음 라벨링 규약 — 그 뒤에야 정제 평점.
+6. 가격 추적과 알림(워커는 스텁).
 
 <details>
-<summary>Repository layout</summary>
+<summary>저장소 구성</summary>
 
 ```text
-main.py                       console pipeline (scenario files, mock LLM)
-src/api.py, routers/          FastAPI app, 5 routers, serves frontend/
+main.py                       콘솔 파이프라인 (시나리오 파일, 목 LLM)
+src/api.py, routers/          FastAPI 앱, 라우터 5개, frontend/ 서빙
 src/services/                 session · recommendation · list · auth · review · feedback
-src/agent/                    Strands agents: conditions_agent.py, result_agent.py
-src/engine/                   stages [1]–[6], slot_rules (keyword path), prompts, lang
-src/rag/                      care_guides (in-memory RAG) · embedding · evidence_search (scenario demo)
-src/repo/, src/db/, src/auth/ SQL repositories · psycopg pool · JWT/argon2/origin check
-src/workers/                  review_cleanse_worker + relation_axis (batch); other workers are stubs
-config/categories/            computer.yaml (slots, questions, modes)
-web/                          React + TypeScript + Vite app (src/api/http = API adapter, tests/ = node tests)
-frontend/                     older static pages (superseded by web/; baby and English UI no longer work)
-db/                           migrate.py · compact migrations · seed*.py · setup_all.py · README.md
-scripts/                      e2e_smoke.py · Amazon'23 batch · spec scraper · review-analysis import
-data/, generated/, docs/      parts list, care guides, scenarios · example outputs · specs, contracts, decisions
-tests/                        pipeline · agents · HTTP flows · services · SQL/migration checks
+src/agent/                    Strands 에이전트: conditions_agent.py, result_agent.py
+src/engine/                   단계 [1]~[6], slot_rules(키워드 경로), prompts, lang
+src/rag/                      care_guides(인메모리 RAG) · embedding · evidence_search(시나리오 데모)
+src/repo/, src/db/, src/auth/ SQL 저장소 · psycopg 풀 · JWT/argon2/Origin 검사
+src/workers/                  review_cleanse_worker + relation_axis(배치). 나머지 워커는 스텁
+config/categories/            computer.yaml(슬롯·질문·모드)
+web/                          React + TypeScript + Vite 앱(src/api/http = API 어댑터, tests/ = node 테스트)
+frontend/                     옛 정적 페이지(web/ 로 대체됨, 유아·영어 UI는 동작하지 않음)
+db/                           migrate.py · 마이그레이션 15개 · seed*.py · setup_all.py · README.md
+scripts/                      e2e_smoke.py · Amazon'23 배치 · 스펙 수집기 · 리뷰 분석 적재
+data/, generated/, docs/      부품 목록·사용 가이드·시나리오 · 예시 산출물 · 명세·계약·결정
+tests/                        파이프라인 · 에이전트 · HTTP 흐름 · 서비스 · SQL/마이그레이션 검사
 ```
 </details>
 
-## Documents & license
+## 문서와 라이선스
 
-MIT — [`LICENSE`](LICENSE). Team documents are in Korean: [DB setup](db/README.md) · [table spec](docs/db/table_spec.md) · [schema reduction](docs/db/db_schema_reduction_proposal_2026-09-12.md) · [API contract](docs/frontend_외부수정요청.md) · [frontend rules](frontend/CLAUDE.md) · [decisions](docs/decisions/README.md) · [review analysis contract](docs/review_analysis_contract.md) · [pipeline overview](docs/pc_pipeline_overview.md) · [quickstart](docs/pc_pipeline_quickstart.md).
+MIT — [`LICENSE`](LICENSE). 팀 문서: [DB 셋업](db/README.md) · [테이블 명세](docs/db/table_spec.md) · [스키마 축소](docs/db/db_schema_reduction_proposal_2026-09-12.md) · [API 계약](docs/frontend_외부수정요청.md) · [프론트 규칙](frontend/CLAUDE.md) · [결정 기록](docs/decisions/README.md) · [리뷰 분석 계약](docs/review_analysis_contract.md) · [파이프라인 개요](docs/pc_pipeline_overview.md) · [빠른 시작](docs/pc_pipeline_quickstart.md).
