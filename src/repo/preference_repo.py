@@ -91,6 +91,13 @@ class PreferenceRepo(Repo):
              "direction": direction, "confidence": confidence, "ids": list(evidence_event_ids)},
         )
 
+    def inferred_rows(self, user_id: UUID | None = None) -> list[dict]:
+        """행동에서 추론한 행(직접 말한 것 제외) — 배치가 이번에 관측되지 않은 행을 0 으로 내릴 때 쓴다."""
+        return self._all(
+            "SELECT * FROM identity.preference_signal WHERE source='inferred_swap' "
+            "AND (%s::uuid IS NULL OR user_id=%s::uuid)", (user_id, user_id),
+        )
+
     def list_active(self, user_id: UUID, *, dimension: str | None = None,
                      min_confidence: int | None = None) -> list[dict]:
         """min_confidence는 'inferred_swap'(행동 추론) 신호에만 적용한다 — 'explicit_chat'(사용자가

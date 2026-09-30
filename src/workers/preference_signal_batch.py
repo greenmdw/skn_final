@@ -1,7 +1,7 @@
 """사용자 브랜드 선호·비선호 신호 배치 — docs/사용자_선호비선호_기록_설계.md §5 (파이프라인 B).
 
-engine.feedback_event(item_replaced/item_removed)를 사용자·슬롯별로 모아, 같은 브랜드 전환이나
-같은 브랜드 반복 제거가 있으면 identity.preference_signal에 신호를 쌓는다.
+engine.feedback_event(item_replaced)를 사용자·슬롯별로 모아, 브랜드를 바꾼 교체가 있으면
+identity.preference_signal에 신호를 쌓는다. 부품을 빼기만 한 것(item_removed)은 세지 않는다(_observations 참고).
 
 stage6_feedback.run_batch()(엔진 전체 가중치 재학습, 별도 승인 게이트)와는 범위가 다르다 — 이건
 사용자 개인의 신호만 다루고, 추천 엔진의 전역 가중치는 건드리지 않는다.
@@ -51,26 +51,13 @@ def _replaced_brand_pairs(conn, user_id: UUID | None = None) -> list[dict]:
     ).fetchall()
 
 
-def _removed_brands(conn, user_id: UUID | None = None) -> list[dict]:
-    return conn.cursor(row_factory=dict_row).execute(
-        """
-        SELECT fe.id AS event_id, fe.user_id, fe.payload->>'slot' AS slot, p.brand AS brand
-        FROM engine.feedback_event fe
-        JOIN catalog.product_variant v ON v.id = (fe.payload->>'removed_variant_id')::uuid
-        JOIN catalog.product p ON p.id = v.product_id
-        WHERE fe.event_type = 'item_removed'
-          AND fe.user_id IS NOT NULL
-          AND (%s::uuid IS NULL OR fe.user_id = %s::uuid)
-          AND fe.payload ? 'removed_variant_id'
-          AND fe.occurred_at >= now() - (%s || ' days')::interval
-        """,
-        (user_id, user_id, WINDOW_DAYS),
-    ).fetchall()
-
-
 def _observations(conn, user_id: UUID | None = None) -> dict[tuple[UUID, str, str], dict]:
     """(user, slot, brand) → {"prefer": 횟수, "avoid": 횟수, "events": [id…], "last": 마지막 관측 방향}.
-    교체 이벤트 하나는 넣은 브랜드에 prefer, 뺀 브랜드에 avoid 로 한 번씩 센다. 같은 브랜드끼리 바꾼 건 세지 않는다."""
+    교체 이벤트 하나는 넣은 브랜드에 prefer, 뺀 브랜드에 avoid 로 한 번씩 센다. 같은 브랜드끼리 바꾼 건 세지 않는다.
+
+    부품을 빼기만 한 것(item_removed)은 세지 않는다 — 이미 갖고 있어서·예산 때문에·나중에 사려고 빼는 일이 많아
+    브랜드에 대한 의사가 아니다. 추천 시스템에서 장바구니 제거 같은 암묵적 부정은 모호한 약한 신호로 다룬다
+    (이유가 확인될 때만 쓰는 쪽은 이유 추출과 함께 검토). 교체는 같은 자리에 다른 브랜드를 고른 것이라 센다."""
     seen: dict[tuple[UUID, str, str], dict] = defaultdict(lambda: {"prefer": 0, "avoid": 0, "events": [], "last": None})
 
     def add(user_id, slot, brand, direction, event_id):
@@ -83,8 +70,6 @@ def _observations(conn, user_id: UUID | None = None) -> dict[tuple[UUID, str, st
         if row["from_brand"] != row["to_brand"]:
             add(row["user_id"], row["slot"], row["to_brand"], "prefer", row["event_id"])
             add(row["user_id"], row["slot"], row["from_brand"], "avoid", row["event_id"])
-    for row in _removed_brands(conn, user_id):
-        add(row["user_id"], row["slot"], row["brand"], "avoid", row["event_id"])
     return seen
 
 
@@ -96,11 +81,20 @@ def run(conn, user_id: UUID | None = None) -> dict:
     앱이 도는 동안 교체·제외에서 신호가 하나도 쌓이지 않았다. 매번 처음부터 세는 방식이라 언제 불러도 같다."""
     repo = PreferenceRepo(conn)
     updated = 0
-    for (who, slot, brand), obs in _observations(conn, user_id).items():
+    observations = _observations(conn, user_id)
+    for (who, slot, brand), obs in observations.items():
         net = obs["prefer"] - obs["avoid"]
         # 같으면 방향은 마지막 관측을 따르고 횟수는 0 — 문턱 아래라 되묻지 않는다.
         direction = "prefer" if net > 0 else "avoid" if net < 0 else obs["last"]
         if repo.set_inferred(user_id=who, dimension="brand", slot=slot, value=brand,
                              direction=direction, confidence=abs(net), evidence_event_ids=obs["events"]):
+            updated += 1
+    # 이번에 관측되지 않은 추론 행은 0 으로 내린다 — 근거가 기간(WINDOW_DAYS) 밖으로 나갔거나, 예전 규칙(빼기도
+    # 세던 때)으로 쌓인 행이다. 지우지 않고 0 으로 두어 거절(dismissed) 이력은 남긴다.
+    for row in repo.inferred_rows(user_id):
+        if (row["user_id"], row["slot"], row["value"]) in observations or not row["confidence"]:
+            continue
+        if repo.set_inferred(user_id=row["user_id"], dimension=row["dimension"], slot=row["slot"], value=row["value"],
+                             direction=row["direction"], confidence=0, evidence_event_ids=[]):
             updated += 1
     return {"updated_signals": updated}

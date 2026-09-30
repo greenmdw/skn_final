@@ -346,6 +346,23 @@ def test_batch_rerun_is_idempotent_and_does_not_inflate_confidence(raw_conn):
     assert active[b["brand"]]["confidence"] == preference_signal_batch.REPEAT_THRESHOLD + 1
 
 
+def _variant_of(conn, product_type: str, brand: str) -> dict:
+    row = conn.execute(
+        "SELECT v.id FROM catalog.product_variant v JOIN catalog.product p ON p.id = v.product_id "
+        "WHERE p.product_type=%s AND p.brand=%s LIMIT 1", (product_type, brand),
+    ).fetchone()
+    assert row, f"seed data needs a {product_type} of brand {brand}"
+    return {"brand": brand, "variant_id": row[0]}
+
+
+def _swaps(raw_conn, user_id, product_type: str, slot: str, frm_brand: str, to_brand: str, n: int = 3) -> None:
+    """추론 신호는 교체 이벤트에서만 나온다(되묻기 조회가 그 사용자 이벤트로 다시 센다) — 테스트도 이벤트로 만든다."""
+    pr = _make_plan_revision(raw_conn)
+    frm, to = _variant_of(raw_conn, product_type, frm_brand), _variant_of(raw_conn, product_type, to_brand)
+    for _ in range(n):
+        _swap(raw_conn, pr, user_id, frm, to, slot)
+
+
 def _swap(raw_conn, pr, user_id, frm, to, slot):
     from src.services import feedback_service
     feedback_service.emit_replaced(
@@ -433,10 +450,7 @@ def test_preference_hint_surfaces_paired_prefer_avoid_and_respond_accept_sets_br
     user_id = _current_user_id(raw_conn, email.lower())
 
     repo = PreferenceRepo(raw_conn)
-    prefer = repo.upsert_signal(user_id=user_id, dimension="brand", slot="CPU", value="AMD",
-                                direction="prefer", source="inferred_swap", confidence_delta=3)
-    repo.upsert_signal(user_id=user_id, dimension="brand", slot="CPU", value="Intel",
-                       direction="avoid", source="inferred_swap", confidence_delta=3)
+    _swaps(raw_conn, user_id, "cpu", "CPU", "Intel", "AMD")
 
     r = c.get("/session/previous", params={"category": "computer", "mode": "build"})
     assert r.status_code == 200, r.text
@@ -460,7 +474,7 @@ def test_preference_hint_surfaces_paired_prefer_avoid_and_respond_accept_sets_br
     ).fetchone()
     assert row[0]["value"] == "amd"
     # "예"는 신호를 지우지 않는다(§9) — 다음 세션에도 다시 물어볼 수 있게.
-    assert any(s["id"] == prefer["id"] for s in repo.list_active(user_id, dimension="brand"))
+    assert any(str(s["id"]) == hint["id"] for s in repo.list_active(user_id, dimension="brand"))
 
 
 @pytest.mark.parametrize("slot,brand", [("GPU", "NVIDIA"), ("파워", "Seasonic"), ("CPU", "NVIDIA")])
@@ -579,13 +593,20 @@ def test_repeated_swaps_surface_a_hint_without_anyone_running_the_batch(raw_conn
     # 직접 말한 GPU 선호 — brand_pref 에 못 담으니 묻지 않는다
     ({"slot": "GPU", "value": "NVIDIA", "direction": "prefer", "source": "explicit_chat", "confidence_delta": 1},
      False, ["GPU는 NVIDIA가 좋다고 하셨어요", "아직 반영하지 못하지만"], ["볼까요", "?", "자주"]),
-    # 추론 비선호 — "제외할까요?"에 예를 눌러도 아무것도 제외되지 않았다
-    ({"slot": "파워", "value": "Seasonic", "direction": "avoid", "source": "inferred_swap", "confidence_delta": 3},
+    # 추론 비선호 — "제외할까요?"에 예를 눌러도 아무것도 제외되지 않았다. 교체로 만들고 선호 쪽은 거절해 둔다
+    ({"swaps": ("psu", "파워", "Seasonic", "Corsair"), "dismiss": "Corsair"},
      False, ["파워의 Seasonic을 여러 번 빼셨어요", "아직 반영하지 못하지만"], ["제외할까요", "?", "3번"]),
 ])
 def test_preference_hint_wording_states_only_what_was_observed(raw_conn, seed, expect_actionable, must, must_not):
     c, user_id = _signed_up_client(raw_conn, "wording")
-    PreferenceRepo(raw_conn).upsert_signal(user_id=user_id, dimension="brand", **seed)
+    repo = PreferenceRepo(raw_conn)
+    if "swaps" in seed:
+        product_type, slot, frm, to = seed["swaps"]
+        _swaps(raw_conn, user_id, product_type, slot, frm, to)
+        preference_signal_batch.run(raw_conn, user_id=user_id)
+        repo.dismiss(user_id, repo.get_signal(user_id=user_id, dimension="brand", slot=slot, value=seed["dismiss"])["id"])
+    else:
+        repo.upsert_signal(user_id=user_id, dimension="brand", **seed)
     hint = c.get("/session/previous", params={"category": "computer", "mode": "build"}).json()["preference_hint"]
     assert hint["actionable"] is expect_actionable
     for text in must:
@@ -596,14 +617,52 @@ def test_preference_hint_wording_states_only_what_was_observed(raw_conn, seed, e
 
 def test_inferred_swap_pair_says_many_times_not_a_net_count(raw_conn):
     c, user_id = _signed_up_client(raw_conn, "wording-pair")
-    repo = PreferenceRepo(raw_conn)
-    repo.upsert_signal(user_id=user_id, dimension="brand", slot="CPU", value="AMD", direction="prefer",
-                       source="inferred_swap", confidence_delta=3)
-    repo.upsert_signal(user_id=user_id, dimension="brand", slot="CPU", value="Intel", direction="avoid",
-                       source="inferred_swap", confidence_delta=3)
+    _swaps(raw_conn, user_id, "cpu", "CPU", "Intel", "AMD")
     hint = c.get("/session/previous", params={"category": "computer", "mode": "build"}).json()["preference_hint"]
     assert hint["summary"] == "지난 견적들에서 CPU를 Intel에서 AMD로 여러 번 바꾸셨어요. 이번에도 AMD 위주로 볼까요?"
     assert hint["actionable"] is True
+
+
+def test_removing_a_part_is_not_a_brand_aversion(raw_conn):
+    """빼는 이유는 대개 브랜드가 아니다(이미 있음·예산·나중에) — 교체만 센다."""
+    from src.services import feedback_service
+
+    user_id = _make_user(raw_conn, "removed")
+    pr = _make_plan_revision(raw_conn)
+    a, _b = _two_variants_of_different_brands(raw_conn, "psu")
+    for i in range(preference_signal_batch.REPEAT_THRESHOLD):
+        feedback_service.emit_removed(
+            raw_conn, plan_id=pr["plan_id"], revision_id=pr["revision_id"], run_id=None,
+            item_id=str(uuid4()), version=i, user_id=user_id,
+            payload={"removed_variant_id": str(a["variant_id"]), "slot": "파워"},
+        )
+    preference_signal_batch.run(raw_conn, user_id=user_id)
+    assert PreferenceRepo(raw_conn).list_active(user_id, dimension="brand") == []
+
+
+def test_rows_no_longer_observed_drop_to_zero_and_stop_surfacing(raw_conn):
+    """예전 규칙(빼기도 셈)으로 쌓였거나 근거가 기간 밖으로 나간 추론 행 — 다시 셀 때 관측이 없으면 0."""
+    c, user_id = _signed_up_client(raw_conn, "stale")
+    repo = PreferenceRepo(raw_conn)
+    repo.upsert_signal(user_id=user_id, dimension="brand", slot="파워", value="Seasonic", direction="avoid",
+                       source="inferred_swap", confidence_delta=3)
+    assert c.get("/session/previous", params={"category": "computer", "mode": "build"}).json()["preference_hint"] is None
+    row = repo.get_signal(user_id=user_id, dimension="brand", slot="파워", value="Seasonic")
+    assert (row["confidence"], row["status"]) == (0, "active")
+
+
+def test_a_stated_preference_is_offered_before_a_stronger_inferred_one(raw_conn):
+    """명시적 신호가 행동 추론보다 강하다 — 예전엔 횟수 순이라 한 번 말한 선호가 추론(5)에 밀렸다."""
+    from src.services.session_service import apply_explicit_preference_patches
+
+    c, user_id = _signed_up_client(raw_conn, "explicit-first")
+    pr = _make_plan_revision(raw_conn)
+    a, b = _two_variants_of_different_brands(raw_conn, "gpu")
+    for _ in range(5):
+        _swap(raw_conn, pr, user_id, a, b, "GPU")
+    apply_explicit_preference_patches(raw_conn, user_id, [{"slot": "CPU", "value": "AMD", "direction": "prefer"}])
+    hint = c.get("/session/previous", params={"category": "computer", "mode": "build"}).json()["preference_hint"]
+    assert (hint["slot"], hint["value"]) == ("CPU", "AMD")
 
 
 def test_preference_hint_is_none_for_guest_sessions(client):

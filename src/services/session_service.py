@@ -565,9 +565,10 @@ def preference_hint(conn, principal: Principal, category: str | None = None) -> 
                                               min_confidence=REPEAT_THRESHOLD)
     if not active:
         return None
-    # 'prefer'가 있으면 그걸 우선 보여준다("~로 바꾸신 걸 봤어요"가 "~을 빼신 걸 봤어요"보다
-    # 더 실행 가능한 제안이 된다) — 둘 다 없으면(간혹 avoid만 쌓인 경우) 최고 신뢰도 신호로.
-    top = next((r for r in active if r["direction"] == "prefer"), active[0])
+    # 직접 말한 것을 먼저 — 명시적 신호가 행동 추론보다 강하다(3번 원칙과 같다: 추론은 말한 것을 덮지 않는다).
+    # 예전엔 횟수 순이라 한 번 말한 선호(1)가 다른 브랜드의 추론(3 이상)에 밀렸다. 같은 출처 안에서는 선호를
+    # 먼저("~로 바꾸셨어요"가 "~를 빼셨어요"보다 실행 가능한 제안이다), 그다음 횟수·최근 순(list_active 정렬).
+    top = min(active, key=lambda r: (r["source"] != "explicit_chat", r["direction"] != "prefer"))
     avoid = None
     if top["direction"] == "prefer" and top["source"] != "explicit_chat":
         avoid = next((r for r in active if r["slot"] == top["slot"] and r["direction"] == "avoid"
