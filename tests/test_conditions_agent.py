@@ -137,6 +137,14 @@ def test_record_brand_preference_appends_patch():
     assert d.preference_patches == [{"slot": "GPU", "value": "NVIDIA", "direction": "prefer"}]
 
 
+@pytest.mark.parametrize("slot,brand,expected", [("씨피유", "라이젠", "amd"), ("cpu", "인텔", "intel"), ("CPU", "Intel", "intel")])
+def test_record_brand_preference_understands_korean_and_product_line_names(slot, brand, expected):
+    """예전엔 "amd"·"intel" 글자 그대로만 brand_pref 에 담겨, "인텔이 좋아요"는 이번 견적에 반영되지 않았다."""
+    d = _draft("computer")
+    d.record_brand_preference(slot, brand, "prefer")
+    assert d.patches.get("brand_pref") == expected
+
+
 def test_record_brand_preference_cpu_prefer_also_sets_brand_pref_condition():
     """CPU + prefer + amd/intel 은 기존 brand_pref 필드도 같이 채워 이번 견적에 바로 반영한다."""
     d = _draft("computer")

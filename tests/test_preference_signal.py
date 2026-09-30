@@ -463,11 +463,12 @@ def test_preference_hint_surfaces_paired_prefer_avoid_and_respond_accept_sets_br
     assert any(s["id"] == prefer["id"] for s in repo.list_active(user_id, dimension="brand"))
 
 
-@pytest.mark.parametrize("slot,brand", [("GPU", "NVIDIA"), ("파워", "Seasonic"), ("CPU", "인텔")])
+@pytest.mark.parametrize("slot,brand", [("GPU", "NVIDIA"), ("파워", "Seasonic"), ("CPU", "NVIDIA")])
 def test_accepting_a_prefer_hint_brand_pref_cannot_hold_does_not_break_recommend(raw_conn, slot, brand):
     """brand_pref 는 CPU 브랜드 enum(intel·amd·none)이다 — stage2 가 sockets_by_brand[brand] 로 읽는다.
     예전엔 GPU "NVIDIA"를 수락하면 brand_pref="nvidia"가 들어가 다음 추천이 KeyError 로 죽었다.
-    CPU 가 아니거나 enum 밖의 값(에이전트가 적은 "인텔" 등)은 조건에 넣지 않고 신호만 active 로 둔다."""
+    CPU 가 아니거나 intel·amd 로 읽히지 않는 값은 조건에 넣지 않고 신호만 active 로 둔다("인텔"은 별칭으로 intel —
+    test_saying_intel_in_korean_makes_an_applicable_cpu_hint)."""
     email = f"pref-accept-{uuid4().hex[:12]}@example.test"
     c = TestClient(app)
     assert c.post("/auth/signup", json={
@@ -660,6 +661,37 @@ def test_apply_explicit_preference_patches_persists_and_skips_for_guest(raw_conn
 
     guest_n = apply_explicit_preference_patches(raw_conn, None, [{"slot": "GPU", "value": "AMD", "direction": "prefer"}])
     assert guest_n == 0, "guests (no user_id) must not have preferences persisted"
+
+
+def test_explicit_names_are_stored_in_catalog_spelling_and_merge_with_inferred_signals(raw_conn):
+    """에이전트가 적은 "그래픽카드"·"엔비디아"가 교체 기록의 "GPU"·"NVIDIA"와 다른 신호로 갈리지 않는다."""
+    from src.services.session_service import apply_explicit_preference_patches
+
+    user_id = _make_user(raw_conn, "explicit-names")
+    repo = PreferenceRepo(raw_conn)
+    repo.upsert_signal(user_id=user_id, dimension="brand", slot="GPU", value="NVIDIA", direction="prefer",
+                       source="inferred_swap", confidence_delta=1)
+    apply_explicit_preference_patches(raw_conn, user_id, [{"slot": "그래픽카드", "value": "엔비디아", "direction": "prefer"}])
+    rows = repo.list_active(user_id, dimension="brand")
+    assert [(r["slot"], r["value"], r["source"]) for r in rows] == [("GPU", "NVIDIA", "explicit_chat")]
+
+
+def test_saying_intel_in_korean_makes_an_applicable_cpu_hint(raw_conn):
+    from src.services.session_service import apply_explicit_preference_patches
+
+    c, user_id = _signed_up_client(raw_conn, "explicit-intel")
+    apply_explicit_preference_patches(raw_conn, user_id, [{"slot": "씨피유", "value": "인텔", "direction": "prefer"}])
+    hint = c.get("/session/previous", params={"category": "computer", "mode": "build"}).json()["preference_hint"]
+    assert (hint["slot"], hint["value"], hint["actionable"]) == ("CPU", "Intel", True)
+
+    list_id = _create(c)
+    _choose_computer(c, list_id)
+    assert c.post(f"/session/{list_id}/preference-hint/{hint['id']}/respond", json={"accepted": True}).json()["applied"] is True
+    row = raw_conn.execute(
+        "SELECT pc.value FROM planning.plan_condition pc JOIN planning.plan_revision pr ON pr.id = pc.revision_id "
+        "WHERE pr.plan_id = %s AND pc.condition_key='brand_pref' AND pc.status='active'", (list_id,),
+    ).fetchone()
+    assert row[0]["value"] == "intel"
 
 
 def test_explicit_chat_signal_surfaces_immediately_without_repeat_threshold(raw_conn):

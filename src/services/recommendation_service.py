@@ -15,6 +15,7 @@ from uuid import UUID
 
 from src.categories import load_category
 from src.dto import PipelineResult, RequirementSpec
+from src.engine.brands import SLOT_SYNONYMS
 from src.engine.lang import fmt_money
 from src.engine.slots import slots_from_conditions as _slots_from_conditions
 from src.engine.stage3c_verify import AXIS_SLOTS as _AXIS_SLOTS
@@ -992,16 +993,7 @@ def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID,
     return get_stored_result(conn, revision_id)
 
 
-_SLOT_SYNONYMS: dict[str, str] = {
-    "그래픽카드": "GPU", "그래픽": "GPU", "지포스": "GPU", "라데온": "GPU", "gpu": "GPU",
-    "씨피유": "CPU", "프로세서": "CPU", "cpu": "CPU",
-    "램": "RAM", "메모리": "RAM", "ram": "RAM",
-    "메인보드": "메인보드", "마더보드": "메인보드",
-    "저장장치": "저장장치", "에스에스디": "저장장치", "ssd": "저장장치", "hdd": "저장장치", "하드": "저장장치",
-    "파워": "파워", "전원": "파워", "psu": "파워",
-    "케이스": "케이스",
-    "쿨러": "쿨러", "쿨링": "쿨러",
-}
+_SLOT_SYNONYMS = SLOT_SYNONYMS    # 선호 신호 저장도 같은 표를 쓴다(src/engine/brands.py)
 _CHEAPER_WORDS = ("저렴", "싸게", "싼", "가성비", "낮은", "절약")
 _PRICIER_WORDS = ("고급", "좋은", "성능", "비싼", "상위", "프리미엄")
 _SUMMARY_WORDS = ("총평", "전체 평가", "요약")

@@ -6,6 +6,7 @@ from src.agent import conditions_agent, spec_extraction_agent
 from src.auth.deps import Principal
 from src.categories import available_categories, load_category
 from src.engine import slot_rules
+from src.engine.brands import canonical_brand, canonical_slot, cpu_brand_pref
 from src.engine.lang import josa
 from src.engine.spec_text import parse_spec_text
 from src.errors import Conflict, FileTooLarge, NotFound, ValidationFailed
@@ -308,10 +309,17 @@ def apply_explicit_preference_patches(conn, user_id: UUID | None, patches: list[
     별도 함수로 뺀 이유: 에이전트 가용 여부(MOCK_MODE 등)와 무관하게 이 저장 로직만 단위 테스트할 수 있게."""
     if user_id is None or not patches:
         return 0
+    from src.repo.catalog_repo import PC_TYPE_TO_SLOT
+    type_of = {slot: t for t, slot in PC_TYPE_TO_SLOT.items()}
     pref_repo = PreferenceRepo(conn)
     for p in patches:
-        pref_repo.upsert_signal(user_id=user_id, dimension="brand", slot=p["slot"],
-                                value=p["value"], direction=p["direction"], source="explicit_chat")
+        # 에이전트가 적은 "그래픽카드"·"인텔"을 교체 기록에서 추론한 신호와 같은 표기("GPU"·"Intel")로 맞춘다 —
+        # 안 맞추면 같은 브랜드가 다른 신호로 갈려 횟수가 나뉘고, 수락해도 CPU 조건에 안 담긴다.
+        slot = canonical_slot(p["slot"])
+        brands = [r[0] for r in conn.execute(
+            "SELECT DISTINCT brand FROM catalog.product WHERE product_type=%s", (type_of.get(slot, ""),)).fetchall()]
+        pref_repo.upsert_signal(user_id=user_id, dimension="brand", slot=slot,
+                                value=canonical_brand(p["value"], brands), direction=p["direction"], source="explicit_chat")
     return len(patches)
 
 
@@ -514,8 +522,8 @@ def _brand_pref_for(category: str | None, slot: str | None, value: str) -> str |
     sockets_by_brand[brand] 로 읽는다. 되묻기 문구(묻는가)와 수락(담는가)이 같은 판정을 쓰게 한 곳에 둔다."""
     allowed = set((((_category(category) if category else {}).get("slot_schema") or {})
                    .get("brand_pref") or {}).get("values") or []) - {"none"}
-    value = value.strip().lower()
-    return value if (slot or "").strip().upper() == "CPU" and value in allowed else None
+    pref = cpu_brand_pref(value)
+    return pref if canonical_slot(slot or "") == "CPU" and pref in allowed else None
 
 
 def _hint_summary(top: dict, avoid: dict | None, actionable: bool) -> str:
