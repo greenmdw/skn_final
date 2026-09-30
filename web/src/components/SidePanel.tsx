@@ -219,7 +219,7 @@ export default function SidePanel() {
                       ) : (
                         <button type="button" className="sp-conv-main" onClick={() => void openHistory(item)}>
                           <span className="sp-name">{conversationTitle(item)}</span>
-                          <span className="sp-meta">{[STAGE_LABEL[item.stage], item.conditionsSummary, shortDate(item.lastActiveAt)].filter(Boolean).join(' · ')}</span>
+                          <span className="sp-meta">{[STAGE_LABEL[item.stage], shortDate(item.lastActiveAt)].filter(Boolean).join(' · ')}</span>
                         </button>
                       )}
                       {item.reports.length > 0 && editingId !== item.listId && <span className="sp-count">견적서 {item.reports.length}</span>}
