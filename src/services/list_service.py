@@ -92,7 +92,8 @@ def confirmed_revision(conn, list_id: UUID, principal: Principal, revision_no: i
 
 
 def new_revision(conn, list_id: UUID, principal: Principal) -> dict:
-    """확정한 견적을 바탕으로 새 견적서를 쓴다 — 조건을 복사한 새 draft revision 을 현재로 삼는다.
+    """확정한 견적을 바탕으로 새 견적서를 쓴다 — 조건과 추천 결과(부품 구성)를 복사한 새 draft revision
+    (개발요청 8번, `PlanRepo.clone_revision`)을 현재로 삼는다.
     이미 작성 중인 draft 가 현재면 그대로 돌려준다(두 번 눌러도 새 견적서는 하나)."""
     from src.repo.user_repo import ConversationRepo
     from src.services import session_service

@@ -81,8 +81,8 @@ SLOT_GUIDE_IDS: dict[str, tuple[str, ...]] = {
 }
 
 
-# 조립·설치 방법 문서(kind="install") — 리포트의 "조립·설치 가이드"가 인용한다. 구매 전 확인 문구(care)와
-# 문서 종류가 달라서 서로 섞이지 않는다: 결과 화면의 "구매 전 확인"은 kind 를 안 주므로 care 가이드만 나온다.
+# 조립·설치 방법 문서(kind="install"). 조립 가이드 기능 자체는 삭제됐지만(개발요청 1번), 검색이
+# care/install 종류를 섞지 않는다는 경계는 계속 검사한다(tests/test_assembly_guide_install.py).
 INSTALL_GUIDE_IDS: dict[str, tuple[str, ...]] = {
     "CPU": ("install_cpu",),
     "GPU": ("install_gpu",),
@@ -100,7 +100,7 @@ def search_care_guide(query: str, k: int = 1, slot: str | None = None, kind: str
 
     slot 을 주면 그 슬롯의 가이드 안에서만 찾는다 — kind 가 "install" 이면 INSTALL_GUIDE_IDS, 아니면
     SLOT_GUIDE_IDS(구매 전 확인). kind 를 주면 그 종류의 문서만 대상이다("care"|"install"),
-    안 주면(기본) 종류를 가리지 않는다 — 옛 호출(kind 없음)은 그대로 동작한다.
+    안 주면(기본) 종류를 가리지 않는다.
     """
     docs, embeddings = _load_guides()
     if not docs:

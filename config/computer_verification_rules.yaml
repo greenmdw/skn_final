@@ -188,6 +188,12 @@ ranking:
       파워: [length_mm, pcie_8pin_count]
       메인보드: [dimm_slots, max_memory_gb, m2_slots]
       GPU: [length_mm, slot_thickness]
+  # RAM은 perf_tier가 없어(라인업 등급표가 CPU/GPU 전용) 성능·밸런스 축이 사실상 중립 고정이라
+  # 같은 총 용량이면 가격만으로 갈렸다 — 단일 모듈이 듀얼채널(모듈 2개 이상) 키트보다 늘 이겼다
+  # (개발요청 7번). 점수에 이만큼 더해 듀얼채널을 살짝 우선한다 — 가격 차이가 크면(특히 가성비
+  # 우선, 가격 가중치 0.50) 여전히 싼 단일 모듈이 이길 수 있다. breakdown 축이 아니라 gap_penalty처럼
+  # 최종 점수에만 더해서 축·가중치 표(우선순위별 weights)를 새로 만들 필요가 없게 했다.
+  ram_dual_channel_bonus: 0.05
   # noise_sensitive=true 이면 소음 가중치를 최소 이만큼 보장한다(나머지 축은 비율대로 줄인다).
   noise_sensitive_min_weight: 0.15
   # 소음은 직접 측정값(dBA)도 리뷰 관점 정보도 없어 물리적 대용값으로 잡는다 — 휴리스틱이다.

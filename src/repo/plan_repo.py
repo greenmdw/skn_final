@@ -1,7 +1,7 @@
 """planning.* 저장소."""
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 from psycopg.types.json import Jsonb
 
 from src.db.base import Repo
@@ -104,8 +104,13 @@ class PlanRepo(Repo):
         return self.get_revision(row["id"]) if row else None
 
     def clone_revision(self, plan_id: UUID, source_revision_id: UUID) -> UUID:
-        """source 의 도메인 버전·활성 조건을 그대로 가진 새 draft revision(다음 번호). 부품 노드·요구사양은
-        추천할 때 revision 마다 새로 만들어지므로 복사하지 않는다. 현재 revision 으로 바꾸는 건 호출자 몫."""
+        """source 의 도메인 버전·활성 조건과, 있으면 추천 결과(부품 구성)까지 가진 새 draft revision(다음
+        번호). 현재 revision 으로 바꾸는 건 호출자 몫.
+
+        개발요청 8번("견적 수정하기"): 확정본을 그대로 열어서 이어서 바꿀 수 있어야 하므로, 조건만
+        복사하던 예전 동작에 추천 결과(노드·요구사항·recommendation_run·candidate·validation_result)
+        복사를 더했다. 가격은 원본 확정 시점의 offer_observation_id를 그대로 가리키므로 "확정 당시
+        가격 유지"가 기본 동작이다(현재가로 갱신하지 않는다) — 재추천·재검증을 하기 전까지는."""
         source = self.get_revision(source_revision_id)
         new_id = self.new_revision(plan_id, source["domain_version_id"], source["name_snapshot"])
         self._exec(
@@ -114,7 +119,74 @@ class PlanRepo(Repo):
             "WHERE revision_id=%s AND status='active'",
             (new_id, source_revision_id),
         )
+        self._clone_recommendation_result(source_revision_id, new_id)
         return new_id
+
+    def _clone_recommendation_result(self, source_revision_id: UUID, new_revision_id: UUID) -> None:
+        nodes = self._all("SELECT * FROM planning.plan_node WHERE revision_id=%s", (source_revision_id,))
+        node_id_map = {n["id"]: uuid4() for n in nodes}
+        for n in nodes:
+            self._exec(
+                "INSERT INTO planning.plan_node (id, revision_id, parent_id, node_type, template_key, name, "
+                "position, context) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                (node_id_map[n["id"]], new_revision_id,
+                 node_id_map.get(n["parent_id"]) if n["parent_id"] else None,
+                 n["node_type"], n["template_key"], n["name"], n["position"], Jsonb(n["context"])),
+            )
+
+        requirements = self._all("SELECT * FROM planning.requirement WHERE revision_id=%s", (source_revision_id,))
+        req_id_map: dict[UUID, UUID] = {}
+        for r in requirements:
+            row = self._one(
+                "INSERT INTO planning.requirement (revision_id, node_id, quantity, unit_code, required, "
+                "needed_at, timing_context, match_spec, status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                (new_revision_id, node_id_map[r["node_id"]], r["quantity"], r["unit_code"], r["required"],
+                 r["needed_at"], Jsonb(r["timing_context"]), Jsonb(r["match_spec"]), r["status"]),
+            )
+            req_id_map[r["id"]] = row["id"]
+
+        run = self._one(
+            "SELECT * FROM engine.recommendation_run WHERE revision_id=%s ORDER BY created_at DESC LIMIT 1",
+            (source_revision_id,),
+        )
+        if run is None:
+            return  # 확정 전 추천을 한 번도 안 받은 revision(있을 수 없지만) — 복사할 결과가 없다
+        new_run = self._one(
+            "INSERT INTO engine.recommendation_run (revision_id, domain_version_id, input_snapshot, input_hash, "
+            "draft_lock_version, engine_versions, status, completed_at, explanation_status, "
+            "explanation_headline, explanation_text, reasoning_log) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (new_revision_id, run["domain_version_id"], Jsonb(run["input_snapshot"]), run["input_hash"],
+             run["draft_lock_version"], Jsonb(run["engine_versions"]), run["status"], run["completed_at"],
+             run["explanation_status"], run["explanation_headline"], run["explanation_text"],
+             Jsonb(run["reasoning_log"])),
+        )
+        new_run_id = new_run["id"]
+
+        candidates = self._all(
+            "SELECT * FROM engine.recommendation_candidate WHERE run_id=%s", (run["id"],))
+        for c in candidates:
+            self._exec(
+                "INSERT INTO engine.recommendation_candidate (run_id, requirement_id, variant_id, "
+                "offer_observation_id, result, score, score_method_version, reason, reason_status, "
+                "evidence_refs, selected, qty, timing, checks, checks_status) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (new_run_id, req_id_map[c["requirement_id"]], c["variant_id"], c["offer_observation_id"],
+                 c["result"], c["score"], c["score_method_version"], c["reason"], c["reason_status"],
+                 Jsonb(c["evidence_refs"]), c["selected"], c["qty"], c["timing"], c["checks"],
+                 c["checks_status"]),
+            )
+
+        validations = self._all("SELECT * FROM engine.validation_result WHERE run_id=%s", (run["id"],))
+        for v in validations:
+            self._exec(
+                "INSERT INTO engine.validation_result (run_id, rule_key, rule_version, executor_version, "
+                "status, severity, measured_values, threshold, message, checked_at, issues) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                (new_run_id, v["rule_key"], v["rule_version"], v["executor_version"], v["status"],
+                 v["severity"], Jsonb(v["measured_values"]), Jsonb(v["threshold"]), v["message"],
+                 v["checked_at"], Jsonb(v["issues"])),
+            )
 
     def latest_previous(self, *, user_id: UUID | None, guest_session_hash: str | None, category: str,
                         mode: str | None = None, exclude_list_id: UUID | None = None,
