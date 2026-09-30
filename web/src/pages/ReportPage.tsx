@@ -3,7 +3,6 @@ import ListHistory from '../components/ListHistory'
 import PlannerShell from '../components/PlannerShell'
 import ProductThumb from '../components/ProductThumb'
 import { planTotal } from '../state/planModel'
-import { useDrawer } from '../state/DrawerContext'
 import { useSetups } from '../state/SetupsContext'
 import { wonFmt } from '../utils/format'
 
@@ -11,7 +10,6 @@ import { wonFmt } from '../utils/format'
 export default function ReportPage() {
   const { id } = useParams()
   const { savedSetups, loading, storageError } = useSetups()
-  const { openSaved } = useDrawer()
   const setup = savedSetups.find(item => item.id === id)
 
   if (!setup) {
@@ -22,7 +20,6 @@ export default function ReportPage() {
           {loading
             ? <div className="pl-note">리포트를 불러오는 중이에요…</div>
             : <div className="pl-empty">{storageError || '이 리포트를 찾을 수 없어요. 로그인 상태를 확인하거나 저장한 견적에서 다시 열어 주세요.'}</div>}
-          <div><button type="button" className="pl-btn ghost" onClick={openSaved}>저장한 견적 열기</button></div>
         </div>
       </PlannerShell>
     )
@@ -34,7 +31,6 @@ export default function ReportPage() {
     <PlannerShell>
       <div className="pl-page pl-report">
         <div className="pl-noprint" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button type="button" className="pl-pill" onClick={openSaved}>저장한 견적</button>
           <button type="button" className="pl-pill" onClick={() => window.print()}>인쇄</button>
         </div>
         <article className="pl-paper">

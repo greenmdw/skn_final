@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TrueFit 좌측 패널 목업</title>
+<style>
+:root{--bg:#071116;--panel:#0d1a23;--panel2:#0c1820;--ink:#050b10;--line:#233744;--line2:#37695f;--text:#f4f7f7;--muted:#92a4b2;--mint:#60edc0;--on-mint:#06241b;--ok:#1cc991;--info:#66c8f2;--warn:#c58cff}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--bg);color:var(--text);font:14px Arial,sans-serif;overflow:hidden}
+button{font:inherit;color:inherit;cursor:pointer}
+.app{display:flex;flex-direction:column;height:100%}
+
+/* 상단 바: '저장한 견적'·사용자명·로그아웃 제거 */
+.top{display:flex;align-items:center;gap:14px;padding:10px 20px;border-bottom:1px solid var(--line);background:var(--panel);flex:none}
+.brand{display:flex;align-items:center;gap:8px;font-weight:800;font-size:18px}
+.brand b{color:var(--mint)}.brand i{width:20px;height:5px;border-radius:2px;background:var(--mint)}
+.nav{display:flex;gap:4px}
+.nav a{color:var(--muted);font-size:13px;padding:7px 12px;border-radius:8px}
+.nav a.on{background:var(--ink);color:var(--text)}
+.sp{flex:1}
+.pill{border:0;background:var(--mint);color:var(--on-mint);border-radius:8px;height:32px;padding:0 12px;font-weight:600;font-size:13px}
+.removed{font-size:12px;color:var(--muted);border:1px dashed var(--line2);border-radius:8px;padding:5px 10px;text-decoration:line-through}
+
+.body{flex:1;display:flex;min-height:0}
+
+/* ───── 좌측 패널 ───── */
+.side{width:296px;flex:none;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;transition:width .22s ease;position:relative}
+.side.collapsed{width:56px}
+.side>.inner{display:flex;flex-direction:column;min-height:0;flex:1;overflow:hidden}
+.rowbtn{display:flex;align-items:center;gap:12px;width:100%;height:40px;padding:0 15px;border:0;background:transparent;border-radius:10px;color:var(--text);text-align:left;white-space:nowrap}
+.rowbtn:hover{background:var(--ink)}
+.ico{width:24px;flex:none;text-align:center;font-size:17px;line-height:1}
+.lbl{overflow:hidden;text-overflow:ellipsis}
+.side-head{display:flex;align-items:center;justify-content:space-between;padding:10px 8px 4px;gap:4px}
+.side-head .rowbtn{width:40px;padding:0 8px;justify-content:center}
+.side.collapsed .side-head{flex-direction:column;align-items:center}
+.menu{padding:4px 8px;display:flex;flex-direction:column;gap:2px}
+.menu .rowbtn{padding:0 8px}
+.menu .new{background:var(--mint);color:var(--on-mint);font-weight:600}
+.menu .new:hover{background:var(--mint);filter:brightness(.95)}
+.menu .rowbtn.on{background:var(--ink)}
+.side.collapsed .lbl,.side.collapsed .tabs,.side.collapsed .list,.side.collapsed .search,.side.collapsed .user .meta,.side.collapsed .chev{display:none}
+.side.collapsed .menu .rowbtn,.side.collapsed .user .rowbtn{justify-content:center;width:40px;margin:0 auto;padding:0}
+.side.collapsed .menu .rowbtn .ico,.side.collapsed .user .rowbtn .ico{margin:0}
+
+.search{margin:8px 12px 4px;height:34px;border:1px solid var(--line);border-radius:9px;background:var(--ink);color:var(--text);padding:0 12px;font-size:13px;outline:none}
+.tabs{display:flex;margin:8px 12px 0;padding:3px;background:var(--ink);border-radius:9px}
+.tabs button{flex:1;border:0;background:transparent;color:var(--muted);height:28px;border-radius:7px;font-size:12px;font-weight:600}
+.tabs button.on{background:var(--panel);color:var(--text)}
+
+.list{flex:1;min-height:0;overflow-y:auto;padding:6px 8px 8px}
+.group-t{font-size:11px;color:var(--muted);padding:10px 8px 4px;font-weight:600}
+.est{border-radius:10px}
+.est-head{display:flex;align-items:center;gap:8px;padding:8px;border-radius:10px;cursor:pointer}
+.est-head:hover,.est.active>.est-head{background:var(--ink)}
+.chev{width:14px;color:var(--muted);font-size:10px;transition:transform .15s;flex:none}
+.est.open .chev{transform:rotate(90deg)}
+.est-t{flex:1;min-width:0}
+.est-t .n{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.est-t .s{font-size:11px;color:var(--muted);margin-top:2px}
+.cnt{font-size:11px;background:rgba(96,237,192,.14);color:var(--mint);border-radius:999px;padding:1px 8px;flex:none}
+.more{border:0;background:transparent;color:var(--muted);opacity:0;padding:2px 6px;border-radius:6px}
+.est-head:hover .more{opacity:1}
+.sheets{display:none;margin:0 0 4px 21px;border-left:1px solid var(--line);padding-left:6px}
+.est.open .sheets{display:block}
+.sheet{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;font-size:12px;cursor:pointer}
+.sheet:hover{background:var(--ink)}
+.sheet .v{color:var(--info);font-weight:700;width:22px;flex:none}
+.sheet .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sheet .pr{color:var(--muted);flex:none}
+.sheet.star .nm::after{content:" ★";color:var(--mint)}
+.view{display:none}.view.on{display:block}
+
+.user{position:relative;border-top:1px solid var(--line);padding:8px}
+.user .rowbtn{height:48px;padding:0 6px}
+.avatar{width:32px;height:32px;border-radius:50%;background:var(--mint);color:var(--on-mint);font-weight:800;display:grid;place-items:center;flex:none;font-size:13px}
+.user .meta{flex:1;min-width:0;line-height:1.3}
+.user .meta b{display:block;font-size:13px}
+.user .meta span{font-size:11px;color:var(--muted)}
+.pop{display:none;position:absolute;left:8px;bottom:60px;min-width:180px;background:var(--panel2);border:1px solid var(--line2);border-radius:12px;padding:6px;box-shadow:0 10px 30px #000a;z-index:5}
+.pop.on{display:block}
+.pop button{display:flex;gap:10px;width:100%;border:0;background:transparent;height:36px;align-items:center;padding:0 10px;border-radius:8px;font-size:13px;text-align:left}
+.pop button:hover{background:var(--ink)}
+.pop .out{color:#ff8f8f}
+.side.collapsed .pop{left:60px;bottom:8px}
+
+/* ───── 우측 (기존 화면 자리) ───── */
+.main{flex:1;min-width:0;display:flex}
+.chat{width:380px;flex:none;border-right:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column}
+.chat-h{padding:14px 18px;border-bottom:1px solid var(--line);font-weight:600;display:flex;gap:10px;align-items:center}
+.chat-h i{width:8px;height:8px;border-radius:50%;background:var(--ok)}
+.chat-b{flex:1;padding:16px;display:flex;flex-direction:column;gap:10px}
+.u{align-self:flex-end;background:var(--mint);color:var(--on-mint);padding:10px 13px;border-radius:14px 14px 4px 14px;font-size:13px;max-width:84%}
+.b{align-self:flex-start;background:var(--ink);padding:10px 13px;border-radius:14px 14px 14px 4px;font-size:13px;line-height:1.6;max-width:92%}
+.content{flex:1;padding:26px;color:var(--muted)}
+.content h2{color:var(--text);margin:0 0 6px;font-size:20px}
+.note{margin-top:18px;border:1px dashed var(--line2);border-radius:12px;padding:14px 16px;line-height:1.8;font-size:13px}
+.note b{color:var(--text)}
+@media(max-width:900px){.chat{display:none}}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><i></i>True<b>Fit</b></div>
+    <nav class="nav"><a class="on">새 컴퓨터 본체</a><a>받은 견적 점검</a><a>주변기기 견적</a></nav>
+    <div class="sp"></div>
+    <span class="removed">저장한 견적</span>
+    <button class="pill">장바구니</button>
+  </header>
+
+  <div class="body">
+    <aside class="side" id="side">
+      <div class="inner">
+        <div class="side-head">
+          <button class="rowbtn" id="toggle" title="패널 접기/펴기"><span class="ico">☰</span></button>
+        </div>
+
+        <div class="menu">
+          <button class="rowbtn new" title="새 견적"><span class="ico">＋</span><span class="lbl">새 견적 (새 대화)</span></button>
+          <button class="rowbtn on" data-go="chats" title="대화 내역"><span class="ico">💬</span><span class="lbl">대화 내역</span></button>
+          <button class="rowbtn" data-go="saved" title="저장한 견적"><span class="ico">🗂</span><span class="lbl">저장한 견적</span></button>
+        </div>
+
+        <input class="search" placeholder="견적·대화 검색">
+        <div class="tabs">
+          <button class="on" data-tab="chats">대화 내역</button>
+          <button data-tab="saved">저장한 견적</button>
+        </div>
+
+        <div class="list">
+          <!-- 대화 내역: 견적(=대화 1개) 단위, 펼치면 그 견적에서 저장한 견적서 목록 -->
+          <div class="view on" id="v-chats">
+            <div class="group-t">오늘</div>
+            <div class="est active open">
+              <div class="est-head"><span class="chev">▶</span>
+                <div class="est-t"><div class="n">150만원 게이밍 PC</div><div class="s">방금 · 진행 중</div></div>
+                <span class="cnt">견적서 2</span><button class="more">⋯</button></div>
+              <div class="sheets">
+                <div class="sheet star"><span class="v">v1</span><span class="nm">가성비 안</span><span class="pr">148만</span></div>
+                <div class="sheet"><span class="v">v2</span><span class="nm">GPU 상향 안</span><span class="pr">162만</span></div>
+              </div>
+            </div>
+            <div class="est">
+              <div class="est-head"><span class="chev">▶</span>
+                <div class="est-t"><div class="n">영상 편집용 워크스테이션</div><div class="s">오늘 오전</div></div>
+                <span class="cnt">견적서 3</span><button class="more">⋯</button></div>
+              <div class="sheets">
+                <div class="sheet"><span class="v">v1</span><span class="nm">기본</span><span class="pr">210만</span></div>
+                <div class="sheet star"><span class="v">v2</span><span class="nm">램 64GB</span><span class="pr">232만</span></div>
+                <div class="sheet"><span class="v">v3</span><span class="nm">저소음 케이스</span><span class="pr">238만</span></div>
+              </div>
+            </div>
+            <div class="group-t">지난 7일</div>
+            <div class="est">
+              <div class="est-head"><span class="chev">▶</span>
+                <div class="est-t"><div class="n">사무용 미니 PC</div><div class="s">3일 전</div></div>
+                <span class="cnt">견적서 1</span><button class="more">⋯</button></div>
+              <div class="sheets"><div class="sheet"><span class="v">v1</span><span class="nm">최종</span><span class="pr">68만</span></div></div>
+            </div>
+            <div class="est">
+              <div class="est-head"><span class="chev" style="visibility:hidden">▶</span>
+                <div class="est-t"><div class="n">학생용 노트북 대체 데스크탑</div><div class="s">5일 전 · 저장한 견적서 없음</div></div>
+                <button class="more">⋯</button></div>
+            </div>
+          </div>
+
+          <!-- 저장한 견적: 견적서를 견적(대화)별로 묶어서 모아 보기 -->
+          <div class="view" id="v-saved">
+            <div class="group-t">150만원 게이밍 PC · 2개</div>
+            <div class="sheet star" style="margin-left:8px"><span class="v">v1</span><span class="nm">가성비 안</span><span class="pr">148만</span></div>
+            <div class="sheet" style="margin-left:8px"><span class="v">v2</span><span class="nm">GPU 상향 안</span><span class="pr">162만</span></div>
+            <div class="group-t">영상 편집용 워크스테이션 · 3개</div>
+            <div class="sheet" style="margin-left:8px"><span class="v">v1</span><span class="nm">기본</span><span class="pr">210만</span></div>
+            <div class="sheet star" style="margin-left:8px"><span class="v">v2</span><span class="nm">램 64GB</span><span class="pr">232만</span></div>
+            <div class="sheet" style="margin-left:8px"><span class="v">v3</span><span class="nm">저소음 케이스</span><span class="pr">238만</span></div>
+            <div class="group-t">사무용 미니 PC · 1개</div>
+            <div class="sheet" style="margin-left:8px"><span class="v">v1</span><span class="nm">최종</span><span class="pr">68만</span></div>
+          </div>
+        </div>
+
+        <!-- 하단: 사용자명 / 로그아웃 (상단 바에서 이동) -->
+        <div class="user">
+          <div class="pop" id="pop">
+            <button>⚙ 계정 설정</button>
+            <button class="out" id="logout">↪ 로그아웃</button>
+          </div>
+          <button class="rowbtn" id="userbtn" title="김트루 님">
+            <span class="avatar">김</span>
+            <span class="meta"><b>김트루 님</b><span>로그인됨</span></span>
+            <span class="chev" style="transform:none">⋮</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <div class="main">
+      <section class="chat">
+        <div class="chat-h"><i></i>조건 대화 · 150만원 게이밍 PC</div>
+        <div class="chat-b">
+          <div class="b">어떤 용도로 쓰실 건가요?</div>
+          <div class="u">150만원대 게이밍 PC 추천해줘</div>
+          <div class="b">예산 150만원, 게임 위주로 잡을게요.</div>
+        </div>
+      </section>
+      <section class="content">
+        <h2>추천 결과 (기존 화면 영역)</h2>
+        <div>패널을 접으면 왼쪽에 아이콘 한 줄(56px)만 남고, 본문이 그만큼 넓어집니다.</div>
+        <div class="note">
+          <b>동작 정리</b><br>
+          · ☰ 로 패널 접기/펴기 (상태는 브라우저에 기억)<br>
+          · 접힌 상태: ＋ 새 견적 / 💬 대화 내역 / 🗂 저장한 견적 / 사용자 아바타 — 아이콘만 표시, 누르면 펴지면서 해당 탭으로 이동<br>
+          · <b>견적 = 대화 1개</b>, 견적 안에 <b>견적서 여러 개(v1, v2…)</b> 저장 — 대화 내역에서 ▶ 로 펼쳐 견적서 선택, ★ = 대표 견적서<br>
+          · 견적서를 누르면 해당 견적의 리포트를 열고, 대화 제목을 누르면 채팅을 이어서 진행<br>
+          · ⋯ 메뉴: 이름 변경 / 삭제(견적서 포함 삭제 확인)<br>
+          · 사용자명·로그아웃은 패널 하단으로 이동 (누르면 팝업 메뉴), 상단의 '저장한 견적' 버튼은 삭제
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<script>
+const side=document.getElementById('side');
+const $=(s,r=document)=>[...r.querySelectorAll(s)];
+function setCollapsed(c){side.classList.toggle('collapsed',c);try{localStorage.setItem('tf-side',c?'1':'0')}catch(e){}}
+try{setCollapsed(localStorage.getItem('tf-side')==='1')}catch(e){}
+document.getElementById('toggle').onclick=()=>setCollapsed(!side.classList.contains('collapsed'));
+function go(t){
+  $('.tabs button').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
+  $('.menu [data-go]').forEach(b=>b.classList.toggle('on',b.dataset.go===t));
+  $('.view').forEach(v=>v.classList.toggle('on',v.id==='v-'+t));
+}
+$('.tabs button').forEach(b=>b.onclick=()=>go(b.dataset.tab));
+$('.menu [data-go]').forEach(b=>b.onclick=()=>{setCollapsed(false);go(b.dataset.go)});
+$('.est-head').forEach(h=>h.onclick=e=>{if(!e.target.closest('.more'))h.parentElement.classList.toggle('open')});
+document.getElementById('userbtn').onclick=e=>{e.stopPropagation();document.getElementById('pop').classList.toggle('on')};
+document.addEventListener('click',()=>document.getElementById('pop').classList.remove('on'));
+document.getElementById('logout').onclick=()=>alert('로그아웃 (목업)');
+</script>
+</body>
+</html>
