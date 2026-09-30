@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header
 from src import schemas
 from src.auth.deps import Principal, optional_principal
 from src.db import get_conn
-from src.services import list_service, notification_service
+from src.services import list_history, list_service, notification_service
 
 router = APIRouter(prefix="/lists", tags=["lists"])
 
@@ -56,6 +56,14 @@ def report(list_id: UUID, principal: Principal = Depends(optional_principal)) ->
     with get_conn() as conn:
         report = list_service.get_report(conn, list_id, principal)
     return schemas.ReportOut(**report)
+
+
+@router.get("/{list_id}/history", response_model=schemas.ListHistoryOut)
+def history(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.ListHistoryOut:
+    """견적 리스트 히스토리 — 요약 문장은 LLM 호출이 있어 리포트와 따로 부른다(리포트 로딩을 늦추지 않는다)."""
+    with get_conn() as conn:
+        revision, events = list_service.get_history_events(conn, list_id, principal)
+    return schemas.ListHistoryOut(**list_history.render(list_id, revision, events))
 
 
 @router.post("/{list_id}/alert")

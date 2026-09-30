@@ -682,6 +682,19 @@ class ReportOut(BaseModel):
     data_notice: str = "상품·가격·리뷰는 합성 데이터입니다."
 
 
+class HistoryEventOut(BaseModel):
+    at: str
+    kind: str          # condition | recommend | question | swap | remove | confirm
+    text: str
+
+
+class ListHistoryOut(BaseModel):
+    """견적 리스트 히스토리 — 확정된 목록이 만들어진 여정. 사건은 코드가, 요약 문장은 LLM(폴백 규칙)이."""
+
+    summary: TextStatusOut
+    events: list[HistoryEventOut] = Field(default_factory=list)
+
+
 class AlertIn(BaseModel):
     enabled: bool
     target_amount: Optional[int] = None

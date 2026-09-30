@@ -1,13 +1,26 @@
-import { usePlan } from '../state/PlanContext'
+import { useEffect, useState } from 'react'
+import { api, type HistoryEventKind, type ListHistory as History } from '../api'
 
-// 견적 리스트 히스토리: 사용자가 사이트에서 채팅으로 이것저것 묻고, 마음에 든 것(favorite)을 골라 최종 리스트로 만든 여정을
-// 요약해 보여 주는 자리. 요약 문장은 서버가 만들어 줘야 하는 값이라(docs/개발요청_백엔드_및_타팀.md) 아직 없으면
-// 지어내지 않고 안내만 한다. 이 브라우저에 남아 있는 이번 대화의 질문은 그대로 보여 준다.
-export default function ListHistory({ listId, summary }: { listId: string; summary?: string | null }) {
-  const { state, messages } = usePlan()
-  // 화면에 남아 있는 대화는 지금 작업 중인 구성의 것이다. 다른 견적의 리포트에는 붙이지 않는다.
-  const mine = state.currentPlan?.id === listId
-  const questions = mine ? messages.filter(m => m.role === 'user').map(m => m.text) : []
+// 견적 리스트 히스토리: 사용자가 사이트에서 채팅으로 이것저것 묻고, 부품을 바꿔 최종 리스트로 만든 여정.
+// 사건 목록과 요약 문장은 서버(GET /lists/{id}/history)가 만든다 — 사건은 코드가 기록에서 뽑고, 요약은 LLM 이
+// 그 사건만 보고 쓴다(실패하면 규칙 문장). 불러오지 못하면 지어내지 않고 안내만 한다.
+const KIND_LABEL: Record<HistoryEventKind, string> = {
+  condition: '조건', recommend: '추천', question: '질문', swap: '교체', remove: '제외', confirm: '확정',
+}
+
+export default function ListHistory({ listId }: { listId: string }) {
+  const [history, setHistory] = useState<History | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    setHistory(null)
+    setFailed(false)
+    api.setups.history(listId)
+      .then(result => { if (alive) setHistory(result) })
+      .catch(() => { if (alive) setFailed(true) })
+    return () => { alive = false }
+  }, [listId])
 
   return (
     <section className="pl-history" aria-labelledby="pl-history-title">
@@ -15,14 +28,18 @@ export default function ListHistory({ listId, summary }: { listId: string; summa
         <b id="pl-history-title">견적 리스트 히스토리</b>
         <span className="pl-note">채팅으로 물어보고 골라 최종 리스트를 만든 여정</span>
       </div>
-      {summary
-        ? <p style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>{summary}</p>
-        : <div className="pl-empty">이 견적을 만들기까지 나눈 대화와 고른 부품을 요약해서 보여 드릴 자리예요. 요약은 준비 중이에요.</div>}
-      {questions.length > 0 && (
+      {history?.summary
+        ? <p style={{ margin: 0, fontSize: 14, lineHeight: 1.7 }}>{history.summary}</p>
+        : <div className="pl-empty">{failed
+          ? '이 견적의 히스토리를 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.'
+          : '이 견적을 만들기까지 나눈 대화와 고른 부품을 정리하는 중이에요…'}</div>}
+      {history && history.events.length > 0 && (
         <div>
-          <div className="pl-group-title" style={{ marginBottom: 8 }}>이번에 물어본 것</div>
+          <div className="pl-group-title" style={{ marginBottom: 8 }}>지나온 과정</div>
           <ol>
-            {questions.map((text, index) => <li key={index}><span className="n">{index + 1}</span><span>{text}</span></li>)}
+            {history.events.map((event, index) => (
+              <li key={index}><span className="n">{KIND_LABEL[event.kind]}</span><span>{event.text}</span></li>
+            ))}
           </ol>
         </div>
       )}

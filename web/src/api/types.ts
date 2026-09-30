@@ -75,6 +75,12 @@ export interface RecommendRequest {
   checkSnapshot: CheckDraft | null
 }
 
+// ---- 견적 리스트 히스토리 ----
+export type HistoryEventKind = 'condition' | 'recommend' | 'question' | 'swap' | 'remove' | 'confirm'
+export interface HistoryEvent { at: string; kind: HistoryEventKind; text: string }
+/** summary 는 서버가 사건 목록만 보고 쓴 요약(LLM, 실패하면 규칙 문장). 준비 전이면 null */
+export interface ListHistory { summary: string | null; events: HistoryEvent[] }
+
 // ---- 부품 교체 ----
 /** 한 부품 자리에 넣을 수 있는 대안 하나(서버 alternatives 응답). candidateId 를 swap 에 그대로 보낸다 */
 export interface AlternativeOption {
@@ -168,6 +174,8 @@ export interface Api {
   }
   setups: {
     list(): Promise<SetupsListResult>
+    /** 확정한 견적이 만들어진 여정(견적 리스트 히스토리). 로그인한 소유자의 확정 목록만 */
+    history(id: string): Promise<ListHistory>
     /** 같은 id가 있으면 갱신합니다. 저장된 구성을 돌려줍니다. */
     save(setup: SavedSetup): Promise<SavedSetup>
     remove(id: string): Promise<void>

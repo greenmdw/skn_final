@@ -124,6 +124,12 @@ export interface WireLists {
   items: { list_id: string; category: string | null; stage: 'category' | 'conditions' | 'results' | 'report' }[]
 }
 
+// ── 견적 리스트 히스토리(src.schemas.ListHistoryOut) ──
+export interface WireListHistory {
+  summary: WireText
+  events: { at: string; kind: string; text: string }[]
+}
+
 export interface WireUser { user: { email: string; display_name: string } }
 
 // ── 부품 교체(src.schemas.AlternativesOut) ──

@@ -1,10 +1,10 @@
-import type { Api, SetupsListResult } from '../types'
+import type { Api, HistoryEventKind, SetupsListResult } from '../types'
 import { ApiError } from '../types'
 import type { SavedSetup } from '../../state/types'
 import { isCheckDraft, isDesk, object } from '../../state/validators'
 import { request } from './client'
 import { setupFromReport, type SetupExtras } from './mapping'
-import type { WireLists, WireReport } from './wire'
+import type { WireListHistory, WireLists, WireReport } from './wire'
 
 // 서버에 저장하는 것: 확정한 목록(이름·구매 예정일·목표 금액·메모)과 부품·가격. 서버에 필드가 없는 화면 전용 값
 // (책상 치수 · 점검 초안 · 입력한 조건 문장)은 이 브라우저에만 보관한다 — 다른 기기에서는 기본값으로 보인다.
@@ -42,7 +42,18 @@ function toConfirmError(error: unknown): unknown {
   return error
 }
 
+const HISTORY_KINDS: HistoryEventKind[] = ['condition', 'recommend', 'question', 'swap', 'remove', 'confirm']
+
 export const setups: Api['setups'] = {
+  async history(id) {
+    const wire = await request<WireListHistory>('GET', '/lists/' + id + '/history')
+    return {
+      summary: wire.summary.status === 'ready' ? wire.summary.text : null,
+      // 모르는 종류는 버리지 않고 질문처럼 보여 준다 — 서버가 종류를 늘려도 화면이 깨지지 않게
+      events: wire.events.map(e => ({ at: e.at, text: e.text,
+        kind: HISTORY_KINDS.includes(e.kind as HistoryEventKind) ? e.kind as HistoryEventKind : 'question' })),
+    }
+  },
   async list(): Promise<SetupsListResult> {
     const lists = await request<WireLists>('GET', '/lists')
     const confirmed = lists.items.filter(item => item.stage === 'report' && item.category === 'computer')

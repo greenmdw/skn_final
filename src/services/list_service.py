@@ -230,6 +230,18 @@ def get_report(conn, list_id: UUID, principal: Principal) -> dict:
     }
 
 
+def get_history_events(conn, list_id: UUID, principal: Principal) -> tuple[dict, list[dict]]:
+    """견적 리스트 히스토리의 사건 목록 — 리포트와 같게 로그인한 소유자의 확정된 목록만.
+    요약 문장(LLM)은 트랜잭션 밖에서 만든다(`list_history.render`) — 연결을 LLM 대기 동안 붙잡지 않는다."""
+    from src.services import list_history
+
+    user_id = _require_login(conn, principal)
+    revision = _owned(PlanRepo(conn), list_id, principal)
+    if revision["owner_user_id"] != user_id or revision["state"] != "confirmed":
+        raise NotFound("확정된 목록을 찾을 수 없습니다.")
+    return revision, list_history.build_events(conn, revision)
+
+
 def set_alert(conn, list_id: UUID, principal: Principal, *, enabled: bool, target_amount: int | None) -> dict:
     user_id = _require_login(conn, principal)
     prepo = PlanRepo(conn)
