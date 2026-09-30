@@ -551,14 +551,22 @@ def respond_preference_hint(conn, list_id: UUID, signal_id: UUID, accepted: bool
     signal = next((r for r in repo.list_active(principal.user_id) if r["id"] == signal_id), None)
     if signal is None:
         raise NotFound("이미 처리된 신호입니다.")
+    applied = False
     if signal["direction"] == "prefer":
-        # brand_pref는 지금 stage2_requirement.py에서 CPU 소켓 필터링에만 쓰인다(엔진 스코프) —
-        # GPU 등 다른 슬롯 신호를 여기 담아도 지금 엔진은 아직 안 읽는다. 조건으로는 남겨서
-        # 나중에 엔진이 슬롯별로 확장하면 바로 쓸 수 있게 해 둔다.
+        # brand_pref 는 CPU 브랜드 하나다(slot_schema enum: intel·amd·none) — stage2_requirement 가
+        # sockets_by_brand[brand] 로 소켓을 고른다. 예전엔 슬롯과 무관하게 브랜드를 넣어서, GPU "NVIDIA"를
+        # 수락하면 다음 추천이 KeyError('nvidia')로 죽었다. CPU 이고 enum 안의 값일 때만 조건으로 쓴다.
+        # 다른 슬롯은 엔진이 읽을 자리가 아직 없어 신호만 active 로 둔다(applied=False).
         plan_repo = PlanRepo(conn)
         current = _owned(plan_repo, list_id, principal)
-        plan_repo.upsert_condition(current["id"], "brand_pref", {"value": signal["value"].lower()}, "inferred")
-    return {"list_id": str(list_id), "accepted": True}
+        _, category = _current_values(plan_repo, current["id"])
+        allowed = set((((_category(category) if category else {}).get("slot_schema") or {})
+                       .get("brand_pref") or {}).get("values") or []) - {"none"}
+        value = signal["value"].strip().lower()
+        if (signal["slot"] or "").strip().upper() == "CPU" and value in allowed:
+            plan_repo.upsert_condition(current["id"], "brand_pref", {"value": value}, "inferred")
+            applied = True
+    return {"list_id": str(list_id), "accepted": True, "applied": applied}
 
 
 # ── 업그레이드 사양 파일 첨부 (§D-4-1: current_specs · spec_file_name) ──

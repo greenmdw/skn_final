@@ -359,6 +359,7 @@ def test_preference_hint_surfaces_paired_prefer_avoid_and_respond_accept_sets_br
     _choose_computer(c, list_id)
     r = c.post(f"/session/{list_id}/preference-hint/{hint['id']}/respond", json={"accepted": True})
     assert r.status_code == 200, r.text
+    assert r.json()["applied"] is True
 
     row = raw_conn.execute(
         "SELECT pc.value FROM planning.plan_condition pc "
@@ -370,6 +371,39 @@ def test_preference_hint_surfaces_paired_prefer_avoid_and_respond_accept_sets_br
     assert row[0]["value"] == "amd"
     # "예"는 신호를 지우지 않는다(§9) — 다음 세션에도 다시 물어볼 수 있게.
     assert any(s["id"] == prefer["id"] for s in repo.list_active(user_id, dimension="brand"))
+
+
+@pytest.mark.parametrize("slot,brand", [("GPU", "NVIDIA"), ("파워", "Seasonic"), ("CPU", "인텔")])
+def test_accepting_a_prefer_hint_brand_pref_cannot_hold_does_not_break_recommend(raw_conn, slot, brand):
+    """brand_pref 는 CPU 브랜드 enum(intel·amd·none)이다 — stage2 가 sockets_by_brand[brand] 로 읽는다.
+    예전엔 GPU "NVIDIA"를 수락하면 brand_pref="nvidia"가 들어가 다음 추천이 KeyError 로 죽었다.
+    CPU 가 아니거나 enum 밖의 값(에이전트가 적은 "인텔" 등)은 조건에 넣지 않고 신호만 active 로 둔다."""
+    email = f"pref-accept-{uuid4().hex[:12]}@example.test"
+    c = TestClient(app)
+    assert c.post("/auth/signup", json={
+        "email": email, "password": "abcd1234", "display_name": "AcceptTester",
+        "terms_agreed": True, "privacy_agreed": True, "marketing_agreed": False,
+    }).status_code == 201
+    user_id = _current_user_id(raw_conn, email.lower())
+    signal = PreferenceRepo(raw_conn).upsert_signal(user_id=user_id, dimension="brand", slot=slot, value=brand,
+                                                    direction="prefer", source="explicit_chat")
+
+    list_id = _create(c)
+    _choose_computer(c, list_id)
+    for field, value in (("purpose", "game"), ("budget_max", 2_000_000), ("priority", "performance"), ("resolution", "FHD_144")):
+        assert c.patch(f"/session/{list_id}/slot", json={"field": field, "value": value}).status_code == 200
+    r = c.post(f"/session/{list_id}/preference-hint/{signal['id']}/respond", json={"accepted": True})
+    assert r.status_code == 200, r.text
+    assert r.json()["applied"] is False
+
+    assert raw_conn.execute(
+        "SELECT count(*) FROM planning.plan_condition pc JOIN planning.plan_revision pr ON pr.id = pc.revision_id "
+        "WHERE pr.plan_id = %s AND pc.condition_key='brand_pref' AND pc.status='active'", (list_id,),
+    ).fetchone()[0] == 0
+    assert any(s["id"] == signal["id"] for s in PreferenceRepo(raw_conn).list_active(user_id, dimension="brand"))
+
+    assert c.post(f"/session/{list_id}/recommend").status_code == 202
+    assert c.get(f"/session/{list_id}/result").json()["status"] == "done"
 
 
 def test_preference_hint_respond_reject_dismisses_signal_without_touching_condition(raw_conn):
