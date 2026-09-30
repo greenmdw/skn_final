@@ -10,6 +10,7 @@ import { wonFmt } from '../utils/format'
 import { newId } from '../utils/id'
 import { useToast } from './ToastContext'
 import { PlanContext, type PlanContextValue } from './PlanContext'
+import { useAuthUser } from './authStore'
 
 const INITIAL_GREETING = '안녕하세요! TrueFit입니다.\n어떤 PC가 필요하신가요?\n\n하고 싶은 일과 원하는 성능을 말씀해주세요.'
 const initialState: PlanState = {
@@ -131,6 +132,39 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const sendConditionAnswer = useCallback((sessionId: string, questionId: string, value: string) => {
     runConditionTurn(() => api.conditions.answer(sessionId, questionId, [value]))
   }, [runConditionTurn])
+  // 새로 시작할 때 같은 사용자의 지난 목록이 있으면 그 조건으로 이어갈지 묻는다(A1). 값은 "이어서 하기"를 눌러야
+  // 서버가 복사한다 — 묻기만 하고 자동으로 채우지 않는다. 조회가 실패해도 인사말만 남고 조용히 넘어간다.
+  // 가장 나중에 보낸 조회의 답만 쓰고, 앞서 붙인 제안(다른 사용자로 물었던 것)은 지운다.
+  const offerSeq = useRef(0)
+  const offerPrevious = useCallback(() => {
+    const mine = epoch.current
+    const seq = ++offerSeq.current
+    api.conditions.previous()
+      .then(previous => {
+        if (seq !== offerSeq.current || mine !== epoch.current || stateRef.current.stage !== 0) return
+        setMessages(prev => {
+          const kept = prev.filter(m => !m.choices?.some(c => c.resumeFrom))
+          return previous ? [...kept, makeMessage('bot', previous.summary, [
+            { label: '이어서 하기', value: 'resume', resumeFrom: previous.listId },
+            { label: '새로 시작', value: 'fresh', startFresh: true },
+          ])] : kept
+        })
+      })
+      .catch(() => {})
+  }, [])
+  // 작업이 비어 있을 때(stage 0)만 묻고, 사용자가 바뀌거나(로그인·로그아웃은 페이지를 새로 읽지 않는다) 작업이
+  // 다시 비워지면(새 설계·로그아웃·세션 소실로 dropStaleSession) 다시 묻는다. 앱을 연 순간 한 번만 물으면 로그인한
+  // 사용자의 지난 견적을 놓친다. 같은 사용자·같은 빈 작업으로는 한 번만(StrictMode 는 effect 를 두 번 돌린다).
+  const authUser = useAuthUser()
+  const idle = state.stage === 0
+  const offeredFor = useRef<string | null>(null)
+  useEffect(() => {
+    if (!idle) { offeredFor.current = null; return }
+    const who = authUser?.email ?? ''
+    if (offeredFor.current === who) return
+    offeredFor.current = who
+    offerPrevious()
+  }, [authUser, idle, offerPrevious])
 
   const handleInput = useCallback((text: string) => {
     const clean = text.trim()
@@ -158,13 +192,24 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   // 보낸다 — 예전에는 값 문자열을 그대로 말풍선에 띄우고 자유 문장으로 보내서 "value" 가 보였다.
   const handleChoice = useCallback((choice: ChatChoice) => {
     const sessionId = stateRef.current.sessionId
+    if (choice.resumeFrom) {
+      addMessage('user', choice.label)
+      const from = choice.resumeFrom
+      runConditionTurn(() => api.conditions.resume(stateRef.current.sessionId, from))
+      return
+    }
+    if (choice.startFresh) {
+      addMessage('user', choice.label)
+      addMessage('bot', '좋아요, 새로 시작할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.')
+      return
+    }
     if (choice.questionId && sessionId && stateRef.current.stage <= 2) {
       addMessage('user', choice.label)
       sendConditionAnswer(sessionId, choice.questionId, choice.value)
       return
     }
     handleInput(choice.value)
-  }, [addMessage, sendConditionAnswer, handleInput])
+  }, [addMessage, sendConditionAnswer, handleInput, runConditionTurn])
   // 현재 조건(예산 포함)으로 서버 추천을 새로 받는다. 처음 시작할 때와, 구성이 나온 뒤 예산을 바꿨을 때 같이 쓴다.
   const runAnalysis = useCallback((intro: string) => {
     const current = stateRef.current

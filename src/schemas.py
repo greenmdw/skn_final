@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -323,6 +324,46 @@ class ConditionState(BaseModel):
     can_recommend: bool = False
     accepts_spec_file: bool = False
     budget_warning: BudgetWarningOut | None = None   # 예산이 빠듯/불가능할 때만 채운다
+
+
+class PreviousFieldOut(BaseModel):
+    key: str
+    label: str | None = None
+    display: str
+
+
+class PreviousConditionsOut(BaseModel):
+    """GET /session/previous — 지난 목록에서 이어 쓸 조건(A1). 값은 resume 을 부를 때만 복사된다."""
+    list_id: str
+    name: str
+    confirmed: bool
+    last_active_at: str
+    fields: list[PreviousFieldOut]
+    summary: str
+
+
+class PreviousLookupOut(BaseModel):
+    previous: PreviousConditionsOut | None = None
+
+
+class ResumeIn(BaseModel):
+    from_list_id: UUID
+
+
+class PreviousComparisonOut(BaseModel):
+    """GET /session/{id}/previous-comparison — 이전 견적과 비교(B1). available=False 면 reason 만 있다.
+    reasons 는 {slot, label, kind(requirement|unexplained), claim, evidence[], source} — 문장(text)은 이것만 가지고 만든다."""
+    available: bool
+    reason: str | None = None
+    text: str
+    previous_list_id: str | None = None
+    previous_label: str | None = None
+    condition_changes: list[dict] = Field(default_factory=list)
+    part_changes: list[dict] = Field(default_factory=list)
+    unchanged: list[str] = Field(default_factory=list)
+    reasons: list[dict] = Field(default_factory=list)
+    totals: dict | None = None
+    caveats: list[str] = Field(default_factory=list)
 
 
 # ── recommend / result (§D-4-2) ──

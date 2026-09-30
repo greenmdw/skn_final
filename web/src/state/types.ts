@@ -142,7 +142,8 @@ export interface CurrentPlan {
 }
 
 /** 채팅 선택지. questionId 가 있으면 서버 조건 질문의 선택지 — value 는 서버 내부 값이라 화면에는 label 만 보인다. */
-export interface ChatChoice { label: string; value: string; questionId?: string }
+// resumeFrom: 지난 목록 id — 누르면 그 목록의 조건을 이어 쓴다(A1). startFresh: 이어 쓰지 않고 새로 시작.
+export interface ChatChoice { label: string; value: string; questionId?: string; resumeFrom?: string; startFresh?: boolean }
 
 export interface ReviewRow {
   part: string

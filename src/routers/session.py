@@ -21,6 +21,18 @@ def create(response: Response, principal: Principal = Depends(optional_principal
     )
     return schemas.SessionOut(list_id=result["list_id"])
 
+# /{list_id} 보다 먼저 등록해야 한다 — 아니면 "previous"가 UUID 검증에 걸려 422가 난다.
+@router.get("/previous", response_model=schemas.PreviousLookupOut)
+def previous(
+    category: str,
+    mode: str | None = None,
+    exclude: UUID | None = None,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.PreviousLookupOut:
+    with get_conn() as conn:
+        found = session_service.previous_conditions(conn, principal, category, mode, exclude)
+    return schemas.PreviousLookupOut(previous=found)
+
 @router.get("/{list_id}", response_model=schemas.ConditionState)
 def get_session(
     list_id: UUID,
@@ -71,6 +83,15 @@ def answer(
             conn, list_id, body.question_id, body.selected, principal,
         ))
 
+@router.post("/{list_id}/resume", response_model=schemas.ConditionState)
+def resume(
+    list_id: UUID,
+    body: schemas.ResumeIn,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.ConditionState:
+    with get_conn() as conn:
+        return schemas.ConditionState(**session_service.resume_previous(conn, list_id, body.from_list_id, principal))
+
 @router.post("/{list_id}/reset", response_model=schemas.ConditionState)
 def reset(
     list_id: UUID,
@@ -104,6 +125,13 @@ def result(list_id: UUID, principal: Principal = Depends(optional_principal)) ->
     if stored is None:
         raise NotFound("추천 실행 결과가 없습니다. 먼저 /recommend 를 호출하세요.")
     return schemas.RecommendResultOut(**stored)
+
+@router.get("/{list_id}/previous-comparison", response_model=schemas.PreviousComparisonOut)
+def previous_comparison(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.PreviousComparisonOut:
+    from src.services.previous_compare import compare_with_previous
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        return schemas.PreviousComparisonOut(**compare_with_previous(conn, revision["id"]))
 
 @router.patch("/{list_id}/items/{item_id}", response_model=schemas.RecommendResultOut)
 def patch_item(list_id: UUID, item_id: UUID, body: schemas.ItemPatchIn, principal: Principal = Depends(optional_principal)) -> schemas.RecommendResultOut:

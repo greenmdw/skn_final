@@ -83,6 +83,10 @@ export interface WireNextQuestion {
   select: 'single' | 'multi' | 'free' | string
   options: { value: unknown; label?: string }[]
 }
+export interface WirePreviousLookup {
+  previous: { list_id: string; name: string; confirmed: boolean; last_active_at: string; summary: string;
+    fields: { key: string; label: string | null; display: string }[] } | null
+}
 export interface WireConditionState {
   list_id: string
   category: string | null
