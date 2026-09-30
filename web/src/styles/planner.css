@@ -20,6 +20,7 @@
 .pl-nav a:hover { color: var(--text); }
 .pl-spacer { flex: 1; }
 .pl-pill { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; height: 32px; padding: 0 12px; font-size: 13px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; white-space: nowrap; }
+.pl-pill.on { border-color: var(--mint); color: var(--mint); font-weight: 600; }
 .pl-pill.mint { border: 0; background: var(--mint); color: var(--on-mint); font-weight: 600; }
 .pl-user { font-size: 13px; color: var(--muted); white-space: nowrap; }
 

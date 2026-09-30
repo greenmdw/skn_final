@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { api, type ConversationSummary } from '../api'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { usePlan } from '../state/PlanContext'
 import { planTotal } from '../state/planModel'
@@ -7,14 +8,33 @@ import { logout, useAuthUser } from '../state/authStore'
 import { wonFmt } from '../utils/format'
 import '../styles/sidepanel.css'
 
-// 플래너 화면 왼쪽의 접이식 패널: 새 견적 · 작성 중인 견적 · 저장한 견적 · 사용자/로그아웃.
-// 접으면 아이콘만 남는 56px 한 줄이 된다. 서버가 견적별 대화 제목·견적서 묶음을 주지 않으므로 그 부분은 만들지 않는다
-// (docs/개발요청_백엔드_및_타팀.md 10번 참고).
+// 플래너 화면 왼쪽의 접이식 패널: 새 견적 · 작성 중인 견적 · 저장한 견적(견적서 여러 개면 펼침) · 대화 내역 · 사용자/로그아웃.
+// 접으면 아이콘만 남는 56px 한 줄이 된다. 대화 내역은 서버 목록(GET /lists) 하나가 대화 하나다
+// (docs/개발요청_백엔드_및_타팀.md 10번).
 const KEY = 'truefit.sidepanel.collapsed'
+type Tab = 'saved' | 'history'
+const STAGE_LABEL: Record<ConversationSummary['stage'], string> = {
+  category: '시작 전', conditions: '조건 정하는 중', results: '추천 결과', report: '확정',
+}
+
+function shortDate(iso: string | null): string {
+  if (!iso) return ''
+  const date = new Date(iso)
+  const today = new Date()
+  return date.toDateString() === today.toDateString()
+    ? date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
+}
 
 const Icon = ({ children }: { children: ReactNode }) => (
   <svg className="sp-ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
 )
+
+// 화면을 옮기면 패널이 새로 그려진다 — 대화 내역에서 대화를 연 뒤에도 같은 탭이 보이게 선택을 기억한다.
+const TAB_KEY = 'truefit.sidepanel.tab'
+function readTab(): Tab {
+  try { return localStorage.getItem(TAB_KEY) === 'history' ? 'history' : 'saved' } catch { return 'saved' }
+}
 
 function readCollapsed() {
   try { return localStorage.getItem(KEY) === '1' } catch { return false }
@@ -24,10 +44,32 @@ export default function SidePanel() {
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [menuOpen, setMenuOpen] = useState(false)
   const user = useAuthUser()
-  const { state, resetPlan } = usePlan()
+  const { state, resetPlan, openConversation } = usePlan()
   const { savedSetups, loading, storageError, removeSetup } = useSetups()
   const navigate = useNavigate()
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
+  const [tab, setTab] = useState<Tab>(readTab)
+  const [conversations, setConversations] = useState<ConversationSummary[] | null>(null)
+  const [historyError, setHistoryError] = useState('')
+
+  useEffect(() => {
+    try { localStorage.setItem(TAB_KEY, tab) } catch { /* 보관 실패는 무시 */ }
+  }, [tab])
+  // 대화 내역은 탭을 열 때와, 열어 둔 채 화면을 옮길 때(대화가 늘었을 수 있다) 다시 읽는다.
+  useEffect(() => {
+    if (tab !== 'history') return
+    let alive = true
+    api.lists.list()
+      .then(items => { if (alive) { setConversations(items); setHistoryError('') } })
+      .catch(() => { if (alive) setHistoryError('대화 내역을 불러오지 못했어요.') })
+    return () => { alive = false }
+  }, [tab, pathname, user?.email, savedSetups])
+
+  async function openHistory(item: ConversationSummary) {
+    if (item.stage === 'report') { navigate('/report/' + item.listId); return }
+    const opened = await openConversation(item.listId, item.stage === 'results')
+    if (opened) navigate(opened === 'plan' ? '/plan' : '/start')
+  }
 
   useEffect(() => {
     try { localStorage.setItem(KEY, collapsed ? '1' : '0') } catch { /* 보관 실패는 무시 */ }
@@ -70,7 +112,27 @@ export default function SidePanel() {
           </button>
         </div>
 
-        <div className="sp-list">
+        <div className="sp-tabs" role="tablist" aria-label="패널 보기">
+          <button type="button" role="tab" aria-selected={tab === 'saved'} className={tab === 'saved' ? 'on' : ''} onClick={() => setTab('saved')}>견적</button>
+          <button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'on' : ''} onClick={() => setTab('history')}>대화 내역</button>
+        </div>
+
+        {tab === 'history' && (
+          <div className="sp-list">
+            {historyError && <div className="sp-note bad" role="alert">{historyError}</div>}
+            {!historyError && conversations === null && <div className="sp-note">불러오는 중이에요…</div>}
+            {conversations?.length === 0 && <div className="sp-note">아직 나눈 대화가 없어요. 새 견적으로 시작해 보세요.</div>}
+            {conversations?.map(item => (
+              <button type="button" key={item.listId} onClick={() => void openHistory(item)}
+                className={'sp-item sp-item-btn' + (state.sessionId === item.listId ? ' on' : '')}>
+                <span className="sp-name">{item.firstMessage || item.name}</span>
+                <span className="sp-meta">{[STAGE_LABEL[item.stage], item.conditionsSummary, shortDate(item.lastActiveAt)].filter(Boolean).join(' · ')}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="sp-list" hidden={tab !== 'saved'}>
           {inProgress && (
             <>
               <div className="sp-group">진행 중</div>
@@ -95,13 +157,25 @@ export default function SidePanel() {
           )}
           {savedSetups.map(setup => {
             const to = '/report/' + setup.id
+            const reports = setup.reports ?? []
+            const openVersion = pathname === to ? Number(new URLSearchParams(search).get('v')) || setup.revisionNo : null
             return (
-              <div key={setup.id} className={'sp-item with-del' + (pathname === to ? ' on' : '')}>
-                <Link to={to} className="sp-item-link">
-                  <span className="sp-name">{setup.title}</span>
-                  <span className="sp-meta">{[wonFmt(planTotal(setup.plan)), setup.date, `부품 ${setup.plan.items.length}개`].filter(Boolean).join(' · ')}</span>
-                </Link>
-                <button type="button" className="sp-del" aria-label={`${setup.title} 삭제`} onClick={() => void remove(setup.id, setup.title)}>삭제</button>
+              <div key={setup.id}>
+                <div className={'sp-item with-del' + (pathname === to && reports.length < 2 ? ' on' : '')}>
+                  <Link to={to} className="sp-item-link">
+                    <span className="sp-name">{setup.title}</span>
+                    <span className="sp-meta">{[wonFmt(planTotal(setup.plan)), setup.date, `부품 ${setup.plan.items.length}개`,
+                      reports.length > 1 ? `견적서 ${reports.length}개` : ''].filter(Boolean).join(' · ')}</span>
+                  </Link>
+                  <button type="button" className="sp-del" aria-label={`${setup.title} 삭제`} onClick={() => void remove(setup.id, setup.title)}>삭제</button>
+                </div>
+                {reports.length > 1 && [...reports].reverse().map(report => (
+                  <Link key={report.revisionNo} to={`${to}?v=${report.revisionNo}`}
+                    className={'sp-item sp-sub' + (openVersion === report.revisionNo ? ' on' : '')}>
+                    <span className="sp-name">견적서 {report.revisionNo} · {report.name}</span>
+                    <span className="sp-meta">{[wonFmt(report.total), `부품 ${report.itemCount}개`, shortDate(report.confirmedAt)].join(' · ')}</span>
+                  </Link>
+                ))}
               </div>
             )
           })}

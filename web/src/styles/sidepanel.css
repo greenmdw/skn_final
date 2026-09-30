@@ -49,5 +49,14 @@
 .sp-root.collapsed .sp-user { position: absolute; left: 0; right: 0; bottom: 0; }
 .sp-root.collapsed .sp-pop { left: 60px; right: auto; bottom: 8px; min-width: 140px; }
 
+/* 탭(견적 / 대화 내역) · 대화 내역 줄 · 견적서 여러 개 펼침 (개발요청 10번) */
+.sp-tabs { display: flex; gap: 4px; padding: 4px 8px 0; }
+.sp-tabs button { flex: 1; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+.sp-tabs button.on { background: var(--ink); color: var(--text); }
+.sp-list[hidden] { display: none; }
+.sp-item-btn { width: 100%; border: 0; background: transparent; text-align: left; font: inherit; cursor: pointer; }
+.sp-sub { margin-left: 14px; padding: 6px 10px; border-left: 1px solid var(--line); border-radius: 0 10px 10px 0; }
+.sp-root.collapsed .sp-tabs { display: none; }
+
 @media (max-width: 900px) { .sp-root:not(.collapsed) { position: absolute; top: 0; bottom: 0; left: 0; box-shadow: 8px 0 24px rgba(0,0,0,.5); } .pl-body { position: relative; padding-left: 56px; } .sp-root.collapsed { position: absolute; top: 0; bottom: 0; left: 0; } }
 @media print { .sp-root { display: none; } }

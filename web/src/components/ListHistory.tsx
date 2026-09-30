@@ -8,7 +8,7 @@ const KIND_LABEL: Record<HistoryEventKind, string> = {
   condition: '조건', recommend: '추천', question: '질문', swap: '교체', remove: '제외', confirm: '확정',
 }
 
-export default function ListHistory({ listId }: { listId: string }) {
+export default function ListHistory({ listId, revisionNo }: { listId: string; revisionNo?: number }) {
   const [history, setHistory] = useState<History | null>(null)
   const [failed, setFailed] = useState(false)
 
@@ -16,11 +16,11 @@ export default function ListHistory({ listId }: { listId: string }) {
     let alive = true
     setHistory(null)
     setFailed(false)
-    api.setups.history(listId)
+    api.setups.history(listId, revisionNo)
       .then(result => { if (alive) setHistory(result) })
       .catch(() => { if (alive) setFailed(true) })
     return () => { alive = false }
-  }, [listId])
+  }, [listId, revisionNo])
 
   return (
     <section className="pl-history" aria-labelledby="pl-history-title">

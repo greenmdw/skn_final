@@ -1,3 +1,4 @@
+import type { ReportSummary } from '../api/types'
 // 백엔드 추천이 내는 8개 슬롯(cpu·gpu·ram·board·ssd·psu·case·cooler)과 목업에만 있던 monitor.
 export type PartKey = 'cpu' | 'gpu' | 'ram' | 'ssd' | 'monitor' | 'board' | 'psu' | 'case' | 'cooler'
 
@@ -67,7 +68,12 @@ export interface ChatMessage {
 }
 
 export interface SavedSetup {
+  /** 서버 목록(list) id. 목록 하나에 확정 견적서가 여러 개일 수 있다 — 이 값은 그중 revisionNo 번 견적서다 */
   id: string
+  /** 목록 안의 견적서 번호(1부터). 예전에 저장된 값에는 없다 */
+  revisionNo?: number
+  /** 같은 목록의 확정 견적서 전체(오래된 것부터). 목록 조회로 받은 최신 견적서에만 있다 */
+  reports?: ReportSummary[]
   title: string
   date: string
   target: number

@@ -1,4 +1,4 @@
-import type { Api, ConditionTurnResult } from '../types'
+import type { Api, ConditionTurnResult, LoadedConversation } from '../types'
 import { request } from './client'
 import { budgetWarningFromWire, choicesFromWire, fieldsFromWire, replyTextFromWire } from './mapping'
 import { asSessionGone, isNotFound } from './session'
@@ -22,6 +22,15 @@ function toResult(sessionId: string, state: WireConditionState): ConditionTurnRe
     choices: choicesFromWire(state.next_question),
     canRecommend: state.can_recommend,
     budgetWarning: budgetWarningFromWire(state.budget_warning),
+  }
+}
+
+// 서버에 저장된 대화를 화면 말풍선으로. assistant·system 은 챗봇 말로 보이고, 빈 말은 뺀다. 칩(선택지)은 저장되지
+// 않으므로 마지막 질문의 선택지만 다시 붙인다(toResult 의 choices — 화면이 마지막 챗봇 말에 붙인다).
+export function loadedFromWire(sessionId: string, state: WireConditionState): LoadedConversation {
+  return {
+    turn: toResult(sessionId, state),
+    messages: state.messages.filter(m => m.text.trim()).map(m => ({ role: m.role === 'user' ? 'user' : 'bot', text: m.text })),
   }
 }
 
@@ -51,6 +60,11 @@ export const conditions: Api['conditions'] = {
     try {
       const state = await request<WireConditionState>('PATCH', '/session/' + sessionId + '/slot', { field, value })
       return toResult(sessionId, state)
+    } catch (error) { throw asSessionGone(error) }
+  },
+  async load(sessionId) {
+    try {
+      return loadedFromWire(sessionId, await request<WireConditionState>('GET', '/session/' + sessionId))
     } catch (error) { throw asSessionGone(error) }
   },
   async exists(sessionId) {

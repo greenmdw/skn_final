@@ -33,6 +33,10 @@ export interface PlanContextValue {
   resetPlan: () => void
   loadFromSavedSetup: (setup: SavedSetup) => void
   startUpgradeMode: () => Promise<boolean>
+  /** 지난 대화를 서버에서 읽어 연다. hasResult 면 추천 결과까지. 열린 화면('plan'|'conditions'), 실패하면 null */
+  openConversation: (listId: string, hasResult: boolean) => Promise<'plan' | 'conditions' | null>
+  /** 확정한 견적의 조건으로 새 견적서를 시작한다(조건 대화로). 성공하면 true */
+  startNewRevision: (listId: string) => Promise<boolean>
 }
 export const PlanContext = createContext<PlanContextValue | null>(null)
 

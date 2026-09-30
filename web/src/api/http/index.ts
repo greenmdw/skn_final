@@ -3,6 +3,7 @@ import { auth } from './auth'
 import { chat } from './chat'
 import { checks } from './checks'
 import { conditions } from './conditions'
+import { lists } from './lists'
 import { plans } from './plans'
 import { setups } from './setups'
 
@@ -10,4 +11,4 @@ import { setups } from './setups'
 // 추천 구성, 구성 뒤의 후속 질문(부품 교체 포함), 확정·리포트·삭제.
 // 견적 점검의 업그레이드 제안은 서버의 업그레이드 추천을 그대로 돌린 것이다(성능 변화 폭·소비전력은 서버가 계산하지 않는다).
 // 아직 목업인 것: 점검 화면의 대화(reviewReply) — 백엔드에 해당 API가 없다.
-export const httpApi: Api = { auth, plans, setups, chat, conditions, checks }
+export const httpApi: Api = { auth, plans, lists, setups, chat, conditions, checks }
