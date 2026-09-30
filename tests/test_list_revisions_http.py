@@ -1,7 +1,8 @@
 """개발요청 10번 — 대화 목록(GET /lists 보강)과 견적 1개 : 견적서 N개(POST /lists/{id}/revisions).
 
-견적서 하나 = 확정된 plan_revision 하나. 확정 뒤 새 견적서를 시작하면 조건을 복사한 draft revision 이 현재가 되고,
-앞 견적서의 리포트·히스토리·알림은 revision 번호로 그대로 열린다. 일회용 DB 가 필요하다."""
+견적서 하나 = 확정된 plan_revision 하나. 확정 뒤 새 견적서를 시작하면 조건과 부품 구성(추천 결과)을 복사한
+draft revision 이 현재가 되고(개발요청 8번, `PlanRepo.clone_revision`), 앞 견적서의 리포트·히스토리·알림은
+revision 번호로 그대로 열린다. 일회용 DB 가 필요하다."""
 from __future__ import annotations
 
 import os
@@ -62,9 +63,11 @@ def test_second_quote_sheet_keeps_the_first_and_opens_both_by_number():
     again = c.post(f"/lists/{lid}/revisions").json()           # 두 번 눌러도 새 draft 는 하나
     assert again["revision_id"] == state["revision_id"]
 
-    # 새 견적서를 쓰는 동안에도 첫 견적서의 리포트·알림은 그대로 열린다
+    # 새 견적서를 쓰는 동안에도 첫 견적서의 리포트·알림은 그대로 열린다.
+    # stage 가 "results" 인 이유(개발요청 8번): 조건만이 아니라 확정본의 부품 구성까지
+    # 복사돼서, 재추천 없이 바로 결과를 갖고 시작한다 — "conditions"로 되돌아가지 않는다.
     item = _list_item(c, lid)
-    assert item["stage"] == "conditions" and len(item["reports"]) == 1
+    assert item["stage"] == "results" and len(item["reports"]) == 1
     assert c.get(f"/lists/{lid}/report").json()["name"] == "견적서 A"
     assert c.get(f"/lists/{lid}/alert").json()["target_amount"] == 1_000_000
 

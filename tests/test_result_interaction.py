@@ -89,7 +89,8 @@ def test_alternatives_and_swap_keep_item_id_stable(ctx):
 
     alts = recommendation_service.list_alternatives(ctx.conn, revision_id, item_id)
     assert alts["items"]
-    target = alts["items"][0]
+    # 개발요청 2번 — 목록에 지금 고른 제품도 current=True로 포함되니, 실제로 바꿀 후보만 고른다.
+    target = next(a for a in alts["items"] if not a["current"])
     assert target["candidate_id"] != item["product"]["variant_id"]
 
     swapped = recommendation_service.swap_item(ctx.conn, revision_id, item_id, uuid.UUID(target["candidate_id"]))

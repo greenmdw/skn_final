@@ -39,10 +39,6 @@ CONDITIONS_AGENT: bool = os.getenv("CONDITIONS_AGENT", "0") == "1"
 # 자유 텍스트를 LLM 도구 호출(후보 조회·교체·담기/빼기·수량·시점·근거 설명)로 처리한다. 기본 "0" — 규칙 경로.
 RESULT_AGENT: bool = os.getenv("RESULT_AGENT", "0") == "1"
 QUOTE_REVIEW_AGENT: bool = os.getenv("QUOTE_REVIEW_AGENT", "0") == "1"    # 견적 점검 되묻기(CHAT-04) — 꺼져 있으면 규칙 경로
-# 조립 가이드 에이전트(src/agent/assembly_guide_agent.py, Strands Agents SDK). "1"이면 결과 화면의
-# 확정된 부품 목록으로 조립 순서·주의사항 가이드를 만든다. 기본 "0" — opt-in. MOCK_MODE=1이거나
-# OPENAI_API_KEY·LLM_MODEL이 비면 켜도 규칙 기반 폴백(검색은 실제로 하되 문장은 템플릿)으로 간다.
-ASSEMBLY_GUIDE_AGENT: bool = os.getenv("ASSEMBLY_GUIDE_AGENT", "0") == "1"
 # 견적 점검 사양 추출 에이전트(src/agent/spec_extraction_agent.py). "1"이면 업로드한 사양 파일·자유 텍스트
 # (유튜브 견적 설명 등)에서 부품별 문구를 LLM 구조화 출력으로 뽑는다. 기본 "0" — opt-in. MOCK_MODE=1이거나
 # OPENAI_API_KEY·LLM_MODEL이 비면 켜도 규칙 기반 파서(key: value 줄만 인식, src/engine/spec_text.py)로 간다.

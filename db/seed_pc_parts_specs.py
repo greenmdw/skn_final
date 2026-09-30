@@ -15,6 +15,7 @@ offer_observation 경로를 그대로 쓴다(seed_catalog.py와 동일 패턴). 
 """
 from __future__ import annotations
 
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,6 +32,22 @@ _XLSX_PATH = DATA_DIR / "parts_list_modify.xlsx"
 _SOURCE_NAME = "다나와 수집 데이터 (PC 부품)"
 _MERCHANT_PLATFORM = "danawa"
 _MERCHANT_SELLER_ID = "danawa-aggregate"
+
+# 리뷰 수집 작업(2026-09-27) 중 이미 검증해 둔 product_key -> 다나와 상품코드(pcode) 매핑
+# (config/danawa_product_pcode.json — ID 쌍만 담은 작은 파일, 스크랩 원문 없음). 322개 중
+# 241개가 여기 있다. 나머지는 개별 매칭이 없어 고정 상품 페이지로 대체한다.
+_PCODE_MAP_PATH = Path(__file__).resolve().parent.parent / "config" / "danawa_product_pcode.json"
+_PCODE_MAP: dict[str, str] = json.loads(_PCODE_MAP_PATH.read_text(encoding="utf-8"))
+
+# 매칭이 없는 나머지 부품에 쓰는 고정 상품 페이지("다나와표준PC 게임용" — 다나와 자체 기준
+# 상품이라 임의 판매자 상품보다 안 내려갈 가능성이 높다). 실제 그 부품 페이지는 아니다 —
+# 화면 문구도 "구매하기"가 아니라 "다나와에서 찾아보기"로 둘 것.
+DANAWA_PLACEHOLDER_PRODUCT_URL = "https://prod.danawa.com/info/?pcode=95055290"
+
+
+def _purchase_url(external_offer_id: str) -> str:
+    pcode = _PCODE_MAP.get(external_offer_id)
+    return f"https://prod.danawa.com/info/?pcode={pcode}" if pcode else DANAWA_PLACEHOLDER_PRODUCT_URL
 _MERCHANT_NAME = "다나와 가격비교"
 
 # 시트명 -> (product_type 슬러그, 전용 스펙 테이블, {엑셀 헤더: DB 컬럼} 매핑)
@@ -197,7 +214,12 @@ def main() -> int:
                 variant_id = repo.upsert_variant(product_id, "default", attributes={})
 
                 external_offer_id = f"{product_type}:{brand}:{model}".lower().replace(" ", "-")
-                purchase_url = _clean(row.get("상품 URL")) or f"https://search.danawa.com/dsearch.php?query={model}"
+                # 엑셀 "상품 URL"은 제조사 사양 페이지라 구매 링크로 못 쓴다(원본 데이터 그대로).
+                # config/danawa_product_pcode.json에 매칭이 있으면(322개 중 241개) 그 부품의
+                # 실제 다나와 상품 페이지로, 없으면 고정 플레이스홀더 페이지로 — 단순 링크라
+                # 저작권 문제 없음(새 탭으로 열어 iframe 임베드도 안 함). 플레이스홀더로 빠진
+                # 부품은 실제 그 부품 페이지가 아니라는 점을 화면 문구로 알린다.
+                purchase_url = _purchase_url(external_offer_id)
                 offer_id = repo.upsert_offer(variant_id, merchant_id, external_offer_id, purchase_url)
 
                 price = row.get("가격")

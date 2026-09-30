@@ -709,6 +709,18 @@ def patch_item(conn, revision_id: UUID, item_id: UUID, *, selected: bool | None,
     return get_stored_result(conn, revision_id)
 
 
+def _current_candidate_as_variant_row(current: dict) -> dict:
+    """engine.get_candidates() 행(`product_name` 등 다른 컬럼명)을 candidates_by_slot() 행과 같은
+    모양으로 바꿔 `_alternative_out`에 그대로 넘길 수 있게 한다."""
+    return {
+        "variant_id": current["variant_id"], "product_id": current.get("product_id"),
+        "product_key": current.get("product_key"), "product_type": current.get("product_type"),
+        "name": current.get("product_name"), "brand": current.get("brand"),
+        "attributes": current.get("attributes"), "image_url": current.get("image_url"),
+        "purchase_url": current.get("purchase_url"), "price": current.get("price"),
+    }
+
+
 def _alternative_out(row: dict, *, current: bool, current_price: int) -> dict:
     from src.repo.catalog_repo import PC_TYPE_TO_SLOT, pc_catalog_key
     price = int(row["price"]) if row.get("price") is not None else 0
@@ -831,6 +843,30 @@ def _games_trace_row(spec) -> tuple[str, str] | None:
     return ("게임 요구사양", detail)
 
 
+_SIMILAR_TIER_ALTERNATIVES = 3
+
+
+def _name_dedupe_key(name: str) -> str:
+    """표기만 다른 같은 제품(`RTX 3050 (6GB)` vs `RTX 3050 6GB`)을 하나로 묶는 키."""
+    return re.sub(r"[^0-9a-z가-힣]", "", (name or "").lower())
+
+
+def _dedupe_alternatives_by_name(variants: list[dict]) -> list[dict]:
+    """이름만 다르게 중복 등록된 같은 제품 중 더 싼 쪽만 남긴다(개발요청 2번)."""
+    best: dict[str, dict] = {}
+    order: list[str] = []
+    for row in variants:
+        key = _name_dedupe_key(row.get("name"))
+        price = row["price"] if row.get("price") is not None else 0
+        prev = best.get(key)
+        if prev is None:
+            order.append(key)
+            best[key] = row
+        elif price < (prev["price"] if prev.get("price") is not None else 0):
+            best[key] = row
+    return [best[k] for k in order]
+
+
 def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
     from src.repo.product_repo import ProductRepo
     erepo, run = _require_done_run(conn, revision_id)
@@ -841,10 +877,25 @@ def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
     from src.repo.plan_repo import PlanRepo
     cvals = {r["condition_key"]: r["value"].get("value") for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
     slot_variants = _drop_incompatible_alternatives(conn, stored, current, slot_variants, cvals)
-    items = [
+    slot_variants = _dedupe_alternatives_by_name(slot_variants)
+    others = [row for row in slot_variants if row["variant_id"] != current["variant_id"]]
+
+    current_tier = (current.get("attributes") or {}).get("perf_tier")
+    if current_tier is not None:
+        # 워크스테이션·전문가용까지 섞인 전체 카탈로그 대신, 지금 고른 성능 등급에 가까운 후보만
+        # 추린다(개발요청 2번 — "비슷한 성능 3개"). 같은 등급 차이면 가격이 가까운 쪽을 우선한다.
+        def _distance(row: dict) -> tuple[float, int]:
+            tier = (row.get("attributes") or {}).get("perf_tier")
+            tier_gap = abs(float(tier) - float(current_tier)) if tier is not None else float("inf")
+            price = row["price"] if row.get("price") is not None else 0
+            return (tier_gap, abs(price - current_price))
+
+        others = sorted(others, key=_distance)[:_SIMILAR_TIER_ALTERNATIVES]
+
+    items = [_alternative_out(_current_candidate_as_variant_row(current), current=True, current_price=current_price)]
+    items += [
         _alternative_out(row, current=False, current_price=current_price)
-        for row in sorted(slot_variants, key=lambda r: r["price"] if r["price"] is not None else 0)
-        if row["variant_id"] != current["variant_id"]
+        for row in sorted(others, key=lambda r: r["price"] if r["price"] is not None else 0)
     ]
     return {"items": items}
 
