@@ -526,6 +526,51 @@ def test_preference_hint_respond_reject_dismisses_signal_without_touching_condit
     assert row[0] == 0
 
 
+def _signed_up_client(raw_conn, tag: str):
+    email = f"{tag}-{uuid4().hex[:12]}@example.test"
+    c = TestClient(app)
+    assert c.post("/auth/signup", json={
+        "email": email, "password": "abcd1234", "display_name": tag,
+        "terms_agreed": True, "privacy_agreed": True, "marketing_agreed": False,
+    }).status_code == 201
+    return c, _current_user_id(raw_conn, email.lower())
+
+
+def _swap_gpu_to_another_brand(c) -> tuple[str, str]:
+    """새 목록에서 추천을 받고 GPU 를 다른 브랜드 후보로 한 번 바꾼다. (뺀 브랜드, 넣은 브랜드)."""
+    list_id = _create(c)
+    _choose_computer(c, list_id)
+    for field, value in (("purpose", "game"), ("budget_max", 2_000_000), ("priority", "performance"), ("resolution", "FHD_144")):
+        assert c.patch(f"/session/{list_id}/slot", json={"field": field, "value": value}).status_code == 200
+    assert c.post(f"/session/{list_id}/recommend").status_code == 202
+    result = c.get(f"/session/{list_id}/result").json()
+    gpu = next(it for it in result["items"] if it["slot"] == "GPU")
+    alts = c.get(f"/session/{list_id}/items/{gpu['item_id']}/alternatives").json()["items"]
+    other = next(a for a in alts if not a["current"] and a["product"]["brand"] != gpu["product"]["brand"])
+    assert c.post(f"/session/{list_id}/items/{gpu['item_id']}/swap", json={"candidate_id": other["candidate_id"]}).status_code == 200
+    return gpu["product"]["brand"], other["product"]["brand"]
+
+
+def test_repeated_swaps_surface_a_hint_without_anyone_running_the_batch(raw_conn):
+    """스케줄러가 없다 — 되묻기 조회가 그 사용자 것만 다시 세야 교체에서 신호가 생긴다(예전엔 batch.run 을
+    아무도 안 불러서 앱에서는 inferred 신호가 0건이었다). 다른 사용자의 교체는 섞이지 않는다."""
+    c, user_id = _signed_up_client(raw_conn, "live-hint")
+    other_c, other_id = _signed_up_client(raw_conn, "live-other")
+    pairs = {_swap_gpu_to_another_brand(c) for _ in range(preference_signal_batch.REPEAT_THRESHOLD)}
+    assert len(pairs) == 1, pairs                                  # 같은 조건이라 같은 방향으로 세 번
+    (dropped, picked), = pairs
+    _swap_gpu_to_another_brand(other_c)
+
+    hint = c.get("/session/previous", params={"category": "computer", "mode": "build"}).json()["preference_hint"]
+    assert hint is not None and (hint["slot"], hint["value"], hint["direction"]) == ("GPU", picked, "prefer")
+    assert dropped in hint["summary"]
+
+    repo = PreferenceRepo(raw_conn)
+    assert repo.list_active(other_id, dimension="brand") == [], "다른 사용자의 조회가 아니면 그 사용자 신호는 안 센다"
+    assert other_c.get("/session/previous", params={"category": "computer", "mode": "build"}).json()["preference_hint"] is None
+    assert {r["value"] for r in repo.list_active(other_id, dimension="brand")} == {dropped, picked}   # 한 번뿐이라 문턱 아래
+
+
 def test_preference_hint_is_none_for_guest_sessions(client):
     r = client.get("/session/previous", params={"category": "computer", "mode": "build"})
     assert r.status_code == 200, r.text

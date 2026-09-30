@@ -29,7 +29,7 @@ REPEAT_THRESHOLD = 3      # 이 이상이어야 화면에 보여준다 (설계 �
 WINDOW_DAYS = 90
 
 
-def _replaced_brand_pairs(conn) -> list[dict]:
+def _replaced_brand_pairs(conn, user_id: UUID | None = None) -> list[dict]:
     """최근 item_replaced 이벤트에서 (user_id, slot, from_brand, to_brand, event_id)를 뽑는다.
     payload에 from_variant_id/to_variant_id/slot이 없는(구버전) 이벤트는 건너뛴다."""
     return conn.cursor(row_factory=dict_row).execute(
@@ -43,14 +43,15 @@ def _replaced_brand_pairs(conn) -> list[dict]:
         JOIN catalog.product tb ON tb.id = tv.product_id
         WHERE fe.event_type = 'item_replaced'
           AND fe.user_id IS NOT NULL
+          AND (%s::uuid IS NULL OR fe.user_id = %s::uuid)
           AND fe.payload ? 'from_variant_id' AND fe.payload ? 'to_variant_id'
           AND fe.occurred_at >= now() - (%s || ' days')::interval
         """,
-        (WINDOW_DAYS,),
+        (user_id, user_id, WINDOW_DAYS),
     ).fetchall()
 
 
-def _removed_brands(conn) -> list[dict]:
+def _removed_brands(conn, user_id: UUID | None = None) -> list[dict]:
     return conn.cursor(row_factory=dict_row).execute(
         """
         SELECT fe.id AS event_id, fe.user_id, fe.payload->>'slot' AS slot, p.brand AS brand
@@ -59,14 +60,15 @@ def _removed_brands(conn) -> list[dict]:
         JOIN catalog.product p ON p.id = v.product_id
         WHERE fe.event_type = 'item_removed'
           AND fe.user_id IS NOT NULL
+          AND (%s::uuid IS NULL OR fe.user_id = %s::uuid)
           AND fe.payload ? 'removed_variant_id'
           AND fe.occurred_at >= now() - (%s || ' days')::interval
         """,
-        (WINDOW_DAYS,),
+        (user_id, user_id, WINDOW_DAYS),
     ).fetchall()
 
 
-def _observations(conn) -> dict[tuple[UUID, str, str], dict]:
+def _observations(conn, user_id: UUID | None = None) -> dict[tuple[UUID, str, str], dict]:
     """(user, slot, brand) → {"prefer": 횟수, "avoid": 횟수, "events": [id…], "last": 마지막 관측 방향}.
     교체 이벤트 하나는 넣은 브랜드에 prefer, 뺀 브랜드에 avoid 로 한 번씩 센다. 같은 브랜드끼리 바꾼 건 세지 않는다."""
     seen: dict[tuple[UUID, str, str], dict] = defaultdict(lambda: {"prefer": 0, "avoid": 0, "events": [], "last": None})
@@ -77,24 +79,28 @@ def _observations(conn) -> dict[tuple[UUID, str, str], dict]:
         obs["events"].append(event_id)
         obs["last"] = direction
 
-    for row in _replaced_brand_pairs(conn):
+    for row in _replaced_brand_pairs(conn, user_id):
         if row["from_brand"] != row["to_brand"]:
             add(row["user_id"], row["slot"], row["to_brand"], "prefer", row["event_id"])
             add(row["user_id"], row["slot"], row["from_brand"], "avoid", row["event_id"])
-    for row in _removed_brands(conn):
+    for row in _removed_brands(conn, user_id):
         add(row["user_id"], row["slot"], row["brand"], "avoid", row["event_id"])
     return seen
 
 
-def run(conn) -> dict:
-    """배치 1회 실행. 반환값은 몇 건의 신호가 실제로 바뀌었는지(로그·테스트용) — 다시 돌려 같으면 0."""
+def run(conn, user_id: UUID | None = None) -> dict:
+    """배치 1회 실행. 반환값은 몇 건의 신호가 실제로 바뀌었는지(로그·테스트용) — 다시 돌려 같으면 0.
+
+    user_id 를 주면 그 사용자 것만 다시 센다 — 되묻기 조회(session_service.preference_hint)가 보여 주기 직전에
+    부른다. 이 프로젝트엔 워커를 주기적으로 부르는 스케줄러가 없어서(price_poll_worker 주석), 전체 배치만 두면
+    앱이 도는 동안 교체·제외에서 신호가 하나도 쌓이지 않았다. 매번 처음부터 세는 방식이라 언제 불러도 같다."""
     repo = PreferenceRepo(conn)
     updated = 0
-    for (user_id, slot, brand), obs in _observations(conn).items():
+    for (who, slot, brand), obs in _observations(conn, user_id).items():
         net = obs["prefer"] - obs["avoid"]
         # 같으면 방향은 마지막 관측을 따르고 횟수는 0 — 문턱 아래라 되묻지 않는다.
         direction = "prefer" if net > 0 else "avoid" if net < 0 else obs["last"]
-        if repo.set_inferred(user_id=user_id, dimension="brand", slot=slot, value=brand,
+        if repo.set_inferred(user_id=who, dimension="brand", slot=slot, value=brand,
                              direction=direction, confidence=abs(net), evidence_event_ids=obs["events"]):
             updated += 1
     return {"updated_signals": updated}

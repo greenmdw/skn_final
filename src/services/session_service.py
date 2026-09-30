@@ -517,7 +517,11 @@ def preference_hint(conn, principal: Principal) -> dict | None:
     볼지"는 쌓는 시점이 아니라 보여주는 시점의 문턱이다(preference_signal_batch.py 참고)."""
     if principal.user_id is None:
         return None
+    from src.workers import preference_signal_batch
     from src.workers.preference_signal_batch import REPEAT_THRESHOLD
+    # 보여 주기 직전에 이 사용자의 교체·제외 기록으로 신호를 다시 센다 — 배치를 부르는 스케줄러가 없어서
+    # 이게 없으면 행동에서 추론한 신호가 앱에서 하나도 생기지 않는다. 처음부터 세는 방식이라 몇 번 불러도 같다.
+    preference_signal_batch.run(conn, user_id=principal.user_id)
     active = PreferenceRepo(conn).list_active(principal.user_id, dimension="brand",
                                               min_confidence=REPEAT_THRESHOLD)
     if not active:
