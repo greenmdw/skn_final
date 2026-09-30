@@ -9,8 +9,7 @@ import { wonFmt } from '../utils/format'
 import '../styles/sidepanel.css'
 
 // 플래너 화면 왼쪽의 접이식 패널: 새 견적 · 작성 중인 견적 · 저장한 견적(견적서 여러 개면 펼침) · 대화 내역 · 사용자/로그아웃.
-// 접으면 아이콘만 남는 56px 한 줄이 된다. 대화 내역은 서버 목록(GET /lists) 하나가 대화 하나다
-// (docs/개발요청_백엔드_및_타팀.md 10번).
+// 접으면 아이콘만 남는 56px 한 줄이 된다. 대화 내역은 서버 목록(GET /lists) 하나가 대화 하나다.
 const KEY = 'truefit.sidepanel.collapsed'
 type Tab = 'saved' | 'history'
 const STAGE_LABEL: Record<ConversationSummary['stage'], string> = {
@@ -26,6 +25,31 @@ function shortDate(iso: string | null): string {
     : date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
 }
 
+// 대화 내역을 마지막 활동 시점으로 묶는 제목. 자정 기준 날짜 차이로 나누고, 30일이 지나면 월별(예: 2026년 8월)로 나눈다.
+function dateGroup(iso: string | null): string {
+  if (!iso) return '날짜 없음'
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+  const days = Math.round((startOfDay(new Date()) - startOfDay(new Date(iso))) / 86400000)
+  if (days <= 0) return '오늘'
+  if (days === 1) return '어제'
+  if (days <= 7) return '지난 7일'
+  if (days <= 30) return '지난 30일'
+  const date = new Date(iso)
+  return `${date.getFullYear()}년 ${date.getMonth() + 1}월`
+}
+
+function groupConversations(items: ConversationSummary[]): { label: string; items: ConversationSummary[] }[] {
+  const sorted = [...items].sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
+  const groups: { label: string; items: ConversationSummary[] }[] = []
+  for (const item of sorted) {
+    const label = dateGroup(item.lastActiveAt)
+    const last = groups[groups.length - 1]
+    if (last && last.label === label) last.items.push(item)
+    else groups.push({ label, items: [item] })
+  }
+  return groups
+}
+
 const Icon = ({ children }: { children: ReactNode }) => (
   <svg className="sp-ico" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
 )
@@ -33,7 +57,7 @@ const Icon = ({ children }: { children: ReactNode }) => (
 // 화면을 옮기면 패널이 새로 그려진다 — 대화 내역에서 대화를 연 뒤에도 같은 탭이 보이게 선택을 기억한다.
 const TAB_KEY = 'truefit.sidepanel.tab'
 function readTab(): Tab {
-  try { return localStorage.getItem(TAB_KEY) === 'history' ? 'history' : 'saved' } catch { return 'saved' }
+  try { return localStorage.getItem(TAB_KEY) === 'saved' ? 'saved' : 'history' } catch { return 'history' }
 }
 
 function readCollapsed() {
@@ -51,6 +75,12 @@ export default function SidePanel() {
   const [tab, setTab] = useState<Tab>(readTab)
   const [conversations, setConversations] = useState<ConversationSummary[] | null>(null)
   const [historyError, setHistoryError] = useState('')
+  // 견적서를 펼친 견적(목록 id). 지금 보고 있는 리포트의 견적은 처음부터 펼쳐 둔다.
+  const [opened, setOpened] = useState<Set<string>>(new Set())
+  const toggle = (id: string) => setOpened(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })
+  const viewingId = pathname.startsWith('/report/') ? pathname.slice('/report/'.length) : null
+  const isOpen = (id: string) => opened.has(id) || id === viewingId
+  const viewingVersion = Number(new URLSearchParams(search).get('v')) || null
 
   useEffect(() => {
     try { localStorage.setItem(TAB_KEY, tab) } catch { /* 보관 실패는 무시 */ }
@@ -113,8 +143,8 @@ export default function SidePanel() {
         </div>
 
         <div className="sp-tabs" role="tablist" aria-label="패널 보기">
-          <button type="button" role="tab" aria-selected={tab === 'saved'} className={tab === 'saved' ? 'on' : ''} onClick={() => setTab('saved')}>견적</button>
           <button type="button" role="tab" aria-selected={tab === 'history'} className={tab === 'history' ? 'on' : ''} onClick={() => setTab('history')}>대화 내역</button>
+          <button type="button" role="tab" aria-selected={tab === 'saved'} className={tab === 'saved' ? 'on' : ''} onClick={() => setTab('saved')}>견적</button>
         </div>
 
         {tab === 'history' && (
@@ -122,12 +152,32 @@ export default function SidePanel() {
             {historyError && <div className="sp-note bad" role="alert">{historyError}</div>}
             {!historyError && conversations === null && <div className="sp-note">불러오는 중이에요…</div>}
             {conversations?.length === 0 && <div className="sp-note">아직 나눈 대화가 없어요. 새 견적으로 시작해 보세요.</div>}
-            {conversations?.map(item => (
-              <button type="button" key={item.listId} onClick={() => void openHistory(item)}
-                className={'sp-item sp-item-btn' + (state.sessionId === item.listId ? ' on' : '')}>
-                <span className="sp-name">{item.firstMessage || item.name}</span>
-                <span className="sp-meta">{[STAGE_LABEL[item.stage], item.conditionsSummary, shortDate(item.lastActiveAt)].filter(Boolean).join(' · ')}</span>
-              </button>
+            {conversations && groupConversations(conversations).map(group => (
+              <div key={group.label}>
+                <div className="sp-group">{group.label}</div>
+                {group.items.map(item => (
+                  <div key={item.listId}>
+                    <div className={'sp-item sp-conv' + (state.sessionId === item.listId ? ' on' : '')}>
+                      {item.reports.length > 0
+                        ? <button type="button" className={'sp-chev' + (isOpen(item.listId) ? ' open' : '')} aria-label={isOpen(item.listId) ? '견적서 접기' : '견적서 펼치기'}
+                          aria-expanded={isOpen(item.listId)} onClick={() => toggle(item.listId)}>▶</button>
+                        : <span className="sp-chev none" aria-hidden="true">▶</span>}
+                      <button type="button" className="sp-conv-main" onClick={() => void openHistory(item)}>
+                        <span className="sp-name">{item.firstMessage || item.name}</span>
+                        <span className="sp-meta">{[STAGE_LABEL[item.stage], item.conditionsSummary, shortDate(item.lastActiveAt)].filter(Boolean).join(' · ')}</span>
+                      </button>
+                      {item.reports.length > 0 && <span className="sp-count">견적서 {item.reports.length}</span>}
+                    </div>
+                    {item.reports.length > 0 && isOpen(item.listId) && [...item.reports].reverse().map(report => (
+                      <Link key={report.revisionNo} to={`/report/${item.listId}?v=${report.revisionNo}`}
+                        className={'sp-item sp-sub' + (viewingId === item.listId && (viewingVersion ?? item.reports[item.reports.length - 1].revisionNo) === report.revisionNo ? ' on' : '')}>
+                        <span className="sp-name">견적서 {report.revisionNo} · {report.name}</span>
+                        <span className="sp-meta">{[wonFmt(report.total), `부품 ${report.itemCount}개`, shortDate(report.confirmedAt)].join(' · ')}</span>
+                      </Link>
+                    ))}
+                  </div>
+                ))}
+              </div>
             ))}
           </div>
         )}
@@ -167,9 +217,13 @@ export default function SidePanel() {
                     <span className="sp-meta">{[wonFmt(planTotal(setup.plan)), setup.date, `부품 ${setup.plan.items.length}개`,
                       reports.length > 1 ? `견적서 ${reports.length}개` : ''].filter(Boolean).join(' · ')}</span>
                   </Link>
+                  {reports.length > 1 && (
+                    <button type="button" className={'sp-chev sp-chev-abs' + (isOpen(setup.id) ? ' open' : '')} aria-label={isOpen(setup.id) ? '견적서 접기' : '견적서 펼치기'}
+                      aria-expanded={isOpen(setup.id)} onClick={() => toggle(setup.id)}>▶</button>
+                  )}
                   <button type="button" className="sp-del" aria-label={`${setup.title} 삭제`} onClick={() => void remove(setup.id, setup.title)}>삭제</button>
                 </div>
-                {reports.length > 1 && [...reports].reverse().map(report => (
+                {reports.length > 1 && isOpen(setup.id) && [...reports].reverse().map(report => (
                   <Link key={report.revisionNo} to={`${to}?v=${report.revisionNo}`}
                     className={'sp-item sp-sub' + (openVersion === report.revisionNo ? ' on' : '')}>
                     <span className="sp-name">견적서 {report.revisionNo} · {report.name}</span>

@@ -386,6 +386,22 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       return false
     }
   }, [cancelPending, updateState, showToast])
+  // 리포트의 "견적 수정하기": 확정한 견적에서 새 견적서(같은 대화)를 열고, 이전 채팅 내역과 함께 추천 결과 화면으로 간다.
+  // 새 견적서는 조건만 복사되므로 부품 구성은 그 조건으로 다시 받는다. 돌려주는 값은 열린 화면 — 'plan' · 'conditions' · null.
+  const reviseSetup = useCallback(async (listId: string): Promise<'plan' | 'conditions' | null> => {
+    try {
+      await api.setups.newRevision(listId)
+    } catch (error) {
+      showToast(errorMessage(error, '새 견적서를 시작하지 못했습니다. 잠시 후 다시 시도해주세요.'))
+      return null
+    }
+    const screen = await openConversation(listId, true)
+    if (screen === 'conditions' && stateRef.current.canRecommend) {
+      runAnalysis('이 견적서의 조건으로 구성을 다시 불러옵니다. 부품을 바꾼 뒤 확정하면 새 견적서로 저장돼요.')
+      return 'plan'
+    }
+    return screen
+  }, [openConversation, runAnalysis, showToast])
   const resetPlan = useCallback(() => {
     cancelPending()
     updateState(() => ({ ...initialState }))
@@ -432,9 +448,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const value = useMemo<PlanContextValue>(() => ({
     state, checkDraft, updateCheckDraft, messages, busy, starterHidden: state.stage > 0, analyzingIndex, customHeading,
     handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
-    openConversation, startNewRevision,
+    openConversation, startNewRevision, reviseSetup,
   }), [state, checkDraft, updateCheckDraft, messages, busy, analyzingIndex, customHeading,
     handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
-    openConversation, startNewRevision])
+    openConversation, startNewRevision, reviseSetup])
   return <PlanContext.Provider value={value}>{children}</PlanContext.Provider>
 }

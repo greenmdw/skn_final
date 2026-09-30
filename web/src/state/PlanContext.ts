@@ -37,6 +37,7 @@ export interface PlanContextValue {
   openConversation: (listId: string, hasResult: boolean) => Promise<'plan' | 'conditions' | null>
   /** 확정한 견적의 조건으로 새 견적서를 시작한다(조건 대화로). 성공하면 true */
   startNewRevision: (listId: string) => Promise<boolean>
+  reviseSetup: (listId: string) => Promise<'plan' | 'conditions' | null>
 }
 export const PlanContext = createContext<PlanContextValue | null>(null)
 

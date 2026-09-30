@@ -12,12 +12,16 @@ import { wonFmt } from '../utils/format'
 
 // 확정한 견적 리포트. 서버가 확정 시점에 저장한 부품·가격·이름·구매 예정일·목표 금액·메모를 보여 준다.
 // 한 견적(목록)에 견적서가 여러 개면 ?v=번호 로 예전 견적서를 연다 — 저장 목록에는 최근 견적서만 있어 서버에서 따로 읽는다.
+// 견적 수정하기는 서버가 확정본의 부품 구성을 새 견적서로 복사해 줄 때까지 숨긴다(docs/개발요청_백엔드_및_타팀.md 8번).
+// 지금 서버는 조건만 복사해 다시 추천을 받게 되어, "저장 전 상태로 되돌아가 수정"이 되지 않는다.
+const SHOW_REVISE = false
+
 export default function ReportPage() {
   const { id } = useParams()
   const [search] = useSearchParams()
   const navigate = useNavigate()
   const { savedSetups, loading, storageError } = useSetups()
-  const { startNewRevision } = usePlan()
+  const { reviseSetup } = usePlan()
   const latest = savedSetups.find(item => item.id === id)
   const wanted = Number(search.get('v')) || null
   const [older, setOlder] = useState<SavedSetup | null>(null)
@@ -37,8 +41,9 @@ export default function ReportPage() {
 
   const setup = needsOlder ? older : latest
   const reports = latest?.reports ?? []
-  async function newSheet() {
-    if (id && await startNewRevision(id)) navigate('/start')
+  async function revise() {
+    const screen = id ? await reviseSetup(id) : null
+    if (screen) navigate(screen === 'plan' ? '/plan' : '/start')
   }
 
   if (!setup) {
@@ -66,7 +71,9 @@ export default function ReportPage() {
               견적서 {report.revisionNo}
             </button>
           ))}
-          <button type="button" className="pl-pill" onClick={() => void newSheet()} title="이 견적의 조건으로 새 견적서를 만들어요">새 견적서</button>
+          {SHOW_REVISE && setup.revisionNo === latest?.revisionNo && (
+            <button type="button" className="pl-pill mint" onClick={() => void revise()} title="이 견적서의 조건으로 추천 결과 화면을 열어 수정해요. 확정하면 새 견적서로 저장돼요.">견적 수정하기</button>
+          )}
           <button type="button" className="pl-pill" onClick={() => window.print()}>인쇄</button>
         </div>
         <article className="pl-paper">
