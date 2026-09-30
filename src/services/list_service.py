@@ -230,9 +230,12 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
         if row["offer_id"] is None or row["offer_observation_id"] is None or row["price"] is None:
             continue  # 가격 관측이 없는 슬롯 — 구매 항목으로 얼릴 수 없다
         item_view = next((i for i in stored["items"] if i["item_id"] == str(row["id"])), None)
+        # 결과 화면에서 바꾼 수량·구매 시점을 그대로 얼린다 — 예전엔 1개·"now"로 고정해서, 수량을 바꾸면 리포트의
+        # 부품 금액 합이 확정 총액(단가 × 수량의 합)과 어긋났다.
+        qty = int(row["qty"] or 1)
         snapshot = {
             "slot": row["slot"], "slot_label": (item_view or {}).get("slot_label") or row["slot_label"],  # 결과 화면과 같은 언어
-            "qty": 1, "timing": "now",
+            "qty": qty, "timing": row["timing"] or "now",
             "review": review_by_item_id.get(str(row["id"])), "evidence_text": row["reason"] or "",
             "product": {
                 "product_key": (item_view or {}).get("product", {}).get("product_key") or row["product_key"],
@@ -241,7 +244,8 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
             },
         }
         prepo.add_purchase_line(
-            revision["id"], row["offer_id"], row["offer_observation_id"], int(row["price"]), snapshot
+            revision["id"], row["offer_id"], row["offer_observation_id"], int(row["price"]) * qty, snapshot,
+            pack_count=qty,
         )
 
     # P8 FB03: draft→confirmed 전환에 성공한 요청만 여기 도달한다(위의 Conflict가 이미
@@ -264,19 +268,12 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
         items.append({
             "slot": snapshot.get("slot"), "slot_label": snapshot.get("slot_label"),
             "product": snapshot.get("product") or {},
-            "price": int(line["line_amount"]), "qty": int(line["pack_count"]),
+            # price 는 단가(화면이 × qty 한다). line_amount 는 줄 합계라 수량으로 나눈다 — 수량이 1 이던 예전 확정본은 그대로다.
+            "price": int(line["line_amount"]) // max(int(line["pack_count"]), 1), "qty": int(line["pack_count"]),
             "timing": snapshot.get("timing", "now"), "review": snapshot.get("review"),
             "evidence_text": snapshot.get("evidence_text", "") or "",
         })
     watch = NotificationRepo(conn).get_for_revision(revision["id"])
-
-    # 조립 가이드 — 리포트를 열 때마다 그 자리에서 만든다(확정 시점에 미리 만들어 저장하지
-    # 않는다 — 브라우저의 "리포트 인쇄/PDF"(window.print())가 이 섹션까지 그대로 PDF로
-    # 담아주므로, 서버가 PDF를 따로 만들 필요가 없다는 게 이 기능의 핵심 결정이다).
-    from src.agent.assembly_guide_agent import build_guide
-    guide_items = [{"slot": it["slot"], "product": it["product"]} for it in items if it["product"]]
-    care_guide = build_guide(guide_items)
-
     return {
         "list_id": str(list_id),
         "revision_no": revision["revision_no"],
@@ -295,7 +292,6 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
         "price_watch": _price_watch_out(
             NotificationRepo(conn), watch, int(revision["target_amount"]) if revision["target_amount"] is not None else None
         ),
-        "care_guide": care_guide,
         "data_notice": ("PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. 리뷰 요약은 합성 데이터입니다."
                         if revision["category"] == "computer" else "상품·가격·리뷰는 합성 데이터입니다."),
     }
