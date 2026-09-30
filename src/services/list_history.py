@@ -119,9 +119,14 @@ def build_events(conn, revision: dict) -> list[dict]:
     ).fetchall()
     first_result_at = runs[0][1] if runs else None
 
+    # 대화는 목록(plan) 하나에 하나다. 견적서(revision)가 여럿이면 이 견적서를 쓰던 동안의 말만 — 새 견적서는
+    # 앞 견적서가 확정된 뒤에 만들어지므로 [revision 생성, 확정] 구간이 곧 이 견적서의 대화다.
+    start, end = revision["created_at"], revision.get("confirmed_at")
     events: list[dict] = []
     for m in ConversationRepo(conn).messages(revision["conversation_id"]):
         if m["role"] != "user" or not m["content"].strip():
+            continue
+        if m["created_at"] < start or (end is not None and m["created_at"] > end):
             continue
         # 첫 추천이 나오기 전의 말은 조건 대화, 뒤의 말은 결과 화면에서 물은 것이다.
         after = first_result_at is not None and m["created_at"] > first_result_at

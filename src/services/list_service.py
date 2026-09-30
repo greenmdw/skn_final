@@ -71,20 +71,93 @@ def _price_watch_out(nrepo: NotificationRepo, watch: dict | None, fallback_targe
     }
 
 
+def confirmed_revision(conn, list_id: UUID, principal: Principal, revision_no: int | None = None) -> dict:
+    """로그인한 소유자의 확정된 견적서(revision) 하나. 목록 하나에 견적서가 여러 개일 수 있다(10번 ③):
+    번호를 주면 그 견적서, 안 주면 현재 revision 이 확정이면 그것, 새 견적서를 작성 중이면 가장 최근 확정본."""
+    user_id = _require_login(conn, principal)
+    prepo = PlanRepo(conn)
+    current = _owned(prepo, list_id, principal)
+    if current["owner_user_id"] != user_id:
+        raise NotFound("확정된 목록을 찾을 수 없습니다.")
+    if revision_no is not None:
+        revision = prepo.get_revision_by_no(list_id, revision_no)
+    elif current["state"] == "confirmed":
+        revision = current
+    else:
+        latest = prepo.confirmed_revisions(list_id)
+        revision = prepo.get_revision(latest[-1]["id"]) if latest else None
+    if revision is None or revision["state"] != "confirmed":
+        raise NotFound("확정된 목록을 찾을 수 없습니다.")
+    return revision
+
+
+def new_revision(conn, list_id: UUID, principal: Principal) -> dict:
+    """확정한 견적을 바탕으로 새 견적서를 쓴다 — 조건을 복사한 새 draft revision 을 현재로 삼는다.
+    이미 작성 중인 draft 가 현재면 그대로 돌려준다(두 번 눌러도 새 견적서는 하나)."""
+    from src.repo.user_repo import ConversationRepo
+    from src.services import session_service
+
+    user_id = _require_login(conn, principal)
+    prepo = PlanRepo(conn)
+    current = _owned(prepo, list_id, principal)
+    if current["owner_user_id"] != user_id:
+        raise NotFound("목록을 찾을 수 없습니다.")
+    if current["state"] == "confirmed":
+        new_id = prepo.clone_revision(list_id, current["id"])
+        prepo.set_current_revision(list_id, new_id)
+        ConversationRepo(conn).add_message(
+            current["conversation_id"], "assistant",
+            f"견적서 {current['revision_no']}의 조건으로 새 견적서를 시작했어요. "
+            "바꾸고 싶은 조건을 말씀하시거나 바로 추천을 받아 보세요.")
+    return session_service._state(conn, list_id, principal)
+
+
+def _reports_out(rows: list[dict]) -> list[dict]:
+    return [{
+        "revision_no": r["revision_no"], "name": r["name_snapshot"], "confirmed_at": r["confirmed_at"],
+        "total": int(r["confirmed_total"]), "item_count": int(r["item_count"]),
+        "planned_purchase_at": r["planned_purchase_at"].date().isoformat() if r["planned_purchase_at"] else None,
+    } for r in rows]
+
+
+def _conditions_summary(prepo: PlanRepo, revision_id: UUID, category: str | None) -> str:
+    if not category:
+        return ""
+    from src.categories import load_category
+    from src.services.session_service import _current_values
+    values, _ = _current_values(prepo, revision_id)
+    try:
+        return recommendation_service._conditions_summary(load_category(category), values)
+    except Exception:       # 카테고리 정의가 바뀌어 요약을 못 만들어도 목록은 보여 준다
+        return ""
+
+
 def list_conversations(conn, principal: Principal) -> list[dict]:
     """사이드바 "내 장바구니" — 로그인 사용자 또는 guest 쿠키 소유분(§D-4-3)."""
     guest_hash = _token_hash(principal.browser_token) if principal.browser_token else None
-    rows = PlanRepo(conn).list_owned(user_id=principal.user_id, guest_session_hash=guest_hash)
-    return [
-        {
+    prepo = PlanRepo(conn)
+    rows = prepo.list_owned(user_id=principal.user_id, guest_session_hash=guest_hash)
+    out = []
+    for row in rows:
+        reports = _reports_out(prepo.confirmed_revisions(row["list_id"]))
+        latest = reports[-1] if reports else None
+        first = " ".join((row["first_message"] or "").split())
+        out.append({
             "list_id": str(row["list_id"]),
             "name": _display_name(row["name"], row["category"]),
             "category": row["category"],
             "stage": _stage(row),
             "updated_at": row["updated_at"],
-        }
-        for row in rows
-    ]
+            "last_active_at": row["last_active_at"],
+            "first_message": first[:60] or None,
+            "conditions_summary": _conditions_summary(prepo, row["revision_id"], row["category"]),
+            # 가장 최근 확정 견적서 기준(6번: 목록마다 리포트를 따로 부르지 않게)
+            "total": latest["total"] if latest else None,
+            "planned_purchase_at": latest["planned_purchase_at"] if latest else None,
+            "item_count": latest["item_count"] if latest else None,
+            "reports": reports,
+        })
+    return out
 
 
 def rename(conn, list_id: UUID, principal: Principal, *, name: str) -> dict:
@@ -180,12 +253,9 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
     return get_report(conn, list_id, principal)
 
 
-def get_report(conn, list_id: UUID, principal: Principal) -> dict:
-    user_id = _require_login(conn, principal)
+def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | None = None) -> dict:
     prepo = PlanRepo(conn)
-    revision = _owned(prepo, list_id, principal)
-    if revision["owner_user_id"] != user_id or revision["state"] != "confirmed":
-        raise NotFound("확정된 목록을 찾을 수 없습니다.")
+    revision = confirmed_revision(conn, list_id, principal, revision_no)
 
     owner = UserRepo(conn).get(revision["owner_user_id"])
     items = []
@@ -209,6 +279,7 @@ def get_report(conn, list_id: UUID, principal: Principal) -> dict:
 
     return {
         "list_id": str(list_id),
+        "revision_no": revision["revision_no"],
         # A confirmed report is a snapshot; later sidebar renames must not rewrite
         # the name shown on that historical purchase record.
         "name": _display_name(revision["name_snapshot"], revision["category"]),
@@ -230,24 +301,18 @@ def get_report(conn, list_id: UUID, principal: Principal) -> dict:
     }
 
 
-def get_history_events(conn, list_id: UUID, principal: Principal) -> tuple[dict, list[dict]]:
+def get_history_events(conn, list_id: UUID, principal: Principal,
+                       revision_no: int | None = None) -> tuple[dict, list[dict]]:
     """견적 리스트 히스토리의 사건 목록 — 리포트와 같게 로그인한 소유자의 확정된 목록만.
     요약 문장(LLM)은 트랜잭션 밖에서 만든다(`list_history.render`) — 연결을 LLM 대기 동안 붙잡지 않는다."""
     from src.services import list_history
 
-    user_id = _require_login(conn, principal)
-    revision = _owned(PlanRepo(conn), list_id, principal)
-    if revision["owner_user_id"] != user_id or revision["state"] != "confirmed":
-        raise NotFound("확정된 목록을 찾을 수 없습니다.")
+    revision = confirmed_revision(conn, list_id, principal, revision_no)
     return revision, list_history.build_events(conn, revision)
 
 
 def set_alert(conn, list_id: UUID, principal: Principal, *, enabled: bool, target_amount: int | None) -> dict:
-    user_id = _require_login(conn, principal)
-    prepo = PlanRepo(conn)
-    revision = _owned(prepo, list_id, principal)
-    if revision["owner_user_id"] != user_id or revision["state"] != "confirmed":
-        raise NotFound("확정된 목록을 찾을 수 없습니다.")
+    revision = confirmed_revision(conn, list_id, principal)
 
     nrepo = NotificationRepo(conn)
     existing = nrepo.get_for_revision(revision["id"])

@@ -617,12 +617,32 @@ class ResultMessageOut(BaseModel):
 
 
 # ── 사이드바 목록 · 확정(S5-a) · 리포트(S5-b) · 가격 알림 (§D-4-3) ──
+class ReportSummaryOut(BaseModel):
+    """목록 하나에 딸린 확정 견적서 하나(= 확정된 revision). revision_no 로 리포트·히스토리를 연다."""
+
+    revision_no: int
+    name: str
+    confirmed_at: datetime
+    total: int
+    item_count: int
+    planned_purchase_at: str | None = None
+
+
 class ListSummaryOut(BaseModel):
     list_id: str
     name: str
     category: Optional[str] = None
-    stage: Literal["category", "conditions", "results", "report"]
+    stage: Literal["category", "conditions", "results", "report"]   # 현재 revision 기준(새 견적서 작성 중이면 그 단계)
     updated_at: datetime
+    # 대화 목록(패널 "대화 내역")용 — 제목 대신 첫 사용자 말, 대화까지 포함한 마지막 활동, 조건 요약
+    last_active_at: datetime | None = None
+    first_message: str | None = None
+    conditions_summary: str = ""
+    # 가장 최근 확정 견적서 기준 — 목록에서 리포트를 따로 부르지 않아도 되게(개발요청 6번)
+    total: int | None = None
+    planned_purchase_at: str | None = None
+    item_count: int | None = None
+    reports: list[ReportSummaryOut] = Field(default_factory=list)
 
 
 class ListsOut(BaseModel):
@@ -668,6 +688,7 @@ class PriceWatchOut(BaseModel):
 
 class ReportOut(BaseModel):
     list_id: str
+    revision_no: int = 1
     name: str
     category: str
     owner_display_name: str

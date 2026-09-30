@@ -23,11 +23,11 @@ _DEFAULT_WINDOW_DAYS = 90
 
 
 def _require_confirmed_owned(conn, list_id: UUID, principal: Principal) -> dict:
-    user_id = auth_service.require_active_user(conn, principal)["id"]
-    revision = _owned(PlanRepo(conn), list_id, principal)
-    if revision["owner_user_id"] != user_id or revision["state"] != "confirmed":
-        raise NotFound("확정된 목록을 찾을 수 없습니다.")
-    return revision
+    from src.services.list_service import confirmed_revision
+
+    auth_service.require_active_user(conn, principal)
+    # 새 견적서를 작성 중이면(현재 revision 이 draft) 가장 최근 확정 견적서의 알림을 본다.
+    return confirmed_revision(conn, list_id, principal)
 
 
 def create_watch(conn, list_id: UUID, principal: Principal, *, target_amount,
