@@ -52,6 +52,7 @@ class ResultSession:
     conn: object
     revision_id: UUID
     result: dict                                  # get_stored_result 스냅샷 (도구가 바꾸면 갱신)
+    user_id: UUID | None = None                    # 채팅 스왑도 선호 신호 소스로 잡히게(swap/patch에 전달)
     trace: list[str] = field(default_factory=list)
     changed: bool = False
 
@@ -119,7 +120,7 @@ class ResultSession:
             return self._record(call, "오류: candidate_id 는 list_alternatives 가 돌려준 값이어야 합니다.")
         before = it["product"]["name"], it["price"]
         try:
-            self.result = swap_item(self.conn, self.revision_id, UUID(it["item_id"]), cid)
+            self.result = swap_item(self.conn, self.revision_id, UUID(it["item_id"]), cid, user_id=self.user_id)
         except NotFound as exc:
             return self._record(call, f"오류: {exc}")
         self.changed = True
@@ -157,7 +158,8 @@ class ResultSession:
             tm = timing
         if sel is None and q is None and tm is None:
             return self._record(call, "오류: 바꿀 값이 없습니다")
-        self.result = patch_item(self.conn, self.revision_id, UUID(it["item_id"]), selected=sel, qty=q, timing=tm)
+        self.result = patch_item(self.conn, self.revision_id, UUID(it["item_id"]), selected=sel, qty=q, timing=tm,
+                                 user_id=self.user_id)
         self.changed = True
         after = self.item(it["slot"])
         t = self.result["totals"]
@@ -405,7 +407,7 @@ class TurnResult:
     changed: bool
 
 
-def run_turn(conn, revision_id: UUID, result: dict, text: str) -> TurnResult:
+def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | None = None) -> TurnResult:
     """한 턴. `result` 는 호출 시점의 get_stored_result. 도구가 바꾸면 갱신된 것을 돌려준다."""
     from strands import Agent
     from strands.tools.executors import SequentialToolExecutor
@@ -413,7 +415,7 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str) -> TurnResult:
     run_id = result["run_id"]
     pairs = _db_history(conn, revision_id, run_id)
     hist_rows = [{"role": "user", "content": u} for u, _ in pairs]
-    session = ResultSession(conn=conn, revision_id=revision_id, result=result)
+    session = ResultSession(conn=conn, revision_id=revision_id, result=result, user_id=user_id)
     prefetched = _prefetch_explanations(session, text)
     prompt = system_prompt(result, text, hist_rows, prefetched)
     agent = Agent(

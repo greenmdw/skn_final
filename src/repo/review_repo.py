@@ -122,16 +122,6 @@ class ReviewRepo(Repo):
         return [{"text": t, "source": "파일 기반 리뷰 분석 (검수 승인)", "observed_at": observed_at}
                 for t in texts[:limit]]
 
-    def get_review_authenticity(self, product_key: str) -> dict:
-        """[3-C] get_review_authenticity 계약 (기획서 §10-6).
-        {orig_rating, cleaned_rating, cleanse_ratio, axis_scores, total_reviews,
-         top_summaries, confidence_note}
-
-        DB 경로 미구현 — [3-B]/[3-C]는 지금 파일 기반 ProductRiskStore(관계·행동 축)를
-        쓴다(review_service.get_summary). 이 메서드는 그 계약의 자리를 남겨 둘 뿐 호출되지
-        않는다."""
-        raise NotImplementedError
-
     # ── P8 파일 기반 분석 적재 (import_review_analysis.py가 호출) ──
     def get_or_create_source(self, name: str) -> UUID:
         row = self._one("SELECT id FROM evidence.source WHERE name=%s", (name,))

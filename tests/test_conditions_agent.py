@@ -119,12 +119,52 @@ def test_history_cuts_at_reset_merges_roles_and_starts_with_user():
 
 
 # ── Strands 등록 (네트워크 없음) ───────────────────────────────────────────
-def test_strands_registers_three_tools():
+def test_strands_registers_four_tools():
     d = _draft("computer")
     tools = ca.make_tools(d)
-    assert [t.tool_name for t in tools] == ["set_condition", "add_extra_condition", "clear_condition"]
+    assert [t.tool_name for t in tools] == [
+        "set_condition", "add_extra_condition", "clear_condition", "record_brand_preference",
+    ]
     spec = tools[0].tool_spec
     assert set(spec["inputSchema"]["json"]["required"]) == {"field", "value"}
+
+
+# ── 브랜드 선호·비선호 기록 (docs/사용자_선호비선호_기록_설계.md 파이프라인 A) ──────
+def test_record_brand_preference_appends_patch():
+    d = _draft("computer")
+    out = d.record_brand_preference("GPU", "NVIDIA", "prefer")
+    assert "GPU 브랜드 prefer 기록" in out
+    assert d.preference_patches == [{"slot": "GPU", "value": "NVIDIA", "direction": "prefer"}]
+
+
+def test_record_brand_preference_cpu_prefer_also_sets_brand_pref_condition():
+    """CPU + prefer + amd/intel 은 기존 brand_pref 필드도 같이 채워 이번 견적에 바로 반영한다."""
+    d = _draft("computer")
+    d.record_brand_preference("CPU", "AMD", "prefer")
+    assert d.patches["brand_pref"] == "amd"
+    assert d.preference_patches == [{"slot": "CPU", "value": "AMD", "direction": "prefer"}]
+
+
+def test_record_brand_preference_cpu_avoid_does_not_touch_brand_pref():
+    """비선호는 brand_pref(단일 선호값)로 표현할 수 없다 — 신호로만 남긴다."""
+    d = _draft("computer")
+    d.record_brand_preference("CPU", "Intel", "avoid")
+    assert "brand_pref" not in d.patches
+    assert d.preference_patches == [{"slot": "CPU", "value": "Intel", "direction": "avoid"}]
+
+
+def test_record_brand_preference_rejects_bad_direction():
+    d = _draft("computer")
+    out = d.record_brand_preference("GPU", "AMD", "hate")
+    assert out.startswith("오류:")
+    assert d.preference_patches == []
+
+
+def test_record_brand_preference_rejects_blank_fields():
+    d = _draft("computer")
+    assert d.record_brand_preference("", "AMD", "prefer").startswith("오류:")
+    assert d.record_brand_preference("GPU", "", "prefer").startswith("오류:")
+    assert d.preference_patches == []
 
 
 def test_unavailable_under_mock_mode(monkeypatch):

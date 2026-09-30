@@ -80,3 +80,10 @@ data/amazon23/
 
 # 리뷰 원문 데이터(작성자·원문 포함) — Git에 올리지 않고 팀 내 파일로 공유. data/reviews/README.md 참고
 /data/reviews/*.jsonl
+
+# 외부 후기 원문: 로컬 검토용이며 저장소에 넣지 않는다.
+/outputs/danawa_review_raw_*/
+/outputs/review_mix_final_*/
+
+# ── 지금 코드와 안 맞는 옛 기획/보고 문서 (로컬 보관용, git 추적 안 함) ──
+docs/history/

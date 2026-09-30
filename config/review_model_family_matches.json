@@ -1,0 +1,511 @@
+{
+  "policy": "model_family_for_review_counts_and_general_experience_only",
+  "decision_date": "2026-09-27",
+  "option_split_deferred": ["retail_or_bulk", "color", "capacity", "distributor"],
+  "limits": [
+    "A model-family match does not establish a variant/SKU match.",
+    "General experience themes may be aggregated only after source-use and summary review.",
+    "Do not transfer option-specific dimensions, capacity, thermals, or performance claims to another variant.",
+    "Source usage and actual review summary approval are separate from product matching."
+  ],
+  "matches": [
+    {
+      "product_key": "cpu:intel:core-i5-12400f",
+      "pcode": "16101353",
+      "source_title": "인텔 코어i5-12세대 12400F (엘더레이크) (정품)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cpu:intel:core-i3-12100f",
+      "pcode": "16101179",
+      "source_title": "인텔 코어i3-12세대 12100F (엘더레이크) (정품)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "motherboard:asus:prime-a520m-a-ii",
+      "pcode": "16284179",
+      "source_title": "ASUS PRIME A520M-A II 대원씨티에스",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ram:geil:ddr4-3200-cl22-pristine-(16gb)",
+      "pcode": "10859097",
+      "source_title": "GeIL DDR4-3200 CL22 PRISTINE (16GB)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-7700-xt",
+      "pcode": "28057922",
+      "source_title": "SAPPHIRE 라데온 RX 7700 XT PULSE D6 12GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ssd:samsung:870-evo",
+      "pcode": "13190573",
+      "source_title": "삼성전자 870 EVO (1TB)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "psu:fsp:hyper-k-pro-600w",
+      "pcode": "12397271",
+      "source_title": "FSP HYPER K PRO 600W 80PLUS스탠다드 230V EU",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "case:리안리-(lian-li):lancool-216",
+      "pcode": "18538823",
+      "source_title": "리안리 LANCOOL 216 (블랙)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cooler:valkyrie:gl360-argb",
+      "pcode": "20565869",
+      "source_title": "발키리 GL360 ARGB (화이트)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "motherboard:asrock:z890-taichi",
+      "pcode": "69867902",
+      "source_title": "ASRock Z890 Taichi 인텍앤컴퍼니",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "motherboard:asrock:z890-taichi",
+      "pcode": "70000382",
+      "source_title": "ASRock Z890 Taichi 디앤디컴",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "motherboard:msi:mag-b650m-mortar-wifi-(박격포)",
+      "pcode": "17971187",
+      "source_title": "MSI MAG B650M 박격포 WIFI",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-7900-gre",
+      "pcode": "61418315",
+      "source_title": "PowerColor 라데온 RX 7900 GRE D6 16GB 대원씨티에스",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-7900-gre",
+      "pcode": "43454690",
+      "source_title": "ASRock 라데온 RX 7900 GRE CHALLENGER OC D6 16GB 대원씨티에스",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ssd:kingston:kc3000",
+      "pcode": "96773165",
+      "source_title": "킹스톤 KC3000 M.2 NVMe (1TB)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ssd:kingston:nv3",
+      "pcode": "96772595",
+      "source_title": "킹스톤 NV3 M.2 NVMe (1TB)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ssd:lexar:nm1090-pro",
+      "pcode": "86184725",
+      "source_title": "Lexar NM1090 PRO M.2 NVMe 해외구매 (2TB)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ssd:corsair:mp600-pro-lpx",
+      "pcode": "17887217",
+      "source_title": "CORSAIR MP600 PRO LPX M.2 NVMe 해외구매 (1TB)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "psu:corsair:rm1000e-atx-3.1",
+      "pcode": "74813765",
+      "source_title": "CORSAIR RM1000e ATX3.1",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "case:다크플래쉬:df2100-mesh",
+      "pcode": "20255534",
+      "source_title": "darkFlash DF2100 MESH RGB 강화유리 (블랙)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "case:다크플래쉬:dlm21-rgb-mesh",
+      "pcode": "9376470",
+      "source_title": "darkFlash DLM21 RGB MESH 강화유리 (블랙)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-6750-xt",
+      "pcode": "17032157",
+      "source_title": "MSI 라데온 RX 6750 XT 메크 2X OC D6 12GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-7600-xt-16gb",
+      "pcode": "33997700",
+      "source_title": "ASUS TUF Gaming 라데온 RX 7600 XT O16G OC D6 16GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-7800-xt",
+      "pcode": "28057757",
+      "source_title": "SAPPHIRE 라데온 RX 7800 XT PULSE D6 16GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-4070",
+      "pcode": "19781519",
+      "source_title": "MSI 지포스 RTX 4070 벤투스 2X OC D6X 12GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ssd:samsung:990-pro-with-heatsink",
+      "pcode": "20600144",
+      "source_title": "삼성전자 990 PRO 히트싱크 M.2 NVMe (1TB)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "motherboard:gigabyte:a620m-h",
+      "pcode": "106465508",
+      "source_title": "GIGABYTE A620M H 피씨디렉트",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "motherboard:gigabyte:b850m-gaming-x-wifi6e",
+      "pcode": "122697197",
+      "source_title": "GIGABYTE B850M GAMING X WIFI6E 제이씨현",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "motherboard:msi:mag-b650-tomahawk-wifi",
+      "pcode": "17971181",
+      "source_title": "MSI MAG B650 토마호크 WIFI",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "psu:micronics:classic-ii-750w-풀모듈러-atx-3.1",
+      "pcode": "58913891",
+      "source_title": "마이크로닉스 Classic II 750W 80PLUS골드 풀모듈러 ATX3.1",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "psu:micronics:classic-ii-850w-풀모듈러-atx-3.1",
+      "pcode": "51815078",
+      "source_title": "마이크로닉스 Classic II 850W 80PLUS골드 풀모듈러 ATX3.1",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ssd:western-digital:wd_black-sn770m",
+      "pcode": "29868374",
+      "source_title": "Western Digital WD BLACK SN770M M.2 2230 NVMe (1TB)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ssd:western-digital:wd_black-sn770m",
+      "pcode": "29868269",
+      "source_title": "Western Digital WD BLACK SN770M M.2 2230 NVMe (2TB)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cpu:intel:core-i5-12600k",
+      "pcode": "15594263",
+      "source_title": "인텔 코어i5-12세대 12600K (엘더레이크) (정품)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cpu:intel:core-i5-12600k",
+      "pcode": "15752468",
+      "source_title": "인텔 코어i5-12세대 12600K (엘더레이크) (벌크)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cpu:amd:ryzen-7-9800x3d",
+      "pcode": "70679912",
+      "source_title": "AMD 라이젠7-6세대 9800X3D (그래니트 릿지) (정품)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cpu:amd:ryzen-7-7800x3d",
+      "pcode": "19627808",
+      "source_title": "AMD 라이젠7-5세대 7800X3D (라파엘) (정품)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "psu:micronics:classic-ii-풀체인지-700w-atx-3.1",
+      "pcode": "96986309",
+      "source_title": "마이크로닉스 Classic II 풀체인지 700W 80PLUS실버 ATX3.1",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "motherboard:gigabyte:b760m-ds3h",
+      "pcode": "18781991",
+      "source_title": "GIGABYTE B760M DS3H 피씨디렉트",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-9070-xt",
+      "pcode": "77381780",
+      "source_title": "SAPPHIRE 라데온 RX 9070 XT PURE OC D6 16GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-9070-xt",
+      "pcode": "77378288",
+      "source_title": "XFX 라데온 RX 9070 XT SWIFT D6 16GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-5080",
+      "pcode": "79116827",
+      "source_title": "ZOTAC GAMING 지포스 RTX 5080 SOLID CORE D7 16GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-5080",
+      "pcode": "75184268",
+      "source_title": "GIGABYTE 지포스 RTX 5080 GAMING OC D7 16GB 제이씨현",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-5060",
+      "pcode": "90892967",
+      "source_title": "GIGABYTE 지포스 RTX 5060 WINDFORCE D7 8GB 제이씨현",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-5060",
+      "pcode": "91910279",
+      "source_title": "ZOTAC GAMING 지포스 RTX 5060 Twin Edge OC D7 8GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-5070-ti",
+      "pcode": "76464143",
+      "source_title": "ZOTAC GAMING 지포스 RTX 5070 Ti SOLID OC D7 16GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-5070-ti",
+      "pcode": "76551056",
+      "source_title": "GIGABYTE 지포스 RTX 5070 Ti GAMING OC D7 16GB 제이씨현",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-5070",
+      "pcode": "77319413",
+      "source_title": "ZOTAC GAMING 지포스 RTX 5070 SOLID OC D7 12GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-5070",
+      "pcode": "77382785",
+      "source_title": "GAINWARD 지포스 RTX 5070 피닉스 D7 12GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-6800-xt",
+      "pcode": "12717179",
+      "source_title": "SAPPHIRE 라데온 RX 6800 XT D6 16GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-6800-xt",
+      "pcode": "12715823",
+      "source_title": "GIGABYTE 라데온 RX 6800 XT D6 16GB 제이씨현",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-5060-ti",
+      "pcode": "88132295",
+      "source_title": "GIGABYTE 지포스 RTX 5060 Ti GAMING OC D7 8GB 제이씨현",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-5060-ti",
+      "pcode": "81716057",
+      "source_title": "GIGABYTE 지포스 RTX 5060 Ti GAMING OC D7 8GB 피씨디렉트",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-6600",
+      "pcode": "15435041",
+      "source_title": "MSI 라데온 RX 6600 메크 2X D6 8GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-6600",
+      "pcode": "15427832",
+      "source_title": "PowerColor 라데온 RX 6600 Fighter D6 8GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-4070-super",
+      "pcode": "32503409",
+      "source_title": "STCOM 지포스 RTX 4070 SUPER D6X 12GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-4070-super",
+      "pcode": "32663822",
+      "source_title": "GAINWARD 지포스 RTX 4070 SUPER 고스트 D6X 12GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-5090",
+      "pcode": "75991625",
+      "source_title": "GAINWARD 지포스 RTX 5090 팬텀 D7 32GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-5090",
+      "pcode": "75184280",
+      "source_title": "GIGABYTE 지포스 RTX 5090 GAMING OC D7 32GB 제이씨현",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cpu:intel:core-i5-13400f",
+      "pcode": "18702812",
+      "source_title": "인텔 코어i5-13세대 13400F (랩터레이크) (벌크)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cpu:intel:core-i5-13400f",
+      "pcode": "18702827",
+      "source_title": "인텔 코어i5-13세대 13400F (랩터레이크) (벌크 + 쿨러)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cpu:intel:core-i7-12700k",
+      "pcode": "15764720",
+      "source_title": "인텔 코어i7-12세대 12700K (엘더레이크) (벌크)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cpu:intel:core-i7-12700k",
+      "pcode": "15752897",
+      "source_title": "인텔 코어i7-12세대 12700K (엘더레이크) (벌크 + 쿨러)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cpu:intel:core-i3-12100f",
+      "pcode": "16155401",
+      "source_title": "인텔 코어i3-12세대 12100F (엘더레이크) (벌크)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cpu:intel:core-i3-12100f",
+      "pcode": "16232738",
+      "source_title": "인텔 코어i3-12세대 12100F (엘더레이크) (벌크 + 쿨러)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-4080-super",
+      "pcode": "33994208",
+      "source_title": "STCOM 지포스 RTX 4080 SUPER D6X 16GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:nvidia:geforce-rtx-4080-super",
+      "pcode": "34337216",
+      "source_title": "GAINWARD 지포스 RTX 4080 SUPER 팬서 OC D6X 16GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "psu:zalman:ecomax-500w",
+      "pcode": "15925658",
+      "source_title": "잘만 EcoMax 500W 벌크",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cooler:pccooler:paladin-400",
+      "pcode": "18261077",
+      "source_title": "PCCOOLER PALADIN 400 (화이트)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cooler:thermalright:peerless-assassin-120-se",
+      "pcode": "15969608",
+      "source_title": "Thermalright Peerless Assassin 120 SE",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ssd:crucial:t500",
+      "pcode": "29666111",
+      "source_title": "마이크론 Crucial T500 M.2 NVMe 대원씨티에스 (1TB)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-9070-xt",
+      "pcode": "77378093",
+      "source_title": "SAPPHIRE 라데온 RX 9070 XT NITRO+ OC D6 16GB",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "gpu:amd:radeon-rx-9070-xt",
+      "pcode": "77382896",
+      "source_title": "GIGABYTE 라데온 RX 9070 XT GAMING OC D6 16GB 제이씨현",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ram:teamgroup:t-force-ddr4-3200-cl16-delta-rgb-화이트-패키지-(8gb-x-2)",
+      "pcode": "7320475",
+      "source_title": "TeamGroup T-Force DDR4-3200 CL16 Delta RGB 화이트 패키지 서린 (16GB(8Gx2))",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ssd:pny:cs2241",
+      "pcode": "80569415",
+      "source_title": "PNY CS2241 M.2 NVMe STCOM (1TB)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "case:nzxt:h6-flow-rgb",
+      "pcode": "29753594",
+      "source_title": "NZXT H6 Flow RGB 브라보텍 (매트 화이트)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "case:ssupd:meshroom-s",
+      "pcode": "17982806",
+      "source_title": "SSUPD MESHROOM S (차콜 블랙)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cpu:amd:ryzen-9-7950x",
+      "pcode": "17913980",
+      "source_title": "AMD 라이젠9-5세대 7950X (라파엘) (정품)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ssd:teamgroup:mp44l",
+      "pcode": "18488108",
+      "source_title": "TeamGroup MP44L M.2 NVMe (1TB)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ssd:crucial:p3-plus",
+      "pcode": "17458838",
+      "source_title": "마이크론 Crucial P3 Plus M.2 NVMe 아스크텍 (1TB)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "case:쿨러마스터:haf-500",
+      "pcode": "16121708",
+      "source_title": "쿨러마스터 HAF 500 (화이트)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "cpu:amd:ryzen-5-7600x",
+      "pcode": "17913311",
+      "source_title": "AMD 라이젠5-5세대 7600X (라파엘) (정품)",
+      "scope": "model_family"
+    },
+    {
+      "product_key": "ssd:samsung:9100-pro-with-heatsink",
+      "pcode": "78716753",
+      "source_title": "삼성전자 9100 PRO 히트싱크 M.2 NVMe (1TB)",
+      "scope": "model_family"
+    }
+  ]
+}

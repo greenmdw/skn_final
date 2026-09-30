@@ -58,8 +58,20 @@ def _parse_korean_run(run: str) -> int | None:
 
 
 def _parse_korean_number(text: str) -> int | None:
-    """'삼백만원' → 3000000 (숫자 없이 한글 단어만). 만/억/조 단위가 없는 조각(문장 속 조사 등)은 건너뛴다."""
-    for m in _KOREAN_NUMERAL_RE.finditer(text):
+    """'삼백만원' → 3000000 (숫자 없이 한글 단어만).
+
+    어절(공백으로 나뉜 단어) 맨 앞의 숫자 글자 구간만 보고, 그 뒤가 비어 있거나 '원'으로
+    시작할 때만 금액으로 본다. 예전엔 문장 전체에서 숫자 글자 집합에 속하는 조각을 아무
+    데서나 찾았는데, '조용한'의 '조', '조금'의 '조', '만약'의 '만', '억지로'의 '억'처럼
+    숫자와 무관한 단어의 첫 음절도 조/만/억과 겹쳐서 "1조"·"1만"·"1억"으로 오인했다
+    (회귀: 2026-09-28, "영상편집 위주로 조용한 pc로" → 예산 1조원 오탐)."""
+    for word in text.split():
+        m = _KOREAN_NUMERAL_RE.match(word)
+        if not m:
+            continue
+        rest = word[m.end():]
+        if rest and not rest.startswith("원"):
+            continue                          # 숫자 글자 뒤에 다른 음절이 바로 붙으면 숫자 단어가 아니다
         value = _parse_korean_run(m.group(0))
         if value:
             return value

@@ -1,4 +1,4 @@
-"""현재 4개 baseline 마이그레이션, PC 카탈로그 및 축소 DB 계약 검증.
+"""현재 6개 baseline 마이그레이션, PC 카탈로그 및 축소 DB 계약 검증.
 
 실제 PostgreSQL의 테이블 목록과 마이그레이션 체크섬, 시드 멱등성을 검증한다.
 리스트 항목의 소유권·참조 무결성은 test_p0_list_item_integrity.py에서 검사한다.
@@ -22,7 +22,7 @@ MIGRATIONS = ROOT / "db/migrations"
 # The compact migration chain creates only objects that survive in the final schema.
 EXPECTED_CHAIN = [
     "0000_schema.sql", "0001_constraints.sql", "0002_indexes.sql", "0003_triggers.sql",
-    "0004_notification_events.sql",
+    "0004_notification_events.sql", "0005_preference_signal.sql",
 ]
 # 현재 baseline의 명시적 계약. 같은 개수의 다른 테이블로 바뀌어도 실패해야 한다.
 EXPECTED_TABLES = {
@@ -70,6 +70,7 @@ EXPECTED_TABLES = {
     "identity.app_user",
     "identity.conversation",
     "identity.message",
+    "identity.preference_signal",
     "notification.price_watch",
     "notification.price_watch_evaluation",
     "notification.notification_event",
@@ -225,7 +226,7 @@ def test_setup_all_is_idempotent():
     with psycopg.connect(DSN) as conn:
         before = tuple(conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in tables)
     result = subprocess.run([sys.executable, "db/setup_all.py"], cwd=ROOT,
-                            env={**os.environ, "DATABASE_URL": DSN},
+                            env={**os.environ, "DATABASE_URL": DSN, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
                             capture_output=True, text=True, encoding="utf-8")
     assert result.returncode == 0, result.stdout + result.stderr
     with psycopg.connect(DSN) as conn:

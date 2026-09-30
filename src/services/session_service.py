@@ -9,6 +9,7 @@ from src.engine import slot_rules
 from src.engine.spec_text import parse_spec_text
 from src.errors import Conflict, FileTooLarge, NotFound, ValidationFailed
 from src.repo.plan_repo import RESUMED_FROM_KEY, PlanRepo
+from src.repo.preference_repo import PreferenceRepo
 from src.repo.user_repo import ConversationRepo
 
 log = logging.getLogger(__name__)
@@ -300,6 +301,19 @@ def _current_values(repo: PlanRepo, revision_id: UUID) -> tuple[dict, str | None
 _ALL_SET = "필요한 조건을 모두 확인했어요. 이 조건으로 추천을 받아보세요."
 
 
+def apply_explicit_preference_patches(conn, user_id: UUID | None, patches: list[dict]) -> int:
+    """조건 대화 에이전트가 이번 턴에 모은 record_brand_preference 호출들을 저장한다
+    (docs/사용자_선호비선호_기록_설계.md 파이프라인 A). 게스트(user_id 없음)는 저장하지 않는다(§7).
+    별도 함수로 뺀 이유: 에이전트 가용 여부(MOCK_MODE 등)와 무관하게 이 저장 로직만 단위 테스트할 수 있게."""
+    if user_id is None or not patches:
+        return 0
+    pref_repo = PreferenceRepo(conn)
+    for p in patches:
+        pref_repo.upsert_signal(user_id=user_id, dimension="brand", slot=p["slot"],
+                                value=p["value"], direction=p["direction"], source="explicit_chat")
+    return len(patches)
+
+
 def handle_message(
     conn,
     list_id: UUID,
@@ -331,6 +345,7 @@ def handle_message(
                 next_question_fn=lambda v: _next_question(cat_def, v))
             extracted, reply = turn.patches, turn.reply
             log.info("conditions agent [%s]: %s", list_id, " | ".join(turn.trace) or "(도구 호출 없음)")
+            apply_explicit_preference_patches(conn, principal.user_id, turn.preference_patches)
         except Exception as exc:  # 모델·네트워크 오류 — 이번 턴만 규칙으로
             log.warning("conditions agent failed, falling back to slot_rules: %s", exc)
     if reply is None:
@@ -490,6 +505,60 @@ def resume_previous(conn, list_id: UUID, from_list_id: UUID, principal: Principa
     lead = "지난 조건을 가져왔어요. 바뀐 게 있으면 말씀해 주세요."
     convo.add_message(current["conversation_id"], "assistant", f"{lead} {nq['text'] if nq else _ALL_SET}")
     return _state(conn, list_id, principal)
+
+
+# ── 반복 행동에서 추론한 선호 신호 되묻기 (B4: docs/사용자_선호비선호_기록_설계.md §6) ──
+# A1과 같은 원칙 — 자동 적용하지 않는다. "예"를 골라야 이 목록의 조건(brand_pref)이 된다.
+def preference_hint(conn, principal: Principal) -> dict | None:
+    """게스트에게는 안 준다 — 신호는 로그인 계정에만 쌓인다(§7).
+
+    배치(preference_signal_batch)는 관측될 때마다 바로 신호를 쌓지만(confidence=1부터),
+    여기서 min_confidence로 걸러서 REPEAT_THRESHOLD를 넘은 것만 보여준다 — "패턴으로
+    볼지"는 쌓는 시점이 아니라 보여주는 시점의 문턱이다(preference_signal_batch.py 참고)."""
+    if principal.user_id is None:
+        return None
+    from src.workers.preference_signal_batch import REPEAT_THRESHOLD
+    active = PreferenceRepo(conn).list_active(principal.user_id, dimension="brand",
+                                              min_confidence=REPEAT_THRESHOLD)
+    if not active:
+        return None
+    # 'prefer'가 있으면 그걸 우선 보여준다("~로 바꾸신 걸 봤어요"가 "~을 빼신 걸 봤어요"보다
+    # 더 실행 가능한 제안이 된다) — 둘 다 없으면(간혹 avoid만 쌓인 경우) 최고 신뢰도 신호로.
+    top = next((r for r in active if r["direction"] == "prefer"), active[0])
+    if top["direction"] == "prefer":
+        avoid = next((r for r in active if r["slot"] == top["slot"] and r["direction"] == "avoid"), None)
+        if avoid:
+            summary = (f"지난번에 {top['slot']}에서 {avoid['value']}을(를) {avoid['confidence']}번 빼고 "
+                       f"{top['value']}(으)로 바꾸신 걸 봤어요. 이번에도 {top['value']} 위주로 볼까요?")
+        else:
+            summary = f"지난번에 {top['slot']}에서 {top['value']}을(를) 자주 선택하신 걸 봤어요. 이번에도 {top['value']} 위주로 볼까요?"
+    else:
+        summary = f"지난번에 {top['slot']}에서 {top['value']}을(를) 자주 빼신 걸 봤어요. 이번에도 제외할까요?"
+    return {"id": str(top["id"]), "dimension": top["dimension"], "slot": top["slot"],
+            "value": top["value"], "direction": top["direction"], "summary": summary}
+
+
+def respond_preference_hint(conn, list_id: UUID, signal_id: UUID, accepted: bool, principal: Principal) -> dict:
+    """'아니요'는 신호를 dismiss만 한다(완전 삭제 안 함, §9). '예'는 이 목록의 brand_pref 조건도 채운다
+    — direction='avoid'만 있는 신호는 엔진의 brand_pref가 '선호 브랜드 하나' 형태라 직접 못 담는다(엔진
+    스코프, 이 설계 밖) — 그 경우는 신호 재확인(active 유지)만 하고 조건은 안 건드린다."""
+    if principal.user_id is None:
+        raise NotFound("로그인이 필요합니다.")
+    repo = PreferenceRepo(conn)
+    if not accepted:
+        repo.dismiss(principal.user_id, signal_id)
+        return {"list_id": str(list_id), "accepted": False}
+    signal = next((r for r in repo.list_active(principal.user_id) if r["id"] == signal_id), None)
+    if signal is None:
+        raise NotFound("이미 처리된 신호입니다.")
+    if signal["direction"] == "prefer":
+        # brand_pref는 지금 stage2_requirement.py에서 CPU 소켓 필터링에만 쓰인다(엔진 스코프) —
+        # GPU 등 다른 슬롯 신호를 여기 담아도 지금 엔진은 아직 안 읽는다. 조건으로는 남겨서
+        # 나중에 엔진이 슬롯별로 확장하면 바로 쓸 수 있게 해 둔다.
+        plan_repo = PlanRepo(conn)
+        current = _owned(plan_repo, list_id, principal)
+        plan_repo.upsert_condition(current["id"], "brand_pref", {"value": signal["value"].lower()}, "inferred")
+    return {"list_id": str(list_id), "accepted": True}
 
 
 # ── 업그레이드 사양 파일 첨부 (§D-4-1: current_specs · spec_file_name) ──

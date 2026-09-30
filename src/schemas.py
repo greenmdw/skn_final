@@ -348,8 +348,24 @@ class PreviousConditionsOut(BaseModel):
     summary: str
 
 
+class PreferenceHintOut(BaseModel):
+    """GET /session/previous — 반복 행동에서 추론한 선호 신호(B4, docs/사용자_선호비선호_기록_설계.md).
+    자동 적용하지 않는다 — 사용자가 응답해야(POST .../preference-hint/{id}/respond) 조건에 반영된다."""
+    id: str
+    dimension: str
+    slot: str
+    value: str
+    direction: str
+    summary: str
+
+
 class PreviousLookupOut(BaseModel):
     previous: PreviousConditionsOut | None = None
+    preference_hint: PreferenceHintOut | None = None
+
+
+class PreferenceHintRespondIn(BaseModel):
+    accepted: bool
 
 
 class ResumeIn(BaseModel):

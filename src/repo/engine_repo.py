@@ -32,8 +32,6 @@ class EngineRepo(Repo):
         reason_status = "ready" if reason is not None else "pending"
         row=self._one("""INSERT INTO engine.recommendation_candidate (run_id,requirement_id,variant_id,offer_observation_id,result,score,score_method_version,reason,reason_status)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",(run_id,requirement_id,variant_id,offer_observation_id,result,score,score_method_version,reason,reason_status)); return row["id"]
-    def link_candidate_evidence(self, candidate_id: UUID, evidence_id: UUID, claim_key: str) -> None:
-        self._exec("INSERT INTO engine.candidate_evidence (candidate_id,evidence_id,claim_key) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING",(candidate_id,evidence_id,claim_key))
     def update_candidate_reason(self, candidate_id: UUID, reason: str) -> None:
         """[5] 설명 문장이 부품표 확정보다 늦게 끝날 때, 나중에 reason만 채워 넣는다."""
         self._exec("UPDATE engine.recommendation_candidate SET reason=%s, reason_status='ready' WHERE id=%s",(reason,candidate_id))
@@ -53,8 +51,6 @@ class EngineRepo(Repo):
         """run 의 검증 결과를 지운다. 세트 재검증(교체·담기 뒤)이 규칙 스캐폴드 결과를 통째로 다시 쓸 때 쓴다.
         근거·대상 표(validation_evidence/target)는 0012 에서 없어졌고 이 행을 가리키는 것이 없다."""
         return self.conn.execute("DELETE FROM engine.validation_result WHERE run_id=%s", (run_id,)).rowcount
-    def link_validation_evidence(self, validation_result_id: UUID, evidence_id: UUID) -> None:
-        self._exec("INSERT INTO engine.validation_evidence (validation_result_id,evidence_id) VALUES (%s,%s) ON CONFLICT DO NOTHING",(validation_result_id,evidence_id))
     def set_explanation(self, run_id: UUID, *, headline: str, text: str, reasoning_log: list) -> None:
         self._exec(
             """UPDATE engine.recommendation_run
@@ -90,10 +86,6 @@ class EngineRepo(Repo):
         WHERE c.run_id=%s ORDER BY n.position, c.created_at""", (run_id,))
     def get_validations(self, run_id: UUID) -> list[dict]:
         return self._all("SELECT * FROM engine.validation_result WHERE run_id=%s ORDER BY created_at", (run_id,))
-    def get_candidate_evidence(self, candidate_id: UUID) -> list[dict]:
-        return self._all("""SELECT ev.id AS evidence_id, ev.citation_snapshot, ev.status
-        FROM engine.candidate_evidence ce JOIN evidence.evidence ev ON ev.id=ce.evidence_id
-        WHERE ce.candidate_id=%s AND ev.status='active'""", (candidate_id,))
     def update_candidate_state(self, candidate_id: UUID, *, selected: bool | None = None,
                                 qty: int | None = None, timing: str | None = None) -> None:
         sets, params = [], []

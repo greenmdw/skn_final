@@ -45,16 +45,6 @@ class ProductRepo(Repo):
         )
         return row["id"]
 
-    def resolve_category_id(self, code: str, name: str | None = None) -> UUID:
-        """catalog.product_category 코드로 get-or-create. 하나의 정식 카테고리만 반환."""
-        row = self._one("SELECT id FROM catalog.product_category WHERE code = %s", (code,))
-        if row is not None:
-            return row["id"]
-        row = self._one(
-            "INSERT INTO catalog.product_category (code, name) VALUES (%s, %s) RETURNING id",
-            (code, name or code),
-        )
-        return row["id"]
 
     def add_observation_if_changed(self, offer_id: UUID, *, source_id: UUID,
                                    observed_at, price, currency: str, stock_status: str,
@@ -127,28 +117,6 @@ class ProductRepo(Repo):
             ORDER BY observed_at DESC LIMIT 1""",
             (offer_id,),
         )
-
-    def variant_id_by_model(self, model: str, variant_key: str = "default") -> UUID | None:
-        row = self._one(
-            """SELECT v.id FROM catalog.product_variant v
-            JOIN catalog.product p ON p.id = v.product_id
-            WHERE p.model = %s AND v.variant_key = %s""",
-            (model, variant_key),
-        )
-        return None if row is None else row["id"]
-
-    def offer_observation_id_by_variant(self, variant_id: UUID) -> UUID | None:
-        row = self._one(
-            """SELECT obs.id FROM catalog.offer o
-            JOIN LATERAL (
-                SELECT id FROM catalog.offer_observation
-                WHERE offer_id = o.id AND quality_status = 'valid'
-                ORDER BY observed_at DESC LIMIT 1
-            ) obs ON true
-            WHERE o.variant_id = %s AND o.status = 'active' LIMIT 1""",
-            (variant_id,),
-        )
-        return None if row is None else row["id"]
 
     def candidates_by_slot(self) -> dict[str, list[dict]]:
         """슬롯별 최신 유효가 후보. 기존 slot 속성과 새 PC product_type을 모두 읽는다."""

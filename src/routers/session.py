@@ -31,7 +31,16 @@ def previous(
 ) -> schemas.PreviousLookupOut:
     with get_conn() as conn:
         found = session_service.previous_conditions(conn, principal, category, mode, exclude)
-    return schemas.PreviousLookupOut(previous=found)
+        hint = session_service.preference_hint(conn, principal)
+    return schemas.PreviousLookupOut(previous=found, preference_hint=hint)
+
+@router.post("/{list_id}/preference-hint/{signal_id}/respond")
+def preference_hint_respond(
+    list_id: UUID, signal_id: UUID, body: schemas.PreferenceHintRespondIn,
+    principal: Principal = Depends(optional_principal),
+) -> dict:
+    with get_conn() as conn:
+        return session_service.respond_preference_hint(conn, list_id, signal_id, body.accepted, principal)
 
 @router.get("/{list_id}", response_model=schemas.ConditionState)
 def get_session(
@@ -137,7 +146,7 @@ def previous_comparison(list_id: UUID, principal: Principal = Depends(optional_p
 def patch_item(list_id: UUID, item_id: UUID, body: schemas.ItemPatchIn, principal: Principal = Depends(optional_principal)) -> schemas.RecommendResultOut:
     with get_conn() as conn:
         revision = session_service._owned(PlanRepo(conn), list_id, principal)
-        stored = recommendation_service.patch_item(conn, revision["id"], item_id, selected=body.selected, qty=body.qty, timing=body.timing)
+        stored = recommendation_service.patch_item(conn, revision["id"], item_id, selected=body.selected, qty=body.qty, timing=body.timing, user_id=principal.user_id)
     return schemas.RecommendResultOut(**stored)
 
 @router.get("/{list_id}/items/{item_id}/alternatives", response_model=schemas.AlternativesOut)
@@ -155,7 +164,7 @@ def alternatives(
 def swap(list_id: UUID, item_id: UUID, body: schemas.SwapIn, principal: Principal = Depends(optional_principal)) -> schemas.RecommendResultOut:
     with get_conn() as conn:
         revision = session_service._owned(PlanRepo(conn), list_id, principal)
-        stored = recommendation_service.swap_item(conn, revision["id"], item_id, UUID(body.candidate_id))
+        stored = recommendation_service.swap_item(conn, revision["id"], item_id, UUID(body.candidate_id), user_id=principal.user_id)
     return schemas.RecommendResultOut(**stored)
 
 @router.post("/{list_id}/result-message", response_model=schemas.ResultMessageOut)
@@ -166,7 +175,7 @@ def result_message(
 ) -> schemas.ResultMessageOut:
     with get_conn() as conn:
         revision = session_service._owned(PlanRepo(conn), list_id, principal)
-        stored = recommendation_service.handle_result_message(conn, revision["id"], body.text)
+        stored = recommendation_service.handle_result_message(conn, revision["id"], body.text, user_id=principal.user_id)
     return schemas.ResultMessageOut(**stored)
 
 @router.post("/{list_id}/spec-file", response_model=schemas.ConditionState)

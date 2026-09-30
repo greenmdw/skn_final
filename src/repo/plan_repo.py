@@ -174,10 +174,6 @@ class PlanRepo(Repo):
             (revision_id,),
         )
 
-    def get_lock_version(self, revision_id: UUID) -> int | None:
-        row = self._one("SELECT lock_version FROM planning.plan_revision WHERE id=%s", (revision_id,))
-        return None if row is None else row["lock_version"]
-
     def lock_revision(self, revision_id: UUID) -> None:
         """같은 리비전의 조건·요구사항 변경을 하나의 행 잠금으로 직렬화한다."""
         self._one("SELECT id FROM planning.plan_revision WHERE id=%s FOR UPDATE", (revision_id,))
@@ -241,22 +237,12 @@ class PlanRepo(Repo):
         )
         return row["id"]
 
-    def get_requirement_by_node(self, revision_id: UUID, node_id: UUID) -> dict | None:
-        return self._one(
-            "SELECT id, match_spec, status FROM planning.requirement WHERE revision_id=%s AND node_id=%s",
-            (revision_id, node_id),
-        )
-
     def active_condition(self, revision_id: UUID, condition_key: str) -> dict | None:
         return self._one(
             "SELECT id, value FROM planning.plan_condition WHERE revision_id=%s AND condition_key=%s "
             "AND status='active'",
             (revision_id, condition_key),
         )
-
-    def active_condition_id(self, revision_id: UUID, condition_key: str) -> UUID | None:
-        row = self.active_condition(revision_id, condition_key)
-        return None if row is None else row["id"]
 
     def load_full(self, revision_id: UUID) -> dict:
         revision = self.get_revision(revision_id)

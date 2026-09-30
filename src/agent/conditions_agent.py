@@ -47,6 +47,10 @@ class ConditionDraft:
     next_question_fn: NextQuestionFn
     patches: dict = field(default_factory=dict)   # 이번 턴에 바뀐 것만
     trace: list[str] = field(default_factory=list) # 도구 호출 기록 (로그·"추천 과정 보기" 용)
+    preference_patches: list[dict] = field(default_factory=list)
+    # 채팅에서 직접 말한 브랜드 선호·비선호(docs/사용자_선호비선호_기록_설계.md 파이프라인 A).
+    # 에이전트는 DB를 안 만지므로 여기 모아만 두고, session_service가 로그인 사용자에 한해
+    # identity.preference_signal에 반영한다(§7 — 게스트는 저장 안 함).
 
     def question(self, key: str) -> dict | None:
         return next((q for q in self.cat_def.get("question_sets", []) if q["maps_to"] == key), None)
@@ -107,6 +111,18 @@ class ConditionDraft:
             return self._record(call, f"오류: '{key}' 는 설정할 수 없는 필드입니다.")
         self.patches[key] = None
         return self._record(call, f"{key} 비움" + self._status())
+
+    def record_brand_preference(self, slot: str, brand: str, direction: str) -> str:
+        call = f"record_brand_preference({slot!r}, {brand!r}, {direction!r})"
+        if direction not in ("prefer", "avoid"):
+            return self._record(call, "오류: direction 은 prefer 또는 avoid 여야 합니다.")
+        if not slot.strip() or not brand.strip():
+            return self._record(call, "오류: slot·brand 는 비울 수 없습니다.")
+        self.preference_patches.append({"slot": slot.strip(), "value": brand.strip(), "direction": direction})
+        if slot.strip().upper() == "CPU" and direction == "prefer" and brand.strip().lower() in ("amd", "intel"):
+            # CPU는 기존 brand_pref 필드가 있다 — 이번 견적에도 바로 반영되게 같이 채운다.
+            self.patches["brand_pref"] = brand.strip().lower()
+        return self._record(call, f"{slot} 브랜드 {direction} 기록: {brand}" + self._status())
 
     def add_extra(self, text: str) -> str:
         call = f"add_extra_condition({text!r})"
@@ -222,7 +238,20 @@ def make_tools(draft: ConditionDraft) -> list:
         """
         return draft.clear(field)
 
-    return [set_condition, add_extra_condition, clear_condition]
+    @tool
+    def record_brand_preference(slot: str, brand: str, direction: str) -> str:
+        """사용자가 특정 부품 브랜드를 좋아하거나("AMD가 좋아요") 싫어한다고("인텔은 별로예요")
+        직접 말했을 때만 부른다 — 추측하지 않는다. set_condition 의 brand_pref(CPU 전용, 값 하나)와
+        달리 어느 슬롯이든, 선호·비선호 둘 다 기록할 수 있다.
+
+        Args:
+            slot: 부품 슬롯 (예: CPU, GPU, RAM, 메인보드, 저장장치, 파워, 케이스, 쿨러)
+            brand: 브랜드명 (예: AMD, Intel, NVIDIA)
+            direction: "prefer"(선호) 또는 "avoid"(비선호)
+        """
+        return draft.record_brand_preference(slot, brand, direction)
+
+    return [set_condition, add_extra_condition, clear_condition, record_brand_preference]
 
 
 # ── 프롬프트 ───────────────────────────────────────────────────────────────
@@ -286,6 +315,8 @@ def system_prompt(
         "5. 값을 바꿀 때는 clear_condition 없이 set_condition 에 새 값만 넣습니다. clear 는 '취소'·'빼 주세요' 에만 씁니다.",
         "6. 제품 추천·가격·성능·호환성 판단을 하지 않습니다. 그건 다음 단계의 엔진이 합니다.",
         "7. 금액은 원화로만 씁니다. 금액을 새로 계산하지 않습니다.",
+        "8. 사용자가 특정 부품 브랜드를 좋아하거나 싫어한다고 직접 말하면(예: \"인텔은 별로예요\", "
+        "\"AMD가 좋아요\") record_brand_preference 로 기록합니다. 짐작해서 부르지 않습니다.",
         "",
         "답변 언어: 한국어 존댓말.",
     ])
@@ -317,6 +348,7 @@ class TurnResult:
     reply: str
     patches: dict
     trace: list[str]
+    preference_patches: list[dict] = field(default_factory=list)
 
 
 def _model():
@@ -346,4 +378,5 @@ def run_turn(category: str, cat_def: dict, values: dict, history: list[dict], te
         callback_handler=None,          # 기본 핸들러는 stdout 에 스트리밍한다
     )
     result = agent(text)
-    return TurnResult(reply=str(result).strip(), patches=dict(draft.patches), trace=list(draft.trace))
+    return TurnResult(reply=str(result).strip(), patches=dict(draft.patches), trace=list(draft.trace),
+                      preference_patches=list(draft.preference_patches))

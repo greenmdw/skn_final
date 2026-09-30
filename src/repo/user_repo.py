@@ -158,6 +158,7 @@ class UserRepo(Repo):
 
     def withdraw(self, user_id: UUID) -> None:
         """소프트 삭제 + 개인정보 제거(§A-3 회원 탈퇴)."""
+        self._exec("DELETE FROM identity.preference_signal WHERE user_id=%s", (user_id,))
         self._exec(
             "UPDATE identity.app_user SET "
             "status='deleted', deleted_at=now(), "

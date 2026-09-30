@@ -28,7 +28,7 @@ _ACTION_TO_EVENT_TYPE = {
 # email/token/private note." Keys must end in _id (identifiers), or be one of these
 # scalar fields; values must be JSON scalars — never a nested dict/list, which is
 # exactly how a body/email/token would otherwise be smuggled in through this "id".
-_PAYLOAD_SCALAR_KEYS = {"action", "version", "reason_code", "source"}
+_PAYLOAD_SCALAR_KEYS = {"action", "version", "reason_code", "source", "slot"}
 
 
 def _validate_payload(payload: dict[str, Any]) -> None:

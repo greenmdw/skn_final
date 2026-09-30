@@ -683,7 +683,7 @@ def _find_candidate(rows: list[dict], item_id: UUID) -> dict:
 
 
 def patch_item(conn, revision_id: UUID, item_id: UUID, *, selected: bool | None,
-                qty: int | None, timing: str | None) -> dict:
+                qty: int | None, timing: str | None, user_id: UUID | None = None) -> dict:
     from src.repo.plan_repo import PlanRepo
     from src.services import feedback_service
 
@@ -703,6 +703,8 @@ def patch_item(conn, revision_id: UUID, item_id: UUID, *, selected: bool | None,
         feedback_service.emit_removed(
             conn, plan_id=revision["plan_id"], revision_id=revision_id,
             run_id=run["id"], item_id=item_id, version=revision["lock_version"],
+            user_id=user_id,
+            payload={"removed_variant_id": str(current["variant_id"]), "slot": current["slot"]},
         )
     return get_stored_result(conn, revision_id)
 
@@ -847,7 +849,8 @@ def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
     return {"items": items}
 
 
-def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID) -> dict:
+def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID,
+              user_id: UUID | None = None) -> dict:
     """candidate_id는 alternatives가 돌려준 variant_id다. item_id(행 자체)는 그대로 두고
     내용만 바꿔치기한다 — 계약상 item_id는 후보 교체 후에도 고정."""
     from src.repo.product_repo import ProductRepo
@@ -885,6 +888,9 @@ def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID) -> dic
     feedback_service.emit_replaced(
         conn, plan_id=revision["plan_id"], revision_id=revision_id,
         run_id=run["id"], item_id=item_id, version=revision["lock_version"],
+        user_id=user_id,
+        payload={"from_variant_id": str(current["variant_id"]), "to_variant_id": str(candidate_id),
+                 "slot": current["slot"]},
     )
     return get_stored_result(conn, revision_id)
 
@@ -939,16 +945,19 @@ def _parse_swap_request(text: str, known_slots: set[str]) -> tuple[str | None, s
     return slot, direction, is_question
 
 
-def handle_result_message(conn, revision_id: UUID, text: str) -> dict:
+def handle_result_message(conn, revision_id: UUID, text: str, user_id: UUID | None = None) -> dict:
     """결과 화면 채팅 — 실제 처리는 `_handle_result_message_inner`, 여기서는 그 앞뒤로 대화를 저장한다
     (CHAT-08). 조건 대화(session_service)와 같은 `identity.conversation`에 시간순으로 쌓여, 저장한
     견적을 다시 열면 `GET /session/{id}`가 조건 대화·결과 대화를 이어서 그대로 복원한다 — 새 API가
-    필요 없다. 에이전트가 이어 말하기 맥락을 볼 때도 이 DB 이력을 쓴다(`result_agent._history_messages`)."""
+    필요 없다. 에이전트가 이어 말하기 맥락을 볼 때도 이 DB 이력을 쓴다(`result_agent._history_messages`).
+
+    `user_id`는 채팅으로 바꾼 부품도 버튼 스왑과 같은 신호 소스로 잡히게 한다
+    (docs/사용자_선호비선호_기록_설계.md — 이전엔 이 경로만 빠져 있었다)."""
     from src.repo.plan_repo import PlanRepo
     from src.repo.user_repo import ConversationRepo
 
     conversation_id = PlanRepo(conn).get_revision(revision_id)["conversation_id"]
-    turn = _handle_result_message_inner(conn, revision_id, text)
+    turn = _handle_result_message_inner(conn, revision_id, text, user_id=user_id)
     convo = ConversationRepo(conn)
     convo.add_message(conversation_id, "user", text)
     convo.add_message(conversation_id, "assistant", turn["reply"])
@@ -959,6 +968,7 @@ def _handle_result_message_inner(
     conn,
     revision_id: UUID,
     text: str,
+    user_id: UUID | None = None,
 ) -> dict:
     """결과 화면 채팅의 실제 처리. 에이전트(RESULT_AGENT=1)가 있으면 도구 호출로 후보 조회·교체·담기/빼기·
     근거 설명을 처리하고, 없거나 실패하면 아래 규칙 경로 — "그래픽카드를 더 저렴한 걸로" 같은 요청만
@@ -971,7 +981,8 @@ def _handle_result_message_inner(
     if result_agent.available():
         _require_done_run(conn, revision_id)
         try:
-            turn = result_agent.run_turn(conn, revision_id, get_stored_result(conn, revision_id), text)
+            turn = result_agent.run_turn(conn, revision_id, get_stored_result(conn, revision_id), text,
+                                         user_id=user_id)
             log.info("result agent [%s]: %s", revision_id, " | ".join(turn.trace) or "(도구 호출 없음)")
             return {"reply": turn.reply, "result": turn.result}
         except Exception as exc:  # noqa: BLE001 — 모델·네트워크 오류는 이번 턴만 규칙으로
@@ -1026,6 +1037,6 @@ def _handle_result_message_inner(
     # (전에는 최저가/최고가로 바로 뛰어서 "더 좋은 걸로"가 목록에서 가장 비싼 부품이 됐다.)
     target = max(candidates, key=lambda r: r["price"]) if cheaper else min(candidates, key=lambda r: r["price"])
     # swap_item 을 거쳐야 교체 기록 reason 이 같이 적힌다 (직접 update_candidate_variant 하면 pending 으로 남는다)
-    result = swap_item(conn, revision_id, current["id"], target["variant_id"])
+    result = swap_item(conn, revision_id, current["id"], target["variant_id"], user_id=user_id)
     tier = "더 저렴한" if cheaper else "더 좋은"
     return {"reply": f"{slot}를 {tier} '{target['name']}'(으)로 바꿨어요.", "result": result}
