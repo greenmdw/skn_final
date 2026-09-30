@@ -671,7 +671,7 @@ class ReportItemOut(BaseModel):
     slot: str
     slot_label: str
     product: ReportProductOut
-    price: int
+    price: int            # 단가 — 줄 금액은 price × qty
     qty: int = 1
     timing: str = "now"
     review: ReviewBriefOut | None = None

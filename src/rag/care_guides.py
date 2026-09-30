@@ -81,20 +81,37 @@ SLOT_GUIDE_IDS: dict[str, tuple[str, ...]] = {
 }
 
 
-def search_care_guide(query: str, k: int = 1, slot: str | None = None) -> list[dict]:
-    """query와 가장 관련 있는 구매 전 확인 가이드 k개. 각 dict: {id, kind, text, score}. 문서가 없으면 빈 리스트.
+# 조립·설치 방법 문서(kind="install"). 조립 가이드 기능 자체는 삭제됐지만(개발요청 1번), 검색이
+# care/install 종류를 섞지 않는다는 경계는 계속 검사한다(tests/test_assembly_guide_install.py).
+INSTALL_GUIDE_IDS: dict[str, tuple[str, ...]] = {
+    "CPU": ("install_cpu",),
+    "GPU": ("install_gpu",),
+    "RAM": ("install_ram",),
+    "메인보드": ("install_mainboard",),
+    "저장장치": ("install_storage",),
+    "파워": ("install_psu",),
+    "케이스": ("install_case",),
+    "쿨러": ("install_cooler",),
+}
 
-    slot 을 주면 그 슬롯의 가이드(SLOT_GUIDE_IDS) 안에서만 찾는다.
+
+def search_care_guide(query: str, k: int = 1, slot: str | None = None, kind: str | None = None) -> list[dict]:
+    """query와 가장 관련 있는 가이드 k개. 각 dict: {id, kind, text, score}. 문서가 없으면 빈 리스트.
+
+    slot 을 주면 그 슬롯의 가이드 안에서만 찾는다 — kind 가 "install" 이면 INSTALL_GUIDE_IDS, 아니면
+    SLOT_GUIDE_IDS(구매 전 확인). kind 를 주면 그 종류의 문서만 대상이다("care"|"install"),
+    안 주면(기본) 종류를 가리지 않는다.
     """
     docs, embeddings = _load_guides()
     if not docs:
         return []
-    allowed = SLOT_GUIDE_IDS.get(slot) if slot else None
+    table = INSTALL_GUIDE_IDS if kind == "install" else SLOT_GUIDE_IDS
+    allowed = table.get(slot) if slot else None
     q = _embed([query])[0]
     scored = sorted(
         ({"id": d["id"], "kind": d.get("kind", "care"), "text": d["text"], "score": round(_cosine(q, e), 4)}
          for d, e in zip(docs, embeddings)
-         if allowed is None or d["id"] in allowed),
+         if (kind is None or d.get("kind", "care") == kind) and (allowed is None or d["id"] in allowed)),
         key=lambda h: h["score"], reverse=True,
     )
     return scored[:k]

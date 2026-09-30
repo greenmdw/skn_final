@@ -260,13 +260,14 @@ class PlanRepo(Repo):
         return row is not None
 
     def add_purchase_line(self, revision_id: UUID, offer_id: UUID, offer_observation_id: UUID,
-                          amount: int, snapshot: dict) -> UUID:
-        """확정 시점에 후보를 얼려서 기록 — 이후 추천 결과가 바뀌어도 리포트는 그대로다."""
+                          amount: int, snapshot: dict, pack_count: int = 1) -> UUID:
+        """확정 시점에 후보를 얼려서 기록 — 이후 추천 결과가 바뀌어도 리포트는 그대로다.
+        amount 는 줄 합계(단가 × pack_count)다 — 확정 총액(confirmed_total)이 줄 합계의 합과 같다."""
         row = self._one(
             "INSERT INTO planning.purchase_line "
             "(revision_id, offer_id, selected_observation_id, pack_count, line_amount, snapshot) "
-            "VALUES (%s, %s, %s, 1, %s, %s) RETURNING id",
-            (revision_id, offer_id, offer_observation_id, amount, Jsonb(snapshot)),
+            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+            (revision_id, offer_id, offer_observation_id, pack_count, amount, Jsonb(snapshot)),
         )
         return row["id"]
 
