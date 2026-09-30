@@ -6,10 +6,11 @@ engine.feedback_event(item_replaced/item_removed)를 사용자·슬롯별로 모
 stage6_feedback.run_batch()(엔진 전체 가중치 재학습, 별도 승인 게이트)와는 범위가 다르다 — 이건
 사용자 개인의 신호만 다루고, 추천 엔진의 전역 가중치는 건드리지 않는다.
 
-멱등성: 매번 최근 WINDOW_DAYS 안의 이벤트를 다시 스캔하지만, 각 (user, slot, brand) 신호가
-이미 갖고 있는 evidence_event_ids(PreferenceRepo.get_signal로 조회)와 대조해 **아직 반영 안 한
-이벤트만** confidence_delta로 넘긴다 — 그래서 몇 번을 다시 돌려도 confidence가 실제 관측 이벤트
-개수 이상으로 부풀지 않는다.
+멱등성: 매번 최근 WINDOW_DAYS 안의 이벤트로 (user, slot, brand)별 선호·비선호 횟수를 **처음부터 다시 세고**
+그 순(net) 횟수를 그대로 기록한다(PreferenceRepo.set_inferred — 더하지 않는다). 그래서 몇 번을 다시 돌려도 같고,
+바뀐 신호만 갱신 건수에 든다. 예전엔 새 이벤트만 더하는 방식이라 방향이 반대인 관측(A→B 뒤 B→A)이 한 행에서
+방향을 덮고 횟수를 합쳤다 — 이제 교체 이벤트 하나는 넣은 브랜드에 선호 +1, 뺀 브랜드에 비선호 +1 이고, 두 방향은
+서로 상쇄된다. 직접 말한 신호(explicit_chat)는 배치가 건드리지 않는다.
 
 "패턴으로 볼지"(REPEAT_THRESHOLD)는 여기서 쌓기를 막는 문턱이 아니라, 신호를 화면에 보여줄지
 결정하는 문턱이다(PreferenceRepo.list_active(min_confidence=...), session_service.preference_hint) —
@@ -65,53 +66,35 @@ def _removed_brands(conn) -> list[dict]:
     ).fetchall()
 
 
-def _new_event_ids(repo: PreferenceRepo, *, user_id: UUID, slot: str, value: str,
-                    event_ids: list[UUID]) -> list[UUID]:
-    """이 신호가 이미 반영한 이벤트를 빼고, 이번에 새로 반영할 것만 돌려준다."""
-    existing = repo.get_signal(user_id=user_id, dimension="brand", slot=slot, value=value)
-    seen = set(existing["evidence_event_ids"]) if existing else set()
-    return [e for e in event_ids if e not in seen]
+def _observations(conn) -> dict[tuple[UUID, str, str], dict]:
+    """(user, slot, brand) → {"prefer": 횟수, "avoid": 횟수, "events": [id…], "last": 마지막 관측 방향}.
+    교체 이벤트 하나는 넣은 브랜드에 prefer, 뺀 브랜드에 avoid 로 한 번씩 센다. 같은 브랜드끼리 바꾼 건 세지 않는다."""
+    seen: dict[tuple[UUID, str, str], dict] = defaultdict(lambda: {"prefer": 0, "avoid": 0, "events": [], "last": None})
+
+    def add(user_id, slot, brand, direction, event_id):
+        obs = seen[(user_id, slot, brand)]
+        obs[direction] += 1
+        obs["events"].append(event_id)
+        obs["last"] = direction
+
+    for row in _replaced_brand_pairs(conn):
+        if row["from_brand"] != row["to_brand"]:
+            add(row["user_id"], row["slot"], row["to_brand"], "prefer", row["event_id"])
+            add(row["user_id"], row["slot"], row["from_brand"], "avoid", row["event_id"])
+    for row in _removed_brands(conn):
+        add(row["user_id"], row["slot"], row["brand"], "avoid", row["event_id"])
+    return seen
 
 
 def run(conn) -> dict:
-    """배치 1회 실행. 반환값은 몇 건의 신호를 새로 갱신했는지(로그·테스트용) — 이미 반영된
-    이벤트만 있었던 신호는 세지 않는다(멱등)."""
+    """배치 1회 실행. 반환값은 몇 건의 신호가 실제로 바뀌었는지(로그·테스트용) — 다시 돌려 같으면 0."""
     repo = PreferenceRepo(conn)
     updated = 0
-
-    replaced = _replaced_brand_pairs(conn)
-    by_pair: dict[tuple[UUID, str, str, str], list[UUID]] = defaultdict(list)
-    for row in replaced:
-        if row["from_brand"] == row["to_brand"]:
-            continue
-        by_pair[(row["user_id"], row["slot"], row["from_brand"], row["to_brand"])].append(row["event_id"])
-
-    for (user_id, slot, from_brand, to_brand), event_ids in by_pair.items():
-        new_prefer = _new_event_ids(repo, user_id=user_id, slot=slot, value=to_brand, event_ids=event_ids)
-        new_avoid = _new_event_ids(repo, user_id=user_id, slot=slot, value=from_brand, event_ids=event_ids)
-        if new_prefer:
-            repo.upsert_signal(user_id=user_id, dimension="brand", slot=slot, value=to_brand,
-                               direction="prefer", source="inferred_swap",
-                               confidence_delta=len(new_prefer), evidence_event_ids=new_prefer)
+    for (user_id, slot, brand), obs in _observations(conn).items():
+        net = obs["prefer"] - obs["avoid"]
+        # 같으면 방향은 마지막 관측을 따르고 횟수는 0 — 문턱 아래라 되묻지 않는다.
+        direction = "prefer" if net > 0 else "avoid" if net < 0 else obs["last"]
+        if repo.set_inferred(user_id=user_id, dimension="brand", slot=slot, value=brand,
+                             direction=direction, confidence=abs(net), evidence_event_ids=obs["events"]):
             updated += 1
-        if new_avoid:
-            repo.upsert_signal(user_id=user_id, dimension="brand", slot=slot, value=from_brand,
-                               direction="avoid", source="inferred_swap",
-                               confidence_delta=len(new_avoid), evidence_event_ids=new_avoid)
-            updated += 1
-
-    removed = _removed_brands(conn)
-    by_removed: dict[tuple[UUID, str, str], list[UUID]] = defaultdict(list)
-    for row in removed:
-        by_removed[(row["user_id"], row["slot"], row["brand"])].append(row["event_id"])
-
-    for (user_id, slot, brand), event_ids in by_removed.items():
-        new_ids = _new_event_ids(repo, user_id=user_id, slot=slot, value=brand, event_ids=event_ids)
-        if not new_ids:
-            continue
-        repo.upsert_signal(user_id=user_id, dimension="brand", slot=slot, value=brand,
-                           direction="avoid", source="inferred_swap",
-                           confidence_delta=len(new_ids), evidence_event_ids=new_ids)
-        updated += 1
-
     return {"updated_signals": updated}

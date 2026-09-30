@@ -188,6 +188,35 @@ def test_preference_repo_upsert_accumulates_confidence_and_reactivates_dismissed
     assert reactivated["status"] == "active", "a repeated observation must reactivate a dismissed signal"
 
 
+def test_opposite_observations_net_out_instead_of_flipping_and_summing(raw_conn):
+    """유일 키에 direction 이 없다 — 예전엔 방향을 덮고 횟수를 더해 Intel 선호 2 + 비선호 1 이 "비선호 3"(문턱)이 됐다."""
+    repo = PreferenceRepo(raw_conn)
+    user_id = _make_user(raw_conn, "net")
+    key = dict(user_id=user_id, dimension="brand", slot="CPU", value="Intel", source="inferred_swap")
+    repo.upsert_signal(direction="prefer", confidence_delta=2, **key)
+    row = repo.upsert_signal(direction="avoid", confidence_delta=1, **key)
+    assert (row["direction"], row["confidence"]) == ("prefer", 1)
+    row = repo.upsert_signal(direction="avoid", confidence_delta=3, **key)
+    assert (row["direction"], row["confidence"]) == ("avoid", 2)
+    assert repo.list_active(user_id, min_confidence=preference_signal_batch.REPEAT_THRESHOLD) == []
+
+
+def test_explicit_statement_is_not_overwritten_by_inference_but_by_a_new_statement(raw_conn):
+    """예전엔 추론 한 번이 source 를 inferred_swap 으로 덮어, 문턱 우회를 잃고 되묻기가 사라졌다."""
+    repo = PreferenceRepo(raw_conn)
+    user_id = _make_user(raw_conn, "explicit-keep")
+    key = dict(user_id=user_id, dimension="brand", slot="CPU", value="AMD")
+    repo.upsert_signal(direction="prefer", source="explicit_chat", **key)
+    row = repo.upsert_signal(direction="avoid", source="inferred_swap", confidence_delta=5, **key)
+    assert (row["source"], row["direction"], row["confidence"]) == ("explicit_chat", "prefer", 1)
+    assert len(repo.list_active(user_id, min_confidence=preference_signal_batch.REPEAT_THRESHOLD)) == 1
+
+    row = repo.upsert_signal(direction="prefer", source="explicit_chat", **key)       # 같은 말을 또 하면 더한다
+    assert (row["direction"], row["confidence"]) == ("prefer", 2)
+    row = repo.upsert_signal(direction="avoid", source="explicit_chat", **key)        # 말을 바꾸면 그 말이 이긴다
+    assert (row["source"], row["direction"], row["confidence"]) == ("explicit_chat", "avoid", 1)
+
+
 # ── 3. 배치 탐지 ─────────────────────────────────────────────────────────────
 def _two_variants_of_different_brands(conn, product_type: str) -> tuple[dict, dict]:
     rows = conn.execute(
@@ -315,6 +344,67 @@ def test_batch_rerun_is_idempotent_and_does_not_inflate_confidence(raw_conn):
     assert fourth["updated_signals"] == 2
     active = {row["value"]: row for row in repo.list_active(user_id, dimension="brand")}
     assert active[b["brand"]]["confidence"] == preference_signal_batch.REPEAT_THRESHOLD + 1
+
+
+def _swap(raw_conn, pr, user_id, frm, to, slot):
+    from src.services import feedback_service
+    feedback_service.emit_replaced(
+        raw_conn, plan_id=pr["plan_id"], revision_id=pr["revision_id"], run_id=None,
+        item_id=str(uuid4()), version=0, user_id=user_id,
+        payload={"from_variant_id": str(frm["variant_id"]), "to_variant_id": str(to["variant_id"]), "slot": slot},
+    )
+
+
+def test_batch_counts_swaps_back_and_forth_as_net_not_as_a_pattern(raw_conn):
+    """A→B 세 번 뒤 B→A 두 번 — 예전 배치는 새 이벤트를 방향 덮어쓰기로 더해 양쪽 다 문턱을 넘겼다."""
+    user_id = _make_user(raw_conn, "batch-net")
+    pr = _make_plan_revision(raw_conn)
+    a, b = _two_variants_of_different_brands(raw_conn, "gpu")
+    for _ in range(3):
+        _swap(raw_conn, pr, user_id, a, b, "GPU")
+    preference_signal_batch.run(raw_conn)
+    for _ in range(2):
+        _swap(raw_conn, pr, user_id, b, a, "GPU")
+    preference_signal_batch.run(raw_conn)
+
+    active = {r["value"]: r for r in PreferenceRepo(raw_conn).list_active(user_id, dimension="brand")}
+    assert (active[b["brand"]]["direction"], active[b["brand"]]["confidence"]) == ("prefer", 1)
+    assert (active[a["brand"]]["direction"], active[a["brand"]]["confidence"]) == ("avoid", 1)
+    assert PreferenceRepo(raw_conn).list_active(user_id, min_confidence=preference_signal_batch.REPEAT_THRESHOLD) == []
+    assert preference_signal_batch.run(raw_conn)["updated_signals"] == 0
+
+
+def test_batch_leaves_explicit_statements_alone(raw_conn):
+    from src.services.session_service import apply_explicit_preference_patches
+
+    user_id = _make_user(raw_conn, "batch-explicit")
+    pr = _make_plan_revision(raw_conn)
+    a, b = _two_variants_of_different_brands(raw_conn, "cpu")
+    apply_explicit_preference_patches(raw_conn, user_id, [{"slot": "CPU", "value": a["brand"], "direction": "prefer"}])
+    for _ in range(3):
+        _swap(raw_conn, pr, user_id, a, b, "CPU")                  # 말과 반대로 행동해도
+    preference_signal_batch.run(raw_conn)
+    row = PreferenceRepo(raw_conn).get_signal(user_id=user_id, dimension="brand", slot="CPU", value=a["brand"])
+    assert (row["source"], row["direction"], row["confidence"]) == ("explicit_chat", "prefer", 1)
+
+
+def test_batch_keeps_a_dismissed_signal_dismissed_until_a_new_event(raw_conn):
+    user_id = _make_user(raw_conn, "batch-dismiss")
+    pr = _make_plan_revision(raw_conn)
+    a, b = _two_variants_of_different_brands(raw_conn, "ram")
+    for _ in range(3):
+        _swap(raw_conn, pr, user_id, a, b, "RAM")
+    preference_signal_batch.run(raw_conn)
+    repo = PreferenceRepo(raw_conn)
+    signal = repo.get_signal(user_id=user_id, dimension="brand", slot="RAM", value=b["brand"])
+    repo.dismiss(user_id, signal["id"])
+
+    preference_signal_batch.run(raw_conn)
+    assert repo.get_signal(user_id=user_id, dimension="brand", slot="RAM", value=b["brand"])["status"] == "dismissed"
+    _swap(raw_conn, pr, user_id, a, b, "RAM")
+    preference_signal_batch.run(raw_conn)
+    again = repo.get_signal(user_id=user_id, dimension="brand", slot="RAM", value=b["brand"])
+    assert (again["status"], again["confidence"]) == ("active", 4)
 
 
 # ── 4. 회원 탈퇴 시 신호 삭제 ─────────────────────────────────────────────────

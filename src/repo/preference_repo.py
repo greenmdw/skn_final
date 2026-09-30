@@ -23,24 +23,39 @@ class PreferenceRepo(Repo):
     def upsert_signal(self, *, user_id: UUID, dimension: str, slot: str | None, value: str,
                        direction: str, source: str, confidence_delta: int = 1,
                        evidence_event_ids: list[UUID] | None = None) -> dict:
-        """같은 (user, dimension, slot, value)면 confidence를 더하고 관측 시각만 갱신한다.
-        상태가 'dismissed'였어도 다시 관측되면 'active'로 되돌린다 — 사용자가 한 번 거부했어도
-        같은 패턴이 또 나오면 다시 물어볼 기회를 준다(설계 문서 §9).
+        """관측을 confidence_delta 번 더한다. 한 (user, dimension, slot, value)에 행은 하나이고 방향은 순(net)으로 센다:
 
-        evidence_event_ids는 호출자가 이미 "새로 관측된 것만" 걸러서 넘겨야 한다 — 여기서는
-        중복 검사를 하지 않는다(배치의 멱등성은 호출자가 get_signal로 미리 확인하는 책임)."""
+        - 같은 방향이면 더하고, 반대 방향이면 뺀다 — 음수가 되면 방향이 뒤집히고 차이만 남는다. 예전엔 방향을 새 값으로
+          덮고 횟수는 더해서, Intel 선호 2 + 비선호 1 이 "비선호 3"(되묻기 문턱)이 됐다. 스키마(유일 키에 direction 없음)는
+          그대로 두고 순 횟수로 뜻을 맞췄다 — 팀원 DB 에 마이그레이션이 필요 없다.
+        - 직접 말한 것(explicit_chat)은 추론(inferred_swap)이 바꾸지 않는다. 예전엔 추론 한 번이 source 를 덮어
+          문턱 우회를 잃고 되묻기가 사라졌다. 새로 직접 말하면 그 말이 이긴다(같은 방향이면 더하고, 아니면 새로 시작).
+        - 'dismissed'였어도 다시 관측되면 'active'로 되돌린다 — 같은 패턴이 또 나오면 다시 물어볼 기회를 준다(설계 §9).
+
+        evidence_event_ids 는 호출자가 "새로 관측된 것만" 넘긴다(중복 검사 없음)."""
         ids = list(evidence_event_ids or [])
+        same = "ps.direction = EXCLUDED.direction"
+        explicit_in, explicit_row = "EXCLUDED.source = 'explicit_chat'", "ps.source = 'explicit_chat'"
         return self._one(
-            """INSERT INTO identity.preference_signal
+            f"""INSERT INTO identity.preference_signal AS ps
                (user_id, dimension, slot, value, direction, source, confidence, evidence_event_ids)
                VALUES (%(user_id)s, %(dimension)s, %(slot)s, %(value)s, %(direction)s, %(source)s,
                        %(confidence_delta)s, %(ids)s::uuid[])
                ON CONFLICT (user_id, dimension, slot, value) DO UPDATE SET
-                   confidence = identity.preference_signal.confidence + EXCLUDED.confidence,
-                   direction = EXCLUDED.direction,
-                   source = EXCLUDED.source,
+                   direction = CASE
+                       WHEN {explicit_in} THEN EXCLUDED.direction
+                       WHEN {explicit_row} OR {same} THEN ps.direction
+                       WHEN EXCLUDED.confidence > ps.confidence THEN EXCLUDED.direction
+                       ELSE ps.direction END,
+                   confidence = CASE
+                       WHEN {explicit_in} THEN CASE WHEN {explicit_row} AND {same}
+                                                    THEN ps.confidence + EXCLUDED.confidence ELSE EXCLUDED.confidence END
+                       WHEN {explicit_row} THEN ps.confidence
+                       WHEN {same} THEN ps.confidence + EXCLUDED.confidence
+                       ELSE abs(ps.confidence - EXCLUDED.confidence) END,
+                   source = CASE WHEN {explicit_in} OR {explicit_row} THEN 'explicit_chat' ELSE ps.source END,
                    status = 'active',
-                   evidence_event_ids = identity.preference_signal.evidence_event_ids || EXCLUDED.evidence_event_ids,
+                   evidence_event_ids = ps.evidence_event_ids || EXCLUDED.evidence_event_ids,
                    last_observed_at = now()
                RETURNING *""",
             {
@@ -48,6 +63,32 @@ class PreferenceRepo(Repo):
                 "direction": direction, "source": source, "confidence_delta": confidence_delta,
                 "ids": ids,
             },
+        )
+
+    def set_inferred(self, *, user_id: UUID, dimension: str, slot: str | None, value: str,
+                     direction: str, confidence: int, evidence_event_ids: list[UUID]) -> dict | None:
+        """배치 전용 — 기간 안의 이벤트로 다시 센 순 횟수를 그대로 기록한다(더하지 않는다, 그래서 재실행해도 같다).
+        직접 말한 행(explicit_chat)은 건드리지 않고 None. 무시(dismissed)한 신호는 근거에 새 이벤트가 있을 때만
+        되살린다. 바뀐 것이 없으면 None — 배치가 갱신 건수를 셀 수 있게."""
+        return self._one(
+            """INSERT INTO identity.preference_signal AS ps
+               (user_id, dimension, slot, value, direction, source, confidence, evidence_event_ids)
+               VALUES (%(user_id)s, %(dimension)s, %(slot)s, %(value)s, %(direction)s, 'inferred_swap',
+                       %(confidence)s, %(ids)s::uuid[])
+               ON CONFLICT (user_id, dimension, slot, value) DO UPDATE SET
+                   direction = EXCLUDED.direction,
+                   confidence = EXCLUDED.confidence,
+                   status = CASE WHEN EXCLUDED.evidence_event_ids <@ ps.evidence_event_ids THEN ps.status ELSE 'active' END,
+                   evidence_event_ids = EXCLUDED.evidence_event_ids,
+                   last_observed_at = CASE WHEN EXCLUDED.evidence_event_ids <@ ps.evidence_event_ids
+                                           THEN ps.last_observed_at ELSE now() END
+               WHERE ps.source <> 'explicit_chat'
+                 AND ((ps.direction, ps.confidence) IS DISTINCT FROM (EXCLUDED.direction, EXCLUDED.confidence)
+                      OR NOT (EXCLUDED.evidence_event_ids <@ ps.evidence_event_ids
+                              AND ps.evidence_event_ids <@ EXCLUDED.evidence_event_ids))
+               RETURNING *""",
+            {"user_id": user_id, "dimension": dimension, "slot": slot, "value": value,
+             "direction": direction, "confidence": confidence, "ids": list(evidence_event_ids)},
         )
 
     def list_active(self, user_id: UUID, *, dimension: str | None = None,
