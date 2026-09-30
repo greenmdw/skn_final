@@ -1,11 +1,12 @@
-"""조립·설치 가이드 — 설치 방법 문서(kind=install)와 구매 전 확인(care) 문서가 섞이지 않고, 가이드가 둘 다 인용한다."""
+"""설치 방법 문서(kind=install)와 구매 전 확인(care) 문서가 검색에서 섞이지 않는다.
+
+조립 가이드(리포트)는 팀 결정으로 없앴다 — 설치 문서를 인용하던 소비처는 없어졌고, 검색 경계만 남겨 검사한다."""
 from __future__ import annotations
 
 import json
 
 import pytest
 
-from src.agent.assembly_guide_agent import ASSEMBLY_ORDER, build_guide, build_guide_fallback
 from src.config import CARE_GUIDES_JSON
 from src.rag.care_guides import INSTALL_GUIDE_IDS, SLOT_GUIDE_IDS, search_care_guide
 
@@ -45,34 +46,3 @@ def test_kind_care_excludes_install_documents_even_without_a_slot():
     assert not any(h["kind"] == "install" for h in search_care_guide("설치", k=30, kind="care"))
     assert all(h["kind"] == "install" for h in search_care_guide("설치", k=30, kind="install"))
 
-
-def _items(*slots: str) -> list[dict]:
-    return [{"slot": s, "product": {"name": f"테스트 {s}"}} for s in slots]
-
-
-def test_fallback_guide_lists_install_and_caution_for_each_part_in_assembly_order():
-    items = [{"slot": s, "product": {"name": f"테스트 {s}"}} for s in reversed(SLOTS)]     # 일부러 거꾸로
-    guide = build_guide(items)
-    assert guide["status"] == "ready"
-    text = guide["text"]
-    titles = [line for line in text.splitlines() if line[:1].isdigit()]
-    assert [t.split(" — ")[0].split(". ")[1] for t in titles] == ASSEMBLY_ORDER      # 표준 조립 순서로 정렬
-    assert text.count("   설치: ") == 8 and text.count("   확인: ") == 8
-    install_texts = {d["text"] for d in DOCS if d.get("kind") == "install"}
-    assert all(any(line[len("   설치: "):] == t for t in install_texts) for line in text.splitlines() if line.startswith("   설치: "))
-
-
-def test_partial_upgrade_only_guides_the_replaced_parts():
-    text = build_guide(_items("GPU"))["text"]
-    titles = [line for line in text.splitlines() if line[:1].isdigit()]        # 단계 제목 줄만(본문은 다른 부품 이름을 말할 수 있다)
-    assert titles == ["1. GPU — 테스트 GPU"] and text.count("   설치: ") == 1
-
-
-def test_no_items_means_no_guide_yet():
-    assert build_guide([]) == {"status": "pending", "text": None}
-
-
-def test_a_slot_without_an_install_document_says_so_instead_of_inventing_steps(monkeypatch):
-    monkeypatch.setitem(INSTALL_GUIDE_IDS, "쿨러", ("does_not_exist",))
-    text = build_guide_fallback(_items("쿨러"))
-    assert "설치 안내 문서가 아직 없습니다" in text
