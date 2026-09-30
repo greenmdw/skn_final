@@ -333,7 +333,7 @@ export function setupFromReport(report: WireReport, extras: SetupExtras | undefi
     checkSnapshot: extras?.checkSnapshot ?? null,
   }
   return {
-    id: report.list_id, title: report.name,
+    id: report.list_id, revisionNo: report.revision_no, title: report.name,
     date: dateOnly(report.planned_purchase_at, report.confirmed_at),
     target: report.target_amount ?? report.total, memo: report.memo,
     savedAt: report.confirmed_at, plan,

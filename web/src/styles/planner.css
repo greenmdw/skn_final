@@ -20,6 +20,7 @@
 .pl-nav a:hover { color: var(--text); }
 .pl-spacer { flex: 1; }
 .pl-pill { border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; height: 32px; padding: 0 12px; font-size: 13px; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; white-space: nowrap; }
+.pl-pill.on { border-color: var(--mint); color: var(--mint); font-weight: 600; }
 .pl-pill.mint { border: 0; background: var(--mint); color: var(--on-mint); font-weight: 600; }
 .pl-user { font-size: 13px; color: var(--muted); white-space: nowrap; }
 
@@ -181,7 +182,7 @@
 .pl-section-title b { font-size: 18px; }
 .pl-history { display: flex; flex-direction: column; gap: 14px; }
 .pl-history ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
-.pl-history li { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 10px; font-size: 13px; line-height: 1.55; }
+.pl-history li { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; font-size: 13px; line-height: 1.55; }
 .pl-history li span.n { color: var(--muted); font-family: 'JetBrains Mono', ui-monospace, monospace; }
 .pl-empty { padding: 14px 16px; border-radius: 10px; background: var(--panel2); color: var(--muted); font-size: 13px; line-height: 1.6; }
 .pl-list-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 14px; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--line); }

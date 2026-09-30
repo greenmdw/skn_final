@@ -1,25 +1,54 @@
-import { useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { api } from '../api'
 import ListHistory from '../components/ListHistory'
 import PlannerShell from '../components/PlannerShell'
 import ProductThumb from '../components/ProductThumb'
 import { planTotal } from '../state/planModel'
+import { usePlan } from '../state/PlanContext'
 import { useSetups } from '../state/SetupsContext'
+import type { SavedSetup } from '../state/types'
 import { wonFmt } from '../utils/format'
 
 // 확정한 견적 리포트. 서버가 확정 시점에 저장한 부품·가격·이름·구매 예정일·목표 금액·메모를 보여 준다.
+// 한 견적(목록)에 견적서가 여러 개면 ?v=번호 로 예전 견적서를 연다 — 저장 목록에는 최근 견적서만 있어 서버에서 따로 읽는다.
 export default function ReportPage() {
   const { id } = useParams()
+  const [search] = useSearchParams()
+  const navigate = useNavigate()
   const { savedSetups, loading, storageError } = useSetups()
-  const setup = savedSetups.find(item => item.id === id)
+  const { startNewRevision } = usePlan()
+  const latest = savedSetups.find(item => item.id === id)
+  const wanted = Number(search.get('v')) || null
+  const [older, setOlder] = useState<SavedSetup | null>(null)
+  const [olderError, setOlderError] = useState('')
+  const needsOlder = Boolean(id && wanted && latest && wanted !== latest.revisionNo)
+
+  useEffect(() => {
+    setOlder(null)
+    setOlderError('')
+    if (!needsOlder || !id || !wanted) return
+    let alive = true
+    api.setups.report(id, wanted)
+      .then(found => { if (alive) setOlder(found) })
+      .catch(() => { if (alive) setOlderError('이 견적서를 불러오지 못했어요.') })
+    return () => { alive = false }
+  }, [id, wanted, needsOlder])
+
+  const setup = needsOlder ? older : latest
+  const reports = latest?.reports ?? []
+  async function newSheet() {
+    if (id && await startNewRevision(id)) navigate('/start')
+  }
 
   if (!setup) {
     return (
       <PlannerShell>
         <div className="pl-page narrow">
           <h2 className="pl-h2">리포트</h2>
-          {loading
+          {loading || (needsOlder && !olderError)
             ? <div className="pl-note">리포트를 불러오는 중이에요…</div>
-            : <div className="pl-empty">{storageError || '이 리포트를 찾을 수 없어요. 로그인 상태를 확인하거나 저장한 견적에서 다시 열어 주세요.'}</div>}
+            : <div className="pl-empty">{olderError || storageError || '이 리포트를 찾을 수 없어요. 로그인 상태를 확인하거나 저장한 견적에서 다시 열어 주세요.'}</div>}
         </div>
       </PlannerShell>
     )
@@ -30,7 +59,14 @@ export default function ReportPage() {
   return (
     <PlannerShell>
       <div className="pl-page pl-report">
-        <div className="pl-noprint" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <div className="pl-noprint" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+          {reports.length > 1 && reports.map(report => (
+            <button type="button" key={report.revisionNo} onClick={() => navigate(`/report/${id}?v=${report.revisionNo}`)}
+              className={'pl-pill' + (report.revisionNo === setup.revisionNo ? ' on' : '')} aria-pressed={report.revisionNo === setup.revisionNo}>
+              견적서 {report.revisionNo}
+            </button>
+          ))}
+          <button type="button" className="pl-pill" onClick={() => void newSheet()} title="이 견적의 조건으로 새 견적서를 만들어요">새 견적서</button>
           <button type="button" className="pl-pill" onClick={() => window.print()}>인쇄</button>
         </div>
         <article className="pl-paper">
@@ -70,7 +106,7 @@ export default function ReportPage() {
             ))}
           </section>
 
-          <ListHistory listId={setup.id} />
+          <ListHistory listId={setup.id} revisionNo={setup.revisionNo} />
         </article>
       </div>
     </PlannerShell>

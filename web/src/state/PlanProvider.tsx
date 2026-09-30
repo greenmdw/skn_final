@@ -4,7 +4,7 @@ import { createCheckDraft } from '../data/checkDraftSeed'
 import { parseBudget, planTotal } from './planModel'
 import { api, ApiError, errorMessage, SESSION_GONE, type ChatTopic } from '../api'
 import { onLogout } from './authStore'
-import type { ConditionTurnResult, ItemPatch } from '../api/types'
+import type { ConditionTurnResult, ItemPatch, LoadedConversation } from '../api/types'
 import { readWorkspace, WORKSPACE_KEY } from './storage'
 import { wonFmt } from '../utils/format'
 import { newId } from '../utils/id'
@@ -27,6 +27,27 @@ function resolutionText(field: { display: string | null; status: string } | unde
 function makeMessage(role: ChatMessage['role'], text: string, choices?: ChatChoice[]): ChatMessage {
   return { id: newId(), role, text, choices }
 }
+// 조건 세션 한 턴(또는 서버에서 읽은 대화)의 값을 화면 상태에 반영한다. GoalPanel의 세 카드(주요 용도·성능 목표·소음 선호)는
+// 그대로 두고, 값만 서버가 뽑은 필드로 채운다.
+function applyTurn(prev: PlanState, turn: ConditionTurnResult): PlanState {
+  const fieldValue = (key: string) => turn.fields.find(f => f.key === key)
+  const budgetField = fieldValue('budget_max')
+  return {
+    ...prev, sessionId: turn.sessionId, fields: turn.fields, canRecommend: turn.canRecommend, budgetWarning: turn.budgetWarning ?? null,
+    budget: typeof budgetField?.value === 'number' ? budgetField.value : prev.budget,
+    intent: fieldValue('purpose')?.display ?? prev.intent,
+    performance: resolutionText(fieldValue('resolution')) ?? prev.performance,
+    quiet: fieldValue('priority')?.display ?? prev.quiet,
+    stage: prev.stage === 0 ? 1 : prev.stage,
+  }
+}
+// 서버에 저장된 대화 → 말풍선. 칩은 저장되지 않아서, 아직 조건을 정하는 중이면 마지막 질문의 선택지만 다시 붙인다.
+function chatFromLoaded(loaded: LoadedConversation, withChoices: boolean): ChatMessage[] {
+  const chat = loaded.messages.map(m => makeMessage(m.role, m.text))
+  const last = chat[chat.length - 1]
+  if (withChoices && last?.role === 'bot' && loaded.turn.choices?.length) last.choices = loaded.turn.choices
+  return chat.length ? chat : [makeMessage('bot', INITIAL_GREETING)]
+}
 export function PlanProvider({ children }: { children: ReactNode }) {
   const { showToast } = useToast()
   const [restored] = useState(readWorkspace)
@@ -37,6 +58,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false)
   const [analyzingIndex, setAnalyzingIndex] = useState(0)
   const [customHeading, setCustomHeading] = useState<{ title: string; desc: string } | null>(null)
+  // 작업을 비운 횟수. 이미 빈 화면(stage 0)에서 "새 견적"을 눌러도 지난 조건 제안을 다시 띄우는 데 쓴다 —
+  // stage 가 0 그대로라 stage 만 보면 비웠다는 걸 알 수 없다(비우면서 제안 말풍선도 지워진다).
+  const [resetCount, setResetCount] = useState(0)
   const stateRef = useRef(state)
   const timers = useRef(new Set<number>())
   // 취소할 때마다 올려서, 이미 요청한 API 응답이 뒤늦게 도착해도 무시합니다.
@@ -83,14 +107,23 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     setAnalyzingIndex(0)
     setCustomHeading(null)
     setBusy(false)
+    setResetCount(n => n + 1)
   }, [cancelPending, updateState])
   // 화면을 열 때 저장된 세션이 아직 유효한지 서버에 물어본다. 알 수 없으면(네트워크 오류) 그대로 둔다.
+  // 새로고침으로 브라우저에 남은 작업만 복원한 직후라면(말풍선이 복원 안내 하나뿐) 서버의 대화 기록으로 말풍선을 되살린다
+  // — 대화는 브라우저에 저장하지 않고 서버(identity.message)에만 있다.
+  const hydrated = useRef(!restored?.state.stage)
   const checkSession = useCallback(() => {
     const id = stateRef.current.sessionId
     if (!id) return
-    api.conditions.exists(id).then(ok => {
-      if (!ok && stateRef.current.sessionId === id) dropStaleSession('이전에 하던 작업을 서버에서 찾을 수 없어요. 로그아웃했거나 다른 계정일 수 있어요. 조건을 다시 말씀해 주세요.')
-    }).catch(() => {})
+    const mine = epoch.current
+    api.conditions.load(id).then(loaded => {
+      if (hydrated.current || mine !== epoch.current || stateRef.current.sessionId !== id) return
+      hydrated.current = true
+      setMessages(chatFromLoaded(loaded, stateRef.current.stage <= 2))
+    }).catch(error => {
+      if (error instanceof ApiError && error.code === SESSION_GONE && stateRef.current.sessionId === id) dropStaleSession(error.message)
+    })
   }, [dropStaleSession])
   useEffect(() => onLogout(() => dropStaleSession('로그아웃해서 작업 중이던 구성을 비웠어요. 새로 시작해 주세요.')), [dropStaleSession])
 
@@ -103,20 +136,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     call()
       .then(turn => {
         if (mine !== epoch.current) return
-        updateState(prev => {
-          const fieldValue = (key: string) => turn.fields.find(f => f.key === key)
-          const budgetField = fieldValue('budget_max')
-          const nextBudget = typeof budgetField?.value === 'number' ? budgetField.value : prev.budget
-          // GoalPanel의 세 카드(주요 용도·성능 목표·소음 선호)는 그대로 두고, 값만 서버가 뽑은 필드로 채운다.
-          return {
-            ...prev, sessionId: turn.sessionId, fields: turn.fields, canRecommend: turn.canRecommend, budgetWarning: turn.budgetWarning ?? null,
-            budget: nextBudget,
-            intent: fieldValue('purpose')?.display ?? prev.intent,
-            performance: resolutionText(fieldValue('resolution')) ?? prev.performance,
-            quiet: fieldValue('priority')?.display ?? prev.quiet,
-            stage: prev.stage === 0 ? 1 : prev.stage,
-          }
-        })
+        updateState(prev => applyTurn(prev, turn))
         addMessage('bot', turn.reply || '조건을 반영했어요.', turn.choices)
       })
       .catch(error => {
@@ -160,11 +180,11 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const offeredFor = useRef<string | null>(null)
   useEffect(() => {
     if (!idle) { offeredFor.current = null; return }
-    const who = authUser?.email ?? ''
+    const who = (authUser?.email ?? '') + '#' + resetCount
     if (offeredFor.current === who) return
     offeredFor.current = who
     offerPrevious()
-  }, [authUser, idle, offerPrevious])
+  }, [authUser, idle, resetCount, offerPrevious])
 
   const handleInput = useCallback((text: string) => {
     const clean = text.trim()
@@ -319,6 +339,53 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     showToast('책상 치수를 반영했습니다. 리스트 확정 시 구성과 함께 저장됩니다.')
     return true
   }, [showToast, updateState])
+  // 패널 "대화 내역"에서 지난 대화를 연다: 서버의 대화·조건을 읽고, 추천 결과가 있으면 그 구성까지 되살린다.
+  // 돌려주는 값은 열린 화면 — 'plan'(추천 결과) · 'conditions'(조건 대화) · null(실패, 안내는 토스트로).
+  const openConversation = useCallback(async (listId: string, hasResult: boolean): Promise<'plan' | 'conditions' | null> => {
+    cancelPending()
+    const mine = epoch.current
+    try {
+      const loaded = await api.conditions.load(listId)
+      const base = applyTurn({ ...initialState }, loaded.turn)
+      const plan = hasResult
+        ? await api.plans.load(listId, { mode: 'new', budget: base.budget,
+          conditions: { intent: base.intent, performance: base.performance, quiet: base.quiet }, checkSnapshot: null }).catch(() => null)
+        : null
+      if (mine !== epoch.current) return null
+      updateState(() => ({ ...base, currentPlan: plan, stage: plan ? 4 : 1,
+        selectedPart: plan?.items.find(p => p.key)?.key ?? 'cpu' }))
+      setCheckDraft(createCheckDraft())
+      setMessages(chatFromLoaded(loaded, !plan))
+      setAnalyzingIndex(0)
+      setCustomHeading(null)
+      setBusy(false)
+      hydrated.current = true
+      return plan ? 'plan' : 'conditions'
+    } catch (error) {
+      if (mine === epoch.current) showToast(errorMessage(error, '대화를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.'))
+      return null
+    }
+  }, [cancelPending, updateState, showToast])
+  // 확정한 견적을 바탕으로 새 견적서를 시작한다 — 서버가 조건을 복사한 새 견적서를 만들고, 화면은 조건 대화로 간다.
+  const startNewRevision = useCallback(async (listId: string) => {
+    cancelPending()
+    const mine = epoch.current
+    try {
+      const loaded = await api.setups.newRevision(listId)
+      if (mine !== epoch.current) return false
+      updateState(() => ({ ...applyTurn({ ...initialState }, loaded.turn), stage: 1 }))
+      setCheckDraft(createCheckDraft())
+      setMessages(chatFromLoaded(loaded, true))
+      setAnalyzingIndex(0)
+      setCustomHeading(null)
+      setBusy(false)
+      hydrated.current = true
+      return true
+    } catch (error) {
+      if (mine === epoch.current) showToast(errorMessage(error, '새 견적서를 시작하지 못했습니다. 잠시 후 다시 시도해주세요.'))
+      return false
+    }
+  }, [cancelPending, updateState, showToast])
   const resetPlan = useCallback(() => {
     cancelPending()
     updateState(() => ({ ...initialState }))
@@ -326,6 +393,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     setMessages([makeMessage('bot', INITIAL_GREETING)])
     setAnalyzingIndex(0)
     setCustomHeading(null)
+    setResetCount(n => n + 1)
     showToast('새로운 설계를 시작합니다.')
   }, [cancelPending, updateState, showToast])
   const loadFromSavedSetup = useCallback((setup: SavedSetup) => {
@@ -364,7 +432,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const value = useMemo<PlanContextValue>(() => ({
     state, checkDraft, updateCheckDraft, messages, busy, starterHidden: state.stage > 0, analyzingIndex, customHeading,
     handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
+    openConversation, startNewRevision,
   }), [state, checkDraft, updateCheckDraft, messages, busy, analyzingIndex, customHeading,
-    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode])
+    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
+    openConversation, startNewRevision])
   return <PlanContext.Provider value={value}>{children}</PlanContext.Provider>
 }

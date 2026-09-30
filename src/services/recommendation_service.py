@@ -884,13 +884,16 @@ def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID,
 
     # P8 FB03: 실제로 바꿔치기가 성공한 뒤에만 기록한다 — 위의 not-found 거부는 아무 것도
     # 남기지 않는다.
+    # 무엇에서 무엇으로 바꿨는지는 payload 에 남긴다 — 선호 신호 배치(from/to·slot)와 견적 리스트 히스토리
+    # (item_id)가 읽는다. item_id 는 키에만 들어가고 컬럼이 없어서 payload 에도 넣는다. 같은 품목을 다시 바꾸면
+    # seq 로 키를 달리한다(lock_version 은 조건이 바뀔 때만 올라 두 번째 교체가 중복으로 버려졌다).
     revision = PlanRepo(conn).get_revision(revision_id)
     feedback_service.emit_replaced(
         conn, plan_id=revision["plan_id"], revision_id=revision_id,
         run_id=run["id"], item_id=item_id, version=revision["lock_version"],
-        user_id=user_id,
-        payload={"from_variant_id": str(current["variant_id"]), "to_variant_id": str(candidate_id),
-                 "slot": current["slot"]},
+        user_id=user_id, seq=feedback_service.replaced_count(conn, run_id=run["id"], item_id=item_id),
+        payload={"item_id": str(item_id), "from_variant_id": str(current["variant_id"]),
+                 "to_variant_id": str(candidate_id), "slot": current["slot"]},
     )
     return get_stored_result(conn, revision_id)
 

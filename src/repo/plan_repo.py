@@ -69,6 +69,11 @@ class PlanRepo(Repo):
         return self._all(
             "SELECT p.id AS list_id, p.name, p.updated_at, pr.id AS revision_id, pr.state, "
             "d.code AS category, "
+            # 대화 목록(패널)용: 첫 사용자 말과 마지막 활동 — 대화가 plan.updated_at 을 올리지 않는다
+            "(SELECT m.content FROM identity.message m WHERE m.conversation_id=p.conversation_id "
+            "  AND m.role='user' ORDER BY m.created_at LIMIT 1) AS first_message, "
+            "GREATEST(p.updated_at, (SELECT max(m.created_at) FROM identity.message m "
+            "  WHERE m.conversation_id=p.conversation_id)) AS last_active_at, "
             "EXISTS(SELECT 1 FROM planning.plan_condition pc WHERE pc.revision_id=pr.id "
             "  AND pc.condition_key='category' AND pc.status='active') AS has_category, "
             "EXISTS(SELECT 1 FROM engine.recommendation_run rr WHERE rr.revision_id=pr.id "
@@ -84,6 +89,32 @@ class PlanRepo(Repo):
             ") ORDER BY p.updated_at DESC",
             (user_id, user_id, guest_session_hash, guest_session_hash),
         )
+
+    def confirmed_revisions(self, plan_id: UUID) -> list[dict]:
+        """한 목록의 확정된 견적서들(오래된 것부터). 견적서 하나 = 확정된 revision 하나."""
+        return self._all(
+            "SELECT r.id, r.revision_no, r.name_snapshot, r.confirmed_at, r.confirmed_total, r.planned_purchase_at, "
+            "(SELECT count(*) FROM planning.purchase_line l WHERE l.revision_id=r.id) AS item_count "
+            "FROM planning.plan_revision r WHERE r.plan_id=%s AND r.state='confirmed' ORDER BY r.revision_no",
+            (plan_id,),
+        )
+
+    def get_revision_by_no(self, plan_id: UUID, revision_no: int) -> dict | None:
+        row = self._one("SELECT id FROM planning.plan_revision WHERE plan_id=%s AND revision_no=%s", (plan_id, revision_no))
+        return self.get_revision(row["id"]) if row else None
+
+    def clone_revision(self, plan_id: UUID, source_revision_id: UUID) -> UUID:
+        """source 의 도메인 버전·활성 조건을 그대로 가진 새 draft revision(다음 번호). 부품 노드·요구사양은
+        추천할 때 revision 마다 새로 만들어지므로 복사하지 않는다. 현재 revision 으로 바꾸는 건 호출자 몫."""
+        source = self.get_revision(source_revision_id)
+        new_id = self.new_revision(plan_id, source["domain_version_id"], source["name_snapshot"])
+        self._exec(
+            "INSERT INTO planning.plan_condition (revision_id, condition_key, value, origin, source_message_id) "
+            "SELECT %s, condition_key, value, origin, source_message_id FROM planning.plan_condition "
+            "WHERE revision_id=%s AND status='active'",
+            (new_id, source_revision_id),
+        )
+        return new_id
 
     def latest_previous(self, *, user_id: UUID | None, guest_session_hash: str | None, category: str,
                         mode: str | None = None, exclude_list_id: UUID | None = None,

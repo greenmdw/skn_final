@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Header
 from src import schemas
 from src.auth.deps import Principal, optional_principal
 from src.db import get_conn
-from src.services import list_service, notification_service
+from src.services import list_history, list_service, notification_service
 
 router = APIRouter(prefix="/lists", tags=["lists"])
 
@@ -52,10 +52,29 @@ def confirm(
 
 
 @router.get("/{list_id}/report", response_model=schemas.ReportOut)
-def report(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.ReportOut:
+def report(list_id: UUID, revision: int | None = None,
+           principal: Principal = Depends(optional_principal)) -> schemas.ReportOut:
+    """확정 견적서. revision(번호)을 주지 않으면 가장 최근 확정본."""
     with get_conn() as conn:
-        report = list_service.get_report(conn, list_id, principal)
+        report = list_service.get_report(conn, list_id, principal, revision)
     return schemas.ReportOut(**report)
+
+
+@router.post("/{list_id}/revisions", response_model=schemas.ConditionState)
+def new_revision(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.ConditionState:
+    """확정한 견적의 조건으로 새 견적서(draft revision)를 시작한다. 이후 /session/{list_id}/* 는 새 견적서에 쓴다."""
+    with get_conn() as conn:
+        state = list_service.new_revision(conn, list_id, principal)
+    return schemas.ConditionState(**state)
+
+
+@router.get("/{list_id}/history", response_model=schemas.ListHistoryOut)
+def history(list_id: UUID, revision: int | None = None,
+            principal: Principal = Depends(optional_principal)) -> schemas.ListHistoryOut:
+    """견적 리스트 히스토리 — 요약 문장은 LLM 호출이 있어 리포트와 따로 부른다(리포트 로딩을 늦추지 않는다)."""
+    with get_conn() as conn:
+        found, events = list_service.get_history_events(conn, list_id, principal, revision)
+    return schemas.ListHistoryOut(**list_history.render(list_id, found, events))
 
 
 @router.post("/{list_id}/alert")

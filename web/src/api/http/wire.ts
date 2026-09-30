@@ -111,6 +111,8 @@ export interface WireReportItem {
 
 export interface WireReport {
   list_id: string
+  /** 목록 안의 견적서 번호(1부터) */
+  revision_no: number
   name: string
   planned_purchase_at: string | null
   target_amount: number | null
@@ -120,8 +122,38 @@ export interface WireReport {
   items: WireReportItem[]
 }
 
+export interface WireReportSummary {
+  revision_no: number
+  name: string
+  confirmed_at: string
+  total: number
+  item_count: number
+  planned_purchase_at: string | null
+}
+
+export interface WireListSummary {
+  list_id: string
+  name: string
+  category: string | null
+  stage: 'category' | 'conditions' | 'results' | 'report'
+  updated_at: string
+  last_active_at: string | null
+  first_message: string | null
+  conditions_summary: string
+  total: number | null
+  planned_purchase_at: string | null
+  item_count: number | null
+  reports: WireReportSummary[]
+}
+
 export interface WireLists {
-  items: { list_id: string; category: string | null; stage: 'category' | 'conditions' | 'results' | 'report' }[]
+  items: WireListSummary[]
+}
+
+// ── 견적 리스트 히스토리(src.schemas.ListHistoryOut) ──
+export interface WireListHistory {
+  summary: WireText
+  events: { at: string; kind: string; text: string }[]
 }
 
 export interface WireUser { user: { email: string; display_name: string } }

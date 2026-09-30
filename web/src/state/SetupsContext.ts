@@ -10,6 +10,8 @@ export interface SetupsContextValue {
   authRequired: boolean
   addSetup: (setup: SavedSetup) => Promise<boolean>
   removeSetup: (id: string) => Promise<boolean>
+  /** 서버에서 저장 목록을 다시 읽는다(확정 뒤 같은 목록의 견적서 번호·개수가 바뀐다) */
+  reload: () => void
 }
 export const SetupsContext = createContext<SetupsContextValue | null>(null)
 
