@@ -1,4 +1,5 @@
 import type { Api, ConversationSummary, ReportSummary } from '../types'
+import { ApiError } from '../types'
 import { request } from './client'
 import type { WireLists, WireReportSummary } from './wire'
 
@@ -19,5 +20,17 @@ export const lists: Api['lists'] = {
         reports: item.reports.map(reportSummaryFromWire),
       }))
       .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
+  },
+
+  async rename(listId, name) {
+    await request<unknown>('PATCH', '/lists/' + listId, { name })
+  },
+
+  async remove(listId) {
+    try {
+      await request<void>('DELETE', '/lists/' + listId)
+    } catch (error) {
+      if (!(error instanceof ApiError && error.code === 'not_found')) throw error   // 이미 없으면 지운 것과 같다
+    }
   },
 }

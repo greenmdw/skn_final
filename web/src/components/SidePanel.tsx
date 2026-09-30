@@ -1,9 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { api, type ConversationSummary } from '../api'
+import { api, errorMessage, type ConversationSummary } from '../api'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { usePlan } from '../state/PlanContext'
 import { planTotal } from '../state/planModel'
 import { useSetups } from '../state/SetupsContext'
+import { useToast } from '../state/ToastContext'
 import { logout, useAuthUser } from '../state/authStore'
 import { wonFmt } from '../utils/format'
 import '../styles/sidepanel.css'
@@ -12,6 +13,10 @@ import '../styles/sidepanel.css'
 // 접으면 아이콘만 남는 56px 한 줄이 된다. 대화 내역은 서버 목록(GET /lists) 하나가 대화 하나다.
 const KEY = 'truefit.sidepanel.collapsed'
 type Tab = 'saved' | 'history'
+// 서버는 제목을 안 정한 대화를 "컴퓨터 장바구니"로 내려 준다 — 그건 제목이 아니라 자리표시라 첫 사용자 말로 대신한다.
+const DEFAULT_TITLE = '컴퓨터 장바구니'
+const conversationTitle = (item: ConversationSummary) => (item.name && item.name !== DEFAULT_TITLE ? item.name : item.firstMessage || item.name)
+
 const STAGE_LABEL: Record<ConversationSummary['stage'], string> = {
   category: '시작 전', conditions: '조건 정하는 중', results: '추천 결과', report: '확정',
 }
@@ -70,6 +75,7 @@ export default function SidePanel() {
   const user = useAuthUser()
   const { state, resetPlan, openConversation } = usePlan()
   const { savedSetups, loading, storageError, removeSetup } = useSetups()
+  const { showToast } = useToast()
   const navigate = useNavigate()
   const { pathname, search } = useLocation()
   const [tab, setTab] = useState<Tab>(readTab)
@@ -78,6 +84,10 @@ export default function SidePanel() {
   // 견적서를 펼친 견적(목록 id). 지금 보고 있는 리포트의 견적은 처음부터 펼쳐 둔다.
   const [opened, setOpened] = useState<Set<string>>(new Set())
   const toggle = (id: string) => setOpened(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next })
+  // 대화 한 줄의 ⋯ 메뉴와 제목 바꾸기(입력 중인 줄)
+  const [menuFor, setMenuFor] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
   const viewingId = pathname.startsWith('/report/') ? pathname.slice('/report/'.length) : null
   const isOpen = (id: string) => opened.has(id) || id === viewingId
   const viewingVersion = Number(new URLSearchParams(search).get('v')) || null
@@ -105,6 +115,12 @@ export default function SidePanel() {
     try { localStorage.setItem(KEY, collapsed ? '1' : '0') } catch { /* 보관 실패는 무시 */ }
   }, [collapsed])
   useEffect(() => {
+    if (!menuFor) return
+    const close = () => setMenuFor(null)
+    window.addEventListener('click', close)
+    return () => window.removeEventListener('click', close)
+  }, [menuFor])
+  useEffect(() => {
     if (!menuOpen) return
     const close = () => setMenuOpen(false)
     window.addEventListener('click', close)
@@ -115,6 +131,39 @@ export default function SidePanel() {
   const inProgressTitle = state.currentPlan ? '작성 중인 견적' : '조건 대화 중'
   const inProgressMeta = [state.budget ? wonFmt(state.budget) : '', state.currentPlan ? '추천 결과' : '조건 정하는 중'].filter(Boolean).join(' · ')
   const inProgressTo = state.currentPlan ? '/plan' : '/start'
+
+  function startRename(item: ConversationSummary) {
+    setMenuFor(null)
+    setDraft(conversationTitle(item) ?? '')
+    setEditingId(item.listId)
+  }
+  async function commitRename(item: ConversationSummary) {
+    const name = draft.trim().slice(0, 60)
+    setEditingId(null)
+    if (!name || name === conversationTitle(item)) return
+    try {
+      await api.lists.rename(item.listId, name)
+      setConversations(prev => prev && prev.map(row => (row.listId === item.listId ? { ...row, name } : row)))
+    } catch (error) {
+      showToast(errorMessage(error, '제목을 바꾸지 못했습니다. 잠시 후 다시 시도해주세요.'))
+    }
+  }
+  async function removeConversation(item: ConversationSummary) {
+    setMenuFor(null)
+    const title = conversationTitle(item) ?? '이 대화'
+    const sheets = item.reports.length > 0 ? ` 저장한 견적서 ${item.reports.length}개도 함께 지워져요.` : ''
+    if (!window.confirm(`“${title}” 대화를 삭제할까요?${sheets} 되돌릴 수 없어요.`)) return
+    try {
+      // 확정한 견적이면 저장한 견적 목록도 함께 갱신되게 setups 쪽 삭제를 쓴다(같은 DELETE /lists/{id}).
+      if (savedSetups.some(setup => setup.id === item.listId)) await removeSetup(item.listId)
+      else await api.lists.remove(item.listId)
+      setConversations(prev => prev && prev.filter(row => row.listId !== item.listId))
+      // 지금 열어 둔 대화나 리포트를 지웠으면 빈 새 견적으로 돌아간다.
+      if (state.sessionId === item.listId || viewingId === item.listId) { resetPlan(); navigate('/start') }
+    } catch (error) {
+      showToast(errorMessage(error, '삭제하지 못했습니다. 잠시 후 다시 시도해주세요.'))
+    }
+  }
 
   function startNew() {
     resetPlan()
@@ -162,11 +211,28 @@ export default function SidePanel() {
                         ? <button type="button" className={'sp-chev' + (isOpen(item.listId) ? ' open' : '')} aria-label={isOpen(item.listId) ? '견적서 접기' : '견적서 펼치기'}
                           aria-expanded={isOpen(item.listId)} onClick={() => toggle(item.listId)}>▶</button>
                         : <span className="sp-chev none" aria-hidden="true">▶</span>}
-                      <button type="button" className="sp-conv-main" onClick={() => void openHistory(item)}>
-                        <span className="sp-name">{item.firstMessage || item.name}</span>
-                        <span className="sp-meta">{[STAGE_LABEL[item.stage], item.conditionsSummary, shortDate(item.lastActiveAt)].filter(Boolean).join(' · ')}</span>
-                      </button>
-                      {item.reports.length > 0 && <span className="sp-count">견적서 {item.reports.length}</span>}
+                      {editingId === item.listId ? (
+                        <input className="sp-rename" value={draft} maxLength={60} autoFocus aria-label="대화 제목"
+                          onChange={event => setDraft(event.target.value)} onFocus={event => event.target.select()}
+                          onKeyDown={event => { if (event.key === 'Enter') void commitRename(item); if (event.key === 'Escape') setEditingId(null) }}
+                          onBlur={() => void commitRename(item)} />
+                      ) : (
+                        <button type="button" className="sp-conv-main" onClick={() => void openHistory(item)}>
+                          <span className="sp-name">{conversationTitle(item)}</span>
+                          <span className="sp-meta">{[STAGE_LABEL[item.stage], item.conditionsSummary, shortDate(item.lastActiveAt)].filter(Boolean).join(' · ')}</span>
+                        </button>
+                      )}
+                      {item.reports.length > 0 && editingId !== item.listId && <span className="sp-count">견적서 {item.reports.length}</span>}
+                      {editingId !== item.listId && (
+                        <button type="button" className="sp-more" aria-label={`${conversationTitle(item)} 메뉴`} aria-haspopup="menu" aria-expanded={menuFor === item.listId}
+                          onClick={event => { event.stopPropagation(); setMenuFor(menuFor === item.listId ? null : item.listId) }}>⋯</button>
+                      )}
+                      {menuFor === item.listId && (
+                        <div className="sp-rowmenu" role="menu" onClick={event => event.stopPropagation()}>
+                          <button type="button" role="menuitem" onClick={() => startRename(item)}>제목 바꾸기</button>
+                          <button type="button" role="menuitem" className="out" onClick={() => void removeConversation(item)}>삭제</button>
+                        </div>
+                      )}
                     </div>
                     {item.reports.length > 0 && isOpen(item.listId) && [...item.reports].reverse().map(report => (
                       <Link key={report.revisionNo} to={`/report/${item.listId}?v=${report.revisionNo}`}

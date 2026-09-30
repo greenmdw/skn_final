@@ -199,6 +199,10 @@ export interface Api {
   lists: {
     /** 이 사용자(계정 또는 게스트)의 목록 전체 — 최근 활동순 */
     list(): Promise<ConversationSummary[]>
+    /** 대화(목록) 제목 바꾸기 */
+    rename(listId: string, name: string): Promise<void>
+    /** 대화와 그 안의 견적서를 모두 지운다 */
+    remove(listId: string): Promise<void>
   }
   setups: {
     list(): Promise<SetupsListResult>
