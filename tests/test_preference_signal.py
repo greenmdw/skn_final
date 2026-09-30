@@ -571,6 +571,40 @@ def test_repeated_swaps_surface_a_hint_without_anyone_running_the_batch(raw_conn
     assert {r["value"] for r in repo.list_active(other_id, dimension="brand")} == {dropped, picked}   # 한 번뿐이라 문턱 아래
 
 
+@pytest.mark.parametrize("seed,expect_actionable,must,must_not", [
+    # 직접 말한 CPU 선호 — 담을 수 있으니 묻는다. "자주"·괄호 조사 없이
+    ({"slot": "CPU", "value": "AMD", "direction": "prefer", "source": "explicit_chat", "confidence_delta": 1},
+     True, ["CPU는 AMD가 좋다고 하셨어요", "AMD 위주로 볼까요?"], ["자주", "(를)", "(으)로", "(이)"]),
+    # 직접 말한 GPU 선호 — brand_pref 에 못 담으니 묻지 않는다
+    ({"slot": "GPU", "value": "NVIDIA", "direction": "prefer", "source": "explicit_chat", "confidence_delta": 1},
+     False, ["GPU는 NVIDIA가 좋다고 하셨어요", "아직 반영하지 못하지만"], ["볼까요", "?", "자주"]),
+    # 추론 비선호 — "제외할까요?"에 예를 눌러도 아무것도 제외되지 않았다
+    ({"slot": "파워", "value": "Seasonic", "direction": "avoid", "source": "inferred_swap", "confidence_delta": 3},
+     False, ["파워의 Seasonic을 여러 번 빼셨어요", "아직 반영하지 못하지만"], ["제외할까요", "?", "3번"]),
+])
+def test_preference_hint_wording_states_only_what_was_observed(raw_conn, seed, expect_actionable, must, must_not):
+    c, user_id = _signed_up_client(raw_conn, "wording")
+    PreferenceRepo(raw_conn).upsert_signal(user_id=user_id, dimension="brand", **seed)
+    hint = c.get("/session/previous", params={"category": "computer", "mode": "build"}).json()["preference_hint"]
+    assert hint["actionable"] is expect_actionable
+    for text in must:
+        assert text in hint["summary"], hint["summary"]
+    for text in must_not:
+        assert text not in hint["summary"], hint["summary"]
+
+
+def test_inferred_swap_pair_says_many_times_not_a_net_count(raw_conn):
+    c, user_id = _signed_up_client(raw_conn, "wording-pair")
+    repo = PreferenceRepo(raw_conn)
+    repo.upsert_signal(user_id=user_id, dimension="brand", slot="CPU", value="AMD", direction="prefer",
+                       source="inferred_swap", confidence_delta=3)
+    repo.upsert_signal(user_id=user_id, dimension="brand", slot="CPU", value="Intel", direction="avoid",
+                       source="inferred_swap", confidence_delta=3)
+    hint = c.get("/session/previous", params={"category": "computer", "mode": "build"}).json()["preference_hint"]
+    assert hint["summary"] == "지난 견적들에서 CPU를 Intel에서 AMD로 여러 번 바꾸셨어요. 이번에도 AMD 위주로 볼까요?"
+    assert hint["actionable"] is True
+
+
 def test_preference_hint_is_none_for_guest_sessions(client):
     r = client.get("/session/previous", params={"category": "computer", "mode": "build"})
     assert r.status_code == 200, r.text

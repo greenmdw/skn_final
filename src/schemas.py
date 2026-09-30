@@ -356,6 +356,8 @@ class PreferenceHintOut(BaseModel):
     slot: str
     value: str
     direction: str
+    # "예"를 누르면 이번 목록 조건(brand_pref)에 실제로 담기는지 — 아니면 문구가 묻지 않고 알리기만 한다
+    actionable: bool = False
     summary: str
 
 
