@@ -2,8 +2,6 @@ import { Navigate, Routes, Route } from 'react-router-dom'
 import { ToastProvider } from './state/ToastProvider'
 import { SetupsProvider } from './state/SetupsProvider'
 import { PlanProvider } from './state/PlanProvider'
-import { DrawerProvider } from './state/DrawerContext'
-import SavedDrawer from './components/SavedDrawer'
 import LoginPage from './pages/auth/LoginPage'
 import SignupPage from './pages/auth/SignupPage'
 import HomePage from './pages/HomePage'
@@ -21,22 +19,19 @@ export default function App() {
     <ToastProvider>
       <SetupsProvider>
         <PlanProvider>
-          <DrawerProvider>
-            <Routes>
-              <Route path="/" element={<HomePage />} />
-              <Route path="/choose" element={<ChoosePage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/signup" element={<SignupPage />} />
-              <Route path="/start" element={<ConditionsPage />} />
-              <Route path="/plan" element={<PlanPage />} />
-              <Route path="/cart" element={<CartPage />} />
-              <Route path="/report/:id" element={<ReportPage />} />
-              <Route path="/check" element={<ComingSoonPage title="받은 견적 점검" note="받은 견적을 올려 호환성과 가격을 점검하는 화면은 아직 개발 전이에요. 백엔드 연결 후에 열려요." />} />
-              <Route path="/peripherals" element={<ComingSoonPage title="주변기기 견적" note="모니터·키보드·마우스·스피커를 고르는 화면은 아직 개발 전이에요. 백엔드 연결 후에 열려요." />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-            <SavedDrawer />
-          </DrawerProvider>
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/choose" element={<ChoosePage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/signup" element={<SignupPage />} />
+            <Route path="/start" element={<ConditionsPage />} />
+            <Route path="/plan" element={<PlanPage />} />
+            <Route path="/cart" element={<CartPage />} />
+            <Route path="/report/:id" element={<ReportPage />} />
+            <Route path="/check" element={<ComingSoonPage title="받은 견적 점검" note="받은 견적을 올려 호환성과 가격을 점검하는 화면은 아직 개발 전이에요. 백엔드 연결 후에 열려요." />} />
+            <Route path="/peripherals" element={<ComingSoonPage title="주변기기 견적" note="모니터·키보드·마우스·스피커를 고르는 화면은 아직 개발 전이에요. 백엔드 연결 후에 열려요." />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
         </PlanProvider>
       </SetupsProvider>
     </ToastProvider>

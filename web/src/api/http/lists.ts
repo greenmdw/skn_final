@@ -1,5 +1,4 @@
 import type { Api, ConversationSummary, ReportSummary } from '../types'
-import { ApiError } from '../types'
 import { request } from './client'
 import type { WireLists, WireReportSummary } from './wire'
 
@@ -16,7 +15,7 @@ export const lists: Api['lists'] = {
       .filter(item => item.category === 'computer')
       .map(item => ({
         listId: item.list_id, name: item.name, stage: item.stage, lastActiveAt: item.last_active_at,
-        firstMessage: item.first_message, conditionsSummary: item.conditions_summary,
+        firstMessage: item.first_message,
         reports: item.reports.map(reportSummaryFromWire),
       }))
       .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))
@@ -26,11 +25,4 @@ export const lists: Api['lists'] = {
     await request<unknown>('PATCH', '/lists/' + listId, { name })
   },
 
-  async remove(listId) {
-    try {
-      await request<void>('DELETE', '/lists/' + listId)
-    } catch (error) {
-      if (!(error instanceof ApiError && error.code === 'not_found')) throw error   // 이미 없으면 지운 것과 같다
-    }
-  },
 }

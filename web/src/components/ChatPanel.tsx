@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { usePlan } from '../state/PlanContext'
+import ResizeHandle, { usePanelWidth } from './ResizeHandle'
+
+// 채팅 폭: 끌어서 조절한다(기본 380px, 280~520px).
+const CHAT_WIDTH = { key: 'truefit.chat.width', initial: 380, min: 280, max: 520 }
 
 // 왼쪽 채팅. 메시지·선택지·입력은 PlanProvider 가 서버(조건 세션 / 결과 대화)와 주고받은 것을 그대로 보여 준다.
 export default function ChatPanel({ title, placeholder }: { title: string; placeholder: string }) {
   const { messages, busy, state, handleInput, handleChoice } = usePlan()
   const [draft, setDraft] = useState('')
+  const size = usePanelWidth(CHAT_WIDTH.key, CHAT_WIDTH.initial, CHAT_WIDTH.min, CHAT_WIDTH.max)
   const log = useRef<HTMLDivElement>(null)
   const last = messages[messages.length - 1]
   // 선택지는 마지막 봇 메시지에 붙은 것만 누를 수 있다(지난 질문의 칩은 남기지 않는다).
@@ -22,7 +27,7 @@ export default function ChatPanel({ title, placeholder }: { title: string; place
   }
 
   return (
-    <aside className="pl-chat" aria-label={title}>
+    <aside className="pl-chat pl-resizable" aria-label={title} style={{ width: size.width }}>
       <div className="pl-chat-head"><span className="pl-dot" />{title}</div>
       <div className="pl-chat-log" ref={log}>
         {messages.map(message => (
@@ -43,6 +48,7 @@ export default function ChatPanel({ title, placeholder }: { title: string; place
           <button type="submit" className="pl-send" disabled={disabled || !draft.trim()}>보내기</button>
         </form>
       </div>
+      <ResizeHandle width={size.width} min={size.min} max={size.max} label="대화창 너비" onChange={size.setWidth} onReset={size.reset} />
     </aside>
   )
 }

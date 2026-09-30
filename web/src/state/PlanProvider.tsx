@@ -366,28 +366,8 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       return null
     }
   }, [cancelPending, updateState, showToast])
-  // 확정한 견적을 바탕으로 새 견적서를 시작한다 — 서버가 조건을 복사한 새 견적서를 만들고, 화면은 조건 대화로 간다.
-  const startNewRevision = useCallback(async (listId: string) => {
-    cancelPending()
-    const mine = epoch.current
-    try {
-      const loaded = await api.setups.newRevision(listId)
-      if (mine !== epoch.current) return false
-      updateState(() => ({ ...applyTurn({ ...initialState }, loaded.turn), stage: 1 }))
-      setCheckDraft(createCheckDraft())
-      setMessages(chatFromLoaded(loaded, true))
-      setAnalyzingIndex(0)
-      setCustomHeading(null)
-      setBusy(false)
-      hydrated.current = true
-      return true
-    } catch (error) {
-      if (mine === epoch.current) showToast(errorMessage(error, '새 견적서를 시작하지 못했습니다. 잠시 후 다시 시도해주세요.'))
-      return false
-    }
-  }, [cancelPending, updateState, showToast])
-  // 리포트의 "견적 수정하기": 확정한 견적에서 새 견적서(같은 대화)를 열고, 이전 채팅 내역과 함께 추천 결과 화면으로 간다.
-  // 새 견적서는 조건만 복사되므로 부품 구성은 그 조건으로 다시 받는다. 돌려주는 값은 열린 화면 — 'plan' · 'conditions' · null.
+  // 리포트의 "견적 수정하기": 서버가 확정본의 부품 구성까지 복사한 새 견적서(같은 대화)를 만들어 주면, 그 구성과 이전 채팅 내역을
+  // 그대로 열어 추천 결과 화면에서 수정한다. 돌려주는 값은 열린 화면 — 'plan' · 'conditions' · null.
   const reviseSetup = useCallback(async (listId: string): Promise<'plan' | 'conditions' | null> => {
     try {
       await api.setups.newRevision(listId)
@@ -395,13 +375,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       showToast(errorMessage(error, '새 견적서를 시작하지 못했습니다. 잠시 후 다시 시도해주세요.'))
       return null
     }
-    const screen = await openConversation(listId, true)
-    if (screen === 'conditions' && stateRef.current.canRecommend) {
-      runAnalysis('이 견적서의 조건으로 구성을 다시 불러옵니다. 부품을 바꾼 뒤 확정하면 새 견적서로 저장돼요.')
-      return 'plan'
-    }
-    return screen
-  }, [openConversation, runAnalysis, showToast])
+    // 저장된 구성을 못 읽으면 조건 대화로 간다 — 조건으로 다시 추천을 돌리지는 않는다(저장 전 구성이 달라지므로).
+    return openConversation(listId, true)
+  }, [openConversation, showToast])
   const resetPlan = useCallback(() => {
     cancelPending()
     updateState(() => ({ ...initialState }))
@@ -448,9 +424,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const value = useMemo<PlanContextValue>(() => ({
     state, checkDraft, updateCheckDraft, messages, busy, starterHidden: state.stage > 0, analyzingIndex, customHeading,
     handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
-    openConversation, startNewRevision, reviseSetup,
+    openConversation, reviseSetup,
   }), [state, checkDraft, updateCheckDraft, messages, busy, analyzingIndex, customHeading,
     handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
-    openConversation, startNewRevision, reviseSetup])
+    openConversation, reviseSetup])
   return <PlanContext.Provider value={value}>{children}</PlanContext.Provider>
 }

@@ -77,7 +77,8 @@ export interface RecommendRequest {
 
 // ---- 대화 목록 · 견적서 (개발요청 10번) ----
 /** 목록 하나에 딸린 확정 견적서 하나(서버 revision). 번호로 리포트·히스토리를 연다 */
-export interface ReportSummary { revisionNo: number; name: string; confirmedAt: string; total: number; itemCount: number }
+/** peripheralCount 는 서버가 주변기기 개수를 줄 때만 채운다(지금 API는 본체 부품 수 itemCount 만 준다). */
+export interface ReportSummary { revisionNo: number; name: string; confirmedAt: string; total: number; itemCount: number; peripheralCount?: number }
 /** 패널 "대화 내역"의 한 줄 — 서버 목록(list) 하나 */
 export interface ConversationSummary {
   listId: string
@@ -86,7 +87,6 @@ export interface ConversationSummary {
   lastActiveAt: string | null
   /** 첫 사용자 말(제목 대신) */
   firstMessage: string | null
-  conditionsSummary: string
   reports: ReportSummary[]
 }
 /** 서버에 저장된 대화 하나를 화면으로 되살릴 때 쓰는 값 */
@@ -201,8 +201,6 @@ export interface Api {
     list(): Promise<ConversationSummary[]>
     /** 대화(목록) 제목 바꾸기 */
     rename(listId: string, name: string): Promise<void>
-    /** 대화와 그 안의 견적서를 모두 지운다 */
-    remove(listId: string): Promise<void>
   }
   setups: {
     list(): Promise<SetupsListResult>
