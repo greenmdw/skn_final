@@ -11,12 +11,15 @@ export class ApiError extends Error {
   }
 }
 
+/** 저장돼 있던 작업의 서버 세션을 찾을 수 없을 때(없어졌거나 내 것이 아님)의 오류 코드 */
+export const SESSION_GONE = 'SESSION_GONE'
+
 export function errorMessage(error: unknown, fallback: string): string {
   return error instanceof ApiError && error.message ? error.message : fallback
 }
 
 // ---- 인증 ----
-export interface LoginRequest { email: string; password: string }
+export interface LoginRequest { email: string; password: string; remember?: boolean }
 export interface SignupRequest { name: string; email: string; password: string; marketingConsent: boolean }
 export interface AuthUser { name: string; email: string }
 
@@ -36,17 +39,17 @@ export interface ChatReply {
   plan?: CurrentPlan
 }
 
-export interface ReviewChatRequest {
-  /** config: 확인된 PC 구성 수정 채팅, answer: 업그레이드 답변에 대한 추가 질문 */
-  topic: 'config' | 'answer'
-  text: string
-}
-export interface ReviewChatReply { text: string }
 
 // ---- 조건 대화(인터뷰) ----
 // 새 PC를 만드는 인터뷰(용도·예산·우선순위 등)는 서버의 조건 세션(POST /session/{id}/message)이 처리한다.
 // 서버는 조건 추출 에이전트(LLM, CONDITIONS_AGENT=1일 때)가 있으면 그걸로, 없으면 규칙 추출(slot_rules)로
 // 자유 문장에서 예산·용도·우선순위 등을 뽑는다 — 화면은 결과(fields)만 반영하면 된다.
+/** 지난 목록에서 이어 쓸 조건(GET /session/previous). summary는 서버가 규칙으로 만든 한 문장이다. */
+export interface PreviousConditions {
+  listId: string
+  summary: string
+}
+
 export interface ConditionTurnResult {
   /** 세션이 없어서 새로 만들었으면 그 id. 이후 대화는 이 id로 이어간다. */
   sessionId: string
@@ -71,6 +74,25 @@ export interface RecommendRequest {
   sessionId?: string | null
   checkSnapshot: CheckDraft | null
 }
+
+// ---- 부품 교체 ----
+/** 한 부품 자리에 넣을 수 있는 대안 하나(서버 alternatives 응답). candidateId 를 swap 에 그대로 보낸다 */
+export interface AlternativeOption {
+  candidateId: string
+  label: string
+  current: boolean
+  name: string
+  brand: string
+  specSummary: string | null
+  imageUrl: string | null
+  price: number
+  /** 지금 고른 부품 대비 개당 가격 차이(+ 더 비쌈, - 더 쌈) */
+  priceDelta: number
+  rating: string
+  reviews: string
+}
+export type PurchaseTiming = 'now' | 'soon' | 'later'
+export interface ItemPatch { qty?: number; timing?: PurchaseTiming }
 
 // ---- 내 PC·견적 점검 ----
 export interface UpgradeSuggestion {
@@ -101,10 +123,11 @@ export interface Api {
     /** 지금 로그인한 사용자. 로그인하지 않았으면 null */
     me(): Promise<AuthUser | null>
     logout(): Promise<void>
+    /** 가입 화면의 이메일 중복 확인. 사용할 수 있으면 true */
+    checkEmail(email: string): Promise<boolean>
   }
   chat: {
     reply(request: ChatReplyRequest): Promise<ChatReply>
-    reviewReply(request: ReviewChatRequest): Promise<ReviewChatReply>
   }
   conditions: {
     /** 인터뷰 자유 텍스트 한 턴. sessionId가 없으면 새 조건 세션을 만든다. */
@@ -113,9 +136,23 @@ export interface Api {
     answer(sessionId: string, questionId: string, selected: string[]): Promise<ConditionTurnResult>
     /** 화면에서 직접 값을 바꿨을 때(예산 입력창 등) 세션에 반영한다. */
     patch(sessionId: string, field: string, value: unknown): Promise<ConditionTurnResult>
+    /** 저장돼 있던 조건 세션이 서버에 아직 있고 내 것인지. 없거나 내 것이 아니면 false (알 수 없으면 true) */
+    exists(sessionId: string): Promise<boolean>
+    /** 같은 사용자(계정·게스트 쿠키)의 지난 목록에서 이어 쓸 조건. 없으면 null — 값은 resume 전까지 복사되지 않는다. */
+    previous(): Promise<PreviousConditions | null>
+    /** 지난 목록의 조건을 이 세션에 복사한다. sessionId가 없으면 새 조건 세션을 만든다. */
+    resume(sessionId: string | null, fromListId: string): Promise<ConditionTurnResult>
   }
   plans: {
     recommend(request: RecommendRequest): Promise<CurrentPlan>
+    /** 이 브라우저에 남아 있던 구성을 서버의 최신 결과(수량·이미지·호환 검사 등)로 다시 읽는다. 읽지 못하면 오류 */
+    refresh(plan: CurrentPlan): Promise<CurrentPlan>
+    /** 이 부품 자리에 넣을 수 있는 대안 목록(지금 고른 것 포함) */
+    alternatives(plan: CurrentPlan, itemId: string): Promise<AlternativeOption[]>
+    /** 대안으로 교체하고 바뀐 구성(가격·호환 검사 다시 계산됨)을 돌려준다 */
+    swap(plan: CurrentPlan, itemId: string, candidateId: string): Promise<CurrentPlan>
+    /** 수량·구매 시점을 바꾸고 바뀐 구성을 돌려준다 */
+    updateItem(plan: CurrentPlan, itemId: string, patch: ItemPatch): Promise<CurrentPlan>
   }
   checks: {
     suggestUpgrade(draft: CheckDraft): Promise<UpgradeSuggestion>

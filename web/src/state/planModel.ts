@@ -1,19 +1,10 @@
 import { wonFmt } from '../utils/format'
 import type { CurrentPlan, SavedSetup } from './types'
-import { isMockApi } from '../api'
 import { QUIET_LABEL } from './conditionLabels'
+export { parseBudget } from './budget'
 
 export function planTotal(plan: CurrentPlan): number {
   return plan.items.reduce((sum, part) => sum + part.price, 0)
-}
-
-// Explicit budget field accepts won amounts only, with optional separators/unit.
-export function parseBudget(value: string): number | null | undefined {
-  const text = value.trim()
-  if (!text) return null
-  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)\s*원?$/.test(text)) return undefined
-  const amount = Number(text.replace(/[,\s원]/g, ''))
-  return Number.isSafeInteger(amount) && amount > 0 && amount <= 100000000 ? amount : undefined
 }
 
 export function localDate(): string {
@@ -23,7 +14,7 @@ export function localDate(): string {
 
 export function reportText(setup: SavedSetup): string {
   const plan = setup.plan
-  return [setup.title, (isMockApi ? '이 브라우저에 임시 저장 · 구매 예정: ' : '구매 예정: ') + setup.date,
+  return [setup.title, '구매 예정: ' + setup.date,
     '유형: ' + (plan.mode === 'upgrade' ? '업그레이드' : '신규 구성'),
     '질문: ' + plan.conditions.intent, '성능: ' + plan.conditions.performance, QUIET_LABEL + ': ' + plan.conditions.quiet,
     '예산: ' + (plan.budget === null ? '미입력' : wonFmt(plan.budget)),

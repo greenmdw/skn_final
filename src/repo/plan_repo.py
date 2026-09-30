@@ -10,6 +10,10 @@ from src.db.base import Repo
 # 견적 점검(타사 견적 비교 분석) 결과를 리비전에 붙여 두는 조건 키. 추천 입력(조건 값)이 아니라 결과라서
 # load_full 이 조건 목록에서 빼고, 저장해도 lock_version 을 올리지 않는다(이미 끝난 추천을 stale 로 만들지 않는다).
 QUOTE_REVIEW_KEY = "quote_review"
+# "이어서 하기"로 조건을 가져온 원래 목록 id(A1). 이전 견적과 비교할 때(B1) 대상을 정하는 데만 쓴다 —
+# 추천 입력이 아니므로 QUOTE_REVIEW_KEY 처럼 load_full 에서 빼고 lock_version 도 올리지 않는다.
+RESUMED_FROM_KEY = "resumed_from"
+_NOT_CONDITIONS = (QUOTE_REVIEW_KEY, RESUMED_FROM_KEY)
 
 
 class PlanRepo(Repo):
@@ -79,6 +83,35 @@ class PlanRepo(Repo):
             "  (%s::text IS NOT NULL AND c.guest_session_hash=%s)"
             ") ORDER BY p.updated_at DESC",
             (user_id, user_id, guest_session_hash, guest_session_hash),
+        )
+
+    def latest_previous(self, *, user_id: UUID | None, guest_session_hash: str | None, category: str,
+                        mode: str | None = None, exclude_list_id: UUID | None = None,
+                        require_result: bool = False) -> dict | None:
+        """같은 사용자(로그인 계정 또는 게스트 토큰)의 가장 최근 다른 목록 — 같은 카테고리(·mode)이고
+        category·mode 말고도 채운 조건이 하나 이상 있는 것만. 새 세션에서 "지난번 조건으로 이어서"를 묻는 데 쓴다.
+        require_result 면 완료된 추천 실행이 있는 목록만(이전 견적과 구성 비교용)."""
+        return self._one(
+            "SELECT p.id AS list_id, p.name, pr.id AS revision_id, pr.state, "
+            "GREATEST(p.updated_at, pr.updated_at) AS last_active_at "
+            "FROM planning.plan p "
+            "JOIN planning.plan_revision pr ON pr.id=p.current_revision_id "
+            "JOIN identity.conversation c ON c.id=p.conversation_id "
+            "WHERE p.status='active' AND (%s::uuid IS NULL OR p.id<>%s) AND ("
+            "  (%s::uuid IS NOT NULL AND c.user_id=%s) OR "
+            "  (%s::uuid IS NULL AND %s::text IS NOT NULL AND c.guest_session_hash=%s)"
+            ") AND EXISTS (SELECT 1 FROM planning.plan_condition pc WHERE pc.revision_id=pr.id "
+            "  AND pc.status='active' AND pc.condition_key='category' AND pc.value->>'value'=%s) "
+            "AND (%s::text IS NULL OR EXISTS (SELECT 1 FROM planning.plan_condition pc WHERE pc.revision_id=pr.id "
+            "  AND pc.status='active' AND pc.condition_key='mode' AND pc.value->>'value'=%s)) "
+            "AND EXISTS (SELECT 1 FROM planning.plan_condition pc WHERE pc.revision_id=pr.id "
+            "  AND pc.status='active' AND pc.condition_key NOT IN ('category', 'mode', %s, %s) "
+            "  AND pc.value->'value' IS NOT NULL AND pc.value->'value'<>'null'::jsonb) "
+            "AND (NOT %s OR EXISTS (SELECT 1 FROM engine.recommendation_run rr WHERE rr.revision_id=pr.id "
+            "  AND rr.status='completed')) "
+            "ORDER BY last_active_at DESC LIMIT 1",
+            (exclude_list_id, exclude_list_id, user_id, user_id, user_id, guest_session_hash, guest_session_hash,
+             category, mode, mode, *_NOT_CONDITIONS, require_result),
         )
 
     def get_summary(self, list_id: UUID) -> dict | None:
@@ -229,7 +262,7 @@ class PlanRepo(Repo):
         revision = self.get_revision(revision_id)
         if revision is None:
             raise ValueError("revision not found")
-        revision["conditions"] = self._all("SELECT condition_key, value, origin FROM planning.plan_condition WHERE revision_id=%s AND status='active' AND condition_key<>%s ORDER BY created_at", (revision_id, QUOTE_REVIEW_KEY))
+        revision["conditions"] = self._all("SELECT condition_key, value, origin FROM planning.plan_condition WHERE revision_id=%s AND status='active' AND condition_key NOT IN (%s, %s) ORDER BY created_at", (revision_id, *_NOT_CONDITIONS))
         revision["nodes"] = self._all("SELECT * FROM planning.plan_node WHERE revision_id=%s ORDER BY position, created_at", (revision_id,))
         revision["requirements"] = self._all("SELECT * FROM planning.requirement WHERE revision_id=%s AND status='active'", (revision_id,))
         return revision

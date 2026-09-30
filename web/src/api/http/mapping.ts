@@ -1,8 +1,8 @@
 // 화면 모델(CurrentPlan · SavedSetup)과 백엔드 모델 사이의 순수 변환 함수 모음.
 // 프레임워크·네트워크에 기대지 않아 Node 로 바로 테스트한다(web/tests/mapping.test.mjs) — 그래서 타입만 import 한다.
-import type { BudgetNotice, BudgetWarning, ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, ContributionShare, CurrentPlan, DeskState, GuideStep, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
-import type { UpgradeSuggestion } from '../types'
-import type { WireCompatCheck, WireConditionState, WireField, WireItem, WireNextQuestion, WireOwnedPartsPreviewRow, WireReport, WireReportItem, WireResult, WireReview, WireText } from './wire'
+import type { BudgetNotice, BudgetWarning, ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, ContributionShare, CurrentPlan, DeskState, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
+import type { AlternativeOption, UpgradeSuggestion } from '../types'
+import type { WireAlternative, WireCompatCheck, WireConditionState, WireField, WireItem, WireNextQuestion, WireOwnedPartsPreviewRow, WireReport, WireReportItem, WireResult, WireReview, WireText } from './wire'
 
 // ── 슬롯 ────────────────────────────────────────────────────────────────────
 // 백엔드 슬롯 이름(config/categories/computer.yaml 의 slot_structure)과 화면의 부품 키.
@@ -177,7 +177,8 @@ export function itemFromWire(item: WireItem): PlanItem {
   if (item.alternatives_count > 0) tags.push('대안 ' + item.alternatives_count + '개')
   return {
     id: item.item_id, key, type: item.slot_label, name: item.product.name,
-    price: item.price * item.qty,
+    price: item.price * item.qty, qty: item.qty, unitPrice: item.price,
+    timing: (['now', 'soon', 'later'] as const).find(t => t === item.timing),
     meta: item.slot_label + ' · ' + (item.product.spec_summary || item.product.brand || item.product.name),
     source: priceSourceText(item),
     action: timing.action, actionClass: timing.actionClass,
@@ -187,7 +188,18 @@ export function itemFromWire(item: WireItem): PlanItem {
     tags, checks: checksFromWire(item.checks),
     rating: ratingText(item.review), reviews: reviewsText(item.review),
     label: key ? SHORT_LABEL[key] : item.slot_label.slice(0, 4),
+    imageUrl: item.product.image_url ?? null, purchaseUrl: item.product.purchase_url ?? null,
   }
+}
+
+/** 서버 대안 목록 → 화면용. 리뷰 관측이 없는 대안은 "없음"이지 0건이 아니다. */
+export function alternativesFromWire(items: WireAlternative[]): AlternativeOption[] {
+  return items.map(a => ({
+    candidateId: a.candidate_id, label: a.label, current: a.current,
+    name: a.product.name, brand: a.product.brand, specSummary: a.product.spec_summary ?? null, imageUrl: a.product.image_url ?? null,
+    price: a.price, priceDelta: a.price_delta,
+    rating: ratingText(a.review), reviews: reviewsText(a.review),
+  }))
 }
 
 /** 선택한 부품의 추천 근거를 묻는 말인지. 바꾸라는 요청이 섞여 있으면 서버가 처리한다. */
@@ -297,43 +309,19 @@ function reportItem(item: WireReportItem, index: number): PlanItem {
   const key = slotKey(item.slot)
   return {
     id: item.slot + '-' + index, key, type: item.slot_label, name: item.product.name,
-    price: item.price * item.qty,
+    price: item.price * item.qty, qty: item.qty, unitPrice: item.price,
     meta: item.slot_label, source: '확정 시점 가격',
     action: (TIMING[item.timing] ?? TIMING.now).action, actionClass: (TIMING[item.timing] ?? TIMING.now).actionClass,
     score: '', fit: item.evidence_text ?? '', reasonTitle: item.slot_label + ' 추천 이유', tags: [],
     rating: ratingText(item.review), reviews: reviewsText(item.review),
     label: key ? SHORT_LABEL[key] : item.slot_label.slice(0, 4),
+    imageUrl: item.product.image_url ?? null, purchaseUrl: item.product.purchase_url ?? null,
   }
 }
 
 function dateOnly(value: string | null, fallbackIso: string): string {
   const source = value && /^\d{4}-\d{2}-\d{2}/.test(value) ? value : fallbackIso
   return source.slice(0, 10)
-}
-
-/**
- * 서버의 조립·설치 가이드 문장 → 단계 목록. 서버 폴백은 "1. 슬롯 — 부품명 / 설치: … / 확인: …" 모양이고, 에이전트가 쓴 문장은
- * 모양이 조금 다를 수 있어서(마크다운 굵게 · 글머리 기호) 그런 장식은 벗기고, 못 알아보는 줄은 그 단계의 일반 문장으로 둔다.
- * 준비 전·실패·빈 문장이면 undefined — 화면이 일반 조립 안내로 대신한다(없는 가이드를 지어내지 않는다).
- */
-export function guideStepsFromWire(guide: WireReport['care_guide']): GuideStep[] | undefined {
-  if (!guide || guide.status !== 'ready' || !guide.text?.trim()) return undefined
-  const steps: GuideStep[] = []
-  for (const raw of guide.text.split(/\r?\n/)) {
-    const line = raw.replace(/\*\*/g, '').trim()
-    if (!line) continue
-    const detail = line.match(/^[-*•]?\s*(설치|확인)\s*[:：]\s*(.+)$/)
-    if (detail) {
-      if (!steps.length) steps.push({ title: '', lines: [] })
-      steps[steps.length - 1].lines.push({ label: detail[1] as '설치' | '확인', text: detail[2].trim() })
-      continue
-    }
-    const title = line.match(/^\d+[.)]\s*(.+)$/)
-    if (title) { steps.push({ title: title[1].trim(), lines: [] }); continue }
-    if (!steps.length) steps.push({ title: '', lines: [] })
-    steps[steps.length - 1].lines.push({ label: '', text: line })
-  }
-  return steps.length ? steps : undefined
 }
 
 export function setupFromReport(report: WireReport, extras: SetupExtras | undefined): SavedSetup {
@@ -351,6 +339,5 @@ export function setupFromReport(report: WireReport, extras: SetupExtras | undefi
     savedAt: report.confirmed_at, plan,
     desk: extras?.desk ?? { ...DEFAULT_DESK },
     checkDraft: extras?.checkDraft ?? { question: '', budget: '', rows: [] },
-    careGuide: guideStepsFromWire(report.care_guide),
   }
 }

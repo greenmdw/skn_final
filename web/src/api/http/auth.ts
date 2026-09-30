@@ -8,8 +8,8 @@ function toUser(wire: WireUser): AuthUser {
 
 // 서버가 httpOnly 쿠키(truefit_session)로 세션을 만든다. 로그인·가입 때 게스트로 만든 추천 목록이 계정으로 합쳐진다.
 export const auth: Api['auth'] = {
-  async login({ email, password }) {
-    return toUser(await request<WireUser>('POST', '/auth/login', { email, password, remember: true }))
+  async login({ email, password, remember }) {
+    return toUser(await request<WireUser>('POST', '/auth/login', { email, password, remember: !!remember }))
   },
   // 가입 화면이 이용약관·개인정보 처리방침 동의를 확인한 뒤에만 이 함수를 부르므로 두 동의를 true 로 보낸다.
   async signup({ name, email, password, marketingConsent }) {
@@ -28,5 +28,9 @@ export const auth: Api['auth'] = {
   },
   async logout() {
     await request<void>('POST', '/auth/logout')
+  },
+  async checkEmail(email) {
+    const data = await request<{ available: boolean }>('GET', '/auth/email-availability?email=' + encodeURIComponent(email))
+    return !!data?.available
   },
 }

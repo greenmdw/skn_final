@@ -8,7 +8,7 @@ from src.categories import available_categories, load_category
 from src.engine import slot_rules
 from src.engine.spec_text import parse_spec_text
 from src.errors import Conflict, FileTooLarge, NotFound, ValidationFailed
-from src.repo.plan_repo import PlanRepo
+from src.repo.plan_repo import RESUMED_FROM_KEY, PlanRepo
 from src.repo.user_repo import ConversationRepo
 
 log = logging.getLogger(__name__)
@@ -403,6 +403,92 @@ def reset_conditions(
         if row["condition_key"] not in ("category", "mode"):
             repo.upsert_condition(current["id"], row["condition_key"], {"value": None}, "explicit")
     ConversationRepo(conn).add_message(current["conversation_id"], "system", "조건을 초기화했어요.")
+    return _state(conn, list_id, principal)
+
+
+# ── 지난 세션 조건 이어가기 (A1: docs/채팅기록_다음세션_시나리오.md) ──
+# 요약 문장은 규칙으로 만든다 — 값과 표시는 _build_fields 가 쓰는 것과 같아서 화면의 조건 목록과 어긋나지 않는다.
+# 값은 사용자가 "이어서 하기"를 고를 때만 새 목록에 복사한다(자동 적용하지 않는다).
+_NOT_CARRIED = {"category", "mode", "spec_file_name"}    # 목록 자체의 선택이거나, 그때 첨부한 파일 이름
+_RESUME_USER_TEXT = "지난 조건으로 이어서 할게요"
+
+
+def _guest_hash(principal: Principal) -> str | None:
+    return _token_hash(principal.browser_token) if principal.browser_token else None
+
+
+def _carried_keys(cat_def: dict) -> set[str]:
+    keys = {m["key"] for m in cat_def.get("fields", [])} | {q["maps_to"] for q in cat_def.get("question_sets", [])}
+    return keys - _NOT_CARRIED
+
+
+def _date_label(ts) -> str:
+    from zoneinfo import ZoneInfo
+    local = ts.astimezone(ZoneInfo("Asia/Seoul"))
+    return f"{local.month}월 {local.day}일"
+
+
+def _carried_values(repo: PlanRepo, revision_id: UUID, cat_def: dict) -> dict:
+    values, _ = _current_values(repo, revision_id)
+    keys = _carried_keys(cat_def)
+    return {k: v for k, v in values.items() if k in keys and v not in (None, "", [])}
+
+
+def previous_conditions(conn, principal: Principal, category: str, mode: str | None = None,
+                        exclude_list_id: UUID | None = None) -> dict | None:
+    """이 사용자의 가장 최근 다른 목록에서 이어 쓸 조건. 없으면 None."""
+    if principal.user_id is None and principal.browser_token is None:
+        return None
+    cat_def = _category(category)
+    repo = PlanRepo(conn)
+    row = repo.latest_previous(user_id=principal.user_id, guest_session_hash=_guest_hash(principal),
+                               category=category, mode=mode, exclude_list_id=exclude_list_id)
+    if row is None:
+        return None
+    carried = _carried_values(repo, row["revision_id"], cat_def)
+    values, _ = _current_values(repo, row["revision_id"])
+    shown = [f for f in _build_fields(cat_def, {**carried, "mode": values.get("mode")})
+             if f["key"] in carried and f["display"]]
+    if not shown:
+        return None
+    date = _date_label(row["last_active_at"])
+    joined = " · ".join(f["display"] for f in shown)
+    return {
+        "list_id": str(row["list_id"]),
+        "name": row["name"],
+        "confirmed": row["state"] == "confirmed",
+        "last_active_at": row["last_active_at"].isoformat(),
+        "fields": [{"key": f["key"], "label": f["label"], "display": f["display"]} for f in shown],
+        "summary": f"지난번({date})엔 {joined} 기준으로 맞추셨어요. 이 조건에서 이어서 할까요?",
+    }
+
+
+def resume_previous(conn, list_id: UUID, from_list_id: UUID, principal: Principal) -> dict:
+    """지난 목록의 조건을 이 목록에 복사한다. 이 목록에서 이미 정한 값은 덮어쓰지 않는다."""
+    repo = PlanRepo(conn)
+    current = _owned(repo, list_id, principal)
+    source = _owned(repo, from_list_id, principal)
+    if list_id == from_list_id:
+        raise ValidationFailed("같은 목록에서는 이어갈 수 없습니다.", field="from_list_id")
+    values, category = _current_values(repo, current["id"])
+    if category is None:
+        raise Conflict("카테고리를 먼저 선택하세요.", code="category_required")
+    if _current_values(repo, source["id"])[1] != category:
+        raise ValidationFailed("카테고리가 다른 목록입니다.", field="from_list_id")
+    cat_def = _category(category)
+    carried = {k: v for k, v in _carried_values(repo, source["id"], cat_def).items() if values.get(k) is None}
+
+    convo = ConversationRepo(conn)
+    msg_id = convo.add_message(current["conversation_id"], "user", _RESUME_USER_TEXT)
+    for key, value in carried.items():
+        repo.upsert_condition(current["id"], key, {"value": value}, "inferred", msg_id)
+    # 어느 목록에서 이어왔는지 — 나중에 결과를 그 견적과 비교한다(B1). 추천 입력이 아니다.
+    repo.upsert_condition(current["id"], RESUMED_FROM_KEY, {"value": str(from_list_id)}, "inferred", msg_id,
+                          bump_version=False)
+    values.update(carried)
+    nq = _next_question(cat_def, values)
+    lead = "지난 조건을 가져왔어요. 바뀐 게 있으면 말씀해 주세요."
+    convo.add_message(current["conversation_id"], "assistant", f"{lead} {nq['text'] if nq else _ALL_SET}")
     return _state(conn, list_id, principal)
 
 

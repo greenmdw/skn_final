@@ -902,6 +902,8 @@ _SLOT_SYNONYMS: dict[str, str] = {
 _CHEAPER_WORDS = ("저렴", "싸게", "싼", "가성비", "낮은", "절약")
 _PRICIER_WORDS = ("고급", "좋은", "성능", "비싼", "상위", "프리미엄")
 _SUMMARY_WORDS = ("총평", "전체 평가", "요약")
+_PREVIOUS_WORDS = ("지난번", "저번", "이전 견적", "전 견적", "예전 견적", "지난 견적")
+_DIFF_WORDS = ("달라", "다른", "차이", "비교", "바뀐", "바꼈", "바뀌", "변했", "변한")
 
 
 def _match_slot(text: str, known_slots: set[str]) -> str | None:
@@ -910,6 +912,11 @@ def _match_slot(text: str, known_slots: set[str]) -> str | None:
         if keyword in lowered and slot in known_slots:
             return slot
     return next((slot for slot in known_slots if slot.lower() in lowered), None)
+
+
+def _is_previous_comparison_request(text: str) -> bool:
+    """"지난번이랑 뭐가 달라?" — 이전 견적과 비교해 달라는 말(B1)."""
+    return any(w in text for w in _PREVIOUS_WORDS) and any(w in text for w in _DIFF_WORDS)
 
 
 def _is_result_summary_request(text: str) -> bool:
@@ -956,6 +963,10 @@ def _handle_result_message_inner(
     """결과 화면 채팅의 실제 처리. 에이전트(RESULT_AGENT=1)가 있으면 도구 호출로 후보 조회·교체·담기/빼기·
     근거 설명을 처리하고, 없거나 실패하면 아래 규칙 경로 — "그래픽카드를 더 저렴한 걸로" 같은 요청만
     해석하고 슬롯·방향을 못 찾으면 아무것도 바꾸지 않고 이해하지 못했다는 답만 돌려준다."""
+    # 이전 견적 비교는 규칙으로 답한다(B1) — 에이전트는 이전 견적을 모르므로 먼저 가로챈다.
+    if _is_previous_comparison_request(text):
+        from src.services.previous_compare import compare_with_previous
+        return {"reply": compare_with_previous(conn, revision_id)["text"], "result": get_stored_result(conn, revision_id)}
     from src.agent import result_agent
     if result_agent.available():
         _require_done_run(conn, revision_id)

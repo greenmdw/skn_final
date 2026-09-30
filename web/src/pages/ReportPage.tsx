@@ -1,113 +1,82 @@
-import { useParams, useNavigate } from 'react-router-dom'
-import type { SavedSetup } from '../state/types'
+import { useParams } from 'react-router-dom'
+import ListHistory from '../components/ListHistory'
+import PlannerShell from '../components/PlannerShell'
+import ProductThumb from '../components/ProductThumb'
+import { planTotal } from '../state/planModel'
+import { useDrawer } from '../state/DrawerContext'
 import { useSetups } from '../state/SetupsContext'
-import { usePlan } from '../state/PlanContext'
-import { planTotal, reportText } from '../state/planModel'
-import { MissingPage } from './MissingPage'
-import { PageLoading } from '../components/layout/PageLoading'
 import { wonFmt } from '../utils/format'
-import { useToast } from '../state/ToastContext'
-import { assemblyGuide } from '../data/assemblyGuide'
-import { useDocumentTitle } from '../hooks/useDocumentTitle'
-import { isMockApi } from '../api'
-import { QUIET_LABEL } from '../state/conditionLabels'
 
-export function ReportPage() {
-  const { setupId } = useParams()
+// 확정한 견적 리포트. 서버가 확정 시점에 저장한 부품·가격·이름·구매 예정일·목표 금액·메모를 보여 준다.
+export default function ReportPage() {
+  const { id } = useParams()
   const { savedSetups, loading, storageError } = useSetups()
-  const report = savedSetups.find(setup => setup.id === setupId)
-  if (loading) return <PageLoading />
-  if (!report) return <MissingPage title="저장된 리포트를 찾을 수 없습니다." description={storageError || (isMockApi ? '이 브라우저에 저장되지 않았거나 삭제된 구성입니다. 플래너의 내 구성 메뉴에서 저장 목록을 확인해주세요.' : '로그인하지 않았거나 삭제된 구성입니다. 로그인한 뒤 플래너의 내 구성 메뉴에서 저장 목록을 확인해주세요.')} />
-  return <ReportView key={report.id} report={report} />
-}
+  const { openSaved } = useDrawer()
+  const setup = savedSetups.find(item => item.id === id)
 
-function ReportView({ report }: { report: SavedSetup }) {
-  const navigate = useNavigate()
-  const { loadFromSavedSetup } = usePlan()
-  const { showToast } = useToast()
-  useDocumentTitle(report.title)
-  const total = planTotal(report.plan)
-  const confirmedAt = new Date(report.savedAt).toLocaleString('ko-KR')
-
-  function handlePrint() {
-    window.print()
+  if (!setup) {
+    return (
+      <PlannerShell>
+        <div className="pl-page narrow">
+          <h2 className="pl-h2">리포트</h2>
+          {loading
+            ? <div className="pl-note">리포트를 불러오는 중이에요…</div>
+            : <div className="pl-empty">{storageError || '이 리포트를 찾을 수 없어요. 로그인 상태를 확인하거나 저장한 견적에서 다시 열어 주세요.'}</div>}
+          <div><button type="button" className="pl-btn ghost" onClick={openSaved}>저장한 견적 열기</button></div>
+        </div>
+      </PlannerShell>
+    )
   }
 
-  function handleDownload() {
-    const text = reportText(report)
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = (report.title || 'truefit-list') + '.txt'
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-    showToast('리스트 파일을 저장했습니다.')
-  }
-
+  const total = planTotal(setup.plan)
+  const confirmed = setup.savedAt ? new Date(setup.savedAt).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }) : ''
   return (
-    <section className="landing" aria-labelledby="reportTitle">
-      <div className="landing-inner report-inner">
-        <div className="report-banner">
-          <p className="eyebrow">PLAN SAVED · MY REPORT</p>
-          <h1 id="reportTitle">{report.title}</h1>
-          <p className="setup-hint">{isMockApi ? '이 브라우저에 임시 저장 · ' : ''}구매 예정: {report.date}</p>
-          <div className="report-banner-sums">
-            <div><span>예상 총액</span><strong>{wonFmt(total)}</strong></div>
-            <div><span>목표 가격</span><strong>{wonFmt(report.target)}</strong></div>
+    <PlannerShell>
+      <div className="pl-page pl-report">
+        <div className="pl-noprint" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button type="button" className="pl-pill" onClick={openSaved}>저장한 견적</button>
+          <button type="button" className="pl-pill" onClick={() => window.print()}>인쇄</button>
+        </div>
+        <article className="pl-paper">
+          <div className="pl-paper-head">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div className="pl-mono" style={{ fontSize: 11, color: '#92a4b2' }}>TRUEFIT 견적 리포트</div>
+              <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em' }}>{setup.title}</div>
+              <div className="pl-note">
+                {[confirmed && `${confirmed} 확정`, setup.date && `구매 예정 ${setup.date}`, `목표 금액 ${wonFmt(setup.target)}`].filter(Boolean).join(' · ')}
+              </div>
+              {setup.memo && <div style={{ fontSize: 13, lineHeight: 1.6 }}>메모 · {setup.memo}</div>}
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div className="pl-note">합계</div>
+              <div className="pl-mono" style={{ fontSize: 26, fontWeight: 600 }}>{wonFmt(total)}</div>
+            </div>
           </div>
-        </div>
-        <div className="report-actions">
-          <button type="button" className="ghost-btn" onClick={handlePrint}>리포트 인쇄 / PDF</button>
-          <button type="button" className="ghost-btn" onClick={handleDownload}>리스트 파일 저장</button>
-          <button type="button" className="ghost-btn" onClick={() => { loadFromSavedSetup(report); navigate('/plan') }}>추천 다시 보기</button>
-        </div>
-        <div className="report-panel">
-          <h2>{report.plan.mode === 'upgrade' ? '업그레이드 구매 리스트' : '구매 리스트'}</h2>
-          <p style={{ whiteSpace: 'pre-line' }}>사용 목적: {report.plan.conditions.intent || '미입력'}<br />성능: {report.plan.conditions.performance || '미입력'} · {QUIET_LABEL}: {report.plan.conditions.quiet || '미입력'}<br />예산: {report.plan.budget === null ? '미설정' : wonFmt(report.plan.budget)}</p>
-          {report.plan.checkSnapshot && <ul>{report.plan.checkSnapshot.rows.map(row => <li key={row.part}>기존 {row.part}: {row.matched}</li>)}</ul>}
-          <p>책상: {report.desk.deskWidth} × {report.desk.deskDepth} × {report.desk.deskHeight}mm</p>
-          <div className="report-table-wrap" tabIndex={0} role="region" aria-label="구매 리스트 표, 작은 화면에서는 가로로 스크롤하세요">
-            <table className="report-table">
-              <thead><tr><th>제품 사진</th><th>제품</th><th>가격</th><th>리뷰</th><th>추천 근거</th></tr></thead>
-              <tbody>
-                {report.plan.items.map(p => (
-                  <tr key={p.id}>
-                    <td><span className="report-thumb">{p.label}</span></td>
-                    <td><strong>{p.type}</strong><br />{p.name}<br /><button type="button" className="report-product-link" onClick={() => showToast(isMockApi ? '실제 상품 페이지로 연결되지 않는 목업입니다.' : '판매처 링크는 아직 연결되지 않았습니다.')}>상품 페이지 ↗</button></td>
-                    <td>{wonFmt(p.price)}</td>
-                    <td><span className="report-review-badge">리뷰 {p.reviews.replace('개', '건')}</span></td>
-                    <td>{p.fit}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot><tr><th colSpan={2}>전체 가격</th><td colSpan={3}>{wonFmt(total)}</td></tr></tfoot>
-            </table>
-          </div>
-          <p>{report.memo && report.memo.trim() ? report.memo.trim() : '추가 메모가 없습니다.'}</p>
-        </div>
-        <div className="report-panel">
-          <h2>조립·설치 가이드</h2>
-          {report.careGuide?.length ? <>
-            <p>{report.plan.mode === 'upgrade'
-              ? 'PC 전원을 끄고 전원 케이블을 분리한 뒤 정전기를 방전하고 케이스 옆면을 여세요. 교체하는 부품은 기존 부품의 케이블과 고정 나사를 풀어 분리한 다음, 아래 순서로 장착합니다.'
-              : '정전기 방지 장갑을 착용하거나 금속 부분을 만져 정전기를 방전하고, 케이스를 평평한 곳에 놓고 시작하세요. 아래 순서대로 조립합니다.'}</p>
-            <ol className="guide-steps">
-              {report.careGuide.map((step, i) => <li key={i}>
-                {step.title && <strong>{step.title}</strong>}
-                {step.lines.map((line, j) => <p key={j}>{line.label && <span className={'guide-label ' + (line.label === '확인' ? 'caution' : 'install')}>{line.label}</span>}{line.text}</p>)}
-              </li>)}
-            </ol>
-            <p className="setup-hint">부품 설치·주의사항 문서를 검색해 만든 안내입니다. 부품별 제품 설명서를 함께 확인해주세요.</p>
-          </> : <>
-            {assemblyGuide(report.plan).map((step, i) => <p key={i}>{i + 1}. {step}</p>)}
-            <p>{isMockApi ? '(목업 예시 문장입니다)' : '(일반 조립 안내입니다. 부품별 설명서를 함께 확인해주세요.)'}</p>
-          </>}
-        </div>
-        <p className="setup-hint">확정 시점 {confirmedAt}</p>
+
+          <section>
+            <div style={{ fontSize: 13, fontWeight: 700, paddingBottom: 8 }}>본체</div>
+            {setup.plan.items.map(item => (
+              <div className="pl-report-row" key={item.id}>
+                <ProductThumb imageUrl={item.imageUrl} partKey={item.key} name={item.name} />
+                <span className="cat" style={{ color: '#92a4b2' }}>{item.type}</span>
+                <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <b>{item.name}</b>
+                    {item.qty != null && <span className="pl-qty">×{item.qty}</span>}
+                  </div>
+                  {item.fit && <span className="pl-note">{item.fit}</span>}
+                </div>
+                <span className="pl-mono" style={{ textAlign: 'right' }}>{wonFmt(item.price)}</span>
+                {item.purchaseUrl
+                  ? <a href={item.purchaseUrl} target="_blank" rel="noopener noreferrer">판매처 보기 ↗</a>
+                  : <span />}
+              </div>
+            ))}
+          </section>
+
+          <ListHistory listId={setup.id} />
+        </article>
       </div>
-    </section>
+    </PlannerShell>
   )
 }

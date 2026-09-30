@@ -11,6 +11,8 @@ export interface WireProduct {
   name: string
   brand: string
   spec_summary: string | null
+  image_url?: string | null
+  purchase_url?: string | null
 }
 
 export interface WireItem {
@@ -81,6 +83,10 @@ export interface WireNextQuestion {
   select: 'single' | 'multi' | 'free' | string
   options: { value: unknown; label?: string }[]
 }
+export interface WirePreviousLookup {
+  previous: { list_id: string; name: string; confirmed: boolean; last_active_at: string; summary: string;
+    fields: { key: string; label: string | null; display: string }[] } | null
+}
 export interface WireConditionState {
   list_id: string
   category: string | null
@@ -95,7 +101,7 @@ export interface WireConditionState {
 export interface WireReportItem {
   slot: string
   slot_label: string
-  product: { name: string }
+  product: { name: string; image_url?: string | null; purchase_url?: string | null }
   price: number
   qty: number
   timing: string
@@ -112,8 +118,6 @@ export interface WireReport {
   total: number
   confirmed_at: string
   items: WireReportItem[]
-  /** 조립·설치 가이드(문서 검색으로 만든 번호 목록 문장). 준비 전(pending)·실패면 text 가 없다. */
-  care_guide?: WireText | null
 }
 
 export interface WireLists {
@@ -121,3 +125,14 @@ export interface WireLists {
 }
 
 export interface WireUser { user: { email: string; display_name: string } }
+
+// ── 부품 교체(src.schemas.AlternativesOut) ──
+export interface WireAlternative {
+  candidate_id: string
+  label: string
+  current: boolean
+  product: WireProduct
+  price: number
+  price_delta: number
+  review: WireReview | null
+}

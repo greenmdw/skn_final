@@ -18,6 +18,10 @@ export interface Part {
   rating: string
   reviews: string
   label: string
+  /** 서버 카탈로그의 제품 이미지 주소. 없으면 화면이 카테고리 아이콘을 보여 준다 */
+  imageUrl?: string | null
+  /** 판매처 링크(서버가 준 경우만) */
+  purchaseUrl?: string | null
 }
 
 export type PlanMode = 'new' | 'upgrade'
@@ -62,11 +66,6 @@ export interface ChatMessage {
   choices?: ChatChoice[]
 }
 
-/** 조립·설치 가이드 한 줄. label 은 서버가 "설치:"·"확인:" 으로 나눈 것, 못 나눈 문장은 빈 문자열. */
-export interface GuideLine { label: '설치' | '확인' | ''; text: string }
-/** 조립·설치 가이드 한 단계(부품 하나). 서버가 표준 조립 순서로 정렬해서 준다. */
-export interface GuideStep { title: string; lines: GuideLine[] }
-
 export interface SavedSetup {
   id: string
   title: string
@@ -77,8 +76,6 @@ export interface SavedSetup {
   plan: CurrentPlan
   desk: DeskState
   checkDraft: CheckDraft
-  /** 서버가 부품 설치·확인 문서(RAG)에서 찾아 만든 조립·설치 가이드. 서버 리포트에만 있다(없으면 일반 안내를 보여 준다). */
-  careGuide?: GuideStep[]
 }
 
 export interface DeskState {
@@ -91,7 +88,14 @@ export interface DeskState {
 export interface PlanItem extends Omit<Part, 'price'> {
   id: string
   key: PartKey | null
+  /** 이 줄의 합계 금액 = 단가 × 수량 */
   price: number
+  /** 수량. 서버가 준 값. 없으면(예전에 저장된 구성 등) 화면에 표시하지 않는다 */
+  qty?: number
+  /** 개당 가격(서버가 준 단가) */
+  unitPrice?: number
+  /** 구매 시점(서버 값). 없으면 표시하지 않는다 */
+  timing?: 'now' | 'soon' | 'later'
 }
 
 export interface CompatCheck {
@@ -138,7 +142,8 @@ export interface CurrentPlan {
 }
 
 /** 채팅 선택지. questionId 가 있으면 서버 조건 질문의 선택지 — value 는 서버 내부 값이라 화면에는 label 만 보인다. */
-export interface ChatChoice { label: string; value: string; questionId?: string }
+// resumeFrom: 지난 목록 id — 누르면 그 목록의 조건을 이어 쓴다(A1). startFresh: 이어 쓰지 않고 새로 시작.
+export interface ChatChoice { label: string; value: string; questionId?: string; resumeFrom?: string; startFresh?: boolean }
 
 export interface ReviewRow {
   part: string

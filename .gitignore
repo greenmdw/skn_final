@@ -77,3 +77,6 @@ data/amazon23/
 # 시드(db/seed_pc_parts_specs.py)의 원본이라 팀이 같이 받아야 한다 — 백업본(*.backup_*.xlsx)은 계속 제외
 !/data/parts_list_modify.xlsx
 /data/peripherals/*.csv
+
+# 리뷰 원문 데이터(작성자·원문 포함) — Git에 올리지 않고 팀 내 파일로 공유. data/reviews/README.md 참고
+/data/reviews/*.jsonl
