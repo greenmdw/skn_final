@@ -77,9 +77,22 @@ def emit_shown(conn, *, plan_id: UUID, revision_id: UUID, run_id: UUID, version:
                version=version, action="shown", user_id=user_id, payload=payload)
 
 
+def replaced_count(conn, *, run_id: UUID | str | None, item_id: UUID | str) -> int:
+    """이 run 에서 이 품목을 몇 번 교체했는지. 키가 `run:item[#n]:version:replaced` 모양이라 접두어로 센다."""
+    row = conn.execute(
+        "SELECT count(*) FROM engine.feedback_event WHERE event_type='item_replaced' AND event_key LIKE %s",
+        (f"{run_id or 'norun'}:{item_id}%",),
+    ).fetchone()
+    return int(row[0])
+
+
 def emit_replaced(conn, *, plan_id: UUID, revision_id: UUID, run_id: UUID | None, item_id: UUID | str,
-                  version: int, user_id: UUID | None = None, payload: dict[str, Any] | None = None) -> bool:
-    return emit(conn, plan_id=plan_id, revision_id=revision_id, run_id=run_id, item_id=item_id,
+                  version: int, seq: int = 0, user_id: UUID | None = None,
+                  payload: dict[str, Any] | None = None) -> bool:
+    """교체는 같은 품목에 여러 번 일어난다(A→B→C). lock_version 은 조건이 바뀔 때만 오르므로 seq(이 품목의
+    몇 번째 교체인지)를 키에 붙여야 두 번째 교체가 중복으로 억제되지 않는다. seq=0 이면 예전 키 그대로다."""
+    key_item = f"{item_id}#{seq}" if seq else item_id
+    return emit(conn, plan_id=plan_id, revision_id=revision_id, run_id=run_id, item_id=key_item,
                version=version, action="replaced", user_id=user_id, payload=payload)
 
 
