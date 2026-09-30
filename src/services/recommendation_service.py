@@ -376,13 +376,23 @@ def _store_validations(erepo, run_id: UUID, verification) -> None:
 
 
 def _current_set(conn, revision_id: UUID, cvals: dict, stored: list[dict]):
-    """저장된 후보 행 → 지금 선택된 부품({슬롯: Candidate})과 유지 부품이 든 RequirementSpec. 재검증과 상세 조회가 같이 쓴다."""
-    from src.engine.owned_parts import owned_for_conditions
-    from src.repo.catalog_repo import load_candidates_by_slot_from_db
+    """저장된 후보 행 → 지금 선택된 부품({슬롯: Candidate})과 유지 부품이 든 RequirementSpec. 재검증과 상세 조회가 같이 쓴다.
 
-    pool = load_candidates_by_slot_from_db(conn)
-    by_variant = {c.variant_id: c for cands in pool.values() for c in cands}
+    신규 조립(build)은 지금 고른 부품(picked)만 있으면 되니 그만큼만 읽는다 — upgrade일 때만
+    "보유 부품" 이름 매칭에 카탈로그 전체가 필요해서 그때만 전체를 읽는다(개발요청 5번 —
+    스왑·수량 변경마다 카탈로그 전체를 읽던 비용을 없앤다)."""
+    from src.engine.owned_parts import owned_for_conditions
+    from src.repo.catalog_repo import load_candidates_by_slot_from_db, load_candidates_by_variant
+
     picked = [row for row in stored if row.get("selected") is not False]
+    if cvals.get("mode") == "upgrade":
+        pool = load_candidates_by_slot_from_db(conn)
+        by_variant = {c.variant_id: c for cands in pool.values() for c in cands}
+    else:
+        pool = {}
+        by_variant = load_candidates_by_variant(
+            conn, [(row["product_type"], str(row["variant_id"])) for row in picked]
+        )
     chosen = {row["slot"]: by_variant[str(row["variant_id"])] for row in picked if str(row["variant_id"]) in by_variant}
     spec = RequirementSpec(
         list_id=str(revision_id), category="computer",
@@ -600,12 +610,15 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
     candidates_by_slot = prodrepo.candidates_by_slot()
     items = []
     candidate_rows = erepo.get_candidates(run["id"])
+    from src.repo.catalog_repo import load_specs_by_variant
+    specs_by_variant = load_specs_by_variant(
+        conn, [(row["product_type"], str(row["variant_id"])) for row in candidate_rows]
+    )
     for row in candidate_rows:
         product_key = (pc_catalog_key(row["product_type"], row["brand"], row["product_key"])
                        if category == "computer" and row["product_type"] in PC_TYPE_TO_SLOT
                        else row["product_key"])
-        attrs = row.get("attributes") or {}
-        spec_summary = f"성능 티어 {attrs['perf_tier']}" if attrs.get("perf_tier") is not None else None
+        spec_summary = _spec_summary(row["slot"], specs_by_variant.get(str(row["variant_id"])))
         price = int(row["price"]) if row["price"] is not None else 0
         slot_variants = candidates_by_slot.get(row["slot"], [])
         alternatives_count = sum(1 for c in slot_variants if c["variant_id"] != row["variant_id"])
@@ -709,6 +722,31 @@ def patch_item(conn, revision_id: UUID, item_id: UUID, *, selected: bool | None,
     return get_stored_result(conn, revision_id)
 
 
+# 슬롯별로 spec_summary에 넣을 (specs 키, 포맷) — catalog_repo._specs_from_row가 채우는 키만 쓴다.
+# 값이 없으면 그 조각은 뺀다(없는 스펙을 지어내지 않는다). CPU 코어 수는 스펙 테이블에 없어 뺐다.
+_SPEC_DISPLAY_FIELDS: dict[str, list[tuple[str, str]]] = {
+    "CPU": [("socket", "{} 소켓"), ("mem_type", "{}")],
+    "GPU": [("vram_gb", "VRAM {:g}GB"), ("pcie_interface", "{}"), ("power_w", "{}W")],
+    "RAM": [("mem_type", "{}"), ("capacity_gb", "{:g}GB"), ("speed_mts", "{}MT/s")],
+    "메인보드": [("socket", "{} 소켓"), ("mem_type", "{}"), ("form_factor", "{}")],
+    "저장장치": [("interface", "{}"), ("protocol", "{}")],
+    "파워": [("wattage_w", "{}W"), ("efficiency_rating", "80+ {}"), ("form_factor", "{}")],
+    "케이스": [("case_type", "{}")],
+    "쿨러": [("cooling_type", "{}"), ("supported_socket", "{}")],
+}
+
+
+def _spec_summary(slot: str, specs: dict | None) -> str | None:
+    """개발요청 3번 — 슬롯별 실제 스펙 문자열. "성능 티어 N"은 맨 끝에 그대로 둔다 —
+    result_agent.py(100~102행)가 split("티어")로 파싱하는 형식을 안 바꾼다."""
+    specs = specs or {}
+    parts = [fmt.format(specs[key]) for key, fmt in _SPEC_DISPLAY_FIELDS.get(slot, []) if specs.get(key) not in (None, "")]
+    tier = specs.get("perf_tier")
+    if tier is not None:
+        parts.append(f"성능 티어 {tier:g}")
+    return " · ".join(parts) if parts else None
+
+
 def _current_candidate_as_variant_row(current: dict) -> dict:
     """engine.get_candidates() 행(`product_name` 등 다른 컬럼명)을 candidates_by_slot() 행과 같은
     모양으로 바꿔 `_alternative_out`에 그대로 넘길 수 있게 한다."""
@@ -721,14 +759,13 @@ def _current_candidate_as_variant_row(current: dict) -> dict:
     }
 
 
-def _alternative_out(row: dict, *, current: bool, current_price: int) -> dict:
+def _alternative_out(row: dict, *, current: bool, current_price: int, slot: str, specs: dict | None = None) -> dict:
     from src.repo.catalog_repo import PC_TYPE_TO_SLOT, pc_catalog_key
     price = int(row["price"]) if row.get("price") is not None else 0
     delta = price - current_price
     label = ("현재 선택" if current else
              "절약형 후보" if delta < 0 else
              "프리미엄 후보" if delta > 0 else "동급 후보")
-    attrs = row.get("attributes") or {}
     product_key = (pc_catalog_key(row["product_type"], row["brand"], row["product_key"])
                    if row.get("product_type") in PC_TYPE_TO_SLOT else row.get("product_key") or str(row["product_id"]))
     return {
@@ -736,7 +773,7 @@ def _alternative_out(row: dict, *, current: bool, current_price: int) -> dict:
         "product": {
             "product_key": product_key,
             "variant_id": str(row["variant_id"]), "name": row["name"], "brand": row.get("brand") or "",
-            "spec_summary": f"성능 티어 {attrs['perf_tier']}" if attrs.get("perf_tier") is not None else None,
+            "spec_summary": _spec_summary(slot, specs),
             "image_url": row.get("image_url"), "purchase_url": row.get("purchase_url"),
         },
         "price": price, "price_delta": delta, "review": None,
@@ -868,6 +905,7 @@ def _dedupe_alternatives_by_name(variants: list[dict]) -> list[dict]:
 
 
 def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
+    from src.repo.catalog_repo import load_specs_by_variant
     from src.repo.product_repo import ProductRepo
     erepo, run = _require_done_run(conn, revision_id)
     stored = erepo.get_candidates(run["id"])
@@ -880,21 +918,26 @@ def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
     slot_variants = _dedupe_alternatives_by_name(slot_variants)
     others = [row for row in slot_variants if row["variant_id"] != current["variant_id"]]
 
-    current_tier = (current.get("attributes") or {}).get("perf_tier")
+    specs_by_variant = load_specs_by_variant(conn, [
+        (row.get("product_type"), str(row["variant_id"])) for row in [current, *others]
+    ])
+    current_tier = specs_by_variant.get(str(current["variant_id"]), {}).get("perf_tier")
     if current_tier is not None:
         # 워크스테이션·전문가용까지 섞인 전체 카탈로그 대신, 지금 고른 성능 등급에 가까운 후보만
         # 추린다(개발요청 2번 — "비슷한 성능 3개"). 같은 등급 차이면 가격이 가까운 쪽을 우선한다.
         def _distance(row: dict) -> tuple[float, int]:
-            tier = (row.get("attributes") or {}).get("perf_tier")
+            tier = specs_by_variant.get(str(row["variant_id"]), {}).get("perf_tier")
             tier_gap = abs(float(tier) - float(current_tier)) if tier is not None else float("inf")
             price = row["price"] if row.get("price") is not None else 0
             return (tier_gap, abs(price - current_price))
 
         others = sorted(others, key=_distance)[:_SIMILAR_TIER_ALTERNATIVES]
 
-    items = [_alternative_out(_current_candidate_as_variant_row(current), current=True, current_price=current_price)]
+    items = [_alternative_out(_current_candidate_as_variant_row(current), current=True, current_price=current_price,
+                               slot=current["slot"], specs=specs_by_variant.get(str(current["variant_id"])))]
     items += [
-        _alternative_out(row, current=False, current_price=current_price)
+        _alternative_out(row, current=False, current_price=current_price, slot=current["slot"],
+                          specs=specs_by_variant.get(str(row["variant_id"])))
         for row in sorted(others, key=lambda r: r["price"] if r["price"] is not None else 0)
     ]
     return {"items": items}

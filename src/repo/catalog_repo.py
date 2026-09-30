@@ -155,7 +155,7 @@ _SPEC_QUERIES: dict[str, tuple[str, str]] = {
     "ram": ("s.memory_type, s.total_capacity_gb, s.speed_mts, s.module_config, s.height_mm, "
             "s.spec_url, s.status_checked_at, s.height_source_url", "catalog.ram_spec"),
     "gpu": ("s.length_mm, s.power_w, s.vram_gb, s.lineup, s.recommended_psu_w, s.power_connector, s.aux_power, "
-            "s.height_mm, s.slot_thickness, "
+            "s.height_mm, s.slot_thickness, s.pcie_interface, "
             "s.spec_url, s.status_checked_at, s.dimension_source_url, s.perf_score_source_url", "catalog.gpu_spec"),
     "ssd": ("s.interface, s.protocol, s.form_factor, s.capacity_options, "
             "s.spec_url, s.status_checked_at", "catalog.ssd_spec"),
@@ -163,14 +163,15 @@ _SPEC_QUERIES: dict[str, tuple[str, str]] = {
             "s.connector_12v2x6_count, "
             "s.spec_url, s.status_checked_at, s.dimension_source_url", "catalog.psu_spec"),
     "case": ("s.gpu_max_length_mm, s.cpu_cooler_height_mm, s.supported_motherboard, s.psu_form_factor, s.max_psu_length_mm, "
-             "s.expansion_slots, s.radiator_front_mm, s.radiator_top_mm, s.radiator_rear_mm, s.color, "
+             "s.expansion_slots, s.radiator_front_mm, s.radiator_top_mm, s.radiator_rear_mm, s.color, s.case_type, "
              "s.spec_url, s.status_checked_at, s.expansion_source_url", "catalog.case_spec"),
     "cooler": ("s.cooler_height_mm, s.supported_socket, s.cooling_type, s.radiator_mm, "
                "s.spec_url, s.status_checked_at", "catalog.cooler_spec"),
 }
 
 
-def _build_query(product_type: str, spec_cols: str, spec_table: str) -> str:
+def _build_query(product_type: str, spec_cols: str, spec_table: str,
+                  where: str = "p.product_type = %(product_type)s") -> str:
     return f"""
         SELECT p.id, v.id AS variant_id, p.brand, p.model,
                obs.id AS offer_observation_id, obs.price, {spec_cols}
@@ -183,7 +184,7 @@ def _build_query(product_type: str, spec_cols: str, spec_table: str) -> str:
             WHERE offer_id = o.id AND quality_status = 'valid'
             ORDER BY observed_at DESC LIMIT 1
         ) obs ON true
-        WHERE p.product_type = %(product_type)s
+        WHERE {where}
     """
 
 
@@ -284,6 +285,8 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
         vram = _parse_max_number(row.get("vram_gb"))  # "8 / 16" 라인업 표기 대응
         if vram is not None:
             specs["vram_gb"] = vram
+        if row.get("pcie_interface"):
+            specs["pcie_interface"] = row["pcie_interface"]           # 표시용(개발요청 3번) — 호환 검사는 안 씀
     elif product_type == "ssd":
         if row.get("interface"):
             specs["interface"] = row["interface"]
@@ -323,6 +326,8 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
         for key in ("radiator_front_mm", "radiator_top_mm", "radiator_rear_mm", "color"):
             if (row.get(key) or "").strip():
                 specs[key] = row[key].strip()                          # 라디에이터는 '120;140;240' 형식
+        if (row.get("case_type") or "").strip():
+            specs["case_type"] = row["case_type"].strip()              # 표시용(개발요청 3번) — 호환 검사는 안 씀
     elif product_type == "cooler":
         if row.get("cooler_height_mm") is not None:
             specs["height_mm"] = row["cooler_height_mm"]
@@ -478,4 +483,72 @@ def load_candidates_by_slot_from_db(conn) -> dict[str, list[Candidate]]:
                     specs=_specs_from_row(product_type, row),
                     provenance=_provenance_from_row(product_type, row),
                 ))
+    return out
+
+
+def load_candidates_by_variant(conn, items: list[tuple[str, str]]) -> dict[str, Candidate]:
+    """[(product_type, variant_id), ...] -> {variant_id: Candidate}. load_candidates_by_slot_from_db와
+    같은 Candidate를 만들지만, 카탈로그 전체가 아니라 요청받은 variant만 읽는다(개발요청 5번).
+
+    reverify_set(_current_set)이 "지금 고른 8개"만 있으면 되는데도 매번 카탈로그 전체(제품군당 SELECT
+    하나, 가격 관측까지 조인)를 읽어서 스왑·수량 변경마다 그 비용을 물었다 — 신규 조립(build)에는
+    이 함수로 충분하고, 업그레이드(upgrade)의 "보유 부품" 이름 매칭만 전체 카탈로그가 필요하다."""
+    from psycopg.rows import dict_row
+
+    by_type: dict[str, list[str]] = {}
+    for product_type, variant_id in items:
+        if product_type in _SPEC_QUERIES:
+            by_type.setdefault(product_type, []).append(variant_id)
+
+    out: dict[str, Candidate] = {}
+    with conn.cursor(row_factory=dict_row) as cur:
+        for product_type, variant_ids in by_type.items():
+            spec_cols, spec_table = _SPEC_QUERIES[product_type]
+            cur.execute(_build_query(product_type, spec_cols, spec_table, where="v.id = ANY(%(variant_ids)s)"),
+                        {"variant_ids": variant_ids})
+            for row in cur.fetchall():
+                price = row.get("price")
+                if price is None:
+                    continue
+                pk = pc_catalog_key(product_type, row["brand"], row["model"])
+                out[str(row["variant_id"])] = Candidate(
+                    product_key=pk, slot=PC_TYPE_TO_SLOT[product_type],
+                    name=f"{row['brand']} {row['model']}",
+                    variant_id=str(row["variant_id"]),
+                    offer_observation_id=str(row["offer_observation_id"]),
+                    brand=row["brand"], price=int(price),
+                    specs=_specs_from_row(product_type, row),
+                    provenance=_provenance_from_row(product_type, row),
+                )
+    return out
+
+
+def load_specs_by_variant(conn, items: list[tuple[str, str]]) -> dict[str, dict]:
+    """[(product_type, variant_id), ...] -> {variant_id: specs}. specs 는 _specs_from_row 와 같은
+    모양(perf_tier·socket·vram_gb 등) — 개발요청 3번(spec_summary)이 쓴다.
+
+    variant_id 로 직접 걸러 찾는 값만 가져온다(제품군마다 쿼리 하나, 목록 크기와 무관) —
+    load_candidates_by_slot_from_db 처럼 카탈로그 전체를 읽지 않는다(5번 성능 우려 참고)."""
+    from psycopg.rows import dict_row
+
+    by_type: dict[str, list[str]] = {}
+    for product_type, variant_id in items:
+        if product_type in _SPEC_QUERIES:
+            by_type.setdefault(product_type, []).append(variant_id)
+
+    out: dict[str, dict] = {}
+    with conn.cursor(row_factory=dict_row) as cur:
+        for product_type, variant_ids in by_type.items():
+            spec_cols, spec_table = _SPEC_QUERIES[product_type]
+            cur.execute(
+                f"""
+                SELECT v.id AS variant_id, {spec_cols}
+                FROM {spec_table} s
+                JOIN catalog.product_variant v ON v.product_id = s.product_id
+                WHERE v.id = ANY(%(variant_ids)s)
+                """,
+                {"variant_ids": variant_ids},
+            )
+            for row in cur.fetchall():
+                out[str(row["variant_id"])] = _specs_from_row(product_type, row)
     return out

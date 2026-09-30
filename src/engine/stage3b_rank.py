@@ -107,6 +107,27 @@ def _data_gap_penalty(cand: Candidate, gap_keys: list[str], gap: dict) -> float:
     return min(missing * gap.get("penalty_per_key", 0.0), gap.get("max_penalty", 0.0))
 
 
+def _ram_dual_channel_bonus(cand: Candidate, slot: str, target: dict, ranking: dict) -> float:
+    """개발요청 7번 — RAM은 perf_tier가 없어 성능·밸런스 축이 중립 고정이라 같은 총 용량이면
+    가격만으로 갈렸고, 단일 모듈이 듀얼채널(모듈 2개 이상) 키트보다 늘 이겼다. breakdown 축이
+    아니라 gap_penalty처럼 최종 점수에만 더한다(우선순위별 weights 표를 새로 만들 필요가 없다).
+
+    딱 필요한 용량(capacity_gb_min)과 같은 후보에만 준다 — 그보다 큰 용량까지 우대하면
+    "16GB 듀얼(8GB×2)"이 아니라 "32GB 듀얼(16GB×2)"처럼 필요보다 큰(그래서 훨씬 비싼) 키트가
+    가격 축이 0으로 뭉개지는 예산 초과 구간에서 단지 module_count>=2 라는 이유로 이겨버렸다
+    (실측: 예산 200만·가성비 우선주에서 33만원 16GB 단일 대신 91만원 32GB 듀얼을 골랐다)."""
+    if slot != "RAM":
+        return 0.0
+    need = target.get("capacity_gb_min")
+    capacity = cand.specs.get("capacity_gb")
+    if need is None or capacity is None or capacity != need:
+        return 0.0
+    from src.engine.compat_parse import parse_module_count
+
+    count = parse_module_count(cand.specs.get("module_config"))
+    return float(ranking.get("ram_dual_channel_bonus", 0.0)) if count is not None and count >= 2 else 0.0
+
+
 def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int, slot: str, target: dict,
            weights: dict[str, float] | None = None, gap_penalty: float = 0.0) -> Candidate:
     tier = float(cand.specs.get("perf_tier", 5))
@@ -127,6 +148,7 @@ def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int, slot: st
     if cand.verdict == "Pending":
         raw -= PENDING_SCORE_PENALTY
     raw -= gap_penalty
+    raw += _ram_dual_channel_bonus(cand, slot, target, ranking)
     return cand.model_copy(update={"score": round(raw, 3), "breakdown": {k: round(v, 3) for k, v in b.items()},
                                    "flags": list(cand.flags) + review_flags})
 
