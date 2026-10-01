@@ -342,10 +342,50 @@ def _source_notes(final: dict, rows: list[dict]) -> list[str]:
     return []
 
 
-def _unapplied(conn, revision: dict, final: dict, messages: list[dict]) -> list[str]:
-    """말씀했지만 이번 추천에 반영하지 못한 것 — 자유 요청, 조건에 안 들어간 게임, CPU 밖·비선호 브랜드."""
+# 결과 화면에서 무엇을 바꿔 달라는 말 — "CPU 더 싼거로 바꿔줘", "예산 늘려줘", "GPU, CPU 둘다 싼걸로".
+# 수량·구매 시점은 바꿔도 기록이 남지 않아 바뀌었는지 알 수 없으므로 세지 않는다.
+_CHANGE_ASK = re.compile(r"바꿔|바꾸|바꿀|교체|빼\s*(줘|주|고)|넣어|올려|늘려|줄여|낮춰|변경|싼\s*(거|걸|것)|저렴한|좋은\s*(거|걸|것)")
+_UNTRACKED_ASK = re.compile(r"수량|개수|\d+\s*개|시점")
+
+
+def _unhandled_asks(conn, revision: dict, runs: list[dict], rows: list[dict]) -> list[str]:
+    """결과 화면에서 바꿔 달라고 했는데 그 뒤 다음 말 전까지 아무것도 바뀌지 않은 요청. 결과 화면 채팅에는 조건(예산 등)을
+    바꾸는 도구가 없고, 부품 교체도 후보가 없거나 답이 걸러지면 그대로 끝난다 — 그 말은 어디에도 기록되지 않아서
+    히스토리가 모르고 지나갔다(2026-10-01 "CPU 더 싼거로 바꿔줘")."""
+    start, end = revision["created_at"], revision.get("confirmed_at")
+    first_result = start if _is_clone(runs[0]) else runs[0]["completed_at"]
+    sources = {r["source_message_id"] for r in rows if r["source_message_id"]}
+    said = _cur(conn).execute(
+        "SELECT id, content, created_at FROM identity.message WHERE conversation_id=%s AND role='user' "
+        "AND created_at >= %s AND (%s::timestamptz IS NULL OR created_at <= %s) ORDER BY created_at, id",
+        (revision["conversation_id"], start, end, end),
+    ).fetchall()
+    changes = [r["at"] for r in _cur(conn).execute(
+        "SELECT occurred_at AS at FROM engine.feedback_event WHERE revision_id=%s "
+        "AND event_type IN ('item_replaced','item_removed') "
+        "UNION ALL SELECT created_at FROM engine.recommendation_run WHERE revision_id=%s "
+        "UNION ALL SELECT created_at FROM planning.plan_condition WHERE revision_id=%s",
+        (revision["id"], revision["id"], revision["id"]),
+    ).fetchall()]
+    lines = []
+    for index, m in enumerate(said):
+        text = m["content"]
+        if (m["created_at"] <= first_result or m["id"] in sources
+                or not _CHANGE_ASK.search(text) or _UNTRACKED_ASK.search(text)):
+            continue
+        until = said[index + 1]["created_at"] if index + 1 < len(said) else end
+        if not any(m["created_at"] <= at and (until is None or at < until) for at in changes):
+            lines.append(f"‘{_clip(text)}’ — 요청하셨지만 이번 견적에서는 바뀌지 않았어요")
+    return lines
+
+
+def _unapplied(conn, revision: dict, final: dict, messages: list[dict], runs: list[dict],
+               rows: list[dict]) -> list[str]:
+    """말씀했지만 이번 추천에 반영하지 못한 것 — 처리되지 않은 요청, 자유 요청, 조건에 안 들어간 게임,
+    CPU 밖·비선호 브랜드."""
     values = final["values"]
-    lines = [f"‘{x}’ — 기록했지만 추천에 반영하는 기준이 아직 없어요" for x in values.get("extra") or []]
+    lines = _unhandled_asks(conn, revision, runs, rows)
+    lines += [f"‘{x}’ — 기록했지만 추천에 반영하는 기준이 아직 없어요" for x in values.get("extra") or []]
 
     rules = stage2_requirement.load_computer_rules()
     if not (rules["requirements"].get("purpose_profiles") or {}).get(values.get("purpose")):
@@ -423,7 +463,7 @@ def build_steps(conn, revision: dict) -> list[dict]:
     start["notes"] += _source_notes(final, rows)
 
     steps = [start, *middle]
-    unapplied = _unapplied(conn, revision, final, messages)
+    unapplied = _unapplied(conn, revision, final, messages, runs, rows)
     if unapplied:
         steps.append({"kind": "unapplied", "text": "말씀하셨지만 이번 추천에 반영하지 못한 것", "quote": None,
                       "changes": [], "notes": unapplied})

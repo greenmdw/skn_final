@@ -54,9 +54,9 @@ def _recommended_list(c) -> tuple[str, str, dict]:
     return lid, state["revision_id"], data
 
 
-def _swap_to_cheapest_other(c, lid: str, item_id: str) -> str:
+def _swap_to_cheapest_other(c, lid: str, item_id: str, avoid: tuple[str, ...] = ()) -> str:
     alts = c.get(f"/session/{lid}/items/{item_id}/alternatives").json()["items"]
-    alt = next(a for a in alts if not a["current"])
+    alt = next(a for a in alts if not a["current"] and a["product"]["name"] not in avoid)
     r = c.post(f"/session/{lid}/items/{item_id}/swap", json={"candidate_id": alt["candidate_id"]})
     assert r.status_code == 200, r.text
     return alt["product"]["name"]
@@ -71,7 +71,8 @@ def test_history_tells_the_journey_of_a_confirmed_list(raw_conn):
     item = next(it for it in data["items"] if it["alternatives_count"] > 1)
     first_name = item["product"]["name"]
     second_name = _swap_to_cheapest_other(c, lid, item["item_id"])
-    third_name = _swap_to_cheapest_other(c, lid, item["item_id"])   # 같은 품목을 두 번째로 바꾼다
+    # 같은 품목을 두 번째로 바꾼다 — 처음 제품으로 되돌아가면(A → B → A) 단계에서 빠지므로 다른 제품으로
+    third_name = _swap_to_cheapest_other(c, lid, item["item_id"], avoid=(first_name,))
 
     # 두 번째 교체도 남고(seq), 무엇→무엇이 payload 에 있다
     rows = raw_conn.execute(
@@ -161,6 +162,21 @@ def test_llm_summary_with_foreign_script_falls_back(monkeypatch):
     reply = {"text": "추천 구성 предложили 이후, 1,480,000원으로 확정하셨습니다."}
     monkeypatch.setattr(llm_client, "call_llm", lambda *a, **k: reply)
     assert list_history.llm_summary(_steps()) is None
+
+
+def test_summary_mentions_unapplied_only_when_there_is_some(monkeypatch):
+    """없을 때 "반영하지 못한 것은 없습니다"를 붙이거나, 기본값 안내를 '반영하지 못한 것'으로 옮기던 버릇(2026-10-01)."""
+    from src.clients import llm_client
+    from src.services import list_history
+
+    prompts = []
+    reply = {"text": "게임용으로 찾으셨고 1,480,000원으로 확정하셨어요. 반영하지 못한 것은 없습니다."}
+    monkeypatch.setattr(llm_client, "call_llm", lambda prompt, system: prompts.append((prompt, system)) or reply)
+    steps = [s for s in _steps() if s["kind"] != "unapplied"]
+    steps[0] = {**steps[0], "notes": ["해상도는 말씀 안 하셔서 FHD 144Hz 기준으로 봤어요"]}
+    assert list_history.llm_summary(steps) == "게임용으로 찾으셨고 1,480,000원으로 확정하셨어요."
+    prompt, system = prompts[0]
+    assert "말씀 안 하셔서" not in prompt and "반영 여부는 언급하지 않습니다" in system
 
 
 def test_summary_falls_back_to_rules_when_llm_fails(monkeypatch):

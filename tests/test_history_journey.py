@@ -150,3 +150,47 @@ def test_resumed_quote_names_where_it_came_from():
     assert steps[0]["kind"] == "start" and steps[0]["text"].endswith("‘지난번 견적’의 조건을 이어서 시작했어요")
     assert steps[0]["changes"] == ["게임 · 500만 원 · 성능 우선"]
     assert [s["kind"] for s in steps[1:]] == ["confirm"]        # 같은 조건이면 바뀐 것이 없다
+
+
+def test_detail_keeps_what_moved_the_result_and_chat_keeps_everything_in_order():
+    """결과에 영향 없는 말은 히스토리에서 빠지고 대화 내역에는 질문 → 답 순서로 남는다. 바꿔 달라고 했는데 그대로면
+    '반영 못 함'에 나온다(결과 화면 채팅에는 예산을 바꾸는 도구가 없다)."""
+    c = _signed_up()
+    lid, _ = _game_list(c)
+    _recommend(c, lid)
+    for text in ("ㅁㄴㅇㄹ", "예산 늘려줘"):
+        assert c.post(f"/session/{lid}/result-message", json={"text": text}).status_code == 200
+    _confirm(c, lid, "말만 한 것")
+
+    body = c.get(f"/lists/{lid}/history").json()
+    assert not any(e["text"] in ("ㅁㄴㅇㄹ", "예산 늘려줘") for e in body["events"])
+    unapplied = next(s for s in body["steps"] if s["kind"] == "unapplied")
+    assert unapplied["notes"] == ["‘예산 늘려줘’ — 요청하셨지만 이번 견적에서는 바뀌지 않았어요"]
+
+    messages = c.get(f"/session/{lid}").json()["messages"]
+    for text in ("ㅁㄴㅇㄹ", "예산 늘려줘"):
+        i = next(i for i, m in enumerate(messages) if m["role"] == "user" and m["text"] == text)
+        assert messages[i + 1]["role"] == "assistant", messages[i - 1: i + 2]
+
+
+def test_question_and_answer_saved_together_keep_their_order():
+    """한 트랜잭션에서 저장한 질문과 답 — 예전엔 같은 시각(now())이라 대화 내역에서 답이 먼저 나올 수 있었다."""
+    from src.db import get_conn
+    from src.repo.user_repo import ConversationRepo
+
+    c = _signed_up()
+    lid, _ = _game_list(c)
+    with get_conn() as conn:
+        conversation_id = conn.execute("SELECT conversation_id FROM planning.plan WHERE id=%s", (lid,)).fetchone()[0]
+        repo = ConversationRepo(conn)
+        repo.add_message(conversation_id, "user", "질문")
+        repo.add_message(conversation_id, "assistant", "답")
+        # 수정 전 기록처럼 같은 시각으로 저장된 둘(답이 먼저 들어감)도 사용자 말이 먼저다
+        conn.execute("INSERT INTO identity.message (conversation_id, role, content, client_message_id, created_at) "
+                     "VALUES (%s, 'assistant', '옛 답', %s, '2026-09-30T00:00:00Z'), "
+                     "(%s, 'user', '옛 질문', %s, '2026-09-30T00:00:00Z')",
+                     (conversation_id, str(uuid4()), conversation_id, str(uuid4())))
+    with get_conn() as conn:
+        texts = [m["content"] for m in ConversationRepo(conn).messages(conversation_id)]
+    assert texts.index("질문") + 1 == texts.index("답")
+    assert texts.index("옛 질문") + 1 == texts.index("옛 답")
