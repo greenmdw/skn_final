@@ -135,6 +135,95 @@ export interface UpgradeSuggestion {
   disclaimer: string
 }
 
+export interface QuoteConditions {
+  purpose?: 'game' | 'creation' | 'office' | 'study' | 'other'
+  resolution?: 'FHD_144' | 'QHD_165' | '4K'
+  priority?: 'performance' | 'value' | 'quiet'
+  games?: string[]
+  budgetMax?: number
+}
+
+export interface QuoteReviewRequest {
+  currentSpecs?: Record<string, string>
+  text?: string
+  imageDataUrl?: string
+  conditions?: QuoteConditions
+}
+
+export interface QuoteCompatCheck {
+  axis: string
+  label: string
+  state: 'ok' | 'fail' | 'unknown' | 'skipped'
+  detail: string
+}
+
+export interface QuotePriceRow {
+  part: string
+  matched: string | null
+  quoted: number | null
+  catalog: number | null
+  quantity: number
+  diff: number | null
+  diffPercent: number | null
+  state: 'cheaper' | 'similar' | 'pricier' | 'no_quote_price' | 'no_catalog'
+  detail: string
+}
+
+export interface QuoteBalanceRow {
+  part: string
+  aspect: string
+  state: 'short' | 'excess' | 'ok' | 'unknown'
+  detail: string
+  measured: number | null
+  target: number | null
+}
+
+export interface QuoteCompareRow {
+  part: string
+  quote: Record<string, unknown> | null
+  ours: Record<string, unknown>
+  sameProduct: boolean
+  priceDiff: number | null
+  priceDiffPercent: number | null
+  priceState: 'cheaper' | 'similar' | 'pricier' | null
+  tierDiff: number | null
+  detail: string
+}
+
+export interface QuoteReviewResult {
+  listId: string
+  version: number
+  input: { currentSpecs: Record<string, string>; conditions: Record<string, unknown>; inputHash: string }
+  parts: ReviewRow[]
+  compat: { checks: QuoteCompatCheck[]; summary: Record<string, number>; incompatible: string[] }
+  prices: { available: boolean; reason: string | null; rows: QuotePriceRow[]; summary: Record<string, unknown> } | null
+  balance: { available: boolean; reason: string | null; rows: QuoteBalanceRow[]; summary: Record<string, number>; notes: string[] } | null
+  compare: { available: boolean; reason: string | null; rows: QuoteCompareRow[]; summary: Record<string, unknown>; notes: string[] } | null
+  computedAt: string
+}
+
+export interface QuotePartCandidate {
+  name: string
+  price: number
+  priceDelta: number | null
+  perfTier: number | null
+  specs: { key: string; label: string; unit: string; baseline: unknown; candidate: unknown; diff: number | null }[]
+  incompatible: string[]
+  compatChanges: { axis: string; label: string; from: string; to: string; detail: string }[]
+  review: Record<string, unknown> | null
+}
+
+export interface QuotePartComparison {
+  slot: string
+  baseline: Record<string, unknown>
+  candidates: QuotePartCandidate[]
+  unmatchedTargets: string[]
+  note: string | null
+}
+
+export interface QuoteChatMessage { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: string }
+export interface QuoteApplyResult { listId: string; slots: string[]; missing: string[]; runId: string | null }
+
 // ---- 저장한 구성 ----
 export interface SetupsListResult {
   data: SavedSetup[]
@@ -195,6 +284,13 @@ export interface Api {
      *   없어서 조용히 빈 결과로 넘기지 않는다.
      * currentSpecs에 같은 슬롯이 있으면 그 값이 텍스트·이미지 추출값보다 우선한다. */
     previewOwnedParts(request: { currentSpecs?: Record<string, string>; text?: string; imageDataUrl?: string }): Promise<ReviewRow[]>
+    createReview(request: QuoteReviewRequest): Promise<QuoteReviewResult>
+    updateReview(listId: string, request: QuoteReviewRequest): Promise<QuoteReviewResult>
+    getReview(listId: string): Promise<QuoteReviewResult>
+    comparePart(listId: string, slot: string, direction?: 'cheaper' | 'better'): Promise<QuotePartComparison>
+    sendMessage(listId: string, text: string): Promise<{ reply: string; evidence: string[]; via: 'agent' | 'rules' }>
+    getMessages(listId: string): Promise<QuoteChatMessage[]>
+    apply(listId: string, slots: string[]): Promise<QuoteApplyResult>
   }
   lists: {
     /** 이 사용자(계정 또는 게스트)의 목록 전체 — 최근 활동순 */

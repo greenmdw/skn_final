@@ -26,7 +26,7 @@ export default function HomePage() {
 <section className="tf-section tf-paths" aria-labelledby="tf-paths-title">
 <p className="tf-kicker">TWO WAYS TO BUILD YOUR BASKET</p><h2 id="tf-paths-title">서로 다른 준비, 그에 맞는 기준.</h2>
 <div className="tf-path-grid">
-<article className="tf-path-card"><div className="tf-card-meta"><span>01 / COMPUTER</span><span>↗</span></div><h3>컴퓨터</h3><h4>부품 하나보다,<br />함께 작동하는 한 대를 봅니다.</h4><p>게임·작업·학습 등 주로 하는 일과 예산을 알려주세요. 프로세서부터 케이스까지 필요한 구성을 모으고, 부품 간 호환성과 전체 조합의 확인 사항을 살펴보는 흐름입니다.</p><ul><li>용도·해상도·예산에 맞는 구성</li><li>소켓·메모리 규격과 전력 여유 검토</li><li>대체 후보 비교와 세트 가격 확인</li></ul><button type="button" className="tf-text-link" onClick={() => go('/start')}>컴퓨터 구성 시작하기 →</button></article>
+<article className="tf-path-card"><div className="tf-card-meta"><span>01 / COMPUTER</span><span>↗</span></div><h3>컴퓨터</h3><h4>부품 하나보다,<br />함께 작동하는 한 대를 봅니다.</h4><p>게임·작업·학습 등 주로 하는 일과 예산을 알려주세요. 프로세서부터 케이스까지 필요한 구성을 모으고, 부품 간 호환성과 전체 조합의 확인 사항을 살펴보는 흐름입니다.</p><ul><li>용도·해상도·예산에 맞는 구성</li><li>소켓·메모리 규격과 전력 여유 검토</li><li>대체 후보 비교와 세트 가격 확인</li></ul><button type="button" className="tf-text-link" onClick={() => go('/choose?mode=computer')}>컴퓨터 구성 시작하기 →</button></article>
 <article className="tf-path-card"><div className="tf-card-meta"><span>02 / PERIPHERALS</span><span>↗</span></div><h3>주변기기</h3><h4>모니터부터 마우스까지,<br />따로 골라도 확실하게.</h4><p>모니터·키보드·마우스·스피커 중 필요한 것만 골라 예산과 우선순위를 알려주세요. 컴퓨터 본체와 별개로 부속기기만 비교하고 확인하는 흐름입니다.</p><ul><li>필요한 항목만 선택하는 구성</li><li>연결 방식과 예산 내 구성 검토</li><li>대체 후보 비교와 세트 가격 확인</li></ul><button type="button" className="tf-text-link" onClick={() => go('/peripherals')}>주변기기 고르기 시작하기 →</button></article>
 </div></section>
 <section className="tf-section tf-process" aria-labelledby="tf-process-title">

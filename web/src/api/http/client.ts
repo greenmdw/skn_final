@@ -18,7 +18,7 @@ function toApiError(status: number, body: unknown): ApiError {
   return new ApiError('요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.', 'HTTP_' + status)
 }
 
-export async function request<T>(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
+export async function request<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
   let response: Response
   try {
     response = await fetch(path, {

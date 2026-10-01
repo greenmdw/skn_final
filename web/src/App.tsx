@@ -10,10 +10,10 @@ import ConditionsPage from './pages/ConditionsPage'
 import PlanPage from './pages/PlanPage'
 import CartPage from './pages/CartPage'
 import ReportPage from './pages/ReportPage'
-import ComingSoonPage from './pages/ComingSoonPage'
+import CheckPage from './pages/CheckPage'
+import PeripheralsPage from './pages/PeripheralsPage'
 
-// 모든 화면이 React 이고 백엔드 API 로 데이터를 가져온다. 아직 백엔드와 연결하지 않은 화면은 가짜 데이터를 보이지 않고
-// "개발 전" 안내(ComingSoonPage)만 보여 준다.
+// 모든 화면은 React로 구성하며, 서버 데이터가 필요한 기능은 실제 백엔드 API만 사용한다.
 export default function App() {
   return (
     <ToastProvider>
@@ -28,8 +28,8 @@ export default function App() {
             <Route path="/plan" element={<PlanPage />} />
             <Route path="/cart" element={<CartPage />} />
             <Route path="/report/:id" element={<ReportPage />} />
-            <Route path="/check" element={<ComingSoonPage title="받은 견적 점검" note="받은 견적을 올려 호환성과 가격을 점검하는 화면은 아직 개발 전이에요. 백엔드 연결 후에 열려요." />} />
-            <Route path="/peripherals" element={<ComingSoonPage title="주변기기 견적" note="모니터·키보드·마우스·스피커를 고르는 화면은 아직 개발 전이에요. 백엔드 연결 후에 열려요." />} />
+            <Route path="/check" element={<CheckPage />} />
+            <Route path="/peripherals" element={<PeripheralsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </PlanProvider>

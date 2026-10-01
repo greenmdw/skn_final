@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import MarketingHeader from '../components/MarketingHeader'
 import '../styles/home.css'
 import { CHOICE_ART } from './home/choiceArt'
@@ -48,6 +48,8 @@ const CARDS = [
 // 장바구니를 어떤 방식으로 시작할지 고르는 화면. 정적 안내와 일러스트뿐이고 서버 데이터는 쓰지 않는다.
 export default function ChoosePage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const cards = searchParams.get('mode') === 'computer' ? CARDS.slice(0, 2) : CARDS
   return (
     <div className="mk-scroll">
       <MarketingHeader />
@@ -57,7 +59,7 @@ export default function ChoosePage() {
           <p>서로 맞는 부품 한 벌은 코드로 계산합니다. 궁금한 점은 채팅으로 묻고 고치세요. 구매 결정은 직접 하시면 됩니다.</p>
         </div>
         <div className="tf-choice-grid">
-          {CARDS.map((card, index) => (
+          {cards.map((card, index) => (
             <article className="tf-choice-card" key={card.to} onClick={() => navigate(card.to)}>
               <div className="tf-choice-media tf-choice-media-pc" dangerouslySetInnerHTML={{ __html: CHOICE_ART[index] }} />
               <h2>{card.title}</h2>

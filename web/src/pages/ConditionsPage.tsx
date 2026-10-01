@@ -42,7 +42,6 @@ export default function ConditionsPage() {
     <PlannerShell chatTitle="조건 대화" placeholder="예: 150만원으로 엘든링 돌릴 조용한 PC">
       <div className="pl-page narrow" style={{ opacity: running ? 0.3 : 1 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div className="pl-eyebrow pl-mono">새 컴퓨터 본체 · 1 조건 → 2 추천 → 3 장바구니</div>
           <h2 className="pl-h2">조건</h2>
           <div className="pl-sub">왼쪽 채팅에 적은 말이 조건으로 바뀌어 여기에 쌓여요. 필수 항목 3개가 다 차면 추천을 받을 수 있어요.</div>
         </div>

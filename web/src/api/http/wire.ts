@@ -66,6 +66,38 @@ export interface WireOwnedPartsPreviewRow {
 }
 export interface WireOwnedPartsPreviewOut { rows: WireOwnedPartsPreviewRow[] }
 
+export interface WireQuoteCompat {
+  checks: { axis: string; label: string; state: 'ok' | 'fail' | 'unknown' | 'skipped'; detail: string }[]
+  summary: Record<string, number>
+  incompatible: string[]
+}
+export interface WireQuotePriceRow {
+  part: string; matched: string | null; quoted: number | null; catalog: number | null; quantity: number
+  diff: number | null; diff_pct: number | null
+  state: 'cheaper' | 'similar' | 'pricier' | 'no_quote_price' | 'no_catalog'; detail: string
+}
+export interface WireQuoteReview {
+  list_id: string
+  version: number
+  input: { current_specs: Record<string, string>; conditions: Record<string, unknown>; input_hash: string }
+  parts: WireOwnedPartsPreviewRow[]
+  compat: WireQuoteCompat
+  prices: { available: boolean; reason: string | null; rows: WireQuotePriceRow[]; summary: Record<string, unknown> } | null
+  balance: { available: boolean; reason: string | null; rows: { part: string; aspect: string; state: 'short' | 'excess' | 'ok' | 'unknown'; detail: string; measured: number | null; target: number | null }[]; summary: Record<string, number>; notes: string[] } | null
+  compare: { available: boolean; reason: string | null; rows: { part: string; quote: Record<string, unknown> | null; ours: Record<string, unknown>; same_product: boolean; price_diff: number | null; price_diff_pct: number | null; price_state: 'cheaper' | 'similar' | 'pricier' | null; tier_diff: number | null; detail: string }[]; summary: Record<string, unknown>; notes: string[] } | null
+  computed_at: string
+}
+export interface WireQuotePartCompare {
+  slot: string
+  baseline: Record<string, unknown>
+  candidates: { name: string; price: number; price_delta: number | null; perf_tier: number | null; specs: { key: string; label: string; unit: string; baseline: unknown; candidate: unknown; diff: number | null }[]; incompatible: string[]; compat_changes: { axis: string; label: string; from: string; to: string; detail: string }[]; review: Record<string, unknown> | null }[]
+  unmatched_targets: string[]
+  note: string | null
+}
+export interface WireQuoteChatOut { reply: string; evidence: string[]; via: 'agent' | 'rules' }
+export interface WireQuoteChatHistory { messages: { id: string; role: 'user' | 'assistant' | 'system'; text: string; created_at: string }[] }
+export interface WireQuoteApply { list_id: string; slots: string[]; missing: string[]; run_id: string | null }
+
 // ── 조건 대화 세션(src.schemas.ConditionState) ──────────────────────────────
 export interface WireMessage { id: string; role: string; text: string; created_at: string }
 export interface WireField {
