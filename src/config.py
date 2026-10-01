@@ -28,13 +28,13 @@ MOCK_MODE: bool = os.getenv("MOCK_MODE", "1") == "1"
 # --------------------------------------------------------------------------
 LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "mock")   # mock | openai
 LLM_MODEL: str = os.getenv("LLM_MODEL", "")             # 경량 대화 모델 식별자 — 대화·설명 문장 등 평소 호출
-# 견적 점검 이미지(스크린샷) 사양 추출 전용 모델. gpt-4o-mini(LLM_MODEL)는 캡처 속 모델번호·제품
+# 견적 점검 이미지(스크린샷) 사양 추출 전용 모델. 과거 gpt-4o-mini는 캡처 속 모델번호·제품
 # 코드를 다른 실존 제품 번호로 잘못 읽는(환각) 사례가 실측 확인됐다(예: "9800X3D"를 "7800X3D"로).
 # 실측 비교(2026-10-01, 테스트 이미지 4장·32개 필드): gpt-4o+temperature=0+엄격한 프롬프트는
 # 오류 8개(25%)였는데, gpt-6-luna는 오류 2~3개(약 10%)로 더 정확했고 토큰 단가도 더 싸다
-# (gpt-6-luna $0.10/$0.50 vs gpt-4o-mini $0.15/$0.60, 100만 토큰당). 텍스트 추출
-# (spec_extraction_agent.extract)과 그 외 모든 에이전트는 아직 이 모델로 검증 전이라
-# 계속 LLM_MODEL을 쓴다 — 이미지 추출 하나만 바꾼 것이다.
+# (gpt-6-luna $0.10/$0.50 vs gpt-4o-mini $0.15/$0.60, 100만 토큰당). 2026-10-01부터 LLM_MODEL
+# 기본값도 gpt-6-luna로 바뀌어 보통은 이 둘이 같은 값이지만, 이미지 추출만 별도로 바꿀 수 있도록
+# 독립된 변수로 남겨둔다.
 SPEC_EXTRACTION_IMAGE_MODEL: str = os.getenv("SPEC_EXTRACTION_IMAGE_MODEL", "gpt-6-luna")
 LLM_REGION: str = os.getenv("LLM_REGION", "")
 OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")

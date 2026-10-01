@@ -356,8 +356,13 @@ class TurnResult:
 
 def _model():
     from strands.models.openai import OpenAIModel
-    return OpenAIModel(client_args={"api_key": OPENAI_API_KEY}, model_id=LLM_MODEL,
-                       params={"temperature": 0.2})
+    # gpt-6-luna는 기본값(1) 외의 temperature를 거부하고(이 에이전트들처럼 도구 호출을 쓰는 경우)
+    # reasoning_effort='none'을 명시해야 한다(실측, 2026-10-01) — 그 외 모델은 기존대로 0.2를 쓴다.
+    if LLM_MODEL == "gpt-6-luna":
+        params = {"reasoning_effort": "none"}
+    else:
+        params = {"temperature": 0.2}
+    return OpenAIModel(client_args={"api_key": OPENAI_API_KEY}, model_id=LLM_MODEL, params=params)
 
 
 def run_turn(category: str, cat_def: dict, values: dict, history: list[dict], text: str,
