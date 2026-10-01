@@ -59,7 +59,8 @@
 .sp-chev { flex: none; width: 22px; height: 28px; border: 0; background: transparent; color: var(--muted); font-size: 9px; cursor: pointer; transition: transform .15s; }
 .sp-chev.open { transform: rotate(90deg); }
 .sp-chev.none { visibility: hidden; cursor: default; }
-.sp-count { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 700; color: var(--mint); }
+.sp-count { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 700; color: var(--mint); border: 0; background: transparent; padding: 4px 6px; border-radius: 8px; cursor: pointer; font-family: inherit; }
+.sp-count:hover { background: var(--panel2); }
 .sp-conv-main .sp-meta { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 
 /* 대화 이름·우클릭 메뉴·제목 바꾸기 입력 */
@@ -110,3 +111,6 @@ body.pl-resizing .sp-root { transition: none; }
 /* 좁은 화면은 planner.css 의 고정 폭을 그대로 쓰고 손잡이를 숨긴다 */
 @media (max-width: 900px) { .pl-resizer { display: none; } .pl-chat.pl-resizable { width: 300px !important; } }
 @media (max-width: 720px) { .pl-chat.pl-resizable { width: 100% !important; } }
+.sp-sheet.ctx { background: var(--ink); box-shadow: inset 0 0 0 1px var(--line2); }
+.sp-sheet.editing { border-color: var(--mint); background: var(--ink); }
+.sp-sheet .sp-rename { height: 26px; margin: 0; font-size: 12.5px; }

@@ -25,4 +25,12 @@ export const lists: Api['lists'] = {
     await request<unknown>('PATCH', '/lists/' + listId, { name })
   },
 
+  async renameReport(listId, revisionNo, name) {
+    await request<unknown>('PATCH', `/lists/${listId}/reports/${revisionNo}`, { name })
+  },
+
+  async removeReport(listId, revisionNo) {
+    await request<unknown>('DELETE', `/lists/${listId}/reports/${revisionNo}`)
+  },
+
 }

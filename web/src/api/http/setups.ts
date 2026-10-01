@@ -1,12 +1,12 @@
-import type { Api, HistoryEventKind, SetupsListResult } from '../types'
+import type { Api, ConversationSummary, HistoryEventKind, SetupsListResult } from '../types'
 import { ApiError } from '../types'
 import type { SavedSetup } from '../../state/types'
 import { isCheckDraft, isDesk, object } from '../../state/validators'
 import { request } from './client'
 import { loadedFromWire } from './conditions'
-import { reportSummaryFromWire } from './lists'
+import { lists } from './lists'
 import { setupFromReport, type SetupExtras } from './mapping'
-import type { WireConditionState, WireListHistory, WireLists, WireReport } from './wire'
+import type { WireConditionState, WireListHistory, WireReport } from './wire'
 
 // 서버에 저장하는 것: 확정한 목록(이름·구매 예정일·목표 금액·메모)과 부품·가격. 서버에 필드가 없는 화면 전용 값
 // (책상 치수 · 점검 초안 · 입력한 조건 문장)은 이 브라우저에만 보관한다 — 다른 기기에서는 기본값으로 보인다.
@@ -63,13 +63,13 @@ export const setups: Api['setups'] = {
   async newRevision(id) {
     return loadedFromWire(id, await request<WireConditionState>('POST', '/lists/' + id + '/revisions'))
   },
-  async list(): Promise<SetupsListResult> {
-    const lists = await request<WireLists>('GET', '/lists')
+  async list(conversations?: ConversationSummary[]): Promise<SetupsListResult> {
+    const items = conversations ?? await lists.list()
     // 확정 견적서가 하나라도 있는 목록. 새 견적서를 작성 중인 목록(stage 가 report 가 아님)도 앞 견적서는 저장돼 있다.
-    const confirmed = lists.items.filter(item => item.reports.length > 0 && item.category === 'computer')
-    const reports = await Promise.allSettled(confirmed.map(item => request<WireReport>('GET', '/lists/' + item.list_id + '/report')))
+    const confirmed = items.filter(item => item.reports.length > 0)
+    const reports = await Promise.allSettled(confirmed.map(item => request<WireReport>('GET', '/lists/' + item.listId + '/report')))
     const extras = readExtras()
-    const byId = new Map(confirmed.map(item => [item.list_id, item.reports.map(reportSummaryFromWire)]))
+    const byId = new Map(confirmed.map(item => [item.listId, item.reports]))
     const data: SavedSetup[] = []
     for (const report of reports) {
       if (report.status === 'fulfilled') data.push({ ...setupFromReport(report.value, extras[report.value.list_id]), reports: byId.get(report.value.list_id) })

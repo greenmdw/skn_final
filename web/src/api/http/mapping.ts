@@ -144,12 +144,6 @@ export function replyTextFromWire(state: WireConditionState): string {
 }
 
 // ── 추천 결과 → 화면 구성 ────────────────────────────────────────────────────
-const TIMING: Record<string, { action: string; actionClass: '' | 'track' | 'later' }> = {
-  now: { action: '지금 구매', actionClass: '' },
-  soon: { action: '곧 구매', actionClass: 'track' },
-  later: { action: '나중에 구매', actionClass: 'later' },
-}
-
 function reasonText(reason: WireText): string {
   if (reason.status === 'ready' && reason.text) return reason.text
   if (reason.status === 'failed') return '추천 이유를 만들지 못했습니다.'
@@ -172,16 +166,13 @@ function priceSourceText(item: WireItem): string {
 
 export function itemFromWire(item: WireItem): PlanItem {
   const key = slotKey(item.slot)
-  const timing = TIMING[item.timing] ?? TIMING.now
   const tags = [item.price_source === 'observed' ? '수집 가격' : '데모 가격']
   if (item.alternatives_count > 0) tags.push('대안 ' + item.alternatives_count + '개')
   return {
     id: item.item_id, key, type: item.slot_label, name: item.product.name,
     price: item.price * item.qty, qty: item.qty, unitPrice: item.price,
-    timing: (['now', 'soon', 'later'] as const).find(t => t === item.timing),
     meta: item.slot_label + ' · ' + (item.product.spec_summary || item.product.brand || item.product.name),
     source: priceSourceText(item),
-    action: timing.action, actionClass: timing.actionClass,
     score: item.budget_share != null ? '예산의 ' + Math.round(item.budget_share * 100) + '%' : '',
     fit: reasonText(item.reason),
     reasonTitle: item.slot_label + ' 추천 이유',
@@ -280,9 +271,13 @@ export interface PlanContext {
 }
 
 export function planFromResult(result: WireResult, context: PlanContext): CurrentPlan {
+  // 서버는 뺀 부품(selected: false)도 함께 준다. 합계·확정에 쓰는 items 에는 선택된 것만 넣고, 뺀 것은 excluded 에 따로 둔다.
+  const all = result.items.map((item, order) => ({ ...itemFromWire(item), order, selected: item.selected }))
+  const strip = ({ selected: _selected, ...item }: (typeof all)[number]) => item
   return {
     id: result.list_id, mode: context.mode,
-    items: result.items.filter(item => item.selected).map(itemFromWire),
+    items: all.filter(item => item.selected).map(strip),
+    excluded: all.filter(item => !item.selected).map(strip),
     compat: compatFromWire(result.verification),
     compatChecks: compatChecksFromWire(result.compat_checks),
     contribution: contributionFromWire(result.explanation),
@@ -311,7 +306,6 @@ function reportItem(item: WireReportItem, index: number): PlanItem {
     id: item.slot + '-' + index, key, type: item.slot_label, name: item.product.name,
     price: item.price * item.qty, qty: item.qty, unitPrice: item.price,
     meta: item.slot_label, source: '확정 시점 가격',
-    action: (TIMING[item.timing] ?? TIMING.now).action, actionClass: (TIMING[item.timing] ?? TIMING.now).actionClass,
     score: '', fit: item.evidence_text ?? '', reasonTitle: item.slot_label + ' 추천 이유', tags: [],
     rating: ratingText(item.review), reviews: reviewsText(item.review),
     label: key ? SHORT_LABEL[key] : item.slot_label.slice(0, 4),

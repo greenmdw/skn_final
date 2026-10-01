@@ -22,8 +22,8 @@ export function isPlan(value: unknown): value is CurrentPlan {
     object(value.conditions) && ['intent', 'performance', 'quiet'].every(key => text((value.conditions as Record<string, unknown>)[key])) &&
     (value.checkSnapshot === null || isCheckDraft(value.checkSnapshot)) && Array.isArray(value.items) && value.items.length > 0 &&
     value.items.every(p => object(p) && text(p.id) && (p.key === null || keys.includes(String(p.key))) && amount(p.price) &&
-      ['type', 'name', 'meta', 'source', 'action', 'score', 'fit', 'reasonTitle', 'rating', 'reviews', 'label'].every(key => text(p[key])) &&
-      ['', 'track', 'later'].includes(String(p.actionClass)) && Array.isArray(p.tags) && p.tags.every(text))
+      ['type', 'name', 'meta', 'source', 'score', 'fit', 'reasonTitle', 'rating', 'reviews', 'label'].every(key => text(p[key])) &&
+      Array.isArray(p.tags) && p.tags.every(text))
 }
 export function isSetup(value: unknown): value is SavedSetup {
   return object(value) && text(value.id) && text(value.title) && text(value.date) && /^\d{4}-\d{2}-\d{2}$/.test(value.date) &&

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { ChatChoice, ChatMessage, CheckDraft, CurrentPlan, PartKey, PlanState, SavedSetup } from './types'
+import type { ChatChoice, ChatMessage, CheckDraft, CurrentPlan, EditingSheet, PartKey, PlanState, SavedSetup } from './types'
 import { createCheckDraft } from '../data/checkDraftSeed'
 import { parseBudget, planTotal } from './planModel'
 import { api, ApiError, errorMessage, SESSION_GONE, type ChatTopic } from '../api'
@@ -17,7 +17,7 @@ const initialState: PlanState = {
   stage: 0, mode: 'new', intent: '', performance: '', quiet: '', budget: 2500000,
   currentPlan: null, checkSnapshot: null, selectedPart: 'cpu',
   sessionId: null, fields: [], canRecommend: false, budgetWarning: null,
-  deskUnlocked: false, deskWidth: 1400, deskDepth: 700, deskHeight: 740,
+  deskUnlocked: false, deskWidth: 1400, deskDepth: 700, deskHeight: 740, editingSheet: null,
 }
 // 서버의 해상도 필드 → 화면 문구. 사용자가 안 정해서 서버가 기본값으로 가정한 값이면 "(기본값)"을 붙인다.
 function resolutionText(field: { display: string | null; status: string } | undefined): string | null {
@@ -368,7 +368,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   }, [cancelPending, updateState, showToast])
   // 리포트의 "견적 수정하기": 서버가 확정본의 부품 구성까지 복사한 새 견적서(같은 대화)를 만들어 주면, 그 구성과 이전 채팅 내역을
   // 그대로 열어 추천 결과 화면에서 수정한다. 돌려주는 값은 열린 화면 — 'plan' · 'conditions' · null.
-  const reviseSetup = useCallback(async (listId: string): Promise<'plan' | 'conditions' | null> => {
+  const reviseSetup = useCallback(async (listId: string, from: EditingSheet): Promise<'plan' | 'conditions' | null> => {
     try {
       await api.setups.newRevision(listId)
     } catch (error) {
@@ -376,8 +376,12 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       return null
     }
     // 저장된 구성을 못 읽으면 조건 대화로 간다 — 조건으로 다시 추천을 돌리지는 않는다(저장 전 구성이 달라지므로).
-    return openConversation(listId, true)
-  }, [openConversation, showToast])
+    const screen = await openConversation(listId, true)
+    // 원본 견적서를 기억해 둔다 — 장바구니에서 덮어쓸지 새 견적서로 저장할지 묻는 데 쓴다.
+    if (screen) updateState(prev => ({ ...prev, editingSheet: from }))
+    return screen
+  }, [openConversation, showToast, updateState])
+  const clearEditingSheet = useCallback(() => updateState(prev => (prev.editingSheet ? { ...prev, editingSheet: null } : prev)), [updateState])
   const resetPlan = useCallback(() => {
     cancelPending()
     updateState(() => ({ ...initialState }))
@@ -424,9 +428,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const value = useMemo<PlanContextValue>(() => ({
     state, checkDraft, updateCheckDraft, messages, busy, starterHidden: state.stage > 0, analyzingIndex, customHeading,
     handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
-    openConversation, reviseSetup,
+    openConversation, reviseSetup, clearEditingSheet,
   }), [state, checkDraft, updateCheckDraft, messages, busy, analyzingIndex, customHeading,
     handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
-    openConversation, reviseSetup])
+    openConversation, reviseSetup, clearEditingSheet])
   return <PlanContext.Provider value={value}>{children}</PlanContext.Provider>
 }

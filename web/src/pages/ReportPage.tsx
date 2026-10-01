@@ -8,7 +8,7 @@ import { planTotal } from '../state/planModel'
 import { usePlan } from '../state/PlanContext'
 import { useSetups } from '../state/SetupsContext'
 import type { SavedSetup } from '../state/types'
-import { wonFmt } from '../utils/format'
+import { confirmedAtText, isoToKo, wonFmt } from '../utils/format'
 
 // 확정한 견적 리포트. 서버가 확정 시점에 저장한 부품·가격·이름·구매 예정일·목표 금액·메모를 보여 준다.
 // 한 견적(목록)에 견적서가 여러 개면 ?v=번호 로 예전 견적서를 연다 — 저장 목록에는 최근 견적서만 있어 서버에서 따로 읽는다.
@@ -38,7 +38,9 @@ export default function ReportPage() {
   const setup = needsOlder ? older : latest
   const reports = latest?.reports ?? []
   async function revise() {
-    const screen = id ? await reviseSetup(id) : null
+    const screen = id && setup && setup.revisionNo != null
+      ? await reviseSetup(id, { listId: id, revisionNo: setup.revisionNo, name: setup.title, date: setup.date, target: setup.target, memo: setup.memo })
+      : null
     if (screen) navigate(screen === 'plan' ? '/plan' : '/start')
   }
 
@@ -56,7 +58,7 @@ export default function ReportPage() {
   }
 
   const total = planTotal(setup.plan)
-  const confirmed = setup.savedAt ? new Date(setup.savedAt).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }) : ''
+  const confirmed = setup.savedAt ? confirmedAtText(setup.savedAt) : ''
   return (
     <PlannerShell>
       <div className="pl-page pl-report">
@@ -67,7 +69,7 @@ export default function ReportPage() {
               견적서 {report.revisionNo}
             </button>
           ))}
-          {setup.revisionNo === latest?.revisionNo && (
+          {setup.revisionNo != null && setup.revisionNo === latest?.revisionNo && (
             <button type="button" className="pl-pill mint" onClick={() => void revise()} title="이 견적서의 조건으로 추천 결과 화면을 열어 수정해요. 확정하면 새 견적서로 저장돼요.">견적 수정하기</button>
           )}
           <button type="button" className="pl-pill" onClick={() => window.print()}>인쇄</button>
@@ -78,7 +80,7 @@ export default function ReportPage() {
               <div className="pl-mono" style={{ fontSize: 11, color: '#92a4b2' }}>TRUEFIT 견적 리포트</div>
               <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em' }}>{setup.title}</div>
               <div className="pl-note">
-                {[confirmed && `${confirmed} 확정`, setup.date && `구매 예정 ${setup.date}`, `목표 금액 ${wonFmt(setup.target)}`].filter(Boolean).join(' · ')}
+                {[confirmed && `${confirmed} 확정`, setup.date && `구매 예정 ${isoToKo(setup.date)}`, `목표 금액 ${wonFmt(setup.target)}`].filter(Boolean).join(' · ')}
               </div>
               {setup.memo && <div style={{ fontSize: 13, lineHeight: 1.6 }}>메모 · {setup.memo}</div>}
             </div>

@@ -8,8 +8,6 @@ export interface Part {
   price: string
   meta: string
   source: string
-  action: string
-  actionClass: '' | 'track' | 'later'
   score: string
   fit: string
   reasonTitle: string
@@ -36,6 +34,17 @@ export interface ConditionField {
   status: 'confirmed' | 'assumed' | 'missing'
 }
 
+/** "견적 수정하기"로 들어온 원본 견적서 — 장바구니에서 덮어쓸지 새로 저장할지 물을 때 쓴다 */
+export interface EditingSheet {
+  listId: string
+  revisionNo: number
+  name: string
+  /** ISO yyyy-mm-dd */
+  date: string
+  target: number
+  memo: string
+}
+
 export interface PlanState {
   currentPlan: CurrentPlan | null
   budget: number | null
@@ -58,6 +67,8 @@ export interface PlanState {
   deskWidth: number
   deskDepth: number
   deskHeight: number
+  /** 견적 수정하기로 연 원본 견적서. 없으면 새 견적이다 */
+  editingSheet: EditingSheet | null
 }
 
 export interface ChatMessage {
@@ -100,8 +111,8 @@ export interface PlanItem extends Omit<Part, 'price'> {
   qty?: number
   /** 개당 가격(서버가 준 단가) */
   unitPrice?: number
-  /** 구매 시점(서버 값). 없으면 표시하지 않는다 */
-  timing?: 'now' | 'soon' | 'later'
+  /** 서버 결과에서의 순서. 뺀 부품을 제자리에 흐리게 보여 줄 때 쓴다 */
+  order?: number
 }
 
 export interface CompatCheck {
@@ -133,7 +144,10 @@ export interface ContributionShare { axis: string; percent: number }
 export interface CurrentPlan {
   id: string
   mode: PlanMode
+  /** 합계·확정에 들어가는 부품(서버에서 선택된 것) */
   items: PlanItem[]
+  /** 사용자가 뺀 부품. 합계·확정에서는 빠지고, 화면에서 "제외됨"으로 보이며 다시 넣을 수 있다 */
+  excluded?: PlanItem[]
   /** 예산이 많이 남은 이유와 성능 우선 재추천 안내. 서버 새 구성 추천에만 있다. */
   budgetNotice?: BudgetNotice
   /** 추천 당시 구성의 축별 기여도. 서버 추천에만 있다(부품을 바꿔도 추천 당시 값 그대로다). */

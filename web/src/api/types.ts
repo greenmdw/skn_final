@@ -117,8 +117,8 @@ export interface AlternativeOption {
   rating: string
   reviews: string
 }
-export type PurchaseTiming = 'now' | 'soon' | 'later'
-export interface ItemPatch { qty?: number; timing?: PurchaseTiming }
+/** qty 수량 · selected false 부품 빼기 / true 다시 넣기 */
+export interface ItemPatch { qty?: number; selected?: boolean }
 
 // ---- 내 PC·견적 점검 ----
 export interface UpgradeSuggestion {
@@ -297,9 +297,14 @@ export interface Api {
     list(): Promise<ConversationSummary[]>
     /** 대화(목록) 제목 바꾸기 */
     rename(listId: string, name: string): Promise<void>
+    /** 견적서(확정본) 하나의 이름 바꾸기 — 대화 이름과 별개 */
+    renameReport(listId: string, revisionNo: number, name: string): Promise<void>
+    /** 견적서 하나만 삭제 — 대화와 다른 견적서는 그대로 */
+    removeReport(listId: string, revisionNo: number): Promise<void>
   }
   setups: {
-    list(): Promise<SetupsListResult>
+    /** 확정한 견적서가 있는 목록과 그 리포트. 이미 읽은 대화 목록(computer 만)을 주면 GET /lists 를 다시 부르지 않는다 */
+    list(conversations?: ConversationSummary[]): Promise<SetupsListResult>
     /** 확정한 견적이 만들어진 여정(견적 리스트 히스토리). 로그인한 소유자의 확정 목록만. revisionNo 없으면 최근 견적서 */
     history(id: string, revisionNo?: number): Promise<ListHistory>
     /** 번호로 견적서 하나를 연다(같은 목록의 예전 견적서) */

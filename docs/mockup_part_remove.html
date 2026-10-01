@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TrueFit 부품 카드 — 수량만 남기고 부품 빼기 추가</title>
+<style>
+:root{--bg:#071116;--panel:#0d1a23;--panel2:#0c1820;--ink:#050b10;--line:#233744;--line2:#37695f;--text:#f4f7f7;--muted:#92a4b2;--mint:#60edc0;--on-mint:#06241b;--ok:#1cc991;--warn:#f0b35a;--danger:#ff8f8f}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px Arial,sans-serif;padding:28px}
+button{font:inherit;color:inherit;cursor:pointer}
+h1{font-size:18px;margin:0 0 4px}
+.lead{color:var(--muted);margin:0 0 20px;line-height:1.6;font-size:13px;max-width:880px}
+.stage{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.col{display:flex;flex-direction:column;gap:10px;width:560px;max-width:100%}
+.cap{font-size:12px;font-weight:700;color:var(--muted)}
+.cap b{color:var(--mint)}
+
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line);font-weight:700;font-size:13px}
+.head .tot{font-variant-numeric:tabular-nums;color:var(--mint);font-size:15px}
+.head small{display:block;color:var(--muted);font-weight:500;font-size:11px;margin-top:2px}
+
+.part{border-bottom:1px solid var(--line)}
+.part:last-child{border-bottom:0}
+.row{display:grid;grid-template-columns:44px 64px 1fr auto 16px;align-items:center;gap:12px;width:100%;padding:12px 18px;border:0;background:transparent;text-align:left}
+.row:hover{background:var(--panel2)}
+.thumb{width:44px;height:44px;border-radius:8px;background:#fff;color:#334;font-size:10px;display:grid;place-items:center;font-weight:700}
+.cat{color:var(--muted);font-size:13px}
+.name{font-size:13.5px;font-weight:600}
+.qty{margin-left:8px;font-size:12px;color:var(--mint);font-weight:700}
+.price{font-variant-numeric:tabular-nums;font-size:13.5px;text-align:right}
+.unit{display:block;font-size:11px;color:var(--muted)}
+.chev{color:var(--muted);font-size:12px}
+
+/* 제외된 부품 */
+.part.out .thumb,.part.out .cat{opacity:.4}
+.part.out .name{color:var(--muted);text-decoration:line-through}
+.part.out .price{color:var(--muted);text-decoration:line-through}
+.badge{margin-left:8px;font-size:11px;font-weight:700;color:var(--warn);border:1px solid #6b5a33;border-radius:999px;padding:1px 8px;text-decoration:none;display:inline-block}
+.restore{border:1px solid var(--line2);background:transparent;color:var(--mint);border-radius:8px;height:30px;padding:0 12px;font-size:12px;font-weight:700}
+.restore:hover{background:rgba(96,237,192,.1)}
+
+/* 펼친 상세 */
+.detail{padding:4px 18px 16px 18px;display:flex;flex-direction:column;gap:10px}
+.box{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.box h4{margin:0 0 6px;font-size:12px;color:var(--muted);font-weight:700}
+.box p{margin:0;font-size:13px;line-height:1.6}
+.ctrl{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.stepper{display:inline-flex;align-items:center;gap:8px}
+.stepper button{width:30px;height:30px;border:1px solid var(--line);background:var(--ink);border-radius:8px;font-size:16px}
+.stepper button:disabled{opacity:.35;cursor:not-allowed}
+.stepper b{min-width:26px;text-align:center;font-variant-numeric:tabular-nums}
+.stepper .u{color:var(--muted);font-size:12px}
+.remove{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border:1px solid #6b3a3a;background:transparent;color:var(--danger);border-radius:8px;font-size:12.5px;font-weight:700}
+.remove:hover{background:rgba(255,143,143,.1)}
+.confirm{margin-top:10px;border:1px solid #6b3a3a;background:rgba(255,143,143,.07);border-radius:10px;padding:12px 14px;font-size:13px;line-height:1.6}
+.confirm .btns{display:flex;gap:8px;margin-top:10px}
+.confirm button{height:30px;padding:0 14px;border-radius:8px;border:1px solid var(--line);background:var(--ink);font-size:12.5px;font-weight:600}
+.confirm .go{border-color:#6b3a3a;color:var(--danger)}
+.struck{display:none}
+
+/* 토스트 */
+.toast{position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#0a1a22;border:1px solid var(--line2);border-radius:12px;padding:10px 14px;display:flex;align-items:center;gap:14px;font-size:13px;box-shadow:0 10px 30px #000c;z-index:20}
+.toast[hidden]{display:none}
+.toast button{border:0;background:transparent;color:var(--mint);font-weight:700}
+
+.legend{max-width:340px;font-size:13px;line-height:1.75;color:var(--muted)}
+.legend b{color:var(--text)}
+.legend ul{padding-left:18px;margin:8px 0 0}
+.legend li{margin-bottom:6px}
+.empty{padding:20px;color:var(--muted);font-size:13px;text-align:center}
+</style>
+</head>
+<body>
+<h1>부품 카드 — 구매 시점 삭제, 수량만 남기고 “부품 빼기” 추가</h1>
+<p class="lead">오른쪽 설명대로 <b>구매 시점 선택칸을 없애고</b> 수량 조절만 남겼습니다. 수량 줄 오른쪽에 <b>“이 부품 빼기”</b> 버튼을 두었습니다. 부품 줄을 눌러 펼치고, 버튼을 눌러 보세요. 쿨러처럼 없어도 되는 부품은 바로 빠지고, CPU·메인보드처럼 꼭 필요한 부품은 한 번 더 확인합니다.</p>
+
+<div class="stage">
+  <div class="col">
+    <div class="cap"><b>제안</b> — 펼친 카드 안에서 수량과 함께 빼기</div>
+    <div class="card" id="card"></div>
+  </div>
+  <div class="legend">
+    <b>동작</b>
+    <ul>
+      <li><b>구매 시점</b> 칸은 삭제. <b>수량</b>(− 1 +)만 남음.</li>
+      <li><b>수량 줄에 “이 부품 빼기”</b> 버튼(빨간 테두리). 수량을 0으로 만드는 대신 이 버튼으로 뺌 — 수량 − 버튼은 1에서 멈춤.</li>
+      <li>뺀 부품은 목록에서 <b>사라지지 않고</b> 흐리게 + 취소선 + <b>“제외됨”</b> 표시. 줄 오른쪽 <b>“다시 넣기”</b>로 되돌림. 실수로 눌러도 안전.</li>
+      <li>위쪽 <b>합계는 제외된 부품을 뺀 금액</b>으로 바로 바뀜(“N개 제외됨” 표시).</li>
+      <li>뺀 직후 화면 아래에 <b>“쿨러를 뺐어요 · 되돌리기”</b> 안내가 잠깐 뜸.</li>
+      <li><b>꼭 필요한 부품</b>(CPU·메인보드·RAM·저장장치·파워·케이스)을 뺄 때는 <b>확인 문구</b> 한 번: “완성된 PC가 되지 않아요. 그래도 뺄까요?” 이 부품 목록은 제 가정이라 확인이 필요합니다.</li>
+      <li>전부 빼면 확정할 수 없음(서버도 거절) → 마지막 하나를 빼려 하면 막고 안내.</li>
+    </ul>
+    <br><b>서버와의 관계</b>
+    <ul>
+      <li>서버에는 이미 부품 “빼기”(<code>PATCH /session/{id}/items/{item_id}</code>의 <code>selected: false</code>)가 있고, 합계와 확정에서 제외됨. 지금 화면에는 그 버튼이 없었을 뿐이라 <b>서버 변경 없이</b> 만들 수 있음.</li>
+      <li>빼면 호환 검사가 다시 돌아 “CPU 없음” 같은 경고가 나올 수 있음(서버가 계산).</li>
+    </ul>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden><span id="toastText"></span><button id="undo">되돌리기</button></div>
+
+<script>
+const ESSENTIAL=new Set(['CPU','메인보드','RAM','저장장치','파워','케이스']);
+const items=[
+ {t:'CPU',n:'AMD Ryzen 7 7700X3D',p:382910,q:1,fit:'게임 성능이 가장 높은 3D V-Cache 프로세서예요.',meta:'AM5 소켓 · DDR5 · 성능 티어 9'},
+ {t:'메인보드',n:'GIGABYTE A620M H',p:88500,q:1,fit:'AM5 CPU와 호환되고 가격이 합리적이에요.',meta:'AM5 소켓 · DDR5 · mATX'},
+ {t:'RAM',n:'GeIL DDR5-5600 CL46 PRISTINE V (16GB)',p:335520,q:1,fit:'게임에 충분한 16GB예요.',meta:'DDR5 · 16GB · 5600MT/s'},
+ {t:'GPU',n:'AMD Radeon RX 7600',p:438520,q:1,fit:'FHD 게임에 알맞은 성능이에요.',meta:'VRAM 8GB · PCIe 4.0 x8 · 165W'},
+ {t:'저장장치',n:'TeamGroup MP44L',p:53860,q:1,fit:'빠른 NVMe예요.',meta:'PCIe 4.0 x4 · NVMe'},
+ {t:'파워',n:'GIGABYTE UD750GM PCIE5',p:85090,q:1,fit:'안정적인 750W 골드 파워예요.',meta:'750W · 80+ Gold · ATX'},
+ {t:'케이스',n:'다크플래쉬 DLM21 RGB Mesh',p:55828,q:1,fit:'통풍이 좋은 미들타워예요.',meta:'Mid / Mini Tower'},
+ {t:'쿨러',n:'Thermalright Peerless Assassin 120 SE',p:38200,q:1,fit:'공랭이라 소음이 적어요.',meta:'Air (Dual-Tower)'}
+].map((x,i)=>({...x,id:i,out:false}));
+let openId=0, confirmId=null, lastOut=null, toastTimer=null;
+const obj=t=>t+(t==='RAM'?'을':'를');
+const won=n=>n.toLocaleString('ko-KR')+'원';
+const $=q=>document.querySelector(q);
+
+function render(){
+  const alive=items.filter(i=>!i.out);
+  const total=alive.reduce((s,i)=>s+i.p*i.q,0);
+  const outN=items.length-alive.length;
+  let h='<div class="head"><div>구성 합계<small>예산 1,500,000원'+(outN?' · '+outN+'개 제외됨':'')+'</small></div><div class="tot">'+won(total)+'</div></div>';
+  items.forEach(i=>{
+    const open=openId===i.id&&!i.out;
+    h+='<div class="part'+(i.out?' out':'')+'">';
+    h+='<button class="row" data-open="'+i.id+'"><span class="thumb">'+i.t+'</span><span class="cat">'+i.t+'</span>';
+    h+='<span class="name">'+i.n+(i.q>1?'<span class="qty">×'+i.q+'</span>':'')+(i.out?'<span class="badge">제외됨</span>':'')+'</span>';
+    h+='<span class="price">'+won(i.p*i.q)+(i.q>1?'<span class="unit">개당 '+won(i.p)+' × '+i.q+'</span>':'')+'</span>';
+    h+=i.out?'<span></span>':'<span class="chev">'+(open?'▲':'▼')+'</span>';
+    h+='</button>';
+    if(i.out) h+='<div style="padding:0 18px 12px;display:flex;justify-content:flex-end"><button class="restore" data-restore="'+i.id+'">다시 넣기</button></div>';
+    if(open){
+      h+='<div class="detail">';
+      h+='<div class="box"><h4>AI 추천 이유</h4><p>'+i.fit+'</p></div>';
+      h+='<div class="box"><h4>주요 스펙</h4><p>'+i.meta+'</p></div>';
+      h+='<div class="box"><h4>수량</h4><div class="ctrl"><div class="stepper"><button data-dec="'+i.id+'"'+(i.q<=1?' disabled':'')+' aria-label="수량 줄이기">−</button><b>'+i.q+'</b><button data-inc="'+i.id+'" aria-label="수량 늘리기">+</button><span class="u">개</span></div>';
+      h+='<button class="remove" data-remove="'+i.id+'"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14M10 11v6M14 11v6"/></svg>이 부품 빼기</button></div>';
+      if(confirmId===i.id){
+        h+='<div class="confirm">'+(alive.length===1?'마지막 부품은 뺄 수 없어요. 최소 한 개는 있어야 확정할 수 있어요.<div class="btns"><button data-cancel>알겠어요</button></div>':obj(i.t)+' 빼면 완성된 PC가 되지 않아요. 그래도 뺄까요?<div class="btns"><button class="go" data-confirm="'+i.id+'">그래도 빼기</button><button data-cancel>취소</button></div>')+'</div>';
+      }
+      h+='</div>';
+      h+='</div>';
+    }
+    h+='</div>';
+  });
+  $('#card').innerHTML=h;
+}
+function removeItem(id){
+  const it=items[id]; it.out=true; confirmId=null; lastOut=id;
+  const next=items.find(x=>!x.out); openId=next?next.id:null;
+  showToast(obj(it.t)+' 뺐어요');
+}
+function showToast(text){
+  $('#toastText').textContent=text; $('#toast').hidden=false;
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('#toast').hidden=true,5000);
+}
+document.addEventListener('click',e=>{
+  const g=a=>e.target.closest('['+a+']');
+  let el;
+  if(el=g('data-open')){const id=+el.dataset.open; if(items[id].out)return; openId=openId===id?null:id; confirmId=null;}
+  else if(el=g('data-inc')){items[+el.dataset.inc].q=Math.min(99,items[+el.dataset.inc].q+1)}
+  else if(el=g('data-dec')){items[+el.dataset.dec].q=Math.max(1,items[+el.dataset.dec].q-1)}
+  else if(el=g('data-remove')){
+    const id=+el.dataset.remove; const alive=items.filter(i=>!i.out).length;
+    if(alive===1||ESSENTIAL.has(items[id].t)) confirmId=id; else removeItem(id);
+  }
+  else if(el=g('data-confirm')){removeItem(+el.dataset.confirm)}
+  else if(g('data-cancel')){confirmId=null}
+  else if(el=g('data-restore')){items[+el.dataset.restore].out=false; openId=+el.dataset.restore; $('#toast').hidden=true}
+  else if(e.target.id==='undo'){if(lastOut!=null){items[lastOut].out=false;openId=lastOut;lastOut=null}$('#toast').hidden=true}
+  else return;
+  render();
+});
+render();
+</script>
+</body>
+</html>

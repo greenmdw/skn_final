@@ -97,7 +97,6 @@
 .pl-qty { font-size: 12px; font-weight: 600; padding: 2px 7px; border-radius: 5px; background: rgba(96,237,192,.14); color: var(--mint); font-family: 'JetBrains Mono', ui-monospace, monospace; }
 .pl-price { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .pl-unit { font-size: 11px; color: var(--muted); white-space: nowrap; }
-.pl-tag { font-size: 11px; padding: 2px 6px; border-radius: 5px; background: rgba(112,207,255,.16); color: #70cfff; font-weight: 400; }
 .pl-part-detail { padding: 0 20px 18px; display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
 .pl-box { display: flex; flex-direction: column; gap: 6px; padding: 12px 14px; border-radius: 10px; background: var(--panel); border: 1px solid var(--line); }
 .pl-box h4 { margin: 0; font-size: 12px; color: var(--muted); font-weight: 600; }
@@ -142,7 +141,6 @@
 .pl-stepper { display: flex; align-items: center; gap: 10px; }
 .pl-stepper button { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--line); background: var(--ink); color: var(--text); font-size: 16px; cursor: pointer; }
 .pl-stepper button:disabled { opacity: .4; cursor: not-allowed; }
-.pl-select { height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--ink); color: var(--text); padding: 0 10px; font-size: 13px; }
 .pl-compare-bar { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 12px 14px; border: 1px solid #3a6270; border-radius: 10px; background: #0a141a; }
 
 /* 대안 비교 창 */
@@ -200,3 +198,37 @@
   .pl-root { height: auto; background: #fff; color: #000; }
   .pl-main { overflow: visible; }
 }
+
+/* 부품 빼기 · 제외된 부품 */
+.pl-ctrl-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.pl-remove { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid #6b3a3a; border-radius: 8px; background: transparent; color: #ff8f8f; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.pl-remove:hover:not(:disabled) { background: rgba(255,143,143,.1); }
+.pl-remove:disabled { opacity: .45; cursor: not-allowed; }
+.pl-confirm { margin-top: 10px; border: 1px solid #6b3a3a; background: rgba(255,143,143,.07); border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.6; }
+.pl-confirm .btns { display: flex; gap: 8px; margin-top: 10px; }
+.pl-confirm .btns button { height: 30px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--ink); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.pl-confirm .btns .go { border-color: #6b3a3a; color: #ff8f8f; }
+.pl-part.out .pl-part-row { opacity: .5; cursor: default; }
+.pl-part.out .pl-part-name, .pl-part.out .pl-price { text-decoration: line-through; }
+.pl-out-badge { margin-left: 8px; font-size: 11px; font-weight: 700; color: #f0b35a; border: 1px solid #6b5a33; border-radius: 999px; padding: 1px 8px; display: inline-block; text-decoration: none; }
+.pl-out-foot { display: flex; justify-content: flex-end; padding: 0 18px 12px; }
+.pl-restore { height: 30px; padding: 0 12px; border: 1px solid var(--line2); border-radius: 8px; background: transparent; color: var(--mint); font-size: 12px; font-weight: 700; cursor: pointer; }
+.pl-restore:hover:not(:disabled) { background: rgba(96,237,192,.1); }
+.pl-out-note { padding: 10px 18px; font-size: 12px; color: #f0b35a; border-bottom: 1px solid var(--line); }
+
+/* 한국식 날짜 입력(YY/MM/DD) + 달력 버튼 */
+.pl-date { position: relative; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pl-date > input:not(.pl-date-native) { flex: 1; min-width: 0; }
+.pl-date-btn { flex: none; width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 8px; background: var(--ink); color: var(--muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.pl-date-btn:hover { color: var(--text); border-color: var(--line2); }
+.pl-date-native { position: absolute; right: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.pl-date-err { flex-basis: 100%; font-size: 12px; color: #ff8f8f; }
+
+/* 견적 수정하기로 들어온 장바구니: 덮어쓰기 / 새로 저장 선택 */
+.pl-savemode { margin: 0; padding: 12px 14px; border: 1px solid var(--line2); border-radius: 10px; display: flex; flex-direction: column; gap: 8px; }
+.pl-savemode legend { padding: 0 6px; font-size: 12px; font-weight: 700; color: var(--mint); }
+.pl-savemode label { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--text); }
+.pl-savemode label.on { border-color: var(--mint); background: rgba(96,237,192,.08); }
+.pl-savemode input[type=radio] { width: auto; height: auto; margin-top: 3px; accent-color: var(--mint); }
+.pl-savemode span { display: flex; flex-direction: column; gap: 2px; }
+.pl-savemode small { color: var(--muted); font-size: 12px; line-height: 1.5; }

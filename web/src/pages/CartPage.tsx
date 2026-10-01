@@ -1,9 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import PlannerShell from '../components/PlannerShell'
+import QuantityWarnings from '../components/QuantityWarnings'
+import DateInput from '../components/DateInput'
 import ProductThumb from '../components/ProductThumb'
+import { api } from '../api'
 import { usePlan } from '../state/PlanContext'
-import { planTotal, localDate } from '../state/planModel'
+import { useToast } from '../state/ToastContext'
+import { localDate, multiQtyItems, planTotal } from '../state/planModel'
 import { useSetups } from '../state/SetupsContext'
 import { useAuthUser } from '../state/authStore'
 import type { SavedSetup } from '../state/types'
@@ -12,18 +16,23 @@ import { wonFmt } from '../utils/format'
 // 추천 결과를 장바구니에 담아 확인하고, 이름·구매 예정일·목표 금액·메모를 정해 확정한다(서버가 리포트를 만든다).
 // 확정은 로그인이 필요하다 — 로그인하면 이 구성을 그대로 이어서 확정할 수 있다.
 export default function CartPage() {
-  const { state, checkDraft } = usePlan()
-  const { addSetup, storageError } = useSetups()
+  const { state, checkDraft, clearEditingSheet } = usePlan()
+  const { addSetup, storageError, reload: reloadSetups } = useSetups()
+  const { showToast } = useToast()
   const user = useAuthUser()
   const navigate = useNavigate()
   const plan = state.currentPlan
 
   const total = plan ? planTotal(plan) : 0
   const defaultName = [state.intent, plan?.budget ? Math.round(plan.budget / 10000).toLocaleString('ko-KR') + '만 원' : '', state.quiet].filter(Boolean).join(' · ')
-  const [name, setName] = useState(defaultName || '내 PC 견적')
-  const [date, setDate] = useState('')
-  const [target, setTarget] = useState(total ? String(total) : '')
-  const [memo, setMemo] = useState('')
+  // "견적 수정하기"로 들어왔으면 원본 견적서의 이름·날짜·목표 금액·메모를 처음 값으로 쓰고, 덮어쓸지 새로 저장할지 묻는다.
+  const editing = state.editingSheet && state.editingSheet.listId === plan?.id ? state.editingSheet : null
+  const [saveMode, setSaveMode] = useState<'overwrite' | 'new' | null>(null)
+  const [name, setName] = useState(editing?.name ?? (defaultName || '내 PC 견적'))
+  const [date, setDate] = useState(editing?.date ?? '')   // ISO(yyyy-mm-dd). 칸이 비면 오늘로 확정한다
+  const [dateOk, setDateOk] = useState(true)
+  const [target, setTarget] = useState(editing ? String(editing.target) : total ? String(total) : '')
+  const [memo, setMemo] = useState(editing?.memo ?? '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -44,6 +53,8 @@ export default function CartPage() {
     if (!plan) return
     const cleanName = name.trim()
     if (!cleanName) { setError('견적 이름을 입력해 주세요.'); return }
+    if (editing && !saveMode) { setError('원본 견적서를 덮어쓸지, 새 견적서로 저장할지 먼저 골라 주세요.'); return }
+    if (!dateOk) { setError('구매 예정일을 YY/MM/DD 형식으로 입력해 주세요. 예: 26/10/05'); return }
     const targetWon = target.trim() === '' ? total : Number(target.replace(/[^0-9]/g, ''))
     if (!Number.isSafeInteger(targetWon) || targetWon < 0) { setError('목표 금액은 숫자로 입력해 주세요.'); return }
     setError('')
@@ -55,8 +66,17 @@ export default function CartPage() {
       checkDraft,
     }
     const ok = await addSetup(setup)
+    if (ok && editing && saveMode === 'overwrite') {
+      // 새 견적서로 확정한 뒤 원본을 지운다 — 덮어쓴 것과 같은 결과다(서버에 "덮어쓰기" API가 없어 두 단계로 한다).
+      try {
+        await api.lists.removeReport(editing.listId, editing.revisionNo)
+        reloadSetups()   // addSetup 이 먼저 읽은 목록에는 아직 원본이 있어서 한 번 더 읽는다
+      } catch {
+        showToast('새 견적서는 저장했지만 원본을 지우지 못했어요. 저장한 견적에서 원본을 직접 지워 주세요.')
+      }
+    }
     setBusy(false)
-    if (ok) navigate('/report/' + plan.id)
+    if (ok) { clearEditingSheet(); navigate('/report/' + plan.id) }
   }
 
   const budget = plan.budget
@@ -102,13 +122,26 @@ export default function CartPage() {
               )}
             </div>
             <div className="pl-card" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {editing && (
+                <fieldset className="pl-savemode">
+                  <legend>이 견적서를 어떻게 저장할까요?</legend>
+                  <label className={saveMode === 'overwrite' ? 'on' : ''}>
+                    <input type="radio" name="savemode" checked={saveMode === 'overwrite'} onChange={() => setSaveMode('overwrite')} />
+                    <span><b>원본 덮어쓰기</b><small>“{editing.name}”이 지금 구성으로 바뀌고, 원래 구성은 사라져요.</small></span>
+                  </label>
+                  <label className={saveMode === 'new' ? 'on' : ''}>
+                    <input type="radio" name="savemode" checked={saveMode === 'new'} onChange={() => setSaveMode('new')} />
+                    <span><b>새 견적서로 저장</b><small>원본은 그대로 남고, 새 견적서가 하나 더 생겨요.</small></span>
+                  </label>
+                </fieldset>
+              )}
               <label className="pl-field">견적 이름
                 <input value={name} maxLength={60} onChange={e => setName(e.target.value)} />
               </label>
               <div className="pl-two">
-                <label className="pl-field">구매 예정일
-                  <input type="date" value={date} onChange={e => setDate(e.target.value)} />
-                </label>
+                <div className="pl-field">구매 예정일
+                  <DateInput value={date} ariaLabel="구매 예정일" onChange={(iso, ok) => { setDate(iso); setDateOk(ok) }} />
+                </div>
                 <label className="pl-field">목표 금액(원)
                   <input inputMode="numeric" value={target} onChange={e => setTarget(e.target.value)} className="pl-mono" />
                 </label>
@@ -122,6 +155,7 @@ export default function CartPage() {
                   <Link to="/login?next=/cart" style={{ color: 'inherit', fontWeight: 700 }}>로그인하기 →</Link>
                 </div>
               )}
+              <QuantityWarnings items={multiQtyItems(plan)} />
               {overBudget && (
                 <div className="pl-alert bad" role="alert">
                   예산을 넘는 구성은 확정할 수 없어요. 부품이나 수량을 바꿔 예산 안으로 맞춰 주세요.{' '}
@@ -129,7 +163,7 @@ export default function CartPage() {
                 </div>
               )}
               {(error || storageError) && <div className="pl-alert bad" role="alert">{error || storageError}</div>}
-              <button type="submit" className="pl-btn" style={{ fontSize: 15 }} disabled={busy || !user || overBudget}>{busy ? '확정하는 중…' : '확정하고 리포트 만들기'}</button>
+              <button type="submit" className="pl-btn" style={{ fontSize: 15 }} disabled={busy || !user || overBudget || (!!editing && !saveMode)}>{busy ? '확정하는 중…' : '확정하고 리포트 만들기'}</button>
             </div>
           </form>
         </div>
