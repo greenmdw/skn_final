@@ -16,16 +16,19 @@ class ConversationRepo(Repo):
 
     def add_message(self, conversation_id: UUID, role: str, content: str) -> UUID:
         row = self._one(
-            "INSERT INTO identity.message (conversation_id, role, content, client_message_id) "
-            "VALUES (%s, %s, %s, %s) RETURNING id",
+            # created_at 기본값 now() 는 트랜잭션 시작 시각이라, 한 요청에서 저장하는 질문과 답이 같은 시각이 되어
+            # 대화 내역에서 답이 질문보다 먼저 나왔다. 저장하는 순간의 시각을 쓴다.
+            "INSERT INTO identity.message (conversation_id, role, content, client_message_id, created_at) "
+            "VALUES (%s, %s, %s, %s, clock_timestamp()) RETURNING id",
             (conversation_id, role, content, str(uuid.uuid4())),
         )
         return row["id"]
 
     def messages(self, conversation_id: UUID) -> list[dict]:
         return self._all(
+            # 이미 같은 시각으로 저장된 질문·답(위 수정 전 기록)은 사용자 말을 먼저 둔다.
             "SELECT id, role, content, created_at FROM identity.message "
-            "WHERE conversation_id = %s ORDER BY created_at",
+            "WHERE conversation_id = %s ORDER BY created_at, (role <> 'user')",
             (conversation_id,),
         )
 
