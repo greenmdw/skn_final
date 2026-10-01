@@ -175,6 +175,7 @@ export function itemFromWire(item: WireItem): PlanItem {
     source: priceSourceText(item),
     score: item.budget_share != null ? '예산의 ' + Math.round(item.budget_share * 100) + '%' : '',
     fit: reasonText(item.reason),
+    fitPending: item.reason.status === 'pending',
     reasonTitle: item.slot_label + ' 추천 이유',
     tags, checks: checksFromWire(item.checks),
     rating: ratingText(item.review), reviews: reviewsText(item.review),

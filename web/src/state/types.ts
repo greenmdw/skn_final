@@ -10,6 +10,8 @@ export interface Part {
   source: string
   score: string
   fit: string
+  /** true면 fit이 아직 LLM 생성 중이라 보여 주는 안내 문구다 — 화면이 이 값을 보고 다시 물어볼지 정한다 */
+  fitPending?: boolean
   reasonTitle: string
   tags: string[]
   /** 구매 전 확인 문장들(서버가 준 것). 목업·확정 리포트 항목에는 없다 */

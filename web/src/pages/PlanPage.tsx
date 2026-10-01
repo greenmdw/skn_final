@@ -142,6 +142,15 @@ export default function PlanPage() {
   const stale = !!plan && plan.items.some(item => item.qty == null)
   useEffect(() => { checkSession() }, [checkSession])
   useEffect(() => { if (stale) refreshPlan() }, [stale, refreshPlan])
+  // 추천 직후 대기(EXPLANATION_GRACE_MS)를 넘겨도 설명 문장(LLM)이 아직 안 끝났으면 화면이
+  // "정리하고 있습니다"에서 멈춘다 — 그 뒤로는 아무도 다시 묻지 않았었다. 끝날 때까지 몇 초마다
+  // 다시 물어본다(이 화면에 머무는 동안만).
+  const explanationPending = !!plan && plan.items.some(item => item.fitPending)
+  useEffect(() => {
+    if (!explanationPending) return
+    const timer = setInterval(() => refreshPlan(), 4000)
+    return () => clearInterval(timer)
+  }, [explanationPending, refreshPlan])
   useEffect(() => { if (!plan && state.stage !== 3) navigate('/start', { replace: true }) }, [plan, state.stage, navigate])
   if (!plan) return <PlannerShell chatTitle="결과 대화" placeholder="예: CPU를 더 싼 걸로 바꿔줘"><div className="pl-page"><div className="pl-note">추천 결과를 불러오는 중이에요…</div></div></PlannerShell>
 
