@@ -1,12 +1,12 @@
 """견적 리스트 히스토리 (C1: docs/개발요청_백엔드_및_타팀.md 2번).
 
-확정된 목록 하나가 만들어지기까지의 여정 — 조건 대화에서 한 말, 추천을 받은 것, 결과 화면에서 물은 것,
-부품 교체·제외, 확정 — 을 사건 목록(events)과 요약 문장(summary)으로 돌려준다.
+확정된 목록 하나가 만들어지기까지의 여정을 세 층으로 돌려준다.
 
-- **사건과 숫자는 코드가** DB에서 뽑는다: `identity.message`(사용자 말), `engine.recommendation_run`(추천),
-  `engine.feedback_event`(교체·제외), `planning.plan_revision`(확정 시각·총액).
-- **문장은 LLM이** 사건 목록만 보고 쓴다. LLM을 못 쓰거나(MOCK_MODE·키 없음), 실패하거나, 사건 목록에 없는
-  숫자를 쓰면 규칙 문장으로 대신한다 — 기록에 없는 것은 쓰지 않는다.
+- **요약(summary)**: 2~3문장. LLM이 아래 단계만 보고 쓴다. LLM을 못 쓰거나(MOCK_MODE·키 없음), 실패하거나,
+  단계에 없는 숫자를 쓰거나, 한글·영문 밖의 글자(키릴 문자 등)를 섞으면 규칙 문장으로 대신한다.
+- **이렇게 정해졌어요(steps)**: 결과를 바꾼 것만 몇 단계로 — `history_journey` 가 기록에서 코드로 만든다.
+- **자세히(events)**: 대화 순서 그대로의 사건 목록 — `identity.message`(사용자 말), `engine.recommendation_run`
+  (추천), `engine.feedback_event`(교체·제외), `planning.plan_revision`(확정 시각·총액).
 - 확정된 목록은 스냅샷이라(이후 교체·대화가 붙지 않는다) 한 번 만든 요약을 프로세스 메모리에 둔다.
 
 수량·구매 시점 변경은 어디에도 기록되지 않아 사건에 없다. favorite(찜)도 아직 서버 개념이 없다.
@@ -21,17 +21,23 @@ from src.engine.lang import fmt_money, josa
 from src.repo.user_repo import ConversationRepo
 
 _TEXT_LIMIT = 120          # 사건 한 줄에 옮기는 사용자 말 길이
-_PROMPT_EVENT_LIMIT = 40   # LLM에 넣는 사건 수(앞뒤를 남기고 가운데를 줄인다)
-_summary_cache: dict[tuple[str, str], str] = {}
+_summary_cache: dict[tuple[str, str, int], str] = {}
 
 _SYSTEM = (
-    "당신은 PC 견적 서비스 TrueFit에서, 사용자가 확정한 견적이 만들어진 과정을 요약합니다.\n"
-    "- 주어진 사건 목록만 근거로 2~3문장의 한국어 존댓말 요약을 씁니다.\n"
-    "- 사건 목록에 없는 제품명·금액·숫자·이유를 만들지 않습니다. 왜 바꿨는지 기록에 없으면 짐작하지 않습니다.\n"
-    "- 사용자가 무엇을 찾기 시작했고, 무엇을 묻고 바꿨으며, 어떻게 확정했는지 순서대로 씁니다.\n"
-    "- 화면에서 본인에게 보여 주는 글입니다. '사용자는' 같은 3인칭 주어 없이 씁니다(예: '게임용 PC를 찾으셨고…').\n"
-    "- 목록·머리표·따옴표 없이 문장만 씁니다."
+    "당신은 PC 견적 서비스 TrueFit에서, 사용자가 확정한 견적이 어떻게 이 구성이 됐는지 요약합니다.\n"
+    "- 주어진 단계 목록만 근거로 2~3문장의 한국어 존댓말 요약을 씁니다.\n"
+    "- 무엇을 원하셨고, 무엇이 결과를 바꿨고(조건 변화·직접 바꾼 부품), 얼마에 확정했는지를 씁니다.\n"
+    "- '반영하지 못한 것'이 있으면 한 마디로 밝힙니다. 반영되지 않은 말을 반영된 것처럼 쓰지 않습니다.\n"
+    "- '반영하지 못한 것'에 괄호로 덧붙은 사실(예: 지금 GPU는 마침 NVIDIA 제품이에요)이 있으면 함께 씁니다.\n"
+    "- 단계 목록에 없는 제품명·금액·숫자·이유를 만들지 않습니다. 원인은 단계에 적힌 것만 씁니다.\n"
+    "- 제품명·브랜드는 단계에 적힌 표기 그대로 씁니다. 한글로 옮기거나 줄이지 않습니다.\n"
+    "- 화면에서 본인에게 보여 주는 글입니다. '사용자는'·'사용자께서' 같은 3인칭 없이 해요체로 씁니다"
+    "(예: '게임용 PC를 찾으셨고 … 확정하셨어요').\n"
+    "- 목록·머리표 없이 한국어 문장만 씁니다. 제품명·브랜드 외에 다른 언어를 섞지 않습니다."
 )
+# 요약에 나와도 되는 글자 — 한글, 영문·숫자·기호(제품명·금액), 가운뎃점·화살표·따옴표. 그 밖(키릴·한자·가나 등)이
+# 보이면 버린다: gpt-4o-mini 가 "추천 구성 предложили 이후"처럼 러시아어 낱말을 섞은 적이 있다(2026-10-01).
+_ALLOWED = re.compile(r"[\uac00-\ud7a3\u3131-\u318e\x20-\x7e\n·→‘’“”…]*")
 
 
 def llm_available() -> bool:
@@ -96,11 +102,19 @@ def build_events(conn, revision: dict) -> list[dict]:
 
     revision_id = revision["id"]
     runs = conn.execute(
-        "SELECT id, completed_at FROM engine.recommendation_run "
-        "WHERE revision_id=%s AND status IN ('completed','stale') AND completed_at IS NOT NULL ORDER BY completed_at",
+        "SELECT id, created_at, completed_at FROM engine.recommendation_run "
+        "WHERE revision_id=%s AND status IN ('completed','stale') AND completed_at IS NOT NULL ORDER BY created_at",
         (revision_id,),
     ).fetchall()
-    first_result_at = runs[0][1] if runs else None
+    # 견적 수정하기로 복사한 실행은 원본 완료 시각을 그대로 가져와 생성 시각보다 앞선다 — 새로 받은 추천이 아니다.
+    # 복사본이 있으면 견적서를 연 순간부터 결과 화면이다.
+    cloned = bool(runs) and runs[0][2] < runs[0][1]
+    live = [(run_id, completed_at) for run_id, created_at, completed_at in runs if completed_at >= created_at]
+    first_result_at = revision["created_at"] if cloned else (live[0][1] if live else None)
+    # 조건을 정하거나 바꾼 말은 결과 화면에서 했어도 조건 대화다("예산을 170만원으로 할게요").
+    condition_sources = {row[0] for row in conn.execute(
+        "SELECT source_message_id FROM planning.plan_condition WHERE revision_id=%s AND source_message_id IS NOT NULL",
+        (revision_id,)).fetchall()}
 
     # 대화는 목록(plan) 하나에 하나다. 견적서(revision)가 여럿이면 이 견적서를 쓰던 동안의 말만 — 새 견적서는
     # 앞 견적서가 확정된 뒤에 만들어지므로 [revision 생성, 확정] 구간이 곧 이 견적서의 대화다.
@@ -111,13 +125,13 @@ def build_events(conn, revision: dict) -> list[dict]:
             continue
         if m["created_at"] < start or (end is not None and m["created_at"] > end):
             continue
-        # 첫 추천이 나오기 전의 말은 조건 대화, 뒤의 말은 결과 화면에서 물은 것이다.
-        after = first_result_at is not None and m["created_at"] > first_result_at
+        # 첫 추천이 나오기 전의 말과 조건을 바꾼 말은 조건 대화, 그 밖에 결과가 나온 뒤의 말은 결과 화면에서 물은 것이다.
+        after = first_result_at is not None and m["created_at"] > first_result_at and m["id"] not in condition_sources
         events.append({"at": m["created_at"], "kind": "question" if after else "condition", "text": _clip(_user_text(m["content"]))})
 
-    for index, (_run_id, completed_at) in enumerate(runs):
+    for index, (_run_id, completed_at) in enumerate(live):
         events.append({"at": completed_at, "kind": "recommend",
-                       "text": "추천 구성을 받았어요." if index == 0 else "조건을 바꿔 추천을 다시 받았어요."})
+                       "text": "추천 구성을 받았어요." if index == 0 and not cloned else "조건을 바꿔 추천을 다시 받았어요."})
 
     feedback = conn.execute(
         "SELECT event_type, event_key, payload, occurred_at FROM engine.feedback_event "
@@ -158,23 +172,23 @@ def build_events(conn, revision: dict) -> list[dict]:
     return events
 
 
-def rule_summary(events: list[dict]) -> str:
-    """LLM 없이 쓰는 요약 — 사건 수와 교체·확정 문장을 그대로 잇는다."""
-    count = {kind: sum(1 for e in events if e["kind"] == kind) for kind in
-             ("condition", "recommend", "question", "swap", "remove")}
+_STEP_LABEL = {"start": "시작", "change": "조건 변경", "swap": "직접 교체", "remove": "직접 제외",
+               "unapplied": "반영 못 함", "confirm": "확정"}
+
+
+def rule_summary(steps: list[dict]) -> str:
+    """LLM 없이 쓰는 요약 — 단계의 문장을 그대로 잇는다."""
     parts: list[str] = []
-    first = next((e["text"] for e in events if e["kind"] == "condition"), None)
-    if first:
-        parts.append(f"{_euro(chr(34) + first + chr(34))} 시작해 조건 대화에서 {count['condition']}번 말씀하셨어요.")
-    if count["recommend"]:
-        parts.append(f"추천을 {count['recommend']}번 받았고" + (f" 결과 화면에서 {count['question']}번 질문하셨어요."
-                                                           if count["question"] else " 추가 질문 없이 결과를 보셨어요."))
-    changes = [e["text"] for e in events if e["kind"] in ("swap", "remove")]
-    if changes:
-        parts.append(" ".join(changes))
-    confirm = next((e["text"] for e in events if e["kind"] == "confirm"), None)
-    if confirm:
-        parts.append("최종적으로 " + confirm)
+    for step in steps:
+        if step["kind"] == "start":
+            wanted = step["text"].removeprefix("원하신 것: ")
+            parts.append(f"{josa(wanted, '으로/로')} 찾기 시작하셨어요." if wanted != step["text"] else f"{step['text']}.")
+        elif step["kind"] == "change":
+            parts.append(f"{step['text']}" + (f" — {step['changes'][0]}." if step["changes"] else "."))
+        elif step["kind"] in ("swap", "remove", "confirm"):
+            parts.append(f"{step['text']}.")
+        elif step["kind"] == "unapplied":
+            parts.append(f"말씀하셨지만 반영하지 못한 것이 {len(step['notes'])}가지 있어요.")
     return " ".join(parts)
 
 
@@ -182,41 +196,54 @@ def _numbers(text: str) -> set[str]:
     return {n.replace(",", "") for n in re.findall(r"\d[\d,]*", text)}
 
 
-def llm_summary(events: list[dict]) -> str | None:
-    """사건 목록만 넣어 LLM 요약을 받는다. 실패하거나 목록에 없는 숫자가 나오면 None."""
+def _prompt(steps: list[dict]) -> str:
+    lines = ["단계 목록"]
+    for i, step in enumerate(steps, start=1):
+        lines.append(f"{i}. [{_STEP_LABEL.get(step['kind'], step['kind'])}] {step['text']}")
+        lines += [f"   - {c}" for c in step["changes"]]
+        lines += [f"   · {n}" for n in step["notes"]]
+        if step["quote"]:
+            lines.append(f"   (사용자 말: “{step['quote']}”)")
+    return "\n".join(lines)
+
+
+def llm_summary(steps: list[dict]) -> str | None:
+    """단계 목록만 넣어 LLM 요약을 받는다. 실패하거나, 단계에 없는 숫자나 한글·영문 밖의 글자가 나오면 None."""
     from src.clients.llm_client import call_llm
 
-    picked = events if len(events) <= _PROMPT_EVENT_LIMIT else (
-        events[: _PROMPT_EVENT_LIMIT // 2] + events[-_PROMPT_EVENT_LIMIT // 2:])
-    lines = [f"{i}. [{e['kind']}] {e['text']}" for i, e in enumerate(picked, start=1)]
-    prompt = ("사건 목록(kind: condition=조건 대화에서 한 말, recommend=추천을 받음, question=결과 화면 질문, "
-              "swap=부품 교체, remove=부품 제외, confirm=확정)\n" + "\n".join(lines))
+    prompt = _prompt(steps)
     try:
         text = (call_llm(prompt, system=_SYSTEM).get("text") or "").strip()
     except Exception:
         return None
-    if not text:
+    if not text or not _ALLOWED.fullmatch(text):
         return None
-    allowed = _numbers(prompt)
-    if not _numbers(text) <= allowed:
+    if not _numbers(text) <= _numbers(prompt):
         return None
     return text
 
 
-def summarize(list_id: UUID, revision: dict, events: list[dict]) -> str:
-    key = (str(list_id), revision["confirmed_at"].isoformat() if revision.get("confirmed_at") else "")
+def summarize(list_id: UUID, revision: dict, steps: list[dict]) -> str:
+    key = (str(list_id), revision["confirmed_at"].isoformat() if revision.get("confirmed_at") else "", hash(_prompt(steps)))
     if key in _summary_cache:
         return _summary_cache[key]
-    text = llm_summary(events) if llm_available() else None
+    text = llm_summary(steps) if llm_available() else None
     if text is None:
-        return rule_summary(events)        # 규칙 문장은 캐시하지 않는다 — 다음 요청에서 LLM을 다시 시도한다
+        return rule_summary(steps)        # 규칙 문장은 캐시하지 않는다 — 다음 요청에서 LLM을 다시 시도한다
     _summary_cache[key] = text
     return text
 
 
-def render(list_id: UUID, revision: dict, events: list[dict]) -> dict:
+def build(conn, revision: dict) -> dict:
+    """DB 에서 읽는 부분 — 단계와 사건. 요약(LLM)은 render 가 트랜잭션 밖에서 만든다."""
+    from src.services import history_journey
+    return {"steps": history_journey.build_steps(conn, revision), "events": build_events(conn, revision)}
+
+
+def render(list_id: UUID, revision: dict, journey: dict) -> dict:
     """응답 모양. DB 를 쓰지 않는다 — 라우터가 트랜잭션을 닫은 뒤 부른다(LLM 대기 동안 연결을 잡지 않는다)."""
     return {
-        "summary": {"status": "ready", "text": summarize(list_id, revision, events)},
-        "events": [{"at": e["at"].isoformat(), "kind": e["kind"], "text": e["text"]} for e in events],
+        "summary": {"status": "ready", "text": summarize(list_id, revision, journey["steps"])},
+        "steps": journey["steps"],
+        "events": [{"at": e["at"].isoformat(), "kind": e["kind"], "text": e["text"]} for e in journey["events"]],
     }

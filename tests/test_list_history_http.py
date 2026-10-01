@@ -99,7 +99,14 @@ def test_history_tells_the_journey_of_a_confirmed_list(raw_conn):
 
     summary = body["summary"]
     assert summary["status"] == "ready"
-    assert "게임용 PC 맞추고 싶어요" in summary["text"] and "확정했어요" in summary["text"]
+    assert summary["text"].startswith("게임") and "확정했어요" in summary["text"]
+
+    # 이렇게 정해졌어요: 같은 품목을 두 번 바꾼 건 처음 → 마지막 한 단계, 아무것도 바꾸지 않은 질문은 없다
+    steps = body["steps"]
+    assert steps[0]["kind"] == "start" and steps[-1]["kind"] == "confirm"
+    swap_steps = [s for s in steps if s["kind"] == "swap"]
+    assert len(swap_steps) == 1 and swap_steps[0]["changes"] == [f"{first_name} → {third_name}"]
+    assert not any("왜 이걸로" in (s["quote"] or "") for s in steps)
 
 
 def test_history_is_only_for_the_owner_of_a_confirmed_list():
@@ -113,13 +120,14 @@ def test_history_is_only_for_the_owner_of_a_confirmed_list():
     assert TestClient(app).get(f"/lists/{lid}/history").status_code == 401  # 로그인 전
 
 
-def _events() -> list[dict]:
-    at = datetime(2026, 9, 30, tzinfo=timezone.utc)
+def _steps() -> list[dict]:
+    step = {"quote": None, "changes": [], "notes": []}
     return [
-        {"at": at, "kind": "condition", "text": "조용한 게임용 PC"},
-        {"at": at, "kind": "recommend", "text": "추천 구성을 받았어요."},
-        {"at": at, "kind": "swap", "text": "GPU를 RX 7600에서 RTX 3050으로 바꿨어요."},
-        {"at": at, "kind": "confirm", "text": "1,480,000원으로 확정했어요."},
+        {**step, "kind": "start", "text": "원하신 것: 게임 · 150만 원", "quote": "게임용 PC"},
+        {**step, "kind": "swap", "text": "GPU를 직접 바꾸셨어요", "changes": ["RX 7600 → RTX 3050"]},
+        {**step, "kind": "unapplied", "text": "말씀하셨지만 이번 추천에 반영하지 못한 것",
+         "notes": ["‘조용하게’ — 기록했지만 추천에 반영하는 기준이 아직 없어요"]},
+        {**step, "kind": "confirm", "text": "1,480,000원으로 확정했어요"},
     ]
 
 
@@ -137,12 +145,22 @@ def test_llm_summary_is_used_only_when_it_invents_no_numbers(monkeypatch):
     from src.clients import llm_client
     from src.services import list_history
 
-    reply = {"text": "조용한 게임용 PC를 찾다가 GPU를 RTX 3050으로 바꾸고 1,480,000원에 확정하셨어요."}
+    reply = {"text": "게임용으로 찾으시다가 GPU를 RTX 3050으로 바꾸고 1,480,000원에 확정하셨어요."}
     monkeypatch.setattr(llm_client, "call_llm", lambda *a, **k: reply)
-    assert list_history.llm_summary(_events()) == reply["text"]
+    assert list_history.llm_summary(_steps()) == reply["text"]
 
     reply = {"text": "GPU를 바꿔 20만 원을 아끼고 1,480,000원에 확정하셨어요."}   # 20은 기록에 없다
-    assert list_history.llm_summary(_events()) is None
+    assert list_history.llm_summary(_steps()) is None
+
+
+def test_llm_summary_with_foreign_script_falls_back(monkeypatch):
+    """gpt-4o-mini 가 "추천 구성 предложили 이후"처럼 러시아어 낱말을 섞은 적이 있다 — 한글·영문 밖 글자는 버린다."""
+    from src.clients import llm_client
+    from src.services import list_history
+
+    reply = {"text": "추천 구성 предложили 이후, 1,480,000원으로 확정하셨습니다."}
+    monkeypatch.setattr(llm_client, "call_llm", lambda *a, **k: reply)
+    assert list_history.llm_summary(_steps()) is None
 
 
 def test_summary_falls_back_to_rules_when_llm_fails(monkeypatch):
@@ -155,5 +173,6 @@ def test_summary_falls_back_to_rules_when_llm_fails(monkeypatch):
     monkeypatch.setattr(list_history, "llm_available", lambda: True)
     monkeypatch.setattr(llm_client, "call_llm", boom)
     revision = {"confirmed_at": datetime(2026, 9, 30, tzinfo=timezone.utc)}
-    text = list_history.summarize(uuid4(), revision, _events())
-    assert "조용한 게임용 PC" in text and "RTX 3050" in text and "1,480,000원으로 확정했어요" in text
+    text = list_history.summarize(uuid4(), revision, _steps())
+    assert text.startswith("게임 · 150만 원으로 찾기 시작하셨어요.")
+    assert "GPU를 직접 바꾸셨어요." in text and "반영하지 못한 것이 1가지" in text and "1,480,000원으로 확정했어요" in text

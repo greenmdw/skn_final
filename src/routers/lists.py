@@ -103,8 +103,8 @@ def history(list_id: UUID, revision: int | None = None,
             principal: Principal = Depends(optional_principal)) -> schemas.ListHistoryOut:
     """견적 리스트 히스토리 — 요약 문장은 LLM 호출이 있어 리포트와 따로 부른다(리포트 로딩을 늦추지 않는다)."""
     with get_conn() as conn:
-        found, events = list_service.get_history_events(conn, list_id, principal, revision)
-    return schemas.ListHistoryOut(**list_history.render(list_id, found, events))
+        found, journey = list_service.get_history(conn, list_id, principal, revision)
+    return schemas.ListHistoryOut(**list_history.render(list_id, found, journey))
 
 
 @router.post("/{list_id}/alert")

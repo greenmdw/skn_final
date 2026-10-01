@@ -13,7 +13,11 @@ QUOTE_REVIEW_KEY = "quote_review"
 # "이어서 하기"로 조건을 가져온 원래 목록 id(A1). 이전 견적과 비교할 때(B1) 대상을 정하는 데만 쓴다 —
 # 추천 입력이 아니므로 QUOTE_REVIEW_KEY 처럼 load_full 에서 빼고 lock_version 도 올리지 않는다.
 RESUMED_FROM_KEY = "resumed_from"
-_NOT_CONDITIONS = (QUOTE_REVIEW_KEY, RESUMED_FROM_KEY)
+# "견적 수정하기"로 복사해 온 원본 견적서 번호. 견적 리스트 히스토리가 "견적서 N에서 고쳐 시작"과 비교 대상을
+# 정하는 데만 쓴다 — 추천 입력이 아니므로 위 둘처럼 load_full 에서 빼고 lock_version 도 올리지 않는다.
+REVISED_FROM_KEY = "revised_from"
+_NOT_CONDITIONS = (QUOTE_REVIEW_KEY, RESUMED_FROM_KEY, REVISED_FROM_KEY)
+_NOT_CONDITIONS_SQL = ", ".join(["%s"] * len(_NOT_CONDITIONS))
 
 
 class PlanRepo(Repo):
@@ -146,6 +150,8 @@ class PlanRepo(Repo):
             (new_id, source_revision_id),
         )
         self._clone_recommendation_result(source_revision_id, new_id)
+        self.upsert_condition(new_id, REVISED_FROM_KEY, {"value": source["revision_no"]}, "inferred",
+                              bump_version=False)
         return new_id
 
     def _clone_recommendation_result(self, source_revision_id: UUID, new_revision_id: UUID) -> None:
@@ -234,7 +240,7 @@ class PlanRepo(Repo):
             "AND (%s::text IS NULL OR EXISTS (SELECT 1 FROM planning.plan_condition pc WHERE pc.revision_id=pr.id "
             "  AND pc.status='active' AND pc.condition_key='mode' AND pc.value->>'value'=%s)) "
             "AND EXISTS (SELECT 1 FROM planning.plan_condition pc WHERE pc.revision_id=pr.id "
-            "  AND pc.status='active' AND pc.condition_key NOT IN ('category', 'mode', %s, %s) "
+            f"  AND pc.status='active' AND pc.condition_key NOT IN ('category', 'mode', {_NOT_CONDITIONS_SQL}) "
             "  AND pc.value->'value' IS NOT NULL AND pc.value->'value'<>'null'::jsonb) "
             "AND (NOT %s OR EXISTS (SELECT 1 FROM engine.recommendation_run rr WHERE rr.revision_id=pr.id "
             "  AND rr.status='completed')) "
@@ -403,7 +409,7 @@ class PlanRepo(Repo):
         revision = self.get_revision(revision_id)
         if revision is None:
             raise ValueError("revision not found")
-        revision["conditions"] = self._all("SELECT condition_key, value, origin FROM planning.plan_condition WHERE revision_id=%s AND status='active' AND condition_key NOT IN (%s, %s) ORDER BY created_at", (revision_id, *_NOT_CONDITIONS))
+        revision["conditions"] = self._all(f"SELECT condition_key, value, origin FROM planning.plan_condition WHERE revision_id=%s AND status='active' AND condition_key NOT IN ({_NOT_CONDITIONS_SQL}) ORDER BY created_at", (revision_id, *_NOT_CONDITIONS))
         revision["nodes"] = self._all("SELECT * FROM planning.plan_node WHERE revision_id=%s ORDER BY position, created_at", (revision_id,))
         revision["requirements"] = self._all("SELECT * FROM planning.requirement WHERE revision_id=%s AND status='active'", (revision_id,))
         return revision
