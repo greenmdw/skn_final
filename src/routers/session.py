@@ -146,7 +146,7 @@ def previous_comparison(list_id: UUID, principal: Principal = Depends(optional_p
 def patch_item(list_id: UUID, item_id: UUID, body: schemas.ItemPatchIn, principal: Principal = Depends(optional_principal)) -> schemas.RecommendResultOut:
     with get_conn() as conn:
         revision = session_service._owned(PlanRepo(conn), list_id, principal)
-        stored = recommendation_service.patch_item(conn, revision["id"], item_id, selected=body.selected, qty=body.qty, timing=body.timing, user_id=principal.user_id)
+        stored = recommendation_service.patch_item(conn, revision["id"], item_id, selected=body.selected, qty=body.qty, timing=None, user_id=principal.user_id)
     return schemas.RecommendResultOut(**stored)
 
 @router.get("/{list_id}/items/{item_id}/alternatives", response_model=schemas.AlternativesOut)

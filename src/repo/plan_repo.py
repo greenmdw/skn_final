@@ -92,10 +92,12 @@ class PlanRepo(Repo):
 
     def confirmed_revisions(self, plan_id: UUID) -> list[dict]:
         """한 목록의 확정된 견적서들(오래된 것부터). 견적서 하나 = 확정된 revision 하나.
-        개별 삭제된(deleted_at) 견적서는 빼고 낸다(개발요청 10번)."""
+        개별 삭제된(deleted_at) 견적서는 빼고 낸다(개발요청 10번).
+        item_count는 본체 부품 수만(개발요청 11번), peripheral_count는 주변기기 수다."""
         return self._all(
             "SELECT r.id, r.revision_no, r.name_snapshot, r.confirmed_at, r.confirmed_total, r.planned_purchase_at, "
-            "(SELECT count(*) FROM planning.purchase_line l WHERE l.revision_id=r.id) AS item_count "
+            "(SELECT count(*) FROM planning.purchase_line l WHERE l.revision_id=r.id) AS item_count, "
+            "(SELECT count(*) FROM planning.peripheral_line pl WHERE pl.revision_id=r.id) AS peripheral_count "
             "FROM planning.plan_revision r WHERE r.plan_id=%s AND r.state='confirmed' AND r.deleted_at IS NULL "
             "ORDER BY r.revision_no",
             (plan_id,),
@@ -301,6 +303,31 @@ class PlanRepo(Repo):
             "WHERE revision_id=%s ORDER BY created_at",
             (revision_id,),
         )
+
+    def add_peripheral_line(self, revision_id: UUID, kind: str, variant_id: UUID,
+                            amount: int, snapshot: dict, pack_count: int = 1) -> UUID:
+        """확정 시점에 주변기기 선택을 얼려서 기록(개발요청 11번) — purchase_line과 같은 원칙,
+        실제 offer가 없어(참고가뿐) 별도 테이블."""
+        row = self._one(
+            "INSERT INTO planning.peripheral_line "
+            "(revision_id, kind, variant_id, pack_count, line_amount, snapshot) "
+            "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+            (revision_id, kind, variant_id, pack_count, amount, Jsonb(snapshot)),
+        )
+        return row["id"]
+
+    def list_peripheral_lines(self, revision_id: UUID) -> list[dict]:
+        return self._all(
+            "SELECT kind, pack_count, line_amount, snapshot FROM planning.peripheral_line "
+            "WHERE revision_id=%s ORDER BY created_at",
+            (revision_id,),
+        )
+
+    def count_peripheral_lines(self, revision_id: UUID) -> int:
+        row = self._one(
+            "SELECT count(*) AS n FROM planning.peripheral_line WHERE revision_id=%s", (revision_id,)
+        )
+        return int(row["n"])
 
     def lock_revision(self, revision_id: UUID) -> None:
         """같은 리비전의 조건·요구사항 변경을 하나의 행 잠금으로 직렬화한다."""

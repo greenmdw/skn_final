@@ -13,7 +13,7 @@ from src.agent import result_agent as ra
 def _result() -> dict:
     def item(slot, name, price, reason="ready", **kw):
         d = {"item_id": str(uuid4()), "slot": slot, "slot_label": slot, "price": price, "qty": 1,
-             "selected": True, "timing": "now", "alternatives_count": 3, "budget_share": 0.2,
+             "selected": True, "alternatives_count": 3, "budget_share": 0.2,
              "product": {"product_key": name.lower().replace(" ", "-"), "name": name, "spec_summary": "성능 티어 6"},
              "reason": {"status": reason, "text": "1순위, 밸런스" if reason == "ready" else None}}
         d.update(kw)
@@ -43,12 +43,11 @@ def test_set_item_validates_before_touching_db():
     s = _session()          # conn=None — DB 에 닿으면 AttributeError 로 터진다
     assert s.set_item("GPU", qty="0").startswith("오류")
     assert s.set_item("GPU", qty="abc").startswith("오류")
-    assert s.set_item("GPU", timing="tomorrow").startswith("오류")
     assert s.set_item("GPU").startswith("오류")          # 바꿀 값 없음
     assert s.set_item("모니터", qty="2").startswith("오류")
     assert s.swap("GPU", "not-a-uuid").startswith("오류")
     assert s.swap("모니터", str(uuid4())).startswith("오류")
-    assert len(s.trace) == 7 and not s.changed
+    assert len(s.trace) == 6 and not s.changed
 
 
 def test_prefetch_triggers_only_on_why_questions(monkeypatch):
@@ -66,7 +65,7 @@ def test_system_prompt_carries_table_reasons_budget_and_language():
     p = ra.system_prompt(r, "왜 이 CPU야?", [], prefetched="PRE")
     assert "- CPU: Intel Core Ultra 7 265K · 255,000원 × 1" in p
     assert "추천 이유: 1순위, 밸런스" in p
-    assert "케이스: NR200P · 69,000원 × 1 · 시점 now (빼둠)" in p
+    assert "케이스: NR200P · 69,000원 × 1 (빼둠)" in p
     assert "예산 상한: 1,500,000원 · 총액: 780,000원 · 잔여: 720,000원" in p
     assert "[power] ok (근사)" in p
     assert "미리 조회한 근거" in p and "\nPRE" in p
@@ -74,10 +73,10 @@ def test_system_prompt_carries_table_reasons_budget_and_language():
     assert "미리 조회한 근거" not in ra.system_prompt(r, "swap the gpu", [])
 
 
-def test_strands_registers_six_tools():
+def test_strands_registers_five_tools():
     tools = ra.make_tools(_session())
     assert [t.tool_name for t in tools] == [
-        "list_alternatives", "swap", "set_timing", "set_qty", "remove_or_restore", "explain"]
+        "list_alternatives", "swap", "set_qty", "remove_or_restore", "explain"]
     swap_spec = next(t for t in tools if t.tool_name == "swap").tool_spec
     assert set(swap_spec["inputSchema"]["json"]["required"]) == {"slot", "candidate_id"}
 
@@ -107,9 +106,9 @@ def test_reply_within_accepts_input_numbers_and_rejects_invented():
 def test_guarded_reply_prefers_changes_then_prefetched_then_template():
     s = _session()
     s.changed = True
-    s.trace = ["prefetch:explain('CPU') → …", "set_qty('저장장치', '2') → 저장장치: selected=True qty=2 timing=now · 총액 780,000원 · 예산 잔여 720,000원"]
+    s.trace = ["prefetch:explain('CPU') → …", "set_qty('저장장치', '2') → 저장장치: selected=True qty=2 · 총액 780,000원 · 예산 잔여 720,000원"]
     out = ra._guarded_reply(s, "")
-    assert out.startswith("적용된 변경: 저장장치: selected=True qty=2 timing=now") and "총액 780,000원" in out
+    assert out.startswith("적용된 변경: 저장장치: selected=True qty=2") and "총액 780,000원" in out
     s2 = _session()
     assert ra._guarded_reply(s2, "CPU X 255,000원\n저장된 추천 이유: …") == "CPU X 255,000원 저장된 추천 이유: …"
     assert ra._guarded_reply(_session(), "").startswith("구성표 기준으로만 답할 수 있어요")

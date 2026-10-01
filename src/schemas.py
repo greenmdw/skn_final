@@ -505,7 +505,6 @@ class ItemOut(BaseModel):
     price_observed_at: str | None = None
     qty: int = 1
     selected: bool = True
-    timing: str = "now"                    # now | soon | later
     budget_share: float | None = None
     review: ReviewBriefOut | None = None
     reason: TextStatusOut
@@ -535,7 +534,6 @@ class VerificationOut(BaseModel):
 class ItemPatchIn(BaseModel):
     selected: Optional[bool] = None
     qty: Optional[int] = Field(default=None, ge=1, le=99)
-    timing: Optional[Literal["now", "soon", "later"]] = None
 
 
 class AlternativeOut(BaseModel):
@@ -698,7 +696,8 @@ class ReportSummaryOut(BaseModel):
     name: str
     confirmed_at: datetime
     total: int
-    item_count: int
+    item_count: int            # 본체 부품 수만(개발요청 11번)
+    peripheral_count: int = 0  # 주변기기 수(개발요청 11번)
     planned_purchase_at: str | None = None
 
 
@@ -731,11 +730,27 @@ class ReportRenameIn(BaseModel):
     name: str = Field(min_length=1, max_length=60)
 
 
+class NewRevisionIn(BaseModel):
+    """개발요청 14번 — 안 주면(기본) 지금처럼 현재 견적서를 복사한다."""
+
+    from_revision_no: Optional[int] = Field(default=None, ge=1)
+
+
+class ConfirmPeripheralIn(BaseModel):
+    """개발요청 11번 — 확정 시 같이 얼릴 주변기기 1건. 가격은 서버가 variant_id로 다시 조회해
+    매긴다(클라이언트가 보낸 가격은 안 믿는다)."""
+
+    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    variant_id: str
+    qty: int = Field(default=1, ge=1, le=99)
+
+
 class ConfirmIn(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     planned_purchase_at: Optional[str] = None
     target_amount: Optional[int] = Field(default=None, ge=0)
     memo: str = Field(default="", max_length=1000)
+    peripherals: list[ConfirmPeripheralIn] = Field(default_factory=list)
 
 
 class ReportProductOut(BaseModel):
@@ -751,9 +766,17 @@ class ReportItemOut(BaseModel):
     product: ReportProductOut
     price: int            # 단가 — 줄 금액은 price × qty
     qty: int = 1
-    timing: str = "now"
     review: ReviewBriefOut | None = None
     evidence_text: str | None = None
+
+
+class ReportPeripheralOut(BaseModel):
+    """개발요청 11번 — 확정 견적서에 같이 얼린 주변기기 한 줄."""
+
+    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    product: ReportProductOut
+    price: int            # 단가 — 줄 금액은 price × qty, 참고가(reference_snapshot)
+    qty: int = 1
 
 
 class PriceWatchOut(BaseModel):
@@ -773,9 +796,10 @@ class ReportOut(BaseModel):
     planned_purchase_at: str | None = None
     target_amount: int | None = None
     memo: str = ""
-    total: int
+    total: int             # 본체 + 주변기기 합계(개발요청 11번)
     confirmed_at: str
     items: list[ReportItemOut] = Field(default_factory=list)
+    peripherals: list[ReportPeripheralOut] = Field(default_factory=list)
     price_watch: PriceWatchOut
     data_notice: str = "상품·가격·리뷰는 합성 데이터입니다."
 

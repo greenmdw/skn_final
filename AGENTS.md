@@ -72,7 +72,7 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
 - If the default uv cache is read-only, keep `UV_CACHE_DIR=/tmp/uv-cache` in the command.
 - If Python raises `ModuleNotFoundError: src`, run from the repository root and set `PYTHONPATH=.`.
 - If database tests are skipped, rerun with `TRUEFIT_REQUIRE_TEST_DB=1` so the underlying setup problem is reported as an error.
-- The current database baseline must contain exactly these seven files:
+- The current database baseline must contain exactly these eight files:
   - `db/migrations/0000_schema.sql`
   - `db/migrations/0001_constraints.sql`
   - `db/migrations/0002_indexes.sql`
@@ -85,3 +85,6 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
   - `db/migrations/0006_report_soft_delete.sql` (added 2026-10-01, 개발요청 10번: adds
     `planning.plan_revision.deleted_at` so a single confirmed report can be deleted
     without deleting the whole conversation)
+  - `db/migrations/0007_peripheral_line.sql` (added 2026-10-01, 개발요청 11번: adds
+    `planning.peripheral_line` so a confirmed report can also freeze chosen peripherals
+    — monitor/keyboard/mouse/speaker — alongside the PC build in `purchase_line`)

@@ -57,9 +57,26 @@ JWT_TTL_DAYS: int = int(os.getenv("JWT_TTL_DAYS", "14"))
 APP_ENV: str = os.getenv("APP_ENV", "development")
 IS_PRODUCTION: bool = APP_ENV == "production"
 AUTH_COOKIE_SECURE: bool = IS_PRODUCTION or os.getenv("AUTH_COOKIE_SECURE", "0") == "1"
-ALLOWED_ORIGINS: list[str] = [
+_DEV_DEFAULT_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+
+
+def _with_dev_origins(configured: list[str], is_production: bool) -> list[str]:
+    """개발요청 12번 — 개발 서버는 화면(5173)과 API(8000)가 다른 origin이라
+    OriginCheckMiddleware에 항상 걸린다. .env의 ALLOWED_ORIGINS를 직접 적어야만 풀렸는데,
+    처음 프론트를 띄우는 사람마다 매번 부딪히는 문제라 운영이 아닐 때는 둘 다 기본으로
+    허용한다. 운영(`is_production`)은 전과 같다 — 설정이 비면 서버 자기 origin만 허용."""
+    if is_production:
+        return configured
+    out = list(configured)
+    for dev_origin in _DEV_DEFAULT_ORIGINS:
+        if dev_origin not in out:
+            out.append(dev_origin)
+    return out
+
+
+ALLOWED_ORIGINS: list[str] = _with_dev_origins([
     origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()
-]
+], IS_PRODUCTION)
 AUTH_CODE_TTL_MIN: int = 10
 AUTH_CODE_MAX_ATTEMPTS: int = 5
 

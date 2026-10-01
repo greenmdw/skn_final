@@ -47,6 +47,7 @@ def confirm(
             conn, list_id, principal,
             name=body.name, planned_purchase_at=body.planned_purchase_at,
             target_amount=body.target_amount, memo=body.memo, if_match=if_match,
+            peripherals=[p.model_dump() for p in body.peripherals],
         )
     return schemas.ReportOut(**report)
 
@@ -61,10 +62,18 @@ def report(list_id: UUID, revision: int | None = None,
 
 
 @router.post("/{list_id}/revisions", response_model=schemas.ConditionState)
-def new_revision(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.ConditionState:
-    """확정한 견적의 조건으로 새 견적서(draft revision)를 시작한다. 이후 /session/{list_id}/* 는 새 견적서에 쓴다."""
+def new_revision(
+    list_id: UUID, body: schemas.NewRevisionIn | None = None,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.ConditionState:
+    """확정한 견적의 조건으로 새 견적서(draft revision)를 시작한다. 이후 /session/{list_id}/* 는 새 견적서에 쓴다.
+
+    개발요청 14번 — body에 `from_revision_no`를 주면 가장 최근이 아니라 그 번호의 확정
+    견적서를 원본으로 복사한다(한 대화에 견적서가 여럿일 때 예전 것을 고치는 경우)."""
     with get_conn() as conn:
-        state = list_service.new_revision(conn, list_id, principal)
+        state = list_service.new_revision(
+            conn, list_id, principal, from_revision_no=body.from_revision_no if body else None
+        )
     return schemas.ConditionState(**state)
 
 

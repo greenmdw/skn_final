@@ -486,7 +486,6 @@ def memo_suggestion(result: dict, values: dict) -> str:
     chosen = [it for it in items if it["selected"]]
     if chosen:
         parts = [f"{it['slot']} {it['product']['name']}" + (f" ×{it['qty']}" if it["qty"] > 1 else "")
-                 + (" (나중에)" if it["timing"] == "later" else " (곧)" if it["timing"] == "soon" else "")
                  for it in chosen]
         tail = ""
         if totals.get("budget_remaining") is not None:

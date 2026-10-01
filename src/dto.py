@@ -133,7 +133,6 @@ class BasketLine(BaseModel):
     price: int
     qty: int = 1
     score: float = 0.0
-    timing: str = "now"
 
 
 class BasketResult(BaseModel):

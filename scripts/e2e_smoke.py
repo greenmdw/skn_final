@@ -137,9 +137,9 @@ class Runner:
         self.step("후보 교체", swap)
 
         def patch():
-            data = self.ok(self.c.patch(f"/session/{self.lid}/items/{self.item['item_id']}", json={"qty": 1, "timing": "soon"}))
-            return f"timing={next(i for i in data['items'] if i['item_id'] == self.item['item_id'])['timing']}"
-        self.step("품목 수정(구매 시점)", patch)
+            data = self.ok(self.c.patch(f"/session/{self.lid}/items/{self.item['item_id']}", json={"qty": 1}))
+            return f"qty={next(i for i in data['items'] if i['item_id'] == self.item['item_id'])['qty']}"
+        self.step("품목 수정(수량)", patch)
 
     def chat(self, text: str = "그래픽카드를 더 저렴한 걸로 바꿔줘") -> None:
         self.step("결과 화면 대화", lambda: self.ok(self.c.post(f"/session/{self.lid}/result-message", json={"text": text}))["reply"][:60])

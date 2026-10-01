@@ -50,15 +50,15 @@ def test_item_checks_unknown_axis_applies_to_all_slots():
 
 
 def test_memo_suggestion_collects_facts_only():
-    def item(slot, name, price, *, selected=True, timing="now", qty=1, reason=None):
+    def item(slot, name, price, *, selected=True, qty=1, reason=None):
         return {"slot": slot, "product": {"name": name, "product_key": name}, "price": price, "selected": selected,
-                "timing": timing, "qty": qty, "reason": {"status": "ready", "text": reason}}
+                "qty": qty, "reason": {"status": "ready", "text": reason}}
     result = {
         "conditions_summary": "새 컴퓨터 · 게임 · 1,500,000원 · 가성비", "budget_max": 1_500_000,
         "items": [
             item("CPU", "Intel 265K", 255_000),
             item("GPU", "RTX 5090", 609_000, reason="사용자 요청으로 교체한 부품입니다 — 자동 추천은 'RX 7600'(525,000원)였고 이 후보는 +84,000원입니다. 순위는 교체 전 구성 기준이고, 호환 점검은 교체 후 구성으로 다시 했습니다."),
-            item("케이스", "NR200P", 69_000, timing="later"),
+            item("케이스", "NR200P", 69_000),
             item("쿨러", "AK400", 45_000, selected=False),
             item("저장장치", "MX500", 93_000, qty=2),
         ],
@@ -69,7 +69,7 @@ def test_memo_suggestion_collects_facts_only():
     memo = rs.memo_suggestion(result, {"extra": ["흰색 케이스"]})
     assert memo.splitlines()[0] == "[조건] 새 컴퓨터 · 게임 · 1,500,000원 · 가성비"     # 예산 중복 없음
     assert "[구성] 4개 부품 1,119,000원, 예산 잔여 381,000원 — " in memo
-    assert "케이스 NR200P (나중에)" in memo and "저장장치 MX500 ×2" in memo and "쿨러" not in memo.split("[뺀 것]")[0]
+    assert "케이스 NR200P" in memo and "저장장치 MX500 ×2" in memo and "쿨러" not in memo.split("[뺀 것]")[0]
     assert "[뺀 것] 쿨러" in memo
     assert "[직접 바꾼 것] GPU RX 7600 → RTX 5090 (+84,000원) — 호환 점검은 교체 후 구성 기준" in memo
     assert "[요약] 게임용 구성, 신뢰도 94점." in memo

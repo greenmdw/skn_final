@@ -139,9 +139,9 @@ class ResultSession:
             return " · ⚠ 호환 점검 문제: " + " / ".join(majors)
         return " · 호환 점검을 교체 후 구성으로 다시 했고 확정된 문제는 없음(스펙을 모르는 부품은 확인 못 함)"
 
-    def set_item(self, slot: str, selected: str = "", qty: str = "", timing: str = "") -> str:
+    def set_item(self, slot: str, selected: str = "", qty: str = "") -> str:
         from src.services.recommendation_service import patch_item
-        call = f"set_item({slot!r}, selected={selected!r}, qty={qty!r}, timing={timing!r})"
+        call = f"set_item({slot!r}, selected={selected!r}, qty={qty!r})"
         it = self.item(slot)
         if it is None:
             return self._record(call, f"오류: '{slot}' 슬롯이 없습니다.")
@@ -151,20 +151,15 @@ class ResultSession:
             if not qty.strip().isdigit() or not 1 <= int(qty) <= 99:
                 return self._record(call, "오류: qty 는 1~99 정수")
             q = int(qty)
-        tm = None
-        if timing != "":
-            if timing not in ("now", "soon", "later"):
-                return self._record(call, "오류: timing 은 now/soon/later")
-            tm = timing
-        if sel is None and q is None and tm is None:
+        if sel is None and q is None:
             return self._record(call, "오류: 바꿀 값이 없습니다")
-        self.result = patch_item(self.conn, self.revision_id, UUID(it["item_id"]), selected=sel, qty=q, timing=tm,
+        self.result = patch_item(self.conn, self.revision_id, UUID(it["item_id"]), selected=sel, qty=q, timing=None,
                                  user_id=self.user_id)
         self.changed = True
         after = self.item(it["slot"])
         t = self.result["totals"]
         return self._record(call, (
-            f"{it['slot']}: selected={after['selected']} qty={after['qty']} timing={after['timing']}"
+            f"{it['slot']}: selected={after['selected']} qty={after['qty']}"
             f" · 총액 {_won(t['selected_price'])} · 예산 잔여 {_won(t['budget_remaining'])}"
             + (" · ⚠ 예산 초과" if t["over_budget"] else "")
             + self._compat_note()))
@@ -218,17 +213,6 @@ def make_tools(s: ResultSession) -> list:
         return s.swap(slot, candidate_id)
 
     @tool
-    def set_timing(slot: str, timing: str) -> str:
-        """부품의 구매 시점만 바꾼다. "나중에 살게/미루자" → "later", "곧" → "soon", "지금" → "now".
-        장바구니에는 그대로 남는다 — 빼는 게 아니다.
-
-        Args:
-            slot: 슬롯 이름
-            timing: "now" / "soon" / "later"
-        """
-        return s.set_item(slot, timing=timing)
-
-    @tool
     def set_qty(slot: str, qty: str) -> str:
         """부품의 수량만 바꾼다 ("SSD 2개로").
 
@@ -241,7 +225,6 @@ def make_tools(s: ResultSession) -> list:
     @tool
     def remove_or_restore(slot: str, keep: str) -> str:
         """부품을 장바구니에서 빼거나("빼줘", "필요 없어" → keep="false") 다시 담는다("다시 담아줘" → keep="true").
-        "나중에 살게" 는 여기가 아니라 set_timing 이다.
 
         Args:
             slot: 슬롯 이름
@@ -260,7 +243,7 @@ def make_tools(s: ResultSession) -> list:
         """
         return s.explain(slot)
 
-    return [list_alternatives, swap, set_timing, set_qty, remove_or_restore, explain]
+    return [list_alternatives, swap, set_qty, remove_or_restore, explain]
 
 
 # ── 프롬프트 ───────────────────────────────────────────────────────────────
@@ -271,7 +254,7 @@ def _build_table(result: dict) -> str:
         r = it.get("reason") or {}
         reason = f" · 추천 이유: {r['text']}" if r.get("status") == "ready" and r.get("text") else ""
         rows.append(f"- {it['slot']}: {it['product']['name']} · {_won(it['price'])} × {it['qty']}"
-                    f" · 시점 {it['timing']}{mark} · 다른 후보 {it['alternatives_count']}개{reason}")
+                    f"{mark} · 다른 후보 {it['alternatives_count']}개{reason}")
     return "\n".join(rows) or "(부품 없음)"
 
 
@@ -312,7 +295,7 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "1. 부품을 바꾸려면 먼저 list_alternatives 로 후보와 candidate_id 를 확인하고 swap 을 부릅니다. candidate_id 를 지어내지 않습니다.",
         "2. 사용자가 방향만 말하면('더 싼 걸로', '한 단계 위로') 목록에서 가장 가까운 후보를 고릅니다. '⚠ 요구 사양 미달' 표시가 있는 후보는 고르지 말고 그 사실을 알립니다. "
         "후보가 둘 이상 애매하면 이름·가격을 나열하고 고르게 합니다.",
-        "3. '나중에 살게/미루자' → set_timing(later). '빼줘/필요 없어' → remove_or_restore(false). '2개로' → set_qty. "
+        "3. '빼줘/필요 없어' → remove_or_restore(false). '2개로' → set_qty. "
         "한 문장에 부품 여러 개가 나오면 각 부품에 그 부품 앞뒤에 붙은 요청만 적용하고 도구를 따로 부릅니다.",
         "4. '왜 이거?', '이유가 뭐야?', '이거 괜찮아?', '믿을 만해?' 처럼 근거를 묻는 말에는 **반드시 explain 을 먼저 부르고** 그 내용만 전합니다. "
         "explain 을 부르기 전에 '이유를 확인할 수 없다'고 답하지 않습니다. 저장된 추천 이유가 없어도 explain 이 준 가격·예산 비중·검증 쟁점·리뷰 관측은 전합니다. "

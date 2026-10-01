@@ -91,10 +91,17 @@ def confirmed_revision(conn, list_id: UUID, principal: Principal, revision_no: i
     return revision
 
 
-def new_revision(conn, list_id: UUID, principal: Principal) -> dict:
+def new_revision(conn, list_id: UUID, principal: Principal, *, from_revision_no: int | None = None) -> dict:
     """확정한 견적을 바탕으로 새 견적서를 쓴다 — 조건과 추천 결과(부품 구성)를 복사한 새 draft revision
     (개발요청 8번, `PlanRepo.clone_revision`)을 현재로 삼는다.
-    이미 작성 중인 draft 가 현재면 그대로 돌려준다(두 번 눌러도 새 견적서는 하나)."""
+
+    `from_revision_no`를 안 주면(기본) 지금까지처럼 "현재(current) 견적서"를 복사한다 — 이미
+    작성 중인 draft가 현재면 그대로 돌려준다(두 번 눌러도 새 견적서는 하나).
+
+    개발요청 14번 — `from_revision_no`를 주면(한 대화에 견적서가 여러 개일 때, 최신이 아닌
+    예전 견적서를 고치고 싶은 경우) 그 번호의 확정 견적서를 원본으로 복사한다. 이미 작성 중인
+    draft가 있어도 **버리고 새로 복사한다**(문서 권장 동작) — 명시적으로 다른 견적서를
+    고쳐달라는 요청이라 기존 두 번 눌러도 하나(idempotent) 규칙보다 우선한다."""
     from src.repo.user_repo import ConversationRepo
     from src.services import session_service
 
@@ -103,6 +110,17 @@ def new_revision(conn, list_id: UUID, principal: Principal) -> dict:
     current = _owned(prepo, list_id, principal)
     if current["owner_user_id"] != user_id:
         raise NotFound("목록을 찾을 수 없습니다.")
+
+    if from_revision_no is not None:
+        source = _owned_confirmed_report(prepo, list_id, principal, from_revision_no, user_id)
+        new_id = prepo.clone_revision(list_id, source["id"])
+        prepo.set_current_revision(list_id, new_id)
+        ConversationRepo(conn).add_message(
+            current["conversation_id"], "assistant",
+            f"견적서 {source['revision_no']}의 조건으로 새 견적서를 시작했어요. "
+            "바꾸고 싶은 조건을 말씀하시거나 바로 추천을 받아 보세요.")
+        return session_service._state(conn, list_id, principal)
+
     if current["state"] == "confirmed":
         new_id = prepo.clone_revision(list_id, current["id"])
         prepo.set_current_revision(list_id, new_id)
@@ -164,6 +182,7 @@ def _reports_out(rows: list[dict]) -> list[dict]:
     return [{
         "revision_no": r["revision_no"], "name": r["name_snapshot"], "confirmed_at": r["confirmed_at"],
         "total": int(r["confirmed_total"]), "item_count": int(r["item_count"]),
+        "peripheral_count": int(r.get("peripheral_count") or 0),
         "planned_purchase_at": r["planned_purchase_at"].date().isoformat() if r["planned_purchase_at"] else None,
     } for r in rows]
 
@@ -226,7 +245,8 @@ def delete(conn, list_id: UUID, principal: Principal) -> None:
 
 
 def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_purchase_at: str | None,
-            target_amount: int | None, memo: str, if_match: int | None = None) -> dict:
+            target_amount: int | None, memo: str, if_match: int | None = None,
+            peripherals: list[dict] | None = None) -> dict:
     user_id = _require_login(conn, principal)
     prepo = PlanRepo(conn)
     revision = _owned(prepo, list_id, principal)
@@ -251,6 +271,20 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
     if (run or {}).get("input_snapshot", {}).get("values", {}) != current_values:
         raise Conflict("조건이 바뀌어 추천을 다시 받아야 합니다.", code="stale_recommendation")
 
+    # 개발요청 11번 — 가격은 클라이언트가 보낸 값을 안 믿고 variant_id로 카탈로그에서 다시 조회한다
+    # (PC 쪽 stored가 서버에서 다시 읽는 것과 같은 원칙). 확정 전에 다 검증해, 실패하면 아무것도 안 남긴다.
+    peripheral_picks: list[tuple[str, object, int]] = []
+    if peripherals:
+        from src.repo.catalog_repo import load_peripheral_candidates
+        pool = load_peripheral_candidates(conn)
+        for p in peripherals:
+            kind, variant_id, qty = p["kind"], p["variant_id"], int(p.get("qty", 1))
+            cand = next((c for c in pool.get(kind, []) if c.variant_id == variant_id), None)
+            if cand is None:
+                raise ValidationFailed(f"주변기기 후보를 찾을 수 없습니다: {kind}", code="peripheral_not_found")
+            peripheral_picks.append((kind, cand, qty))
+    peripheral_total = sum(c.price * qty for _, c, qty in peripheral_picks)
+
     purchase_at = None
     if planned_purchase_at:
         try:
@@ -259,7 +293,7 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
             raise ValidationFailed("구매 예정일 형식이 올바르지 않습니다.", field="planned_purchase_at") from None
 
     ok = prepo.confirm_revision(
-        revision["id"], confirmed_total=stored["totals"]["selected_price"],
+        revision["id"], confirmed_total=stored["totals"]["selected_price"] + peripheral_total,
         planned_purchase_at=purchase_at, target_amount=target_amount, memo=memo, name=name,
     )
     if not ok:
@@ -296,6 +330,18 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
             pack_count=qty,
         )
 
+    for kind, cand, qty in peripheral_picks:
+        snapshot = {
+            "kind": kind,
+            "product": {
+                "product_key": cand.product_key, "name": cand.name, "brand": cand.brand,
+                "image_url": cand.provenance.get("image_url"), "purchase_url": cand.provenance.get("product_url"),
+            },
+        }
+        prepo.add_peripheral_line(
+            revision["id"], kind, UUID(cand.variant_id), int(cand.price) * qty, snapshot, pack_count=qty,
+        )
+
     # P8 FB03: draft→confirmed 전환에 성공한 요청만 여기 도달한다(위의 Conflict가 이미
     # 중복 확정을 막는다) — 실패한 확정 시도는 아무 것도 남기지 않는다.
     feedback_service.emit_confirmed(
@@ -321,6 +367,14 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
             "timing": snapshot.get("timing", "now"), "review": snapshot.get("review"),
             "evidence_text": snapshot.get("evidence_text", "") or "",
         })
+    peripherals = []
+    for line in prepo.list_peripheral_lines(revision["id"]):
+        snapshot = line["snapshot"] or {}
+        peripherals.append({
+            "kind": snapshot.get("kind") or line["kind"],
+            "product": snapshot.get("product") or {},
+            "price": int(line["line_amount"]) // max(int(line["pack_count"]), 1), "qty": int(line["pack_count"]),
+        })
     watch = NotificationRepo(conn).get_for_revision(revision["id"])
     return {
         "list_id": str(list_id),
@@ -337,6 +391,7 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
         "total": int(revision["confirmed_total"]),
         "confirmed_at": revision["confirmed_at"].isoformat(),
         "items": items,
+        "peripherals": peripherals,
         "price_watch": _price_watch_out(
             NotificationRepo(conn), watch, int(revision["target_amount"]) if revision["target_amount"] is not None else None
         ),
