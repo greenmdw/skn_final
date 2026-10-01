@@ -83,9 +83,9 @@ def test_second_quote_sheet_keeps_the_first_and_opens_both_by_number():
     assert c.get(f"/lists/{lid}/report", params={"revision": 1}).json()["name"] == "견적서 A"
     assert c.get(f"/lists/{lid}/report", params={"revision": 3}).status_code == 404
 
-    # 히스토리는 그 견적서를 쓰던 동안의 대화만
-    first_texts = [e["text"] for e in c.get(f"/lists/{lid}/history", params={"revision": 1}).json()["events"]]
-    second_texts = [e["text"] for e in c.get(f"/lists/{lid}/history", params={"revision": 2}).json()["events"]]
+    # 히스토리는 그 견적서를 쓰던 동안의 대화만 — 사용자 말은 사건의 quote 에 있다(text 는 그 결과)
+    first_texts = [e["quote"] for e in c.get(f"/lists/{lid}/history", params={"revision": 1}).json()["events"]]
+    second_texts = [e["quote"] for e in c.get(f"/lists/{lid}/history", params={"revision": 2}).json()["events"]]
     assert "게임용 PC 맞추고 싶어요" in first_texts and "조용한 쪽으로 다시 볼게요" not in first_texts
     assert "조용한 쪽으로 다시 볼게요" in second_texts and "게임용 PC 맞추고 싶어요" not in second_texts
 

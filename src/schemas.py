@@ -806,8 +806,9 @@ class ReportOut(BaseModel):
 
 class HistoryEventOut(BaseModel):
     at: str
-    kind: str          # condition | recommend | question | swap | remove | confirm
-    text: str
+    kind: str          # condition | request | recommend | swap | remove | confirm
+    text: str          # 그 결과 — 알아들은 조건, 바뀐 부품("GPU A → B"), "바뀐 것 없음" …
+    quote: str | None = None   # 그 결과를 만든 사용자 말
 
 
 class HistoryStepOut(BaseModel):

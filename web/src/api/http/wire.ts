@@ -187,7 +187,7 @@ export interface WireLists {
 export interface WireListHistory {
   summary: WireText
   steps?: { kind: string; text: string; quote: string | null; changes: string[]; notes: string[] }[]
-  events: { at: string; kind: string; text: string }[]
+  events: { at: string; kind: string; text: string; quote?: string | null }[]
 }
 
 export interface WireUser { user: { email: string; display_name: string } }

@@ -91,12 +91,14 @@ def test_history_tells_the_journey_of_a_confirmed_list(raw_conn):
     body = r.json()
     kinds = [e["kind"] for e in body["events"]]
     assert kinds[0] == "condition" and kinds[-1] == "confirm"
-    assert kinds.index("recommend") < kinds.index("question") < kinds.index("swap")
-    assert kinds.count("swap") == 2
+    # 아무것도 바꾸지 않은 질문은 빠지고, 버튼으로 두 번 바꾼 건 한 번에 한 줄씩 남는다
+    assert "그래픽카드는 왜 이걸로 골랐어요?" not in [e["quote"] for e in body["events"]]
+    assert kinds.index("recommend") < kinds.index("swap") and kinds.count("swap") == 2
     swaps = [e["text"] for e in body["events"] if e["kind"] == "swap"]
-    assert first_name in swaps[0] and second_name in swaps[0]
-    assert second_name in swaps[1] and third_name in swaps[1]
-    assert body["events"][0]["text"] == "게임용 PC 맞추고 싶어요"
+    assert swaps[0].endswith(f"{first_name} → {second_name}") and swaps[1].endswith(f"{second_name} → {third_name}")
+    # 조건을 정한 말에는 알아들은 조건이 붙는다(칩 금액도 말하는 단위로)
+    conditions = {e["quote"]: e["text"] for e in body["events"] if e["kind"] == "condition"}
+    assert conditions["게임"] == "게임" and conditions["500만 원"] == "예산 500만 원"
 
     summary = body["summary"]
     assert summary["status"] == "ready"
@@ -139,7 +141,7 @@ def test_particles_follow_how_the_last_letter_is_read():
         ["CPU를", "RAM을", "메인보드를", "저장장치를", "케이스를", "파워를"]
     assert [_euro(w) for w in ("RTX 3050", "RX 7600", "Ryzen 5 7600X", "RTX 4070 SUPER", "970 EVO Plus", "쿨러")] == \
         ["RTX 3050으로", "RX 7600으로", "Ryzen 5 7600X로", "RTX 4070 SUPER로", "970 EVO Plus로", "쿨러로"]
-    assert _user_text("5000000") == "5,000,000원" and _user_text("게임") == "게임"
+    assert _user_text("5000000") == "500만 원" and _user_text("게임") == "게임"
 
 
 def test_llm_summary_is_used_only_when_it_invents_no_numbers(monkeypatch):

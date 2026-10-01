@@ -96,8 +96,10 @@ export interface LoadedConversation {
 }
 
 // ---- 견적 리스트 히스토리 ----
-export type HistoryEventKind = 'condition' | 'recommend' | 'question' | 'swap' | 'remove' | 'confirm'
-export interface HistoryEvent { at: string; kind: HistoryEventKind; text: string }
+/** 대화 순서대로 "한 말 → 그 결과". quote 는 사용자 말(추천·버튼 교체·확정은 없음), text 는 그 결과 —
+ * condition 은 알아들은 조건, request 는 바뀐 부품 또는 "바뀐 것 없음" */
+export type HistoryEventKind = 'condition' | 'request' | 'recommend' | 'swap' | 'remove' | 'confirm'
+export interface HistoryEvent { at: string; kind: HistoryEventKind; text: string; quote: string | null }
 /** 이렇게 정해졌어요 — 결과를 바꾼 것만 한 단계씩. quote 는 그 단계를 만든 사용자 말, changes 는 바뀐 부품,
  * notes 는 까닭·말하지 않아 기본값으로 정해진 것·반영하지 못한 것 */
 export type HistoryStepKind = 'start' | 'change' | 'swap' | 'remove' | 'unapplied' | 'confirm'

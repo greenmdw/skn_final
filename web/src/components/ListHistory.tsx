@@ -3,10 +3,11 @@ import { api, type HistoryEventKind, type HistoryStepKind, type ListHistory as H
 
 // 견적 리스트 히스토리: 이 견적이 대화로 어떻게 이 구성이 됐는지. 부품 카드의 "고른 이유"가 "이 제품이 왜 좋은가"라면
 // 여기는 "대화가 어떻게 이 구성을 만들었나"다. 세 층으로 보여 준다 —
-// 요약(2~3문장) → 이렇게 정해졌어요(결과를 바꾼 것만, 서버 history_journey) → 자세히(대화 순서 그대로, 접어 둔다).
+// 요약(2~3문장) → 이렇게 정해졌어요(결과를 바꾼 것만, 서버 history_journey) → 자세히(대화 순서대로 "한 말 → 그 결과",
+// 접어 둔다. 아무것도 바꾸지 않은 질문·잡담은 서버가 빼고, 원문은 대화 내역에서 본다).
 // 내용은 서버(GET /lists/{id}/history)가 기록에서 만든다. 불러오지 못하면 지어내지 않고 안내만 한다.
 const KIND_LABEL: Record<HistoryEventKind, string> = {
-  condition: '조건', recommend: '추천', question: '질문', swap: '교체', remove: '제외', confirm: '확정',
+  condition: '조건', request: '요청', recommend: '추천', swap: '교체', remove: '제외', confirm: '확정',
 }
 const STEP_LABEL: Record<HistoryStepKind, string> = {
   start: '시작', change: '조건 변경', swap: '직접 교체', remove: '직접 제외', unapplied: '반영 못 함', confirm: '확정',
@@ -62,7 +63,10 @@ export default function ListHistory({ listId, revisionNo }: { listId: string; re
           <summary>대화 순서대로 자세히 보기</summary>
           <ol>
             {history.events.map((event, index) => (
-              <li key={index}><span className="n">{KIND_LABEL[event.kind]}</span><span>{event.text}</span></li>
+              <li key={index}>
+                <span className="n">{KIND_LABEL[event.kind]}</span>
+                <span>{event.quote && <span className="q">“{event.quote}” → </span>}{event.text}</span>
+              </li>
             ))}
           </ol>
         </details>

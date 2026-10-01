@@ -44,7 +44,7 @@ function toConfirmError(error: unknown): unknown {
   return error
 }
 
-const HISTORY_KINDS: HistoryEventKind[] = ['condition', 'recommend', 'question', 'swap', 'remove', 'confirm']
+const HISTORY_KINDS: HistoryEventKind[] = ['condition', 'request', 'recommend', 'swap', 'remove', 'confirm']
 const STEP_KINDS: HistoryStepKind[] = ['start', 'change', 'swap', 'remove', 'unapplied', 'confirm']
 
 export const setups: Api['setups'] = {
@@ -55,9 +55,9 @@ export const setups: Api['setups'] = {
       // 모르는 단계 종류는 조건 변경처럼 보여 준다 — 서버가 종류를 늘려도 화면이 깨지지 않게
       steps: (wire.steps ?? []).map(step => ({ ...step, quote: step.quote ?? null,
         kind: STEP_KINDS.includes(step.kind as HistoryStepKind) ? step.kind as HistoryStepKind : 'change' })),
-      // 모르는 종류는 버리지 않고 질문처럼 보여 준다 — 서버가 종류를 늘려도 화면이 깨지지 않게
-      events: wire.events.map(e => ({ at: e.at, text: e.text,
-        kind: HISTORY_KINDS.includes(e.kind as HistoryEventKind) ? e.kind as HistoryEventKind : 'question' })),
+      // 모르는 종류는 버리지 않고 요청처럼 보여 준다 — 서버가 종류를 늘려도 화면이 깨지지 않게
+      events: wire.events.map(e => ({ at: e.at, text: e.text, quote: e.quote ?? null,
+        kind: HISTORY_KINDS.includes(e.kind as HistoryEventKind) ? e.kind as HistoryEventKind : 'request' })),
     }
   },
   async report(id, revisionNo) {

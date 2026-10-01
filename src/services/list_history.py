@@ -5,9 +5,8 @@
 - **요약(summary)**: 2~3문장. LLM이 아래 단계만 보고 쓴다. LLM을 못 쓰거나(MOCK_MODE·키 없음), 실패하거나,
   단계에 없는 숫자를 쓰거나, 한글·영문 밖의 글자(키릴 문자 등)를 섞으면 규칙 문장으로 대신한다.
 - **이렇게 정해졌어요(steps)**: 결과를 바꾼 것만 몇 단계로 — `history_journey` 가 기록에서 코드로 만든다.
-- **자세히(events)**: 대화 순서 그대로의 사건 목록 — `identity.message`(사용자 말), `engine.recommendation_run`
-  (추천), `engine.feedback_event`(교체·제외), `planning.plan_revision`(확정 시각·총액). 사용자 말은 결과에 영향을
-  준 것만(조건을 정했거나 그 뒤 부품이 바뀐 말) — 나머지는 대화 내역에서 본다.
+- **자세히(events)**: 대화 순서대로 "한 말 → 그 결과" — 조건을 정한 말엔 알아들은 조건, 바꿔 달라는 말엔 바뀐 것
+  (없으면 "바뀐 것 없음"), 그 사이 추천·버튼 교체·확정. 아무것도 바꾸지 않은 질문과 잡담은 대화 내역에서 본다.
 - 확정된 목록은 스냅샷이라(이후 교체·대화가 붙지 않는다) 한 번 만든 요약을 프로세스 메모리에 둔다.
 
 수량·구매 시점 변경은 어디에도 기록되지 않아 사건에 없다. favorite(찜)도 아직 서버 개념이 없다.
@@ -69,9 +68,10 @@ def _euro(word: str) -> str:
 
 
 def _user_text(text: str) -> str:
-    """칩으로 고른 금액은 숫자만 남는다("5000000") — 화면과 같게 원화로 적는다."""
+    """칩으로 고른 금액은 숫자만 남는다("5000000") — 사용자가 말하는 단위로 적는다("500만 원", 단계와 같게)."""
+    from src.services.history_journey import _man
     text = " ".join(text.split())
-    return fmt_money(int(text)) if text.isdigit() and len(text) >= 4 else text
+    return _man(int(text)) if text.isdigit() and len(text) >= 4 else text
 
 
 def _variant_names(conn, ids: set[str]) -> dict[str, str]:
@@ -107,9 +107,70 @@ def _key_item(event_key: str) -> str | None:
     return parts[1].split("#", 1)[0]
 
 
-def build_events(conn, revision: dict) -> list[dict]:
-    """시간순 사건 목록. 각 사건은 {at, kind, text} — kind: condition|recommend|question|swap|remove|confirm."""
+def _swap_texts(items: dict, events: list[tuple], names: dict) -> list[str]:
+    """교체·제외 이벤트들 → "GPU RTX 4070 SUPER → RX 6800 XT" 줄. 한 품목을 여러 번 바꿨으면 처음 → 마지막,
+    되돌렸으면 뺀다 — 에이전트가 요청 하나에 후보를 여러 번 바꿔 본 것이 한 줄이 된다."""
     from src.services.recommendation_service import _SWAP_RE
+
+    order: list[str] = []
+    seen: dict[str, dict] = {}
+    for event_type, event_key, payload, _at in events:
+        payload = payload or {}
+        item_id = payload.get("item_id") or _key_item(event_key) or event_key
+        item = items.get(item_id or "", {})
+        slot = payload.get("slot") or item.get("slot") or "부품"
+        if item_id not in seen:
+            order.append(item_id)
+            seen[item_id] = {"slot": slot, "from": payload.get("from_variant_id"), "removed": False, "reason": item.get("reason", "")}
+        if event_type == "item_removed":
+            seen[item_id]["removed"] = True
+        else:
+            seen[item_id]["to"] = payload.get("to_variant_id")
+    lines = []
+    for item_id in order:
+        s = seen[item_id]
+        if s["removed"]:
+            lines.append(f"{_eul(s['slot'])} 뺐어요")
+            continue
+        before, after = names.get(s["from"] or ""), names.get(s.get("to") or "")
+        if s["from"] and s["from"] == s.get("to"):
+            continue                                          # 바꿨다가 되돌렸다
+        if not (before and after):
+            # 예전 기록(무엇→무엇이 없음): 교체 사유 문장에서 자동 추천 제품을 찾는다.
+            found = _SWAP_RE.search(s["reason"])
+            before, after = (found.group(1), items.get(item_id, {}).get("product")) if found else (None, None)
+        lines.append(f"{s['slot']} {before} → {after}" if before and after else f"{_eul(s['slot'])} 다른 제품으로 바꿨어요")
+    return lines
+
+
+def _understood(cat_def: dict, rows: list[dict]) -> str:
+    """조건 대화의 말 한 마디에서 시스템이 알아들은 조건 — "게임 · 오버워치 · 200만 원"."""
+    from src.services import history_journey
+    values = {r["key"]: r["value"] for r in rows}
+    shown = history_journey._display(cat_def, values)
+    parts = [shown[k][1] for k in history_journey._KEYS if k in shown and values.get(k) not in (None, "", [])]
+    if "budget_max" in shown and values.get("budget_max"):
+        parts[parts.index(shown["budget_max"][1])] = f"예산 {shown['budget_max'][1]}"      # "170만 원"만으로는 무엇인지 모른다
+    if "brand_pref" in shown and values.get("brand_pref"):
+        parts[parts.index(shown["brand_pref"][1])] = f"{shown['brand_pref'][1]} CPU"
+    parts += [f"요청 ‘{x}’" for x in values.get("extra") or []]
+    return " · ".join(parts)
+
+
+def build_events(conn, revision: dict) -> list[dict]:
+    """대화 순서대로 "한 말 → 그 결과". 각 사건은 {at, kind, text, quote} — kind:
+    condition(조건을 정한 말 → 알아들은 조건) | request(바꿔 달라는 말 → 바뀐 것, 없으면 "바뀐 것 없음") |
+    recommend | swap·remove(버튼으로 직접) | confirm.
+
+    아무것도 바꾸지 않은 질문("왜 이 그래픽카드야?")과 엉뚱한 말("ㅁㄴㅇㄹ")은 빠진다 — 원문은 대화 내역에서 본다.
+    바꿔 달라는 말은 결과가 없어도 남긴다: 빠지면 다음 말("그럼 더 비싼거로 바꿔줘")이 무엇을 받는지 모른다.
+    말이 바꾼 부품과 버튼으로 바꾼 부품은 시각으로 가른다 — 그 말과 그 말의 답 사이에 일어난 교체가 말이 시킨 것이다
+    (결과 채팅은 사용자 말을 처리 전에, 답을 처리 뒤에 저장한다). 질문과 답이 같은 시각인 예전 기록은 바꿔 달라는
+    말일 때만 다음 말 전까지의 교체를 그 말의 결과로 본다."""
+    from psycopg.rows import dict_row
+
+    from src.categories import load_category
+    from src.services.history_journey import _CHANGE_ASK
 
     revision_id = revision["id"]
     runs = conn.execute(
@@ -118,71 +179,76 @@ def build_events(conn, revision: dict) -> list[dict]:
         (revision_id,),
     ).fetchall()
     # 견적 수정하기로 복사한 실행은 원본 완료 시각을 그대로 가져와 생성 시각보다 앞선다 — 새로 받은 추천이 아니다.
-    # 복사본이 있으면 견적서를 연 순간부터 결과 화면이다.
     cloned = bool(runs) and runs[0][2] < runs[0][1]
     live = [(run_id, completed_at) for run_id, created_at, completed_at in runs if completed_at >= created_at]
-    first_result_at = revision["created_at"] if cloned else (live[0][1] if live else None)
-    # 조건을 정하거나 바꾼 말은 결과 화면에서 했어도 조건 대화다("예산을 170만원으로 할게요").
-    condition_sources = {row[0] for row in conn.execute(
-        "SELECT source_message_id FROM planning.plan_condition WHERE revision_id=%s AND source_message_id IS NOT NULL",
-        (revision_id,)).fetchall()}
+    rows = conn.cursor(row_factory=dict_row).execute(
+        "SELECT condition_key AS key, value->'value' AS value, source_message_id FROM planning.plan_condition "
+        "WHERE revision_id=%s AND source_message_id IS NOT NULL ORDER BY created_at",
+        (revision_id,),
+    ).fetchall()
+    by_message: dict = {}
+    for r in rows:
+        by_message.setdefault(r["source_message_id"], []).append(r)
 
-    # 대화는 목록(plan) 하나에 하나다. 견적서(revision)가 여럿이면 이 견적서를 쓰던 동안의 말만 — 새 견적서는
-    # 앞 견적서가 확정된 뒤에 만들어지므로 [revision 생성, 확정] 구간이 곧 이 견적서의 대화다.
     start, end = revision["created_at"], revision.get("confirmed_at")
     feedback = conn.execute(
         "SELECT event_type, event_key, payload, occurred_at FROM engine.feedback_event "
         "WHERE revision_id=%s AND event_type IN ('item_replaced','item_removed') ORDER BY occurred_at",
         (revision_id,),
     ).fetchall()
-    said = [m for m in ConversationRepo(conn).messages(revision["conversation_id"])
-            if m["role"] == "user" and m["content"].strip()
-            and m["created_at"] >= start and (end is None or m["created_at"] <= end)]
+    items = _item_slots(conn, revision_id)
+    names = _variant_names(conn, {v for _t, _k, p, _a in feedback
+                                  for key in ("from_variant_id", "to_variant_id") if (v := (p or {}).get(key))})
+    cat_def = load_category("computer")
+
+    talk = [m for m in ConversationRepo(conn).messages(revision["conversation_id"])
+            if m["created_at"] >= start and (end is None or m["created_at"] <= end) and m["content"].strip()]
     events: list[dict] = []
-    for index, m in enumerate(said):
-        # 결과에 영향을 준 말만 남긴다 — 조건을 정하거나 바꾼 말, 또는 그 뒤 다음 말 전에 부품을 바꾸거나 뺀 말.
-        # 아무것도 바꾸지 않은 질문("왜 이 그래픽카드야?")이나 엉뚱한 말("ㅁㄴㅇㄹ")은 대화 내역에만 남는다.
-        until = said[index + 1]["created_at"] if index + 1 < len(said) else end
-        acted = any(m["created_at"] <= at and (until is None or at < until) for _t, _k, _p, at in feedback)
-        if m["id"] not in condition_sources and not acted:
+    claimed: set[int] = set()
+    for index, m in enumerate(talk):
+        if m["role"] != "user":
             continue
-        # 첫 추천이 나오기 전의 말과 조건을 바꾼 말은 조건 대화, 그 밖에 결과가 나온 뒤의 말은 결과 화면에서 물은 것이다.
-        after = first_result_at is not None and m["created_at"] > first_result_at and m["id"] not in condition_sources
-        events.append({"at": m["created_at"], "kind": "question" if after else "condition", "text": _clip(_user_text(m["content"]))})
+        later = talk[index + 1:]
+        reply = next((x for x in later if x["role"] == "assistant"), None)
+        next_user = next((x for x in later if x["role"] == "user"), None)
+        until = next_user["created_at"] if next_user else end
+        asks = bool(_CHANGE_ASK.search(m["content"]))
+        if m["id"] in by_message:
+            caused = []          # 조건을 정한 말은 조건 대화가 처리한다 — 부품을 바꾸지 않는다("예산을 200만원으로 올려 주세요")
+        elif reply is not None and reply["created_at"] > m["created_at"]:
+            caused = [i for i, e in enumerate(feedback) if m["created_at"] <= e[3] <= reply["created_at"]]
+        elif asks:
+            caused = [i for i, e in enumerate(feedback) if m["created_at"] <= e[3] and (until is None or e[3] < until)]
+        else:
+            caused = []
+        caused = [i for i in caused if i not in claimed]
+        claimed.update(caused)
+        changes = _swap_texts(items, [feedback[i] for i in caused], names)
+        quote = _clip(_user_text(m["content"]))
+        if m["id"] in by_message:
+            understood = _understood(cat_def, by_message[m["id"]])
+            events.append({"at": m["created_at"], "kind": "condition", "quote": quote,
+                           "text": understood or "조건을 정했어요"})
+        elif asks or changes:
+            events.append({"at": m["created_at"], "kind": "request", "quote": quote,
+                           "text": " · ".join(changes) if changes else "바뀐 것 없음"})
 
     for index, (_run_id, completed_at) in enumerate(live):
-        events.append({"at": completed_at, "kind": "recommend",
+        events.append({"at": completed_at, "kind": "recommend", "quote": None,
                        "text": "추천 구성을 받았어요." if index == 0 and not cloned else "조건을 바꿔 추천을 다시 받았어요."})
 
-    items = _item_slots(conn, revision_id)
-    variant_ids = {v for _t, _k, p, _a in feedback for key in ("from_variant_id", "to_variant_id") if (v := (p or {}).get(key))}
-    names = _variant_names(conn, variant_ids)
-    swaps_per_item: dict[str, int] = {}
-    for event_type, event_key, payload, _at in feedback:
-        if event_type == "item_replaced":
-            item = (payload or {}).get("item_id") or _key_item(event_key)
-            swaps_per_item[item] = swaps_per_item.get(item, 0) + 1
-
-    for event_type, event_key, payload, occurred_at in feedback:
-        payload = payload or {}
-        item_id = payload.get("item_id") or _key_item(event_key)
-        item = items.get(item_id or "", {})
-        slot = item.get("slot") or "부품"
-        if event_type == "item_removed":
-            events.append({"at": occurred_at, "kind": "remove", "text": f"{_eul(slot)} 구성에서 뺐어요."})
+    # 말 없이 버튼으로 바꾸거나 뺀 것 — 한 번에 한 줄.
+    for i, e in enumerate(feedback):
+        if i in claimed:
             continue
-        before, after = names.get(payload.get("from_variant_id", "")), names.get(payload.get("to_variant_id", ""))
-        if not (before and after) and swaps_per_item.get(item_id) == 1:
-            # 예전 기록(무엇→무엇이 없음): 한 번만 바꾼 품목이면 교체 사유 문장과 지금 제품이 그 교체다.
-            found = _SWAP_RE.search(item.get("reason", ""))
-            if found:
-                before, after = found.group(1), item.get("product")
-        text = (f"{_eul(slot)} {before}에서 {_euro(after)} 바꿨어요." if before and after
-                else f"{_eul(slot)} 다른 제품으로 바꿨어요.")
-        events.append({"at": occurred_at, "kind": "swap", "text": text})
+        line = _swap_texts(items, [e], names)
+        if line:
+            kind = "remove" if e[0] == "item_removed" else "swap"
+            text = line[0] if kind == "remove" else f"직접 바꾸셨어요 · {line[0]}"
+            events.append({"at": e[3], "kind": kind, "quote": None, "text": text})
 
     if revision.get("confirmed_at") is not None:
-        events.append({"at": revision["confirmed_at"], "kind": "confirm",
+        events.append({"at": revision["confirmed_at"], "kind": "confirm", "quote": None,
                        "text": f"{fmt_money(revision['confirmed_total'])}으로 확정했어요."})
     events.sort(key=lambda e: e["at"])
     return events
@@ -265,5 +331,6 @@ def render(list_id: UUID, revision: dict, journey: dict) -> dict:
     return {
         "summary": {"status": "ready", "text": summarize(list_id, revision, journey["steps"])},
         "steps": journey["steps"],
-        "events": [{"at": e["at"].isoformat(), "kind": e["kind"], "text": e["text"]} for e in journey["events"]],
+        "events": [{"at": e["at"].isoformat(), "kind": e["kind"], "text": e["text"], "quote": e.get("quote")}
+                   for e in journey["events"]],
     }

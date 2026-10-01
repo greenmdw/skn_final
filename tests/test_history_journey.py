@@ -80,10 +80,11 @@ def test_budget_changed_twice_is_one_step_and_the_default_resolution_is_named():
     assert change["quote"] == "300만 원"                                      # 칩 금액도 말하는 단위로
     assert confirm["text"].endswith("원으로 확정했어요")
 
-    # 결과 화면에서 조건을 바꾼 말은 '질문'이 아니라 '조건'이다
+    # 결과 화면에서 조건을 바꾼 말은 '요청'이 아니라 '조건'이고, 알아들은 조건이 붙는다
     events = c.get(f"/lists/{lid}/history").json()["events"]
-    assert [e["kind"] for e in events].count("question") == 0
+    assert [e["kind"] for e in events].count("request") == 0
     assert [e["kind"] for e in events].count("recommend") == 3
+    assert [e["text"] for e in events if e["quote"] == "300만 원"] == ["예산 300만 원"]
 
 
 def test_revised_quote_starts_from_its_source_and_shows_only_the_swap():
@@ -163,7 +164,10 @@ def test_detail_keeps_what_moved_the_result_and_chat_keeps_everything_in_order()
     _confirm(c, lid, "말만 한 것")
 
     body = c.get(f"/lists/{lid}/history").json()
-    assert not any(e["text"] in ("ㅁㄴㅇㄹ", "예산 늘려줘") for e in body["events"])
+    # 잡담은 빠지고, 바꿔 달라는 말은 결과가 없어도 남는다 — 빠지면 다음 말("그럼 …")이 무엇을 받는지 모른다
+    assert not any(e["quote"] == "ㅁㄴㅇㄹ" for e in body["events"])
+    assert {"kind": "request", "quote": "예산 늘려줘", "text": "바뀐 것 없음"}.items() <= next(
+        e for e in body["events"] if e["quote"] == "예산 늘려줘").items()
     unapplied = next(s for s in body["steps"] if s["kind"] == "unapplied")
     assert unapplied["notes"] == ["‘예산 늘려줘’ — 요청하셨지만 이번 견적에서는 바뀌지 않았어요"]
 
@@ -208,7 +212,7 @@ def test_a_request_that_swapped_a_part_comes_before_the_swap():
     _confirm(c, lid, "말로 바꾼 것")
 
     body = c.get(f"/lists/{lid}/history").json()
-    kinds = [(e["kind"], e["text"]) for e in body["events"]]
-    i = kinds.index(("question", "그래픽카드 더 저렴한 걸로 바꿔줘"))
-    assert kinds[i + 1][0] == "swap", kinds
+    request = next(e for e in body["events"] if e["quote"] == "그래픽카드 더 저렴한 걸로 바꿔줘")
+    assert request["kind"] == "request" and " → " in request["text"], request      # 말 옆에 그 결과
+    assert not any(e["kind"] == "swap" for e in body["events"])                     # 버튼 교체로 따로 세지 않는다
     assert not any(s["kind"] == "unapplied" for s in body["steps"])

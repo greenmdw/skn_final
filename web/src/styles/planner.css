@@ -191,6 +191,8 @@
 .pl-history ol.pl-steps .note { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
 .pl-history-more > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .pl-history-more > ol { margin-top: 8px; }
+.pl-history-more > ol > li > span.n { font-family: inherit; font-size: 12px; }
+.pl-history-more .q { color: var(--muted); }
 .pl-empty { padding: 14px 16px; border-radius: 10px; background: var(--panel2); color: var(--muted); font-size: 13px; line-height: 1.6; }
 .pl-list-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 14px; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--line); }
 .pl-list-row:last-child { border-bottom: 0; }
