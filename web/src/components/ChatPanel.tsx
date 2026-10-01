@@ -14,7 +14,7 @@ export default function ChatPanel({ title, placeholder }: { title: string; place
   const last = messages[messages.length - 1]
   // 선택지는 마지막 봇 메시지에 붙은 것만 누를 수 있다(지난 질문의 칩은 남기지 않는다).
   const choices = last?.role === 'bot' ? last.choices : undefined
-  const disabled = state.stage === 3   // 추천을 계산하는 동안은 입력을 받지 않는다
+  const disabled = state.stage === 3 || state.viewOnly   // 추천을 계산하는 동안, 확정된 견적서를 보는 동안은 입력을 받지 않는다
 
   useEffect(() => { if (log.current) log.current.scrollTop = log.current.scrollHeight }, [messages, busy])
 
@@ -44,7 +44,7 @@ export default function ChatPanel({ title, placeholder }: { title: string; place
           </div>
         )}
         <form className="pl-input" onSubmit={submit}>
-          <input value={draft} onChange={e => setDraft(e.target.value)} placeholder={placeholder} disabled={disabled} aria-label="메시지 입력" />
+          <input value={draft} onChange={e => setDraft(e.target.value)} placeholder={state.viewOnly ? '확정된 견적서예요. 견적 수정하기를 누르면 대화로 바꿀 수 있어요' : placeholder} disabled={disabled} aria-label="메시지 입력" />
           <button type="submit" className="pl-send" disabled={disabled || !draft.trim()}>보내기</button>
         </form>
       </div>

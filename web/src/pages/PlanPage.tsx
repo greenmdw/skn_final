@@ -6,6 +6,7 @@ import PlannerShell from '../components/PlannerShell'
 import QuantityWarnings from '../components/QuantityWarnings'
 import ProductThumb from '../components/ProductThumb'
 import { usePlan } from '../state/PlanContext'
+import { useSetups } from '../state/SetupsContext'
 import { multiQtyItems } from '../state/planModel'
 import { useToast } from '../state/ToastContext'
 import type { CompatCheck, PartKey, PlanItem } from '../state/types'
@@ -39,8 +40,10 @@ function eulReul(word: string): string {
   return word + (batchim ? '을' : '를')
 }
 
-function PartRow({ item, open, busy, excluded, confirming, lastOne, onToggle, onCompare, onQty, onRemove, onRestore, onConfirmRemove, onCancelRemove }: {
+function PartRow({ item, open, busy, excluded, readOnly, confirming, lastOne, onToggle, onCompare, onQty, onRemove, onRestore, onConfirmRemove, onCancelRemove }: {
   item: PlanItem; open: boolean; busy: boolean; excluded: boolean
+  /** 확정된 견적서를 보기만 한다 — 수량·빼기·교체 비교를 숨긴다 */
+  readOnly: boolean
   /** 꼭 필요한 부품을 빼려 해서 확인 문구를 보이는 중 */
   confirming: boolean
   /** 남은 부품이 이것 하나뿐이라 뺄 수 없다 */
@@ -79,7 +82,7 @@ function PartRow({ item, open, busy, excluded, confirming, lastOne, onToggle, on
               ? <ul>{item.checks.map(text => <li key={text}>{text}</li>)}</ul>
               : <p style={{ color: '#92a4b2' }}>서버가 준 확인 항목이 없어요.</p>}
           </div>
-          <div className="pl-box pl-controls">
+          {!readOnly && <div className="pl-box pl-controls">
             <h4>수량 {busy && <span className="pl-busy" role="status">반영 중…</span>}</h4>
             <div className="pl-ctrl-row">
               {item.qty != null && (
@@ -102,20 +105,20 @@ function PartRow({ item, open, busy, excluded, confirming, lastOne, onToggle, on
                   : <>{eulReul(item.type)} 빼면 완성된 PC가 되지 않아요. 그래도 뺄까요?<div className="btns"><button type="button" className="go" onClick={onConfirmRemove}>그래도 빼기</button><button type="button" onClick={onCancelRemove}>취소</button></div></>}
               </div>
             )}
-          </div>
+          </div>}
           <div className="pl-box">
             <h4>리뷰</h4>
             {item.rating !== '-' || item.reviews !== '없음'
               ? <p><b style={{ fontSize: 20 }}>★ {item.rating}</b> <span style={{ marginLeft: 8 }}>리뷰 {item.reviews}</span></p>
               : <p style={{ color: '#92a4b2' }}>이 제품의 리뷰 관측이 아직 없어요.</p>}
           </div>
-          <div className="pl-compare-bar">
+          {!readOnly && <div className="pl-compare-bar">
             <div>
               <div style={{ fontSize: 13, fontWeight: 700 }}>다른 {item.type} 제품과 비교</div>
               <div className="pl-note" style={{ marginTop: 4 }}>가격·사양·리뷰를 나란히 보고 바꿀 수 있어요.</div>
             </div>
             <button type="button" className="pl-btn ghost" style={{ padding: '9px 14px', fontSize: 13 }} disabled={busy} onClick={onCompare}>제품 비교하기 →</button>
-          </div>
+          </div>}
         </div>
       )}
     </div>
@@ -123,8 +126,9 @@ function PartRow({ item, open, busy, excluded, confirming, lastOne, onToggle, on
 }
 
 export default function PlanPage() {
-  const { state, retryWithPerformance, refreshPlan, checkSession, selectPart, updateItem } = usePlan()
+  const { state, retryWithPerformance, refreshPlan, checkSession, selectPart, updateItem, reviseSetup } = usePlan()
   const { showToast } = useToast()
+  const { savedSetups } = useSetups()
   const navigate = useNavigate()
   const plan = state.currentPlan
   const [openId, setOpenId] = useState<string | null>(null)
@@ -159,6 +163,14 @@ export default function PlanPage() {
     if (lastOne || (item.key && REQUIRED_PARTS.includes(item.key))) setRemoveFor(item.id)
     else void removePart(item)
   }
+  const viewOnly = state.viewOnly
+  // 확정된 견적서를 보던 중 "견적 수정하기": 그 대화의 가장 최근 견적서를 원본으로 새 초안을 연다(같은 화면에서 수정이 이어진다).
+  async function reviseFromHere() {
+    const setup = savedSetups.find(item => item.id === plan!.id)
+    if (!setup || setup.revisionNo == null) { navigate('/report/' + plan!.id); return }
+    const screen = await reviseSetup(plan!.id, { listId: setup.id, revisionNo: setup.revisionNo, name: setup.title, date: setup.date, target: setup.target, memo: setup.memo })
+    if (screen === 'conditions') navigate('/start')
+  }
   const excludedIds = new Set((plan.excluded ?? []).map(item => item.id))
   // 뺀 부품은 서버 결과의 제자리에 흐리게 남긴다.
   const rows = [...plan.items, ...(plan.excluded ?? [])].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -188,12 +200,21 @@ export default function PlanPage() {
         {plan.compat && plan.compat.problems.length > 0 && (
           <div className="pl-alert bad" role="alert"><b>확정된 호환 문제</b><ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{plan.compat.problems.map(text => <li key={text}>{text}</li>)}</ul></div>
         )}
-        <QuantityWarnings items={multiQtyItems(plan)} />
+        {viewOnly && (
+          <div className="pl-alert" role="status">
+            확정된 견적서의 구성이에요. 부품·수량을 바꾸려면 <b>견적 수정하기</b>를 눌러 주세요.
+            <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button type="button" className="pl-btn" style={{ padding: '8px 14px', fontSize: 13 }} onClick={() => void reviseFromHere()}>견적 수정하기</button>
+              <Link className="pl-btn ghost" style={{ padding: '8px 14px', fontSize: 13, textDecoration: 'none' }} to={'/report/' + plan.id}>견적서 보기</Link>
+            </div>
+          </div>
+        )}
+        {!viewOnly && <QuantityWarnings items={multiQtyItems(plan)} />}
 
         <div className="pl-card">
           {excludedIds.size > 0 && <div className="pl-out-note">{excludedIds.size}개 부품을 뺐어요 · 뺀 부품은 합계와 확정에서 빠져요</div>}
           {rows.map(item => (
-            <PartRow key={item.id} item={item} open={openId === item.id} busy={busyId === item.id} excluded={excludedIds.has(item.id)}
+            <PartRow key={item.id} item={item} open={openId === item.id} busy={busyId === item.id} excluded={excludedIds.has(item.id)} readOnly={viewOnly}
               confirming={removeFor === item.id} lastOne={plan.items.length === 1}
               onToggle={() => { setOpenId(openId === item.id ? null : item.id); setRemoveFor(null); if (item.key) selectPart(item.key) }}
               onCompare={() => setComparing(item)}
@@ -235,8 +256,17 @@ export default function PlanPage() {
           <Link to="/peripherals">주변기기 이어서 짜기</Link>
         </div>
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <Link className="pl-btn" style={{ textDecoration: 'none' }} to="/cart">장바구니에 담기</Link>
-          <Link className="pl-btn ghost" style={{ textDecoration: 'none' }} to="/start">조건 바꾸기</Link>
+          {viewOnly ? (
+            <>
+              <button type="button" className="pl-btn" onClick={() => void reviseFromHere()}>견적 수정하기</button>
+              <Link className="pl-btn ghost" style={{ textDecoration: 'none' }} to={'/report/' + plan.id}>견적서 보기</Link>
+            </>
+          ) : (
+            <>
+              <Link className="pl-btn" style={{ textDecoration: 'none' }} to="/cart">장바구니에 담기</Link>
+              <Link className="pl-btn ghost" style={{ textDecoration: 'none' }} to="/start">조건 바꾸기</Link>
+            </>
+          )}
         </div>
       </div>
       {comparing && <AlternativesDialog item={comparing} onClose={() => setComparing(null)} />}

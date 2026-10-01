@@ -15,7 +15,7 @@
 |---|---|
 | `src/` | FastAPI 백엔드 (`src/api.py`), 추천 엔진, 서비스, 에이전트 |
 | `web/` | 화면(React + Vite). 빌드 결과 `web/dist`를 백엔드가 같은 주소에서 서빙 |
-| `db/` | PostgreSQL 마이그레이션 5개, 시드 스크립트, `setup_all.py` |
+| `db/` | PostgreSQL 마이그레이션 8개(`db/migrations/0000`~`0007`), 시드 스크립트, `setup_all.py` |
 | `config/`, `data/` | 카테고리 설정, 시드·리뷰 데이터 (`data/reviews/`는 [README](data/reviews/README.md) 참고) |
 | `tests/` | pytest |
 
@@ -82,6 +82,16 @@ uv run uvicorn src.api:app --reload --port 8000
 - 종료: 실행 중인 터미널에서 `Ctrl+C`
 
 ## 코드를 받은 뒤 (pull 후 해야 할 일)
+
+- **새 마이그레이션이 들어왔는지 확인하고 개발 DB에 적용합니다.** `db/migrations/`에 파일이 늘어나면(예: `0006_report_soft_delete`, `0007_peripheral_line`) 이미 만들어 둔 로컬 DB에는 자동으로 반영되지 않습니다. 적용하지 않으면 `GET /lists`가 500 오류를 내는 등 API가 깨질 수 있습니다. 매번 pull 뒤에 한 번씩 실행하세요(이미 적용된 것은 건너뜁니다).
+
+  ```powershell
+  $env:DATABASE_URL = "postgresql://truefit:truefit@localhost:5432/truefit"
+  uv run python db/migrate.py status   # 적용 현황 (pending 이 있으면 아래 실행)
+  uv run python db/migrate.py up       # 아직 안 한 마이그레이션만 적용
+  ```
+
+  처음부터 새로 만드는 경우(`setup_all.py`)에는 마이그레이션이 모두 함께 적용되니 따로 할 필요가 없습니다. 각 마이그레이션이 무엇을 바꾸는지는 `db/README.md`의 표와 파일 머리 주석에 있습니다.
 
 - `web/dist`는 Git에 올라가지 않는 빌드 결과물입니다. **pull 받은 뒤 각자 화면을 한 번 빌드해야** 화면이 뜹니다.
 

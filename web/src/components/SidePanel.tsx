@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { usePlan } from '../state/PlanContext'
 import { useSetups } from '../state/SetupsContext'
 import { useToast } from '../state/ToastContext'
+import { useRemoveSheet } from '../state/useRemoveSheet'
 import { logout, useAuthUser } from '../state/authStore'
 import { compactWon, dateGroup, fullDate, shortDate } from '../utils/format'
 import ResizeHandle, { usePanelWidth } from './ResizeHandle'
@@ -112,6 +113,7 @@ export default function SidePanel() {
   const { state, resetPlan, openConversation } = usePlan()
   const { removeSetup, reload: reloadSetups, conversations, conversationsError: historyError, refreshConversations } = useSetups()
   const { showToast } = useToast()
+  const removeSheetApi = useRemoveSheet()
   const navigate = useNavigate()
   const { pathname, search } = useLocation()
   const [tab, setTab] = useState<Tab>(readTab)
@@ -150,15 +152,15 @@ export default function SidePanel() {
     void refreshConversations()
   }, [pathname, refreshConversations])
 
+  // 대화를 누르면 그 대화의 채팅과 함께 "2 추천 결과" 화면이 열린다. 확정된 대화는 구성을 보기만 하고(고치려면 견적 수정하기),
+  // 구성을 못 읽으면 리포트로 간다. 견적서를 누르면 리포트가 열린다(견적서 행).
   async function openHistory(item: ConversationSummary) {
-    if (item.stage === 'report') { navigate('/report/' + item.listId); return }
-    const opened = await openConversation(item.listId, item.stage === 'results')
-    if (opened) navigate(opened === 'plan' ? '/plan' : '/start')
+    const confirmed = item.stage === 'report'
+    const opened = await openConversation(item.listId, item.stage === 'results' || confirmed, confirmed)
+    if (opened === 'plan') navigate('/plan')
+    else if (opened) navigate(confirmed ? '/report/' + item.listId : '/start')
   }
 
-  useEffect(() => {
-    try { localStorage.setItem(KEY, collapsed ? '1' : '0') } catch { /* 보관 실패는 무시 */ }
-  }, [collapsed])
   // 우클릭 메뉴는 바깥을 누르거나 Esc, 스크롤, 창 포커스가 빠질 때 닫는다.
   useEffect(() => {
     if (!ctx) return
@@ -287,16 +289,8 @@ export default function SidePanel() {
     setCtx(null)
     const siblings = conversations?.find(item => item.listId === listId)?.reports ?? []
     const rest = siblings.filter(item => item.revisionNo !== report.revisionNo)
-    const note = rest.length === 0 ? ' 마지막 견적서라 대화는 남고, 그 구성은 작성 중인 견적으로 돌아가요.' : ''
-    if (!window.confirm(`“${report.name}” 견적서를 삭제할까요?${note} 되돌릴 수 없어요.`)) return
     const wasViewing = isViewing(listId, report.revisionNo, siblings[siblings.length - 1]?.revisionNo ?? 0)
-    try {
-      await api.lists.removeReport(listId, report.revisionNo)
-    } catch (error) {
-      showToast(errorMessage(error, '삭제하지 못했습니다. 잠시 후 다시 시도해주세요.'))
-      return
-    }
-    reloadSetups()
+    if (!await removeSheetApi(listId, report, rest.length === 0)) return
     // 지금 보던 견적서를 지웠으면 남은 가장 최근 견적서로, 없으면 시작 화면으로 간다.
     if (wasViewing) navigate(rest.length > 0 ? `/report/${listId}?v=${rest[rest.length - 1].revisionNo}` : '/start')
   }

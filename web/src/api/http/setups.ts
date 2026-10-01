@@ -60,8 +60,9 @@ export const setups: Api['setups'] = {
     const report = await request<WireReport>('GET', '/lists/' + id + '/report?revision=' + revisionNo)
     return setupFromReport(report, readExtras()[id])
   },
-  async newRevision(id) {
-    return loadedFromWire(id, await request<WireConditionState>('POST', '/lists/' + id + '/revisions'))
+  async newRevision(id, fromRevisionNo) {
+    const body = fromRevisionNo != null ? { from_revision_no: fromRevisionNo } : undefined
+    return loadedFromWire(id, await request<WireConditionState>('POST', '/lists/' + id + '/revisions', body))
   },
   async list(conversations?: ConversationSummary[]): Promise<SetupsListResult> {
     const items = conversations ?? await lists.list()

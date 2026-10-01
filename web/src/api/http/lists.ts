@@ -6,6 +6,7 @@ import type { WireLists, WireReportSummary } from './wire'
 
 export const reportSummaryFromWire = (r: WireReportSummary): ReportSummary => ({
   revisionNo: r.revision_no, name: r.name, confirmedAt: r.confirmed_at, total: r.total, itemCount: r.item_count,
+  peripheralCount: r.peripheral_count,
 })
 
 export const lists: Api['lists'] = {

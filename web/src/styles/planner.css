@@ -232,3 +232,5 @@
 .pl-savemode input[type=radio] { width: auto; height: auto; margin-top: 3px; accent-color: var(--mint); }
 .pl-savemode span { display: flex; flex-direction: column; gap: 2px; }
 .pl-savemode small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.pl-pill.danger { border-color: #6b3a3a; color: #ff8f8f; }
+.pl-pill.danger:hover { background: rgba(255,143,143,.1); }

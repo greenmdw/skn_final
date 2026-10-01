@@ -17,7 +17,7 @@ const initialState: PlanState = {
   stage: 0, mode: 'new', intent: '', performance: '', quiet: '', budget: 2500000,
   currentPlan: null, checkSnapshot: null, selectedPart: 'cpu',
   sessionId: null, fields: [], canRecommend: false, budgetWarning: null,
-  deskUnlocked: false, deskWidth: 1400, deskDepth: 700, deskHeight: 740, editingSheet: null,
+  deskUnlocked: false, deskWidth: 1400, deskDepth: 700, deskHeight: 740, editingSheet: null, viewOnly: false,
 }
 // 서버의 해상도 필드 → 화면 문구. 사용자가 안 정해서 서버가 기본값으로 가정한 값이면 "(기본값)"을 붙인다.
 function resolutionText(field: { display: string | null; status: string } | undefined): string | null {
@@ -341,7 +341,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   }, [showToast, updateState])
   // 패널 "대화 내역"에서 지난 대화를 연다: 서버의 대화·조건을 읽고, 추천 결과가 있으면 그 구성까지 되살린다.
   // 돌려주는 값은 열린 화면 — 'plan'(추천 결과) · 'conditions'(조건 대화) · null(실패, 안내는 토스트로).
-  const openConversation = useCallback(async (listId: string, hasResult: boolean): Promise<'plan' | 'conditions' | null> => {
+  const openConversation = useCallback(async (listId: string, hasResult: boolean, viewOnly = false): Promise<'plan' | 'conditions' | null> => {
     cancelPending()
     const mine = epoch.current
     try {
@@ -352,7 +352,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
           conditions: { intent: base.intent, performance: base.performance, quiet: base.quiet }, checkSnapshot: null }).catch(() => null)
         : null
       if (mine !== epoch.current) return null
-      updateState(() => ({ ...base, currentPlan: plan, stage: plan ? 4 : 1,
+      updateState(() => ({ ...base, currentPlan: plan, stage: plan ? 4 : 1, viewOnly: viewOnly && !!plan,
         selectedPart: plan?.items.find(p => p.key)?.key ?? 'cpu' }))
       setCheckDraft(createCheckDraft())
       setMessages(chatFromLoaded(loaded, !plan))
@@ -370,7 +370,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   // 그대로 열어 추천 결과 화면에서 수정한다. 돌려주는 값은 열린 화면 — 'plan' · 'conditions' · null.
   const reviseSetup = useCallback(async (listId: string, from: EditingSheet): Promise<'plan' | 'conditions' | null> => {
     try {
-      await api.setups.newRevision(listId)
+      await api.setups.newRevision(listId, from.revisionNo)
     } catch (error) {
       showToast(errorMessage(error, '새 견적서를 시작하지 못했습니다. 잠시 후 다시 시도해주세요.'))
       return null

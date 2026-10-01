@@ -69,6 +69,8 @@ export interface PlanState {
   deskHeight: number
   /** 견적 수정하기로 연 원본 견적서. 없으면 새 견적이다 */
   editingSheet: EditingSheet | null
+  /** 확정한 견적서의 구성을 보기만 한다(대화 내역에서 확정된 대화를 열었을 때) — 부품·수량·대화를 바꿀 수 없다 */
+  viewOnly: boolean
 }
 
 export interface ChatMessage {

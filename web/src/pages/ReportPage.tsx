@@ -7,6 +7,7 @@ import ProductThumb from '../components/ProductThumb'
 import { planTotal } from '../state/planModel'
 import { usePlan } from '../state/PlanContext'
 import { useSetups } from '../state/SetupsContext'
+import { useRemoveSheet } from '../state/useRemoveSheet'
 import type { SavedSetup } from '../state/types'
 import { confirmedAtText, isoToKo, wonFmt } from '../utils/format'
 
@@ -16,7 +17,8 @@ export default function ReportPage() {
   const { id } = useParams()
   const [search] = useSearchParams()
   const navigate = useNavigate()
-  const { savedSetups, loading, storageError } = useSetups()
+  const { savedSetups, loading, storageError, conversations } = useSetups()
+  const removeSheet = useRemoveSheet()
   const { reviseSetup } = usePlan()
   const latest = savedSetups.find(item => item.id === id)
   const wanted = Number(search.get('v')) || null
@@ -38,10 +40,21 @@ export default function ReportPage() {
   const setup = needsOlder ? older : latest
   const reports = latest?.reports ?? []
   async function revise() {
+    // 작성 중인 견적이 있으면 서버가 버리고 이 견적서에서 새로 시작한다 — 먼저 물어본다.
+    const draft = conversations?.find(item => item.listId === id && item.stage !== 'report')
+    if (draft && !window.confirm('작성 중인 견적이 있어요. 버리고 이 견적서에서 새로 시작할까요?')) return
     const screen = id && setup && setup.revisionNo != null
       ? await reviseSetup(id, { listId: id, revisionNo: setup.revisionNo, name: setup.title, date: setup.date, target: setup.target, memo: setup.memo })
       : null
     if (screen) navigate(screen === 'plan' ? '/plan' : '/start')
+  }
+
+  async function remove() {
+    if (!id || !setup || setup.revisionNo == null) return
+    const rest = reports.filter(report => report.revisionNo !== setup.revisionNo)
+    if (!await removeSheet(id, { revisionNo: setup.revisionNo, name: setup.title }, rest.length === 0)) return
+    // 남은 가장 최근 견적서로, 없으면 시작 화면으로 간다.
+    navigate(rest.length > 0 ? `/report/${id}?v=${rest[rest.length - 1].revisionNo}` : '/start')
   }
 
   if (!setup) {
@@ -69,8 +82,11 @@ export default function ReportPage() {
               견적서 {report.revisionNo}
             </button>
           ))}
-          {setup.revisionNo != null && setup.revisionNo === latest?.revisionNo && (
-            <button type="button" className="pl-pill mint" onClick={() => void revise()} title="이 견적서의 조건으로 추천 결과 화면을 열어 수정해요. 확정하면 새 견적서로 저장돼요.">견적 수정하기</button>
+          {setup.revisionNo != null && (
+            <>
+              <button type="button" className="pl-pill mint" onClick={() => void revise()} title="이 견적서의 구성으로 추천 결과 화면을 열어 수정해요. 확정할 때 덮어쓸지 새로 저장할지 고를 수 있어요.">견적 수정하기</button>
+              <button type="button" className="pl-pill danger" onClick={() => void remove()} title="이 견적서만 삭제해요. 대화와 다른 견적서는 그대로예요.">견적서 삭제</button>
+            </>
           )}
           <button type="button" className="pl-pill" onClick={() => window.print()}>인쇄</button>
         </div>

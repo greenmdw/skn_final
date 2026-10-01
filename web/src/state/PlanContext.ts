@@ -34,7 +34,7 @@ export interface PlanContextValue {
   loadFromSavedSetup: (setup: SavedSetup) => void
   startUpgradeMode: () => Promise<boolean>
   /** 지난 대화를 서버에서 읽어 연다. hasResult 면 추천 결과까지. 열린 화면('plan'|'conditions'), 실패하면 null */
-  openConversation: (listId: string, hasResult: boolean) => Promise<'plan' | 'conditions' | null>
+  openConversation: (listId: string, hasResult: boolean, viewOnly?: boolean) => Promise<'plan' | 'conditions' | null>
   /** 확정한 견적의 조건으로 새 견적서를 시작한다(조건 대화로). 성공하면 true */
   reviseSetup: (listId: string, from: EditingSheet) => Promise<'plan' | 'conditions' | null>
   /** 덮어쓰기·새로 저장을 마친 뒤 "수정 중인 원본" 표시를 지운다 */

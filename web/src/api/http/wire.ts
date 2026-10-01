@@ -25,7 +25,6 @@ export interface WireItem {
   price_observed_at: string | null
   qty: number
   selected: boolean
-  timing: 'now' | 'soon' | 'later' | string
   budget_share: number | null
   review: WireReview | null
   reason: WireText
@@ -136,7 +135,6 @@ export interface WireReportItem {
   product: { name: string; image_url?: string | null; purchase_url?: string | null }
   price: number
   qty: number
-  timing: string
   review: WireReview | null
   evidence_text: string | null
 }
@@ -159,7 +157,10 @@ export interface WireReportSummary {
   name: string
   confirmed_at: string
   total: number
+  /** 본체 부품 수만 */
   item_count: number
+  /** 확정할 때 같이 저장한 주변기기 수(없으면 0) */
+  peripheral_count?: number
   planned_purchase_at: string | null
 }
 

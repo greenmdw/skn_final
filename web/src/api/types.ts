@@ -77,7 +77,7 @@ export interface RecommendRequest {
 
 // ---- 대화 목록 · 견적서 (개발요청 10번) ----
 /** 목록 하나에 딸린 확정 견적서 하나(서버 revision). 번호로 리포트·히스토리를 연다 */
-/** peripheralCount 는 서버가 주변기기 개수를 줄 때만 채운다(지금 API는 본체 부품 수 itemCount 만 준다). */
+/** itemCount 는 본체 부품 수, peripheralCount 는 확정할 때 같이 저장한 주변기기 수다. */
 export interface ReportSummary { revisionNo: number; name: string; confirmedAt: string; total: number; itemCount: number; peripheralCount?: number }
 /** 패널 "대화 내역"의 한 줄 — 서버 목록(list) 하나 */
 export interface ConversationSummary {
@@ -309,8 +309,8 @@ export interface Api {
     history(id: string, revisionNo?: number): Promise<ListHistory>
     /** 번호로 견적서 하나를 연다(같은 목록의 예전 견적서) */
     report(id: string, revisionNo: number): Promise<SavedSetup>
-    /** 확정한 견적의 조건으로 새 견적서를 시작한다. 이후 조건 대화·추천은 같은 id 로 새 견적서에 쓴다 */
-    newRevision(id: string): Promise<LoadedConversation>
+    /** 확정한 견적의 조건으로 새 견적서를 시작한다(fromRevisionNo 가 있으면 그 번호의 견적서에서, 없으면 가장 최근 견적서에서). 이후 조건 대화·추천은 같은 id 로 새 견적서에 쓴다 */
+    newRevision(id: string, fromRevisionNo?: number): Promise<LoadedConversation>
     /** 같은 id가 있으면 갱신합니다. 저장된 구성을 돌려줍니다. */
     save(setup: SavedSetup): Promise<SavedSetup>
     remove(id: string): Promise<void>
