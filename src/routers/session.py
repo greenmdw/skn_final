@@ -167,6 +167,23 @@ def swap(list_id: UUID, item_id: UUID, body: schemas.SwapIn, principal: Principa
         stored = recommendation_service.swap_item(conn, revision["id"], item_id, UUID(body.candidate_id), user_id=principal.user_id)
     return schemas.RecommendResultOut(**stored)
 
+@router.post("/{list_id}/peripherals/recommend", response_model=schemas.PeripheralsOut)
+def recommend_peripherals(
+    list_id: UUID, body: schemas.PeripheralsRecommendIn, principal: Principal = Depends(optional_principal),
+) -> schemas.PeripheralsOut:
+    """주변기기(모니터·키보드·마우스·스피커) 추천 — 개발요청 6번. PC 견적 대화 없이 바로 호출할 수
+    있다. `pc_list_id`를 주면 그 PC 견적의 해상도를 묶어 모니터 교차검사를 추가로 켠다."""
+    from src.services import peripherals_service
+
+    with get_conn() as conn:
+        session_service._owned(PlanRepo(conn), list_id, principal)
+        pc_context = (
+            peripherals_service.pc_context_from_list(conn, UUID(body.pc_list_id), principal)
+            if body.pc_list_id else None
+        )
+        payload = peripherals_service.recommend(conn, body, pc_context)
+    return schemas.PeripheralsOut(**payload)
+
 @router.post("/{list_id}/result-message", response_model=schemas.ResultMessageOut)
 def result_message(
     list_id: UUID,

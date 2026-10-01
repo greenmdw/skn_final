@@ -72,7 +72,7 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
 - If the default uv cache is read-only, keep `UV_CACHE_DIR=/tmp/uv-cache` in the command.
 - If Python raises `ModuleNotFoundError: src`, run from the repository root and set `PYTHONPATH=.`.
 - If database tests are skipped, rerun with `TRUEFIT_REQUIRE_TEST_DB=1` so the underlying setup problem is reported as an error.
-- The current database baseline must contain exactly these six files:
+- The current database baseline must contain exactly these seven files:
   - `db/migrations/0000_schema.sql`
   - `db/migrations/0001_constraints.sql`
   - `db/migrations/0002_indexes.sql`
@@ -82,3 +82,6 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
   - `db/migrations/0005_preference_signal.sql` (added 2026-09-30: adds
     `identity.preference_signal`, brand-level preference/aversion signals — see
     `docs/사용자_선호비선호_기록_설계.md`)
+  - `db/migrations/0006_report_soft_delete.sql` (added 2026-10-01, 개발요청 10번: adds
+    `planning.plan_revision.deleted_at` so a single confirmed report can be deleted
+    without deleting the whole conversation)

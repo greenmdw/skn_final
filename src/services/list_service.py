@@ -113,6 +113,53 @@ def new_revision(conn, list_id: UUID, principal: Principal) -> dict:
     return session_service._state(conn, list_id, principal)
 
 
+def _owned_confirmed_report(prepo: PlanRepo, list_id: UUID, principal: Principal, revision_no: int,
+                            user_id: UUID) -> dict:
+    current = _owned(prepo, list_id, principal)
+    if current["owner_user_id"] != user_id:
+        raise NotFound("목록을 찾을 수 없습니다.")
+    target = prepo.get_revision_by_no(list_id, revision_no)
+    if target is None or target["state"] != "confirmed":
+        raise NotFound("견적서를 찾을 수 없습니다.")
+    return target
+
+
+def delete_report(conn, list_id: UUID, principal: Principal, revision_no: int) -> dict:
+    """견적서(확정된 revision) 하나만 지운다(개발요청 10번) — 대화·다른 견적서는 그대로 둔다.
+
+    지금 작업 중인(current) revision이 바로 지우는 그 견적서면(확정 직후 "새 견적서 시작"을
+    아직 안 누른 상태) current를 다른 곳으로 옮겨야 한다 — 남은 확정 견적서가 있으면 가장
+    최근 것으로, 하나도 안 남으면 지우는 견적서의 조건·구성을 그대로 들고 초안으로 되돌린다
+    (`clone_revision`, 8번과 같은 메커니즘 — "새 견적서 시작"을 자동으로 누른 것과 같다)."""
+    from src.services import session_service
+
+    user_id = _require_login(conn, principal)
+    prepo = PlanRepo(conn)
+    target = _owned_confirmed_report(prepo, list_id, principal, revision_no, user_id)
+    current = prepo.get_current_revision(list_id)
+
+    if current is not None and current["id"] == target["id"]:
+        remaining = [r for r in prepo.confirmed_revisions(list_id) if r["id"] != target["id"]]
+        if remaining:
+            prepo.set_current_revision(list_id, remaining[-1]["id"])
+        else:
+            new_id = prepo.clone_revision(list_id, target["id"])
+            prepo.set_current_revision(list_id, new_id)
+
+    prepo.soft_delete_revision(target["id"])
+    return session_service._state(conn, list_id, principal)
+
+
+def rename_report(conn, list_id: UUID, principal: Principal, revision_no: int, name: str) -> dict:
+    """견적서 하나의 이름만 바꾼다(개발요청 10번) — 대화 이름(`PATCH /lists/{id}`)과는 별개로,
+    확정 때 저장된 `name_snapshot`을 바꾼다."""
+    user_id = _require_login(conn, principal)
+    prepo = PlanRepo(conn)
+    target = _owned_confirmed_report(prepo, list_id, principal, revision_no, user_id)
+    prepo.rename_revision(target["id"], name)
+    return get_report(conn, list_id, principal, revision_no)
+
+
 def _reports_out(rows: list[dict]) -> list[dict]:
     return [{
         "revision_no": r["revision_no"], "name": r["name_snapshot"], "confirmed_at": r["confirmed_at"],

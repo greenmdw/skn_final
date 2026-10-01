@@ -91,17 +91,41 @@ class PlanRepo(Repo):
         )
 
     def confirmed_revisions(self, plan_id: UUID) -> list[dict]:
-        """한 목록의 확정된 견적서들(오래된 것부터). 견적서 하나 = 확정된 revision 하나."""
+        """한 목록의 확정된 견적서들(오래된 것부터). 견적서 하나 = 확정된 revision 하나.
+        개별 삭제된(deleted_at) 견적서는 빼고 낸다(개발요청 10번)."""
         return self._all(
             "SELECT r.id, r.revision_no, r.name_snapshot, r.confirmed_at, r.confirmed_total, r.planned_purchase_at, "
             "(SELECT count(*) FROM planning.purchase_line l WHERE l.revision_id=r.id) AS item_count "
-            "FROM planning.plan_revision r WHERE r.plan_id=%s AND r.state='confirmed' ORDER BY r.revision_no",
+            "FROM planning.plan_revision r WHERE r.plan_id=%s AND r.state='confirmed' AND r.deleted_at IS NULL "
+            "ORDER BY r.revision_no",
             (plan_id,),
         )
 
     def get_revision_by_no(self, plan_id: UUID, revision_no: int) -> dict | None:
-        row = self._one("SELECT id FROM planning.plan_revision WHERE plan_id=%s AND revision_no=%s", (plan_id, revision_no))
+        """개별 삭제된 견적서는 번호로도 더는 못 찾는다(개발요청 10번) — 목록에서 사라진 것과 같은 의미."""
+        row = self._one(
+            "SELECT id FROM planning.plan_revision WHERE plan_id=%s AND revision_no=%s AND deleted_at IS NULL",
+            (plan_id, revision_no),
+        )
         return self.get_revision(row["id"]) if row else None
+
+    def soft_delete_revision(self, revision_id: UUID) -> bool:
+        """견적서 하나만 삭제(개발요청 10번) — 확정된 것만, 이미 지운 것은 다시 지우지 않는다."""
+        row = self._one(
+            "UPDATE planning.plan_revision SET deleted_at=now(), updated_at=now() "
+            "WHERE id=%s AND state='confirmed' AND deleted_at IS NULL RETURNING id",
+            (revision_id,),
+        )
+        return row is not None
+
+    def rename_revision(self, revision_id: UUID, name: str) -> bool:
+        """견적서 하나의 name_snapshot만 바꾼다(개발요청 10번) — 대화 이름(plan.name)과는 별개."""
+        row = self._one(
+            "UPDATE planning.plan_revision SET name_snapshot=%s, updated_at=now() "
+            "WHERE id=%s AND state='confirmed' AND deleted_at IS NULL RETURNING id",
+            (name, revision_id),
+        )
+        return row is not None
 
     def clone_revision(self, plan_id: UUID, source_revision_id: UUID) -> UUID:
         """source 의 도메인 버전·활성 조건과, 있으면 추천 결과(부품 구성)까지 가진 새 draft revision(다음

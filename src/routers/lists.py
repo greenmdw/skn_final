@@ -68,6 +68,27 @@ def new_revision(list_id: UUID, principal: Principal = Depends(optional_principa
     return schemas.ConditionState(**state)
 
 
+@router.delete("/{list_id}/reports/{revision_no}", response_model=schemas.ConditionState)
+def delete_report(
+    list_id: UUID, revision_no: int, principal: Principal = Depends(optional_principal)
+) -> schemas.ConditionState:
+    """견적서(확정된 revision) 하나만 삭제한다(개발요청 10번). 대화·다른 견적서는 그대로 둔다."""
+    with get_conn() as conn:
+        state = list_service.delete_report(conn, list_id, principal, revision_no)
+    return schemas.ConditionState(**state)
+
+
+@router.patch("/{list_id}/reports/{revision_no}", response_model=schemas.ReportOut)
+def rename_report(
+    list_id: UUID, revision_no: int, body: schemas.ReportRenameIn,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.ReportOut:
+    """견적서 하나의 이름만 바꾼다(개발요청 10번) — 대화 이름(`PATCH /lists/{id}`)과 별개."""
+    with get_conn() as conn:
+        report = list_service.rename_report(conn, list_id, principal, revision_no, body.name)
+    return schemas.ReportOut(**report)
+
+
 @router.get("/{list_id}/history", response_model=schemas.ListHistoryOut)
 def history(list_id: UUID, revision: int | None = None,
             principal: Principal = Depends(optional_principal)) -> schemas.ListHistoryOut:

@@ -552,6 +552,78 @@ class AlternativesOut(BaseModel):
     items: list[AlternativeOut] = Field(default_factory=list)
 
 
+class PeripheralsRecommendIn(BaseModel):
+    """개발요청 6번 — 주변기기 추천. PC 견적 대화(category 선택)를 거치지 않고 바로 호출한다."""
+
+    kinds: list[Literal["monitor", "keyboard", "mouse", "speaker"]] = Field(min_length=1)
+    budget_max: Optional[int] = Field(default=None, ge=0)
+    purpose: Optional[str] = None
+    priority: Optional[str] = None
+    noise_sensitive: Optional[bool] = None
+    resolution: Optional[str] = None
+    # 주면 그 PC 견적의 해상도·GPU 스펙을 pc_context로 묶어 모니터 교차검사를 추가로 켠다
+    # (principal 소유가 아니거나 못 찾으면 조용히 무시 — 독립 추천으로 그냥 진행한다).
+    pc_list_id: Optional[str] = None
+
+
+class PeripheralProductOut(BaseModel):
+    name: str
+    brand: str
+    variant_id: str | None = None
+    product_url: str | None = None
+    image_url: str | None = None
+
+
+class PeripheralRequirementRowOut(BaseModel):
+    key: str
+    label: str
+    value: str
+
+
+class PeripheralCheckOut(BaseModel):
+    axis: str
+    label: str
+    state: str          # ok | unknown | fail
+    detail: str
+
+
+class PeripheralAlternativeOut(BaseModel):
+    name: str
+    price: int
+    diff: int
+
+
+class PeripheralItemOut(BaseModel):
+    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    kind_label: str
+    product: PeripheralProductOut
+    price: int
+    price_source: str
+    price_note: str
+    requirement: list[PeripheralRequirementRowOut] = Field(default_factory=list)
+    checks: list[PeripheralCheckOut] = Field(default_factory=list)
+    reason: TextStatusOut
+    alternatives: list[PeripheralAlternativeOut] = Field(default_factory=list)
+    guide: TextStatusOut
+
+
+class PeripheralEmptyOut(BaseModel):
+    kind: str
+    reason: str
+
+
+class PeripheralTotalsOut(BaseModel):
+    reference_price: int
+    note: str
+
+
+class PeripheralsOut(BaseModel):
+    status: Literal["ready", "empty", "skipped"]
+    items: list[PeripheralItemOut] = Field(default_factory=list)
+    empty: list[PeripheralEmptyOut] = Field(default_factory=list)
+    totals: PeripheralTotalsOut
+
+
 class SwapIn(BaseModel):
     candidate_id: str
 
@@ -652,6 +724,10 @@ class ListsOut(BaseModel):
 
 
 class ListRenameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+
+class ReportRenameIn(BaseModel):
     name: str = Field(min_length=1, max_length=60)
 
 
