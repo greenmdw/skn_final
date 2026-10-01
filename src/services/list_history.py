@@ -17,7 +17,7 @@ import re
 from uuid import UUID
 
 from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY
-from src.engine.lang import fmt_money
+from src.engine.lang import fmt_money, josa
 from src.repo.user_repo import ConversationRepo
 
 _TEXT_LIMIT = 120          # 사건 한 줄에 옮기는 사용자 말 길이
@@ -43,29 +43,12 @@ def _clip(text: str) -> str:
     return text if len(text) <= _TEXT_LIMIT else text[: _TEXT_LIMIT - 1] + "…"
 
 
-# 한글이 아닌 끝 글자를 읽을 때 받침이 있는지(영=0·일·삼·육·칠·팔 / 엘·엠·엔·알). ㄹ 받침은 "으로" 대신 "로".
-_LATIN_DIGIT_BATCHIM = {c: True for c in "013678lmnrLMNR"}
-_LATIN_DIGIT_RIEUL = set("178lrLR")
-
-
-def _batchim(word: str) -> tuple[bool, bool]:
-    """(받침 있음, 그 받침이 ㄹ). 괄호·공백 같은 끝 기호는 건너뛴다."""
-    for ch in reversed(word.strip()):
-        if "가" <= ch <= "힣":
-            final = (ord(ch) - 0xAC00) % 28
-            return final != 0, final == 8
-        if ch.isalnum():
-            return _LATIN_DIGIT_BATCHIM.get(ch, False), ch in _LATIN_DIGIT_RIEUL
-    return False, False
-
-
 def _eul(word: str) -> str:
-    return word + ("을" if _batchim(word)[0] else "를")
+    return josa(word, "을/를")
 
 
 def _euro(word: str) -> str:
-    has, rieul = _batchim(word)
-    return word + ("으로" if has and not rieul else "로")
+    return josa(word, "으로/로")
 
 
 def _user_text(text: str) -> str:

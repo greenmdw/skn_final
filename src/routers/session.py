@@ -31,7 +31,7 @@ def previous(
 ) -> schemas.PreviousLookupOut:
     with get_conn() as conn:
         found = session_service.previous_conditions(conn, principal, category, mode, exclude)
-        hint = session_service.preference_hint(conn, principal)
+        hint = session_service.preference_hint(conn, principal, category)
     return schemas.PreviousLookupOut(previous=found, preference_hint=hint)
 
 @router.post("/{list_id}/preference-hint/{signal_id}/respond")

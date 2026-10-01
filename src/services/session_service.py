@@ -6,6 +6,8 @@ from src.agent import conditions_agent, spec_extraction_agent
 from src.auth.deps import Principal
 from src.categories import available_categories, load_category
 from src.engine import slot_rules
+from src.engine.brands import canonical_brand, canonical_slot, cpu_brand_pref
+from src.engine.lang import josa
 from src.engine.spec_text import parse_spec_text
 from src.errors import Conflict, FileTooLarge, NotFound, ValidationFailed
 from src.repo.plan_repo import RESUMED_FROM_KEY, PlanRepo
@@ -307,10 +309,17 @@ def apply_explicit_preference_patches(conn, user_id: UUID | None, patches: list[
     별도 함수로 뺀 이유: 에이전트 가용 여부(MOCK_MODE 등)와 무관하게 이 저장 로직만 단위 테스트할 수 있게."""
     if user_id is None or not patches:
         return 0
+    from src.repo.catalog_repo import PC_TYPE_TO_SLOT
+    type_of = {slot: t for t, slot in PC_TYPE_TO_SLOT.items()}
     pref_repo = PreferenceRepo(conn)
     for p in patches:
-        pref_repo.upsert_signal(user_id=user_id, dimension="brand", slot=p["slot"],
-                                value=p["value"], direction=p["direction"], source="explicit_chat")
+        # 에이전트가 적은 "그래픽카드"·"인텔"을 교체 기록에서 추론한 신호와 같은 표기("GPU"·"Intel")로 맞춘다 —
+        # 안 맞추면 같은 브랜드가 다른 신호로 갈려 횟수가 나뉘고, 수락해도 CPU 조건에 안 담긴다.
+        slot = canonical_slot(p["slot"])
+        brands = [r[0] for r in conn.execute(
+            "SELECT DISTINCT brand FROM catalog.product WHERE product_type=%s", (type_of.get(slot, ""),)).fetchall()]
+        pref_repo.upsert_signal(user_id=user_id, dimension="brand", slot=slot,
+                                value=canonical_brand(p["value"], brands), direction=p["direction"], source="explicit_chat")
     return len(patches)
 
 
@@ -507,35 +516,67 @@ def resume_previous(conn, list_id: UUID, from_list_id: UUID, principal: Principa
     return _state(conn, list_id, principal)
 
 
+def _brand_pref_for(category: str | None, slot: str | None, value: str) -> str | None:
+    """선호 신호를 이번 목록의 brand_pref 조건으로 담을 수 있으면 그 값, 아니면 None.
+    brand_pref 는 CPU 브랜드 enum(slot_schema: intel·amd·none)이라 CPU 의 intel·amd 선호만 담긴다 — stage2 가
+    sockets_by_brand[brand] 로 읽는다. 되묻기 문구(묻는가)와 수락(담는가)이 같은 판정을 쓰게 한 곳에 둔다."""
+    allowed = set((((_category(category) if category else {}).get("slot_schema") or {})
+                   .get("brand_pref") or {}).get("values") or []) - {"none"}
+    pref = cpu_brand_pref(value)
+    return pref if canonical_slot(slot or "") == "CPU" and pref in allowed else None
+
+
+def _hint_summary(top: dict, avoid: dict | None, actionable: bool) -> str:
+    """관측한 사실만 쓴다. 추론 신호의 confidence 는 순 횟수(선호 - 비선호)라 "N번"이 실제 교체 횟수와 다를 수
+    있어 쓰지 않고, 문턱(3) 이상이면 사실인 "여러 번"으로 쓴다. 한 번 직접 말한 것은 "자주"가 아니라 "하셨어요".
+    반영할 수 없는 신호(CPU 가 아닌 슬롯·비선호)는 "할까요?"로 묻지 않는다 — "예"를 눌러도 아무것도 안 바뀐다."""
+    slot, brand = top["slot"], top["value"]
+    if top["source"] == "explicit_chat":
+        said = "좋다고" if top["direction"] == "prefer" else "별로라고"
+        lead = f"지난번에 {josa(slot, '은/는')} {josa(brand, '이/가')} {said} 하셨어요."
+    elif top["direction"] == "prefer" and avoid:
+        lead = f"지난 견적들에서 {josa(slot, '을/를')} {avoid['value']}에서 {josa(brand, '으로/로')} 여러 번 바꾸셨어요."
+    elif top["direction"] == "prefer":
+        lead = f"지난 견적들에서 {josa(slot, '을/를')} {josa(brand, '으로/로')} 여러 번 바꾸셨어요."
+    else:
+        lead = f"지난 견적들에서 {slot}의 {josa(brand, '을/를')} 여러 번 빼셨어요."
+    if actionable:
+        return f"{lead} 이번에도 {brand} 위주로 볼까요?"
+    return f"{lead} 이번 추천에는 아직 반영하지 못하지만 기억해 둘게요."
+
+
 # ── 반복 행동에서 추론한 선호 신호 되묻기 (B4: docs/사용자_선호비선호_기록_설계.md §6) ──
 # A1과 같은 원칙 — 자동 적용하지 않는다. "예"를 골라야 이 목록의 조건(brand_pref)이 된다.
-def preference_hint(conn, principal: Principal) -> dict | None:
+def preference_hint(conn, principal: Principal, category: str | None = None) -> dict | None:
     """게스트에게는 안 준다 — 신호는 로그인 계정에만 쌓인다(§7).
 
     배치(preference_signal_batch)는 관측될 때마다 바로 신호를 쌓지만(confidence=1부터),
     여기서 min_confidence로 걸러서 REPEAT_THRESHOLD를 넘은 것만 보여준다 — "패턴으로
-    볼지"는 쌓는 시점이 아니라 보여주는 시점의 문턱이다(preference_signal_batch.py 참고)."""
+    볼지"는 쌓는 시점이 아니라 보여주는 시점의 문턱이다(preference_signal_batch.py 참고).
+    actionable 은 "예"를 누르면 이번 목록 조건에 실제로 담기는지 — 화면이 묻는 버튼과 알리기만 하는 버튼을 가른다."""
     if principal.user_id is None:
         return None
+    from src.workers import preference_signal_batch
     from src.workers.preference_signal_batch import REPEAT_THRESHOLD
+    # 보여 주기 직전에 이 사용자의 교체·제외 기록으로 신호를 다시 센다 — 배치를 부르는 스케줄러가 없어서
+    # 이게 없으면 행동에서 추론한 신호가 앱에서 하나도 생기지 않는다. 처음부터 세는 방식이라 몇 번 불러도 같다.
+    preference_signal_batch.run(conn, user_id=principal.user_id)
     active = PreferenceRepo(conn).list_active(principal.user_id, dimension="brand",
                                               min_confidence=REPEAT_THRESHOLD)
     if not active:
         return None
-    # 'prefer'가 있으면 그걸 우선 보여준다("~로 바꾸신 걸 봤어요"가 "~을 빼신 걸 봤어요"보다
-    # 더 실행 가능한 제안이 된다) — 둘 다 없으면(간혹 avoid만 쌓인 경우) 최고 신뢰도 신호로.
-    top = next((r for r in active if r["direction"] == "prefer"), active[0])
-    if top["direction"] == "prefer":
-        avoid = next((r for r in active if r["slot"] == top["slot"] and r["direction"] == "avoid"), None)
-        if avoid:
-            summary = (f"지난번에 {top['slot']}에서 {avoid['value']}을(를) {avoid['confidence']}번 빼고 "
-                       f"{top['value']}(으)로 바꾸신 걸 봤어요. 이번에도 {top['value']} 위주로 볼까요?")
-        else:
-            summary = f"지난번에 {top['slot']}에서 {top['value']}을(를) 자주 선택하신 걸 봤어요. 이번에도 {top['value']} 위주로 볼까요?"
-    else:
-        summary = f"지난번에 {top['slot']}에서 {top['value']}을(를) 자주 빼신 걸 봤어요. 이번에도 제외할까요?"
+    # 직접 말한 것을 먼저 — 명시적 신호가 행동 추론보다 강하다(3번 원칙과 같다: 추론은 말한 것을 덮지 않는다).
+    # 예전엔 횟수 순이라 한 번 말한 선호(1)가 다른 브랜드의 추론(3 이상)에 밀렸다. 같은 출처 안에서는 선호를
+    # 먼저("~로 바꾸셨어요"가 "~를 빼셨어요"보다 실행 가능한 제안이다), 그다음 횟수·최근 순(list_active 정렬).
+    top = min(active, key=lambda r: (r["source"] != "explicit_chat", r["direction"] != "prefer"))
+    avoid = None
+    if top["direction"] == "prefer" and top["source"] != "explicit_chat":
+        avoid = next((r for r in active if r["slot"] == top["slot"] and r["direction"] == "avoid"
+                      and r["source"] != "explicit_chat"), None)
+    actionable = top["direction"] == "prefer" and _brand_pref_for(category or "computer", top["slot"], top["value"]) is not None
     return {"id": str(top["id"]), "dimension": top["dimension"], "slot": top["slot"],
-            "value": top["value"], "direction": top["direction"], "summary": summary}
+            "value": top["value"], "direction": top["direction"], "actionable": actionable,
+            "summary": _hint_summary(top, avoid, actionable)}
 
 
 def respond_preference_hint(conn, list_id: UUID, signal_id: UUID, accepted: bool, principal: Principal) -> dict:
@@ -551,14 +592,18 @@ def respond_preference_hint(conn, list_id: UUID, signal_id: UUID, accepted: bool
     signal = next((r for r in repo.list_active(principal.user_id) if r["id"] == signal_id), None)
     if signal is None:
         raise NotFound("이미 처리된 신호입니다.")
+    applied = False
     if signal["direction"] == "prefer":
-        # brand_pref는 지금 stage2_requirement.py에서 CPU 소켓 필터링에만 쓰인다(엔진 스코프) —
-        # GPU 등 다른 슬롯 신호를 여기 담아도 지금 엔진은 아직 안 읽는다. 조건으로는 남겨서
-        # 나중에 엔진이 슬롯별로 확장하면 바로 쓸 수 있게 해 둔다.
+        # 예전엔 슬롯과 무관하게 브랜드를 넣어서, GPU "NVIDIA"를 수락하면 다음 추천이 KeyError('nvidia')로 죽었다.
+        # 담을 수 있는 것(CPU 의 intel·amd)만 조건으로 쓰고, 나머지는 신호만 active 로 둔다(applied=False).
         plan_repo = PlanRepo(conn)
         current = _owned(plan_repo, list_id, principal)
-        plan_repo.upsert_condition(current["id"], "brand_pref", {"value": signal["value"].lower()}, "inferred")
-    return {"list_id": str(list_id), "accepted": True}
+        _, category = _current_values(plan_repo, current["id"])
+        value = _brand_pref_for(category, signal["slot"], signal["value"])
+        if value is not None:
+            plan_repo.upsert_condition(current["id"], "brand_pref", {"value": value}, "inferred")
+            applied = True
+    return {"list_id": str(list_id), "accepted": True, "applied": applied}
 
 
 # ── 업그레이드 사양 파일 첨부 (§D-4-1: current_specs · spec_file_name) ──

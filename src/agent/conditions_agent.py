@@ -20,6 +20,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from src.engine.brands import canonical_slot, cpu_brand_pref
 from src.config import CONDITIONS_AGENT, LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY
 from src.engine.slot_rules import _parse_won
 
@@ -119,9 +120,11 @@ class ConditionDraft:
         if not slot.strip() or not brand.strip():
             return self._record(call, "오류: slot·brand 는 비울 수 없습니다.")
         self.preference_patches.append({"slot": slot.strip(), "value": brand.strip(), "direction": direction})
-        if slot.strip().upper() == "CPU" and direction == "prefer" and brand.strip().lower() in ("amd", "intel"):
-            # CPU는 기존 brand_pref 필드가 있다 — 이번 견적에도 바로 반영되게 같이 채운다.
-            self.patches["brand_pref"] = brand.strip().lower()
+        pref = cpu_brand_pref(brand)
+        if canonical_slot(slot) == "CPU" and direction == "prefer" and pref:
+            # CPU는 기존 brand_pref 필드가 있다 — 이번 견적에도 바로 반영되게 같이 채운다. "인텔"·"라이젠"처럼
+            # 한글·제품군 이름도 별칭으로 맞춘다(예전엔 "amd"·"intel" 글자 그대로만 담겼다).
+            self.patches["brand_pref"] = pref
         return self._record(call, f"{slot} 브랜드 {direction} 기록: {brand}" + self._status())
 
     def add_extra(self, text: str) -> str:
