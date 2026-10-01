@@ -194,3 +194,21 @@ def test_question_and_answer_saved_together_keep_their_order():
         texts = [m["content"] for m in ConversationRepo(conn).messages(conversation_id)]
     assert texts.index("질문") + 1 == texts.index("답")
     assert texts.index("옛 질문") + 1 == texts.index("옛 답")
+
+
+def test_a_request_that_swapped_a_part_comes_before_the_swap():
+    """결과 채팅이 바꾼 부품은 그 말 뒤에 온다 — 말을 처리한 뒤에 저장하면 교체가 말보다 앞선 시각이 되어
+    '바꿔 달라고 했는데 그대로'로 잘못 읽혔다."""
+    c = _signed_up()
+    lid, _ = _game_list(c)
+    _recommend(c, lid)
+    r = c.post(f"/session/{lid}/result-message", json={"text": "그래픽카드 더 저렴한 걸로 바꿔줘"})
+    assert r.status_code == 200, r.text
+    assert "바꿨어요" in r.json()["reply"], r.json()["reply"]
+    _confirm(c, lid, "말로 바꾼 것")
+
+    body = c.get(f"/lists/{lid}/history").json()
+    kinds = [(e["kind"], e["text"]) for e in body["events"]]
+    i = kinds.index(("question", "그래픽카드 더 저렴한 걸로 바꿔줘"))
+    assert kinds[i + 1][0] == "swap", kinds
+    assert not any(s["kind"] == "unapplied" for s in body["steps"])
