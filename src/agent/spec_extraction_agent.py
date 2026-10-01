@@ -14,7 +14,9 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 from src.clients.llm_client import call_llm, call_llm_vision
-from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, SPEC_EXTRACTION_AGENT
+from src.config import (
+    LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, SPEC_EXTRACTION_AGENT, SPEC_EXTRACTION_IMAGE_MODEL,
+)
 from src.engine.prompts import SPEC_EXTRACTION_IMAGE_SYSTEM, SPEC_EXTRACTION_SYSTEM
 
 # 사용자가 붙여넣을 만한 견적 설명(유튜브 설명란 등)은 길 수 있다 — 토큰·비용 상한.
@@ -83,8 +85,12 @@ def extract_from_image(image_data_url: str) -> dict[str, str]:
     없다. `available()`이 False이거나 이 함수가 예외를 올리면, 호출자는 "확인 못 함"으로 알려야
     한다(조용히 빈 결과로 넘기면 "사진에 아무것도 없었다"와 "서버가 못 봤다"가 구분이 안 된다).
     이미지 원본은 호출이 끝나면 버려진다 — 저장하지 않는다."""
+    # 이미지 추출만 더 큰 모델을 쓴다(SPEC_EXTRACTION_IMAGE_MODEL, 기본 gpt-4o) — 평소 대화·설명
+    # 문장은 그대로 LLM_MODEL(가벼운 모델)을 쓴다. 캡처 속 모델번호를 다른 실존 제품 번호로
+    # 잘못 읽는(환각) 사례가 LLM_MODEL에서 실측돼, 저빈도·이미지 1장짜리 호출만 비용을 더 쓴다.
     raw = call_llm_vision(image_data_url, system=SPEC_EXTRACTION_IMAGE_SYSTEM,
-                          output_schema=_SpecExtractionImage.model_json_schema())
+                          output_schema=_SpecExtractionImage.model_json_schema(),
+                          model=SPEC_EXTRACTION_IMAGE_MODEL, temperature=0)
     if isinstance(raw, dict) and not (set(raw) & set(_IMAGE_SLOT_MAP)) and isinstance(raw.get("properties"), dict):
         raw = raw["properties"]
     draft = _SpecExtractionImage.model_validate(raw)

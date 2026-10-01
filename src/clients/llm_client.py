@@ -89,23 +89,44 @@ def call_llm(
     return {"text": "[MOCK] 일반 응답"}
 
 
-def _call_openai_vision(image_data_url: str, *, system: str | None, output_schema: dict | None, model: str) -> dict:
+def _call_openai_vision(image_data_url: str, *, system: str | None, output_schema: dict | None, model: str,
+                        temperature: float | None) -> dict:
     client = _get_client()
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
-    messages.append({"role": "user", "content": [{"type": "image_url", "image_url": {"url": image_data_url}}]})
+    # detail="high" — 기본값(auto/low)은 캡처 속 작은 글자(모델번호·코드)를 다른 토큰으로
+    # 잘못 읽는 사례가 실측됐다. 타일 단위 고해상도 처리라 토큰 비용은 늘지만, 이미지 1장짜리
+    # 저빈도 호출이라 감당할 만하다.
+    messages.append({"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": image_data_url, "detail": "high"}}]})
 
     kwargs: dict[str, Any] = {"model": model or LLM_MODEL, "messages": messages}
+    if temperature is not None:
+        kwargs["temperature"] = temperature
     if output_schema:
         kwargs["response_format"] = {
             "type": "json_schema",
             "json_schema": {"name": "output", "schema": output_schema, "strict": False},
         }
 
+    # 일부 모델(예: gpt-6-luna)은 temperature 커스텀 값을 아예 거부한다("Only the default (1)
+    # value is supported") — 모델별로 알고 있다가 분기하는 대신, 그 오류가 나면 그 자리에서
+    # temperature를 빼고 같은 요청을 다시 보낸다. 미래에 같은 제약을 가진 다른 모델이 와도
+    # 코드를 안 고쳐도 된다. 이미지가 실려 있어 비용이 드니, 확인용 별도 호출은 만들지 않는다.
+    from openai import BadRequestError
+
+    def _create(call_kwargs: dict[str, Any]):
+        try:
+            return client.chat.completions.create(**call_kwargs)
+        except BadRequestError as exc:
+            if "temperature" in call_kwargs and "temperature" in str(exc).lower():
+                return client.chat.completions.create(**{k: v for k, v in call_kwargs.items() if k != "temperature"})
+            raise
+
     last_error: Exception | None = None
     for _attempt in range(2):
-        response = client.chat.completions.create(**kwargs)
+        response = _create(kwargs)
         content = response.choices[0].message.content or ""
         if not output_schema:
             return {"text": content}
@@ -122,6 +143,7 @@ def call_llm_vision(
     system: str | None = None,
     output_schema: dict | None = None,
     model: str = LLM_MODEL,
+    temperature: float | None = None,
 ) -> dict:
     """이미지 1장을 보는 LLM 호출. call_llm과 같은 계약(스키마 있으면 dict, 없으면 {"text": str})이고
     입력만 텍스트 대신 이미지다 — call_llm 자체의 시그니처·동작은 바꾸지 않는다(다른 호출부가 많다).
@@ -130,9 +152,13 @@ def call_llm_vision(
         image_data_url: "data:image/png;base64,..." 형식의 데이터 URL. 원본 이미지는 이 호출이
             끝나면 버려진다 — 저장하지 않는다(견적 점검 사양 추출의 개인정보·저작권 원칙).
         system, output_schema, model: call_llm과 같다.
+        temperature: 안 주면(기본 None) API 기본값. 견적 점검 이미지 추출처럼 "같은 입력엔 같은
+            답"이 중요한 호출은 0으로 준다 — 실측(2026-10-01)으로 기본값보다 환각이 줄고
+            재현 가능해지는 걸 확인했다.
     """
     if not MOCK_MODE:
-        return _call_openai_vision(image_data_url, system=system, output_schema=output_schema, model=model)
+        return _call_openai_vision(image_data_url, system=system, output_schema=output_schema, model=model,
+                                   temperature=temperature)
 
     print("[MOCK] LLM 비전 호출: (이미지 1장)")
     return {"text": "[MOCK] 일반 응답"}
