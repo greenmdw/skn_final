@@ -186,7 +186,8 @@ export interface WireLists {
 // ── 견적 리스트 히스토리(src.schemas.ListHistoryOut) ──
 export interface WireListHistory {
   summary: WireText
-  events: { at: string; kind: string; text: string }[]
+  steps?: { kind: string; text: string; quote: string | null; changes: string[]; notes: string[] }[]
+  events: { at: string; kind: string; text: string; quote?: string | null }[]
 }
 
 export interface WireUser { user: { email: string; display_name: string } }

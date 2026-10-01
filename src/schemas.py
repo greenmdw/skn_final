@@ -806,14 +806,26 @@ class ReportOut(BaseModel):
 
 class HistoryEventOut(BaseModel):
     at: str
-    kind: str          # condition | recommend | question | swap | remove | confirm
+    kind: str          # condition | request | recommend | swap | remove | confirm
+    text: str          # 그 결과 — 알아들은 조건, 바뀐 부품("GPU A → B"), "바뀐 것 없음" …
+    quote: str | None = None   # 그 결과를 만든 사용자 말
+
+
+class HistoryStepOut(BaseModel):
+    """이렇게 정해졌어요 — 결과를 바꾼 것만 한 단계씩(src/services/history_journey.py)."""
+
+    kind: str          # start | change | swap | remove | unapplied | confirm
     text: str
+    quote: str | None = None                                  # 그 단계를 만든 사용자 말
+    changes: list[str] = Field(default_factory=list)          # 바뀐 부품(무엇 → 무엇, 가격 차이)
+    notes: list[str] = Field(default_factory=list)            # 까닭·기본값·반영 못 한 것
 
 
 class ListHistoryOut(BaseModel):
-    """견적 리스트 히스토리 — 확정된 목록이 만들어진 여정. 사건은 코드가, 요약 문장은 LLM(폴백 규칙)이."""
+    """견적 리스트 히스토리 — 확정된 목록이 만들어진 여정. 단계·사건은 코드가, 요약 문장은 LLM(폴백 규칙)이."""
 
     summary: TextStatusOut
+    steps: list[HistoryStepOut] = Field(default_factory=list)
     events: list[HistoryEventOut] = Field(default_factory=list)
 
 

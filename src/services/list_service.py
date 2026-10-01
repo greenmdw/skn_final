@@ -400,14 +400,14 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
     }
 
 
-def get_history_events(conn, list_id: UUID, principal: Principal,
-                       revision_no: int | None = None) -> tuple[dict, list[dict]]:
-    """견적 리스트 히스토리의 사건 목록 — 리포트와 같게 로그인한 소유자의 확정된 목록만.
+def get_history(conn, list_id: UUID, principal: Principal,
+                revision_no: int | None = None) -> tuple[dict, dict]:
+    """견적 리스트 히스토리의 단계·사건 — 리포트와 같게 로그인한 소유자의 확정된 목록만.
     요약 문장(LLM)은 트랜잭션 밖에서 만든다(`list_history.render`) — 연결을 LLM 대기 동안 붙잡지 않는다."""
     from src.services import list_history
 
     revision = confirmed_revision(conn, list_id, principal, revision_no)
-    return revision, list_history.build_events(conn, revision)
+    return revision, list_history.build(conn, revision)
 
 
 def set_alert(conn, list_id: UUID, principal: Principal, *, enabled: bool, target_amount: int | None) -> dict:

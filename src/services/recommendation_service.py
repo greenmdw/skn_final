@@ -1045,9 +1045,13 @@ def handle_result_message(conn, revision_id: UUID, text: str, user_id: UUID | No
     from src.repo.user_repo import ConversationRepo
 
     conversation_id = PlanRepo(conn).get_revision(revision_id)["conversation_id"]
-    turn = _handle_result_message_inner(conn, revision_id, text, user_id=user_id)
     convo = ConversationRepo(conn)
+    # 사용자 말을 먼저 저장한다 — 메시지 시각이 저장 순간(clock_timestamp)이라, 처리 뒤에 저장하면 이 말 때문에 바뀐
+    # 부품(교체 이벤트)이 말보다 앞선 시각이 되어 히스토리가 "말 → 바뀐 것"을 잇지 못한다. 에이전트의 이전 대화
+    # 맥락(result_agent._db_history)은 질문·답 쌍만 읽으므로 아직 답이 없는 이 말은 섞이지 않는다.
+    # 처리하다 실패하면 트랜잭션째 롤백되어 이 말도 남지 않는다(예전과 같다).
     convo.add_message(conversation_id, "user", text)
+    turn = _handle_result_message_inner(conn, revision_id, text, user_id=user_id)
     convo.add_message(conversation_id, "assistant", turn["reply"])
     return turn
 

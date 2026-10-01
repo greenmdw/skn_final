@@ -96,10 +96,17 @@ export interface LoadedConversation {
 }
 
 // ---- 견적 리스트 히스토리 ----
-export type HistoryEventKind = 'condition' | 'recommend' | 'question' | 'swap' | 'remove' | 'confirm'
-export interface HistoryEvent { at: string; kind: HistoryEventKind; text: string }
-/** summary 는 서버가 사건 목록만 보고 쓴 요약(LLM, 실패하면 규칙 문장). 준비 전이면 null */
-export interface ListHistory { summary: string | null; events: HistoryEvent[] }
+/** 대화 순서대로 "한 말 → 그 결과". quote 는 사용자 말(추천·버튼 교체·확정은 없음), text 는 그 결과 —
+ * condition 은 알아들은 조건, request 는 바뀐 부품 또는 "바뀐 것 없음" */
+export type HistoryEventKind = 'condition' | 'request' | 'recommend' | 'swap' | 'remove' | 'confirm'
+export interface HistoryEvent { at: string; kind: HistoryEventKind; text: string; quote: string | null }
+/** 이렇게 정해졌어요 — 결과를 바꾼 것만 한 단계씩. quote 는 그 단계를 만든 사용자 말, changes 는 바뀐 부품,
+ * notes 는 까닭·말하지 않아 기본값으로 정해진 것·반영하지 못한 것 */
+export type HistoryStepKind = 'start' | 'change' | 'swap' | 'remove' | 'unapplied' | 'confirm'
+export interface HistoryStep { kind: HistoryStepKind; text: string; quote: string | null; changes: string[]; notes: string[] }
+/** summary 는 서버가 단계 목록만 보고 쓴 요약(LLM, 실패하면 규칙 문장). 준비 전이면 null.
+ * events 는 대화 순서 그대로의 사건 — "자세히"에서 보여 준다 */
+export interface ListHistory { summary: string | null; steps: HistoryStep[]; events: HistoryEvent[] }
 
 // ---- 부품 교체 ----
 /** 한 부품 자리에 넣을 수 있는 대안 하나(서버 alternatives 응답). candidateId 를 swap 에 그대로 보낸다 */
