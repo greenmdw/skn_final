@@ -181,6 +181,16 @@
 .pl-history ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
 .pl-history li { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; font-size: 13px; line-height: 1.55; }
 .pl-history li span.n { color: var(--muted); font-family: 'JetBrains Mono', ui-monospace, monospace; }
+/* 이렇게 정해졌어요: 단계 이름 칸을 넓히고, 사용자 말·바뀐 부품·까닭을 한 단계 안에 층으로 */
+.pl-history ol.pl-steps > li { grid-template-columns: 64px minmax(0, 1fr); }
+.pl-history ol.pl-steps > li > span.n { font-family: inherit; font-size: 12px; padding-top: 1px; }
+.pl-history ol.pl-steps > li.k-unapplied > span.n { color: var(--warn, #b7791f); }
+.pl-history ol.pl-steps .q { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.pl-history ol.pl-steps ul.c { margin: 4px 0 0; padding-left: 16px; display: flex; flex-direction: column; gap: 2px; }
+.pl-history ol.pl-steps ul.c > li { display: list-item; font-size: 12.5px; }
+.pl-history ol.pl-steps .note { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+.pl-history-more > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.pl-history-more > ol { margin-top: 8px; }
 .pl-empty { padding: 14px 16px; border-radius: 10px; background: var(--panel2); color: var(--muted); font-size: 13px; line-height: 1.6; }
 .pl-list-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 14px; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--line); }
 .pl-list-row:last-child { border-bottom: 0; }

@@ -1,4 +1,4 @@
-import type { Api, ConversationSummary, HistoryEventKind, SetupsListResult } from '../types'
+import type { Api, ConversationSummary, HistoryEventKind, HistoryStepKind, SetupsListResult } from '../types'
 import { ApiError } from '../types'
 import type { SavedSetup } from '../../state/types'
 import { isCheckDraft, isDesk, object } from '../../state/validators'
@@ -45,12 +45,16 @@ function toConfirmError(error: unknown): unknown {
 }
 
 const HISTORY_KINDS: HistoryEventKind[] = ['condition', 'recommend', 'question', 'swap', 'remove', 'confirm']
+const STEP_KINDS: HistoryStepKind[] = ['start', 'change', 'swap', 'remove', 'unapplied', 'confirm']
 
 export const setups: Api['setups'] = {
   async history(id, revisionNo) {
     const wire = await request<WireListHistory>('GET', '/lists/' + id + '/history' + (revisionNo ? '?revision=' + revisionNo : ''))
     return {
       summary: wire.summary.status === 'ready' ? wire.summary.text : null,
+      // 모르는 단계 종류는 조건 변경처럼 보여 준다 — 서버가 종류를 늘려도 화면이 깨지지 않게
+      steps: (wire.steps ?? []).map(step => ({ ...step, quote: step.quote ?? null,
+        kind: STEP_KINDS.includes(step.kind as HistoryStepKind) ? step.kind as HistoryStepKind : 'change' })),
       // 모르는 종류는 버리지 않고 질문처럼 보여 준다 — 서버가 종류를 늘려도 화면이 깨지지 않게
       events: wire.events.map(e => ({ at: e.at, text: e.text,
         kind: HISTORY_KINDS.includes(e.kind as HistoryEventKind) ? e.kind as HistoryEventKind : 'question' })),
