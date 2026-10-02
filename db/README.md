@@ -89,6 +89,8 @@ Stage 4 PC 랭킹은 요청 후보 전체의 등록 규칙과 관측/member 커�
 
 Stage 6은 격리된 자동 test DB에서 문서·관측 fixture를 넣고 실제 집계 rebuild → 단일 snapshot 조회 → PC 공통 랭킹 → Stage 5 설명·trace까지 연결해 검증합니다. 별도 주변기기 케이스는 seeded DB 후보의 fixture 관측을 공통 scorer·랭킹·typed payload에 연결해 확인합니다. fixture는 고유 분석 버전/ID를 쓰며 rule 기준 cleanup을 수행하고, 개발 DB `truefit`에는 fixture를 쓰거나 실제 집계를 적용하지 않습니다.
 
+Stage 7의 유지보수 적용과 read-only 실데이터 감사 및 GPU/주변기기/full-PC smoke 결과는 [리뷰점수 실데이터 검증 결과](../docs/리뷰점수_실데이터_검증결과.md)에 기록했습니다. Stage 6의 격리 test DB 검증과 구분해 실제 대상 DB에는 선택 버전의 집계/member만 생성했으며, 원문·관측·규칙·catalog·추천 실행 데이터는 변경하지 않았습니다.
+
 ## AWS 호환 원칙 (반영됨)
 
 - `gen_random_uuid()` = PG13+ 코어 → `pgcrypto` 불필요

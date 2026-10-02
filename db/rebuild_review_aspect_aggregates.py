@@ -5,8 +5,9 @@ Examples:
     python db/rebuild_review_aspect_aggregates.py --analysis-version review-aspect-v6-prod-20261002
     python db/rebuild_review_aspect_aggregates.py --analysis-version test-version --apply
 
-The default operation is read-only. Use an isolated test database for write validation; applying
-to actual development data is outside this implementation verification run.
+The default operation is read-only. Use an isolated test database for write validation. Apply to
+actual data only in a maintenance window after reviewing the dry-run and confirming writers are
+stopped; the post-commit audit runs in a separate snapshot.
 """
 from __future__ import annotations
 
