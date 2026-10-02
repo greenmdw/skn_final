@@ -153,3 +153,24 @@ def test_step_down_prefers_parts_that_still_meet_the_requirement(conn):
         assert "요구 사양을 못 채움" not in out
     elif cand is not None:                      # 채우는 후보가 없으면 그 사실을 먼저 밝힌다
         assert out.startswith("이 견적의 요구 사양을 채우는 한 단계 아래 파워는 카탈로그에 없어") and "⚠" in out
+
+
+def test_box_cooler_value_reaches_check_and_cpu_preview(conn):
+    """카탈로그의 cpu_spec.cooler_included 를 채팅 근거로 쓴다 — 예전엔 아무도 읽지 않아 "데이터에 없다"고 답했다."""
+    revision_id = _build(conn)
+    ctx = result_advice._context(conn, revision_id)
+    cpu_vid = ctx.row("CPU")["variant_id"]
+    raw = result_advice.box_cooler(conn, cpu_vid)
+    out = result_advice.check_build(conn, revision_id)
+    assert f"CPU 기본 쿨러(카탈로그 값): {raw or '정보 없음'}" in out
+
+    # 별도 쿨러를 빼고, 기본 쿨러가 없는 CPU 로 바꾼다고 가정하면 경고
+    cooler = ctx.row("쿨러")
+    recommendation_service.patch_item(conn, revision_id, cooler["id"], selected=False, qty=None, timing=None)
+    ctx = result_advice._context(conn, revision_id)
+    no_box = next((c for c in ctx.pool["CPU"]
+                   if result_advice._has_box_cooler(result_advice.box_cooler(conn, c.variant_id)) is False
+                   and not result_advice._new_failures(ctx, "CPU", c)), None)
+    if no_box is not None:
+        preview = result_advice.preview_swap(conn, revision_id, "CPU", no_box.variant_id)
+        assert "⚠ 별도 쿨러가 빠져 있는데 이 CPU는 기본 쿨러가 없을 수 있음" in preview

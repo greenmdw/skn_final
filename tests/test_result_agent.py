@@ -69,7 +69,7 @@ def test_system_prompt_carries_table_reasons_budget_and_language():
     assert "예산 상한: 1,500,000원 · 총액: 780,000원 · 잔여: 720,000원" in p
     assert "[power] ok (근사)" in p
     assert "미리 조회한 근거" in p and "\nPRE" in p
-    assert p.endswith("답변 언어: 한국어 존댓말.")
+    assert "답변 언어: 한국어 존댓말." in p and "마크다운" in p.splitlines()[-1]
     assert "미리 조회한 근거" not in ra.system_prompt(r, "swap the gpu", [])
 
 
@@ -107,9 +107,11 @@ def test_reply_within_accepts_input_numbers_and_rejects_invented():
 def test_guarded_reply_prefers_changes_then_prefetched_then_template():
     s = _session()
     s.changed = True
-    s.trace = ["prefetch:explain('CPU') → …", "set_qty('저장장치', '2') → 저장장치: selected=True qty=2 · 총액 780,000원 · 예산 잔여 720,000원"]
+    s.trace = ["prefetch:explain('CPU') → …", "list_alternatives('CPU') → CPU 현재: X\n1. candidate_id=abc",
+               "set_item('저장장치', selected='', qty='2') → 저장장치: selected=True qty=2 · 총액 780,000원 · 예산 잔여 720,000원"]
     out = ra._guarded_reply(s, "")
     assert out.startswith("적용된 변경: 저장장치: selected=True qty=2") and "총액 780,000원" in out
+    assert "candidate_id" not in out          # 후보 목록 조회는 '적용된 변경'이 아니다
     s2 = _session()
     assert ra._guarded_reply(s2, "CPU X 255,000원\n저장된 추천 이유: …") == "CPU X 255,000원 저장된 추천 이유: …"
     assert ra._guarded_reply(_session(), "").startswith("구성표 기준으로만 답할 수 있어요")
@@ -168,3 +170,8 @@ def test_prefetch_skips_words_that_point_at_no_part():
     """"오늘 날씨 어때?"의 '어때'로 부품 8개 근거를 다 조회하던 것 — 부품도 구성 전체도 가리키지 않으면 조회하지 않는다."""
     s = _session()
     assert ra._prefetch_explanations(s, "오늘 날씨 어때?") == ""
+
+
+def test_highest_price_word_is_not_evaluative():
+    assert ra.evaluative_words("각 슬롯의 최고가 후보로 바꿨습니다") == []
+    assert ra.evaluative_words("최고의 선택입니다") == ["최고"]

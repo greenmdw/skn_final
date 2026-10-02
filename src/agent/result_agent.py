@@ -150,10 +150,19 @@ class ResultSession:
 
     def _compat_note(self) -> str:
         """교체 뒤 다시 돌린 호환 점검이 찾은 문제(major)를 도구 결과에 싣는다 — 없으면 그 사실만."""
-        majors = [i["text"] for i in (self.result.get("verification") or {}).get("issues", []) if i.get("severity") == "major"]
-        if majors:
-            return " · ⚠ 호환 점검 문제: " + " / ".join(majors)
-        return " · 호환 점검을 교체 후 구성으로 다시 했고 확정된 문제는 없음(스펙을 모르는 부품은 확인 못 함)"
+        # 예산 초과도 검증 쟁점(major)으로 오지만 호환 문제가 아니다 — 총액·잔여·'예산 초과'는 따로 적는다.
+        # 섞어 두면 모델이 "호환 점검에 문제 표시가 있지만 근거가 없다"고 말했다(2026-10-02 실측).
+        majors = [i["text"] for i in (self.result.get("verification") or {}).get("issues", [])
+                  if i.get("severity") == "major" and i.get("axis") not in ("budget", "예산")]
+        note = (" · ⚠ 호환 점검 문제: " + " / ".join(majors) if majors
+                else " · 호환 점검을 교체 후 구성으로 다시 했고 확정된 문제는 없음(스펙을 모르는 부품은 확인 못 함)")
+        from src.services import result_advice
+        if result_advice.is_pc(self.conn, self.revision_id):
+            from src.services.recommendation_service import _require_done_run
+            from src.repo.engine_repo import EngineRepo
+            stored = EngineRepo(self.conn).get_candidates(_require_done_run(self.conn, self.revision_id)[1]["id"])
+            note += "".join(f" · {x}" for x in result_advice.cooler_lines(self.conn, stored) if x.startswith("⚠"))
+        return note
 
     def set_item(self, slot: str, selected: str = "", qty: str = "") -> str:
         from src.services.recommendation_service import patch_item
@@ -194,6 +203,13 @@ class ResultSession:
         r = it.get("reason") or {}
         lines.append("저장된 추천 이유: " + (r.get("text") if r.get("status") == "ready" and r.get("text")
                                        else f"(없음 — 상태 {r.get('status')})"))
+        if it["slot"] in ("CPU", "쿨러") and self.conn is not None:
+            from src.services import result_advice
+            if result_advice.is_pc(self.conn, self.revision_id):
+                from src.services.recommendation_service import _require_done_run
+                from src.repo.engine_repo import EngineRepo
+                stored = EngineRepo(self.conn).get_candidates(_require_done_run(self.conn, self.revision_id)[1]["id"])
+                lines += result_advice.cooler_lines(self.conn, stored)
         # engine.candidate_evidence 는 0012 에서 삭제됐다(engine_repo.get_candidate_evidence 는 옛 코드) — 인용은 못 낸다
         issues = (self.result.get("verification") or {}).get("issues") or []
         if issues:
@@ -455,7 +471,7 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "6. '돈 남았는데 뭐 바꿀까', '남은 예산으로 업그레이드', 'N만원 더 쓰면' → upgrade_options. '예산을 N원으로 늘려줘'처럼 새 총예산을 말하면 upgrade_options(new_budget=N) — "
         "조건의 예산 자체는 이 화면에서 못 바꾼다고 한 번 말하고 그 금액 기준 후보를 보여 줍니다. 결과의 순서와 후보를 그대로 전하고, 사용자가 고르기 전에는 바꾸지 않습니다.",
         "7. '뭘 바꾸면 싸져?', 'N만원 줄이고 싶어' → savings_options(target). 요구 사양을 낮춰야 하는 항목은 그 사실(⚠)과 함께 전합니다.",
-        "8. '파워 충분해?', '호환 문제 없어?', '이대로 사도 돼?', 'CPU가 발목 잡아?(병목)' → check_build. 이 게임 돌아가? → game_check(게임 이름). 도구 결과에 있는 항목만 말하고 fps·체감 성능은 말하지 않습니다.",
+        "8. '파워 충분해?', '호환 문제 없어?', '이대로 사도 돼?', 'CPU가 발목 잡아?(병목)' → check_build. '쿨러 꼭 사야 돼?', '기본 쿨러 들어 있어?' → explain('쿨러') 의 'CPU 기본 쿨러' 값으로 답합니다. 이 게임 돌아가? → game_check(게임 이름). 도구 결과에 있는 항목만 말하고 fps·체감 성능은 말하지 않습니다.",
         "9. **이 견적**의 부품 우열, 리뷰의 진위, 호환 여부를 스스로 판정하지 않고 도구 결과에 없는 수치·사실을 만들지 않습니다. 금액을 직접 더하거나 빼지 말고 도구가 계산한 금액을 옮깁니다. "
         "호환은 '문제 없다'·'충분하다'고 단정하지 말고 '점검 기준(예: 230W ≤ 675W)을 통과했다'처럼 도구가 계산한 비교를 옮깁니다.",
         "10. 답변은 5문장 이내. 바꿨으면 바뀐 것과 총액·예산 잔여를 말하고, 도구 결과에 '예산 초과'나 '호환 점검 문제'가 있으면 그것도 한 번 언급합니다.",
@@ -468,7 +484,7 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "14. 소음·발열·가격 전망처럼 데이터가 없는 질문은 없다고 말하고 추측하지 않습니다. 날씨처럼 PC와 무관한 말은 이 화면은 PC 견적만 다룬다고 한 문장으로 답합니다.",
         *(["", "사용자 질문에 대해 미리 조회한 근거 (이걸로 답합니다. 더 필요하면 explain):", prefetched] if prefetched else []),
         "",
-        "답변 언어: 한국어 존댓말.",
+        "답변 언어: 한국어 존댓말. 화면은 평문이라 마크다운(**굵게**, #, 표)을 쓰지 않습니다.",
     ])
 
 
@@ -521,6 +537,11 @@ def _numbers(text: str) -> set[str]:
 _EVALUATIVE = ("강력", "뛰어나", "최고", "압도적", "완벽", "훌륭", "우수", "극대화")
 
 
+def evaluative_words(reply: str) -> list[str]:
+    """답변 속 평가어. '최고가'(가장 비싼 가격)는 평가가 아니다 — "최고가 후보로 바꿨다"가 버려지던 것."""
+    return [w for w in _EVALUATIVE if re.search(w + ("(?!가)" if w == "최고" else ""), reply)]
+
+
 def _reply_within(reply: str, allowed_sources: list[str]) -> tuple[bool, set[str]]:
     """답변의 숫자가 전부 입력(프롬프트·도구 결과·사용자 메시지)에 있던 숫자인지. (통과 여부, 밖의 숫자들)"""
     allowed: set[str] = set()
@@ -539,8 +560,9 @@ def _guarded_reply(session: ResultSession, prefetched: str) -> str:
     """LLM 문장을 버릴 때 내는 코드 문장 — 사실만."""
     t = session.result.get("totals") or {}
     if session.changed:
+        # 바꾼 도구의 결과만 — list_alternatives 의 후보 목록·내부 id 가 화면에 나가던 것(2026-10-02 실측)
         done = [x.split(" → ", 1)[1].split(" · ")[0] for x in session.trace
-                if not x.startswith("prefetch:") and "오류" not in x and not x.startswith(_READ_TOOLS) and "거절:" not in x]
+                if x.startswith(("swap(", "set_item(")) and "오류" not in x and "거절:" not in x]
         return ("적용된 변경: " + " / ".join(done) + f" · 총액 {_won(t.get('selected_price'))} · 예산 잔여 {_won(t.get('budget_remaining'))}"
                 + (" · ⚠ 예산 초과" if t.get("over_budget") else ""))
     # 묻는 말에 쓴 계산 도구의 결과가 있으면 그 원문(사실)을 그대로 — 화면에 내부 id 는 빼고
@@ -594,10 +616,12 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
     else:
         # 수치 가드 — 답변의 숫자는 전부 입력에 있던 것이어야 한다. 아니면 LLM 문장을 버리고 코드 문장으로.
         ok, outside = _reply_within(reply, [prompt, text, *session.outputs])
-        bad_words = [w for w in _EVALUATIVE if w in reply]
+        bad_words = evaluative_words(reply)
         if not ok or bad_words:
             log.warning("result agent reply rejected (numbers %s, words %s) — replaced: %r", sorted(outside), bad_words, reply[:120])
             reply = _guarded_reply(session, prefetched)
+    # 채팅 말풍선은 평문(pre-wrap)이라 '**굵게**'가 별표 그대로 보인다 — 프롬프트로도 막지만 남으면 코드가 지운다
+    reply = reply.replace("**", "")
     # 대화 저장은 호출자(recommendation_service.handle_result_message)가 한다 — 여기서 두 번 쓰지 않는다.
     if session.changed:
         session.refresh()

@@ -174,6 +174,48 @@ def _ideal_tiers(ctx: _Ctx) -> dict[str, float]:
     return {k: float(v) for k, v in ideals.items()}
 
 
+# ── 기본 쿨러 ───────────────────────────────────────────────────────────────
+def box_cooler(conn, cpu_variant_id) -> str | None:
+    """CPU 정품 박스에 기본 쿨러가 드는지 — 카탈로그 원문 값("O (정품 박스 기준)", "X / SKU 확인"). 없으면 None.
+    추천 엔진은 이 값을 읽지 않는다(엔진 담당 영역) — 채팅 답의 근거로만 쓴다."""
+    row = conn.execute(
+        "SELECT s.cooler_included FROM catalog.cpu_spec s JOIN catalog.product_variant v ON v.product_id = s.product_id "
+        "WHERE v.id = %s", (str(cpu_variant_id),)).fetchone()
+    if row is None:
+        return None
+    return (row[0] or "").strip() or None
+
+
+def _has_box_cooler(value: str | None) -> bool | None:
+    if not value:
+        return None
+    return True if value.upper().startswith("O") else False if value.upper().startswith("X") else None
+
+
+def cooler_lines(conn, stored_or_ctx, cpu_variant_id=None) -> list[str]:
+    """쿨러 관련 사실: CPU 기본 쿨러 포함 여부, 별도 쿨러가 담겼는지, 둘 다 없으면 ⚠.
+    cpu_variant_id 를 주면 그 CPU 로 바꾼다고 가정한다(preview)."""
+    picked = stored_or_ctx.picked if isinstance(stored_or_ctx, _Ctx) else [r for r in stored_or_ctx if r.get("selected") is not False]
+    cpu = next((r for r in picked if r["slot"] == "CPU"), None)
+    cooler = next((r for r in picked if r["slot"] == "쿨러"), None)
+    cpu_vid = cpu_variant_id or (cpu["variant_id"] if cpu else None)
+    if cpu_vid is None:
+        return []
+    raw = box_cooler(conn, cpu_vid)
+    has = _has_box_cooler(raw)
+    lines = [f"CPU 기본 쿨러(카탈로그 값): {raw or '정보 없음'}"]
+    if cooler is not None:
+        lines.append(f"별도 쿨러가 담겨 있음: {cooler['product_name']} {fmt_money(_price(cooler))}"
+                     + (" — CPU 박스에 기본 쿨러가 들어 있어(정품 박스 기준) 빼면 그만큼 줄고 기본 쿨러를 쓰게 됨" if has else ""))
+    elif has is False:
+        lines.append("⚠ 별도 쿨러가 빠져 있는데 이 CPU는 기본 쿨러가 없을 수 있음(카탈로그 값 '" + raw + "') — CPU를 식힐 쿨러가 없을 수 있음")
+    elif has is None:
+        lines.append("별도 쿨러가 빠져 있고 CPU 기본 쿨러 포함 여부는 데이터에 없음")
+    else:
+        lines.append("별도 쿨러는 빠져 있고 CPU 박스의 기본 쿨러를 쓰게 됨")
+    return lines
+
+
 # ── 1. 바꾸면 어떻게 되나 (저장 안 함) ─────────────────────────────────────────
 def step_candidate(ctx: _Ctx, slot: str, direction: str):
     """"한 단계 위/아래" — 지금 구성과 확정 비호환이 없는 후보 중 바로 다음 단계. CPU·GPU 는 성능 등급, RAM 은 용량으로
@@ -271,6 +313,8 @@ def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = No
         lines.append(f"전력: {power['detail']}")
     if new_unknown:
         lines.append("스펙 정보가 없어 확인 못 한 항목: " + ", ".join(r["label"] for r in new_unknown))
+    if slot == "CPU":
+        lines += [x for x in cooler_lines(conn, ctx, cand.variant_id) if x.startswith(("CPU 기본 쿨러", "⚠"))]
     return "\n".join(lines)
 
 
@@ -297,6 +341,7 @@ def check_build(conn, revision_id: UUID) -> str:
     if tiers:
         lines.append("- 성능 등급과 이 용도 기준 등급: " + " · ".join(tiers)
                      + " — 병목(fps)은 계산하지 않고 등급만 비교")
+    lines += [f"- {x}" for x in cooler_lines(conn, ctx)]
     return "\n".join(lines)
 
 
@@ -363,8 +408,9 @@ def upgrade_options(conn, revision_id: UUID, budget: int | None = None) -> str:
         lines.append(f"- {slot}: 지금 {cur.name} {_metric_text(slot, m0)}{basis}")
         for label, (m1, delta, cand) in picks:
             after = total + delta
+            left = f", 바꾼 뒤 잔여 {fmt_money(ctx.budget_max - after)}" if ctx.budget_max else ""
             lines.append(f"    · {label}: {cand.name} {_metric_text(slot, m1)} · {fmt_money(_price(cand))}"
-                         f" (추가 {fmt_money(delta)}, 바꾼 뒤 총액 {fmt_money(after)}) · candidate_id={cand.variant_id}")
+                         f" (추가 {fmt_money(delta)}, 바꾼 뒤 총액 {fmt_money(after)}{left}) · candidate_id={cand.variant_id}")
     if not found:
         lines.append("→ 이 금액 안에서 성능 등급·용량을 올릴 수 있는 후보가 없습니다.")
     lines.append("케이스·쿨러·파워·저장장치는 '더 좋다'를 정할 값이 없어 넣지 않았습니다.")
