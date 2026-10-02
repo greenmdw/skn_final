@@ -183,7 +183,7 @@ _REVIEW_SUCCESS_MODULES = {
     'test_list_revisions_http', 'test_list_service', 'test_notification_acc02',
     'test_peripheral_line_confirm_http', 'test_peripherals_recommend_http',
     'test_pipeline_http_smoke', 'test_preference_signal', 'test_quote_apply',
-    'test_report_delete_rename_http', 'test_research_loop', 'test_result_interaction',
+    'test_report_delete_rename_http', 'test_research_loop', 'test_result_advice', 'test_result_interaction',
     'test_reverify_after_swap', 'test_revise_confirmed_report',
     'test_revision_from_old_report_http', 'test_session_resume_http',
     'test_upgrade_mode', 'test_upgrade_notes', 'test_upgrade_questions',

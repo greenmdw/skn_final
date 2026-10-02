@@ -112,7 +112,7 @@ uv run uvicorn src.api:app --reload --port 8000
 ```
 MOCK_MODE=0
 LLM_PROVIDER=openai
-LLM_MODEL=gpt-4o-mini
+LLM_MODEL=gpt-6-luna      # 팀 기본 모델 (.env.example 과 같음)
 OPENAI_API_KEY=(본인 키)
 CONDITIONS_AGENT=1   # 조건 대화 에이전트 (선택)
 RESULT_AGENT=1       # 결과 화면 대화 에이전트 (선택)

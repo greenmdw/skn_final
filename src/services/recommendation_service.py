@@ -1086,13 +1086,24 @@ def _handle_result_message_inner(
               for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
     known_slots = {r["slot"] for r in rows}
     slot, direction, is_question = _parse_swap_request(text, known_slots)
+    from src.agent.result_agent import classify_intent
+    from src.services import result_advice
+    intent = classify_intent(text)
+    if not (slot and direction and intent == "ask"):
+        # 남은 예산·절약·점검·게임처럼 슬롯·방향 없이 묻는 말 — 에이전트와 같은 계산 함수(P5 규칙 경로)
+        advice = result_advice.rule_reply(conn, revision_id, text, slot)
+        if advice is not None:
+            return {"reply": advice, "result": result}
     if slot is None:
         return {"reply": "무엇을 바꿀지 이해하지 못했어요. 부품 이름(예: 그래픽카드)과 원하시는 "
                           "방향(더 저렴한/더 좋은)을 함께 말씀해 주세요.",
                 "result": get_stored_result(conn, revision_id)}
-    if direction is None or is_question:
+    hint = ({"cheaper": "더 저렴한", "pricier": "더 좋은"}.get(direction) or "더 저렴한/더 좋은")
+    whatif = intent == "ask"
+    preview_ok = whatif and values.get("category") == "computer"
+    # 물음표가 있어도 "바꿔줄래?"처럼 바꾸라는 말이면 바꾼다
+    if direction is None or (((is_question and intent != "change") or whatif) and not preview_ok):
         # 묻는 말(또는 방향이 애매한 말)은 실행하지 않고 되묻는다 — "바꿔드릴까요?" 는 사용자가 확정해야 룰 동작이 된다
-        hint = ({"cheaper": "더 저렴한", "pricier": "더 좋은"}.get(direction) or "더 저렴한/더 좋은")
         return {"reply": f"{slot}를 {hint} 후보로 바꿔드릴까요? 바꾸려면 '{slot} {hint} 걸로'라고 말씀해 주세요. "
                           "지금은 아무것도 바꾸지 않았어요.",
                 "result": get_stored_result(conn, revision_id)}
@@ -1116,6 +1127,10 @@ def _handle_result_message_inner(
     # 한 단계: "더 저렴한"은 지금보다 싼 것 중 가장 비싼 것, "더 좋은"은 지금보다 비싼 것 중 가장 싼 것.
     # (전에는 최저가/최고가로 바로 뛰어서 "더 좋은 걸로"가 목록에서 가장 비싼 부품이 됐다.)
     target = max(candidates, key=lambda r: r["price"]) if cheaper else min(candidates, key=lambda r: r["price"])
+    if preview_ok:
+        # "CPU 더 좋은 걸로 바꿔도 문제없어?" — 바꾸지 않고 그 한 단계 후보로 바꿨을 때를 계산해 보여 준다
+        preview = result_advice.preview_swap(conn, revision_id, slot, str(target["variant_id"]))
+        return {"reply": preview + f"\n바꾸려면 '{slot} {hint} 걸로 바꿔줘'라고 말씀해 주세요.", "result": result}
     # swap_item 을 거쳐야 교체 기록 reason 이 같이 적힌다 (직접 update_candidate_variant 하면 pending 으로 남는다)
     result = swap_item(conn, revision_id, current["id"], target["variant_id"], user_id=user_id)
     tier = "더 저렴한" if cheaper else "더 좋은"
