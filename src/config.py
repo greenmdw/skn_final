@@ -51,6 +51,14 @@ QUOTE_REVIEW_AGENT: bool = os.getenv("QUOTE_REVIEW_AGENT", "0") == "1"    # 견�
 # (유튜브 견적 설명 등)에서 부품별 문구를 LLM 구조화 출력으로 뽑는다. 기본 "0" — opt-in. MOCK_MODE=1이거나
 # OPENAI_API_KEY·LLM_MODEL이 비면 켜도 규칙 기반 파서(key: value 줄만 인식, src/engine/spec_text.py)로 간다.
 SPEC_EXTRACTION_AGENT: bool = os.getenv("SPEC_EXTRACTION_AGENT", "0") == "1"
+# DB 미보유 부품·주변기기 실시간 스펙 검색(docs/미보유부품_실시간스펙검색_설계.md). "1"이면 pc_check에서
+# 카탈로그에 "대응 안 됨"으로 뜬 부품을 사용자가 버튼으로 눌렀을 때 웹 검색+LLM 검증을 시도한다. 기본
+# "0" — opt-in. 자동 트리거가 아니라 버튼 트리거다(§2 — 로그인 없이 호출 가능한 엔드포인트라 비용·남용
+# 리스크 때문에 사용자 확인을 거친다).
+LIVE_PART_LOOKUP: bool = os.getenv("LIVE_PART_LOOKUP", "0") == "1"
+# catalog.live_spec_lookup_cache 캐시 신선도 — 이보다 오래된 행은 다시 검색한다(§4, 0009 마이그레이션
+# 참고). 영구 캐시는 신제품 스펙이 출시 초기에 정정될 위험이 있고, 매번 재검색은 비용이 든다.
+LIVE_SPEC_LOOKUP_TTL_DAYS: int = int(os.getenv("LIVE_SPEC_LOOKUP_TTL_DAYS", "7"))
 
 # --------------------------------------------------------------------------
 # DB / 인증

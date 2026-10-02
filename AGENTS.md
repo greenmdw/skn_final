@@ -78,7 +78,7 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
 - If the default uv cache is read-only, keep `UV_CACHE_DIR=/tmp/uv-cache` in the command.
 - If Python raises `ModuleNotFoundError: src`, run from the repository root and set `PYTHONPATH=.`.
 - If database tests are skipped, rerun with `TRUEFIT_REQUIRE_TEST_DB=1` so the underlying setup problem is reported as an error.
-- The current database baseline must contain exactly these nine files:
+- The current database baseline must contain exactly these ten files:
   - `db/migrations/0000_schema.sql`
   - `db/migrations/0001_constraints.sql`
   - `db/migrations/0002_indexes.sql`
@@ -98,3 +98,6 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
     adds `evidence.review_document`/`review_embedding`/`review_aspect_rule`/`review_aspect_observation`/
     `review_aspect_aggregate(_member)` and `engine.review_requirement_profile` for the review-evidence
     ingestion pipeline — `src/services/review_*.py`)
+  - `db/migrations/0009_live_spec_lookup_cache.sql` (added 2026-10-02: adds
+    `catalog.live_spec_lookup_cache` for the DB-miss live part-spec search feature — see
+    `docs/미보유부품_실시간스펙검색_설계.md`)

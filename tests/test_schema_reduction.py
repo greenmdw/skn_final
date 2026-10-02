@@ -23,7 +23,7 @@ MIGRATIONS = ROOT / "db/migrations"
 EXPECTED_CHAIN = [
     "0000_schema.sql", "0001_constraints.sql", "0002_indexes.sql", "0003_triggers.sql",
     "0004_notification_events.sql", "0005_preference_signal.sql", "0006_report_soft_delete.sql",
-    "0007_peripheral_line.sql", "0008_review_aspect.sql",
+    "0007_peripheral_line.sql", "0008_review_aspect.sql", "0009_live_spec_lookup_cache.sql",
 ]
 # 현재 baseline의 명시적 계약. 같은 개수의 다른 테이블로 바뀌어도 실패해야 한다.
 EXPECTED_TABLES = {
@@ -36,6 +36,7 @@ EXPECTED_TABLES = {
     "catalog.cpu_spec",
     "catalog.gpu_spec",
     "catalog.keyboard_spec",
+    "catalog.live_spec_lookup_cache",
     "catalog.mainboard_spec",
     "catalog.merchant",
     "catalog.monitor_spec",
