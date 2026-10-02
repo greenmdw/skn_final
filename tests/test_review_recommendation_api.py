@@ -12,8 +12,8 @@ from src.api import app
 from review_ranking_seed import neutral_review_prerequisite
 
 
-pytestmark = pytest.mark.db
-DSN = os.environ["DATABASE_URL"]
+DSN = os.getenv("DATABASE_URL")
+pytestmark = [pytest.mark.db, pytest.mark.skipif(not DSN, reason="일회용 DB 필요")]
 
 
 def _start_recommendation(client):
