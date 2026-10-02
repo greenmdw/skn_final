@@ -52,13 +52,28 @@ class EngineRepo(Repo):
         근거·대상 표(validation_evidence/target)는 0012 에서 없어졌고 이 행을 가리키는 것이 없다."""
         return self.conn.execute("DELETE FROM engine.validation_result WHERE run_id=%s", (run_id,)).rowcount
     def set_explanation(self, run_id: UUID, *, headline: str, text: str, reasoning_log: list) -> None:
+        from src.services.recommendation_review_snapshot import SNAPSHOT_STEP
+        trace = [step for step in reasoning_log if step.get("step") != SNAPSHOT_STEP]
         self._exec(
             """UPDATE engine.recommendation_run
             SET explanation_status='ready', explanation_headline=%s, explanation_text=%s,
-                reasoning_log=%s, updated_at=now()
+                reasoning_log=COALESCE((SELECT jsonb_agg(entry)
+                    FROM jsonb_array_elements(engine.recommendation_run.reasoning_log) entry
+                    WHERE entry->>'step'=%s), '[]'::jsonb) || %s::jsonb, updated_at=now()
             WHERE id=%s""",
-            (headline, text, Jsonb(reasoning_log), run_id),
+            (headline, text, SNAPSHOT_STEP, Jsonb(trace), run_id),
         )
+    def store_review_snapshot(self, run_id: UUID, step: dict) -> None:
+        """Store before completing the build, independently of later explanation calls."""
+        from src.services.recommendation_review_snapshot import SNAPSHOT_STEP
+        updated = self.conn.execute(
+            "UPDATE engine.recommendation_run SET reasoning_log=reasoning_log || %s::jsonb "
+            "WHERE id=%s AND status='running' AND NOT EXISTS "
+            "(SELECT 1 FROM jsonb_array_elements(reasoning_log) entry WHERE entry->>'step'=%s)",
+            (Jsonb([step]), run_id, SNAPSHOT_STEP),
+        ).rowcount
+        if updated != 1:
+            raise ValueError("review snapshot must be stored once on a running run")
     def fail_explanation(self, run_id: UUID) -> None:
         """[5] 실패 — headline/text는 NULL로 남기고(제약상 ready만 값을 가짐) 상태만 failed로.
         run.status는 건드리지 않는다 — 부품·가격·검증은 이미 complete_run으로 확정된 뒤다."""
@@ -72,7 +87,7 @@ class EngineRepo(Repo):
         return row is not None
     def get_candidates(self, run_id: UUID) -> list[dict]:
         return self._all("""
-        SELECT c.*, p.model AS product_key, p.product_type, v.id AS variant_id, v.variant_key,
+        SELECT c.*, p.id AS product_id, p.model AS product_key, p.product_type, v.id AS variant_id, v.variant_key,
                p.name AS product_name, p.brand, p.attributes, p.image_url,
                of.id AS offer_id, of.purchase_url, o.price, o.observed_at,
                n.template_key AS slot, n.name AS slot_label

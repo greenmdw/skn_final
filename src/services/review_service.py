@@ -321,7 +321,9 @@ def list_pending_for_user(user_id: UUID) -> dict:
 #     돌아서 아무것도 못 찾은 것처럼 읽힌다. 우리는 탐지기를 돌리지 않았다
 #   · `ItemOut.checks`("구매 전 확인") — [3-C] 스펙 검증 문장의 자리다. 상품 단위
 #     리뷰 관측을 섞으면 나중에 [3-C] 가 채울 때 서로 덮는다
-# 따라서 리뷰 상세는 reasoning_log와 explanation_text에 싣는다.
+# 이 함수는 설명용 요약을 reasoning_log와 explanation_text에 싣는다.
+# 전체 계산 상세는 recommendation_review_snapshot이 설명 생성 전에 따로 저장하고
+# ItemOut.review_detail로 제공한다. 문자열 로그는 구조화된 상세 계약을 대신하지 않는다.
 
 REVIEW_TRACE_STEP = "리뷰 관측"
 

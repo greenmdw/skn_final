@@ -234,6 +234,9 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
             )
             build.list_id = str(revision_id)
 
+            from src.services.recommendation_review_snapshot import snapshot_step
+            erepo.store_review_snapshot(run_id, snapshot_step(rank, build, run_id, values))
+
             # 부품·가격·검증은 여기서 이미 확정됐다. [5] 설명 문장(LLM)은 아직 안 돌았으므로
             # reason=None 으로 저장한다 — add_candidate가 자동으로 reason_status='pending' 처리.
             candidate_id_by_slot: dict[str, UUID] = {}
@@ -328,6 +331,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
             # 이 자료는 stage5가 rank snapshot에서 가져왔으므로 여기서 DB 재조회하지 않는다.
             evidence_by_slot = {it.slot: it.evidence for it in explanation.items if it.evidence}
             for step in review_service.review_trace_steps(explanation.review_line_by_slot, evidence_by_slot):
+                step.update(source_run_id=str(run_id), basis="original_recommendation")
                 trace.insert(-1, step)
 
             # 03 "추천 요약" 본문 = summary + 확인이 필요한 것. 슬롯별 reason 은 각 부품의 "추천 이유" 에
@@ -562,6 +566,10 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
     run = erepo.get_latest_run(revision_id)
     if run is None:
         return None
+    from src.services.recommendation_review_snapshot import (
+        original_review, review_for_candidate, snapshot_from_run,
+    )
+    review_snapshot = snapshot_from_run(run)
 
     revision = prepo.get_revision(revision_id)
     full = prepo.load_full(revision_id)
@@ -586,7 +594,10 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
         "verification": {"status": "pending", "confidence": None, "issues": []},
         "explanation": {"status": "pending", "text": None},
         "reasoning_log": run.get("reasoning_log") or [],
-        "data_notice": ("PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. 리뷰 요약은 합성 데이터입니다."
+        "data_notice": ("PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. "
+            "추천 리뷰 상세는 해당 실행에 저장된 실제 리뷰 속성 관측을 기준으로 제공합니다. "
+            "상세 미제공은 리뷰가 없다는 뜻이 아닙니다. 별점·리뷰 총수와는 별개이며, "
+            "합성 데모 요약은 실제 추천 근거와 구분합니다."
             if category == "computer" else "상품·가격·리뷰는 합성 데이터입니다."),
     }
     if status == "failed":
@@ -622,6 +633,13 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
             "price_observed_at": row["observed_at"].isoformat() if row["observed_at"] else None,
             "qty": row["qty"], "selected": row["selected"], "timing": row["timing"], "budget_share": None,
             "review": review_service.review_brief(product_key),
+            "review_detail": review_for_candidate(
+                review_snapshot, variant_id=row["variant_id"], product_id=row["product_id"],
+                slot=row["slot"], selection_source="user_swap" if row["score"] is None else "automatic",
+            ),
+            "original_review_detail": original_review(
+                review_snapshot, slot=row["slot"], current_variant_id=row["variant_id"],
+            ),
             "reason": {"status": row["reason_status"], "text": row["reason"]},
             "checks": {"status": row["checks_status"], "text": row["checks"]},
             "alternatives_count": alternatives_count,
@@ -747,8 +765,10 @@ def _current_candidate_as_variant_row(current: dict) -> dict:
     }
 
 
-def _alternative_out(row: dict, *, current: bool, current_price: int, slot: str, specs: dict | None = None) -> dict:
+def _alternative_out(row: dict, *, current: bool, current_price: int, slot: str, specs: dict | None = None,
+                     review_snapshot: dict | None = None) -> dict:
     from src.repo.catalog_repo import PC_TYPE_TO_SLOT, pc_catalog_key
+    from src.services.recommendation_review_snapshot import review_for_candidate
     price = int(row["price"]) if row.get("price") is not None else 0
     delta = price - current_price
     label = ("현재 선택" if current else
@@ -765,6 +785,10 @@ def _alternative_out(row: dict, *, current: bool, current_price: int, slot: str,
             "image_url": row.get("image_url"), "purchase_url": row.get("purchase_url"),
         },
         "price": price, "price_delta": delta, "review": None,
+        "review_detail": review_for_candidate(
+            review_snapshot, variant_id=row["variant_id"], product_id=row.get("product_id"),
+            slot=slot, selection_source="alternative",
+        ),
     }
 
 
@@ -896,6 +920,8 @@ def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
     from src.repo.catalog_repo import load_specs_by_variant
     from src.repo.product_repo import ProductRepo
     erepo, run = _require_done_run(conn, revision_id)
+    from src.services.recommendation_review_snapshot import snapshot_from_run
+    review_snapshot = snapshot_from_run(run)
     stored = erepo.get_candidates(run["id"])
     current = _find_candidate(stored, item_id)
     current_price = int(current["price"]) if current["price"] is not None else 0
@@ -922,10 +948,11 @@ def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
         others = sorted(others, key=_distance)[:_SIMILAR_TIER_ALTERNATIVES]
 
     items = [_alternative_out(_current_candidate_as_variant_row(current), current=True, current_price=current_price,
-                               slot=current["slot"], specs=specs_by_variant.get(str(current["variant_id"])))]
+                               slot=current["slot"], specs=specs_by_variant.get(str(current["variant_id"])),
+                               review_snapshot=review_snapshot)]
     items += [
         _alternative_out(row, current=False, current_price=current_price, slot=current["slot"],
-                          specs=specs_by_variant.get(str(row["variant_id"])))
+                          specs=specs_by_variant.get(str(row["variant_id"])), review_snapshot=review_snapshot)
         for row in sorted(others, key=lambda r: r["price"] if r["price"] is not None else 0)
     ]
     return {"items": items}
