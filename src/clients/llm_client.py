@@ -162,3 +162,40 @@ def call_llm_vision(
 
     print("[MOCK] LLM 비전 호출: (이미지 1장)")
     return {"text": "[MOCK] 일반 응답"}
+
+
+def _call_openai_web_search(query: str, *, model: str) -> dict:
+    client = _get_client()
+    response = client.responses.create(model=model or LLM_MODEL, tools=[{"type": "web_search"}], input=query)
+    source_url = None
+    for item in response.output:
+        if item.type != "message":
+            continue
+        for content in item.content:
+            for annotation in getattr(content, "annotations", None) or []:
+                if annotation.type == "url_citation":
+                    source_url = annotation.url
+                    break
+            if source_url:
+                break
+        if source_url:
+            break
+    return {"text": response.output_text or "", "source_url": source_url}
+
+
+def call_web_search(query: str, *, model: str = LLM_MODEL) -> dict:
+    """웹 검색 1회 — DB 미보유 부품 실시간 스펙 검색(docs/미보유부품_실시간스펙검색_설계.md §3)
+    전용. OpenAI Responses API의 내장 web_search 도구를 쓴다 — call_llm/call_llm_vision이 쓰는
+    chat.completions과는 다른 엔드포인트라 별도 함수로 둔다.
+
+    Returns:
+        {"text": 검색 결과 요약 텍스트, "source_url": 첫 인용 출처 URL(없으면 None)}.
+        "text"는 검증(critique) 단계의 입력일 뿐, 그대로 사용자에게 보여주지 않는다 — 모델이
+        검색 결과를 요약하면서 지어낸 문장이 섞여 있을 수 있어, 그 지어낸 부분까지 추출되지
+        않게 걸러내는 게 critique 단계의 역할이다(live_spec_lookup_system).
+    """
+    if not MOCK_MODE:
+        return _call_openai_web_search(query, model=model)
+
+    print(f"[MOCK] 웹 검색 호출: {query[:36]}...")
+    return {"text": "[MOCK] 검색 결과 없음", "source_url": None}
