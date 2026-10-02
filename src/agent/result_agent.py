@@ -20,7 +20,7 @@
 - `available()` 이 False(MOCK_MODE·키 없음·`RESULT_AGENT=0`)면 규칙 경로.
 - 묻는 말("돈 남았는데 뭐 올릴까?", "바꿔도 문제없어?", "뭘 바꾸면 싸져?", "파워 충분해?", "배그 돌아가?")은
   저장하지 않는 계산 도구(preview_swap·upgrade_options·savings_options·check_build·game_check — 본체는
-  `src/services/result_advice.py`)로 답한다. "바꿔도 돼?" 꼴의 말이면 그 턴은 바꾸는 도구를 코드가 막는다(read_only).
+  `src/services/result_advice.py`)로 답한다. 바꾸는 도구는 바꾸라는 말(classify_intent == 'change')에서만 열린다(read_only).
 """
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ class ResultSession:
     trace: list[str] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)   # 도구 결과 원문 — 수치 가드의 허용 근거(trace 는 160자로 자른다)
     changed: bool = False
-    read_only: bool = False                        # "바꿔도 돼?" 같은 묻는 말 — 이번 턴은 구성표를 바꾸지 않는다
+    read_only: bool = False                        # 바꾸라는 말이 아니면(classify_intent) 이번 턴은 구성표를 바꾸지 않는다
 
     def _record(self, call: str, out: str) -> str:
         self.trace.append(f"{call} → {out[:160]}")
@@ -67,11 +67,11 @@ class ResultSession:
         return out
 
     def _refuse_write(self, call: str) -> str | None:
-        """묻는 말에서 바꾸는 도구를 부르면 거절한다 — 프롬프트만으로는 "램 32기가로 늘려도 돼?"에 수량을 2로
-        바꿔 버렸다(2026-10-02 실측). 모델이 이 문장을 보고 가정 결과(preview_swap)로 답하게 한다."""
+        """바꾸라는 말이 아닌데 바꾸는 도구를 부르면 거절한다 — 프롬프트만으로는 "램 32기가로 늘려도 돼?"에 수량을
+        2로 바꿔 버렸다(2026-10-02 실측). 모델이 이 문장을 보고 가정 결과(preview_swap)로 답하게 한다."""
         if not self.read_only:
             return None
-        return self._record(call, "거절: 이번 말은 바꿔도 되는지 묻는 질문이라 구성표를 바꾸지 않았습니다. "
+        return self._record(call, "거절: 이번 말에는 바꾸라는 요청(바꿔줘·해줘·~로·응)이 없어 구성표를 바꾸지 않았습니다. "
                                   "preview_swap 으로 가정 결과를 확인해 전하고, 바꿀지 사용자에게 물으세요.")
 
     def refresh(self) -> None:
@@ -410,21 +410,45 @@ _WHY = ("왜", "이유", "근거", "괜찮", "믿을", "어때", "리뷰", "총�
         "why", "reason", "review", "good", "ok?", "summary", "overall", "explain")
 
 
-# "바꿔도 돼?", "늘려도 괜찮을까?", "바꾸면 어때?", "문제없을까?" — 바꿔도 되는지 묻는 말. 교체 요청("바꿔줘",
-# "바꿔줄래?")과 달리 이번 턴은 구성표를 바꾸지 않는다(ResultSession.read_only). "CPU도 바꿔줘"는 '도' 뒤에
-# 돼/될/괜찮이 오지 않으니 걸리지 않는다.
-_WHATIF_RE = re.compile(
-    r"도\s*(?:돼|되나|될까|되려나|되겠|괜찮|문제|상관|ok|ㄱㅊ)"
-    r"|면\s*(?:어때|어떨|어떻|괜찮|문제|될까|돼\?|되나)"
+# ── 바꾸라는 말인가 (구성표를 바꾸는 도구의 허용 조건) ──────────────────────────────
+# 예전엔 "바꿔도 돼?" 꼴의 묻는 말을 찾아 막았다(차단 목록). 실제 말투("글카 갈아타도됨?", "파워 바꾸는거 ㄱㅊ?",
+# "씨퓨 업글 해도 무방?")는 7개 중 1개만 걸렸다(2026-10-02) — 표현은 끝이 없어서 놓치면 구성표가 바뀐다.
+# 그래서 거꾸로, **바꾸라는 표시가 있을 때만** 바꾸는 도구를 연다(허용 목록). 놓쳤을 때의 피해가 "잘못 바뀜"에서
+# "한 번 더 물어봄"으로 줄어든다. 묻는 말 표시가 같이 있으면 묻는 말이 이긴다.
+_CHANGE_VERB = r"(?:바꾸|바꿔|바꿀|갈아|올리|올려|올릴|늘리|늘려|늘릴|업글|업그레이드|교체|변경|빼|뺄|넣|담|달아|내리|내려|줄이|줄여|가면)"
+_ASK_RE = re.compile(
+    r"도\s*(?:돼|되나|될까|되려나|되겠|되냐|되남|됨|괜찮|괜춘|문제|상관|무방|ok|ㄱㅊ)"
+    r"|면\s*.{0,15}?(?:어때|어떨|어떻|괜찮|문제|될까|되나|돼\?|충분|부족)"
     r"|문제\s*(?:없|안\s*생|생기|있)"
+    r"|(?:바꿀|올릴|늘릴|갈아탈|업글할|교체할|뺄|넣을)까"
+    r"|ㄱㄱ\s*\?"
+)
+_ASK_LOOSE_RE = re.compile(r"ㄱㅊ|괜찮음|괜춘|무방|어케\s*생각|어떻게\s*생각|어떰|어떨까|나을까|낫나|좋을까")
+_CHANGE_RE = re.compile(
+    r"(?:바꿔|교체해|변경해|빼|넣어|담아|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해|로\s*해|로\s*가자|로\s*할게|로\s*갈게)"
+    r"\s*(?:줘|주세요|줄래|주라|줄\s*수|주셈|주삼|주쇼|쥬|줭|봐|요|라)"
+    r"|(?:로\s*해|로\s*할게|로\s*갈게|로\s*가자)\b"
+    r"|(?:으)?로\s*[요.!~]*\s*$"                              # "7600X로", "SSD 2개로", "더 싼 걸로" — 말줄임 요청
+    r"|^\s*(?:응|ㅇㅇ|ㅇㅋ|오케이|ok|okay|네|넵|예|그래|좋아|콜|ㄱㄱ|고고|부탁해|그렇게\s*해)(?:\s|[.!~,]|$)"
+    r"|ㄱㄱ(?!\s*\?)"
 )
 
 
-_WHOLE_BUILD = ("구성", "견적", "전체", "이거", "이것", "이 조합", "총평", "build", "overall", "this")
+def classify_intent(text: str) -> str:
+    """'change'(바꾸라는 말) / 'ask'(바꿔도 되는지 묻는 말) / 'other'. 구성표를 바꾸는 도구는 'change'에서만 열린다."""
+    low = text.lower().strip()
+    if _ASK_RE.search(low) or (_ASK_LOOSE_RE.search(low) and re.search(_CHANGE_VERB, low)):
+        return "ask"
+    if _CHANGE_RE.search(low):
+        return "change"
+    return "other"
 
 
 def is_whatif_question(text: str) -> bool:
-    return bool(_WHATIF_RE.search(text.lower()))
+    return classify_intent(text) == "ask"
+
+
+_WHOLE_BUILD = ("구성", "견적", "전체", "이거", "이것", "이 조합", "총평", "build", "overall", "this")
 
 
 def _prefetch_explanations(session: ResultSession, text: str) -> str:
@@ -594,7 +618,7 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
     pairs = _db_history(conn, revision_id, run_id)
     hist_rows = [{"role": "user", "content": u} for u, _ in pairs]
     session = ResultSession(conn=conn, revision_id=revision_id, result=result, user_id=user_id,
-                            read_only=is_whatif_question(text))
+                            read_only=classify_intent(text) != "change")
     prefetched = _prefetch_explanations(session, text)
     prompt = system_prompt(result, text, hist_rows, prefetched)
     agent = Agent(

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
+
 from src.agent import result_agent as ra
 
 
@@ -119,13 +121,33 @@ def test_guarded_reply_prefers_changes_then_prefetched_then_template():
 
 
 # ── 묻는 말 (2026-10-02) ───────────────────────────────────────────────────
-def test_whatif_questions_are_told_apart_from_change_requests():
-    for q in ("CPU 더 성능 좋은 걸로 바꿔도 문제없을까?", "램 32기가로 늘려도 돼?", "그래픽카드 올려도 괜찮아?",
-              "그래픽카드 더 좋은 걸로 바꾸면 어때?", "파워 이걸로 바꾸면 될까?", "CPU 바꿔도 되나요"):
-        assert ra.is_whatif_question(q), q
-    for q in ("CPU 한 단계 좋은 걸로 바꿔줘", "그래픽카드도 바꿔줘", "SSD 2개로", "왜 이 CPU야?",
-              "그래픽카드 더 싼 걸로 바꿔줄래?", "돈 남았는데 바꿀 거 추천해 줄 수 있나?"):
-        assert not ra.is_whatif_question(q), q
+_ASK = ("CPU 더 성능 좋은 걸로 바꿔도 문제없을까?", "램 32기가로 늘려도 돼?", "그래픽카드 올려도 괜찮아?",
+        "그래픽카드 더 좋은 걸로 바꾸면 어때?", "파워 이걸로 바꾸면 될까?", "CPU 바꿔도 되나요", "CPU 바꿀까?",
+        "그래픽카드 한 단계 올리면 파워는 괜찮아?",
+        # 실제 말투 (2026-10-02 — 예전 정규식은 이 7개 중 1개만 잡았다)
+        "글카 갈아타도됨?", "cpu 7600x로 가면 괜찮음?", "램 32로 ㄱㄱ?", "그래픽 올리는거 어케생각함",
+        "파워 바꾸는거 ㄱㅊ?", "씨퓨 업글 해도 무방?", "SSD 1테라 더 달아도 됨")
+_CHANGE = ("CPU 한 단계 좋은 걸로 바꿔줘", "그래픽카드도 바꿔줘", "SSD 2개로", "SSD 2개로 해줘", "쿨러 빼줘",
+           "그래픽카드 더 싼 걸로 바꿔줄래?", "응 그걸로 바꿔줘", "ㅇㅇ", "응", "네", "7600X로", "그걸로 ㄱㄱ",
+           "예산 200만원으로 늘려줘", "그래픽카드 더 저렴한 걸로", "글카 4060ti로 바꿔주세요", "글카 한단계 위로 바꿔주셈")
+_OTHER = ("돈 남았는데 바꿀 거 추천해 줄 수 있나?", "왜 이 그래픽카드 골랐어?", "이 구성 괜찮아?", "파워 용량 충분해?",
+          "이 글카 ㄱㅊ?", "쿨러 꼭 사야 돼?", "인텔이랑 AMD 차이가 뭐야?", "남는돈으로 머 올리지")
+
+
+@pytest.mark.parametrize("text", _ASK)
+def test_classify_ask(text):
+    assert ra.classify_intent(text) == "ask"
+
+
+@pytest.mark.parametrize("text", _CHANGE)
+def test_classify_change(text):
+    assert ra.classify_intent(text) == "change"
+
+
+@pytest.mark.parametrize("text", _OTHER)
+def test_classify_other_does_not_open_write_tools(text):
+    """바꾸라는 말이 아니면(묻는 말이든 다른 말이든) 바꾸는 도구가 닫힌다 — 허용 목록."""
+    assert ra.classify_intent(text) == "other"
 
 
 def test_read_only_turn_refuses_writes_without_touching_db():

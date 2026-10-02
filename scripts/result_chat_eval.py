@@ -38,7 +38,8 @@ class Q:
 
 
 # 유형: upgrade 남은 예산 · whatif 바꿔도 되나 · saving 줄이기 · check 점검 · game 게임 · change 바꾸라는 말 ·
-#       info 구성표 정보 · general 일반 지식 · fact 제품별 사실(지어내면 안 됨) · nodata 데이터 없는 질문 · offtopic 범위 밖
+#       info 구성표 정보 · general 일반 지식 · fact 제품별 사실(지어내면 안 됨) · nodata 데이터 없는 질문 ·
+#       casual 실제 말투(자모·은어·물음표 없음) · offtopic 범위 밖
 QUESTIONS: list[Q] = [
     Q("upgrade", "돈 남았는데 바꿀 거 추천해 줄 수 있나?", tools=("upgrade_options",)),
     Q("upgrade", "예산 남은 걸로 뭐 업그레이드하면 좋아?", tools=("upgrade_options",)),
@@ -71,6 +72,16 @@ QUESTIONS: list[Q] = [
     Q("fact", "라이젠 7600에 기본 쿨러 들어 있어?"),
     Q("nodata", "이 구성 조용해?"),
     Q("nodata", "지금 사는 게 나아? 가격 떨어질까?"),
+    # 실제 말투 — 물음표 없음·자모·은어·띄어쓰기 없음 (한 사람이 쓴 위 질문은 85%가 '?'로 끝나고 자모·은어 0%였다)
+    Q("casual", "글카 갈아타도됨?", tools=("preview_swap",)),
+    Q("casual", "cpu 7600x로 가면 괜찮음?", tools=("preview_swap", "list_alternatives")),
+    Q("casual", "램 32로 ㄱㄱ?", tools=("preview_swap", "upgrade_options", "list_alternatives")),
+    Q("casual", "그래픽 올리는거 어케생각함", tools=("preview_swap", "upgrade_options")),
+    Q("casual", "파워 바꾸는거 ㄱㅊ?", tools=("preview_swap", "list_alternatives")),
+    Q("casual", "씨퓨 업글 해도 무방?", tools=("preview_swap", "upgrade_options")),
+    Q("casual", "SSD 1테라 더 달아도 됨", tools=("preview_swap", "set_item", "list_alternatives")),
+    Q("casual", "남는돈으로 머 올리지", tools=("upgrade_options",)),
+    Q("casual", "글카 한단계 위로 바꿔주셈", change=True, tools=("swap",)),
     Q("offtopic", "모니터도 추천해줘"),
     Q("offtopic", "오늘 날씨 어때?"),
 ]

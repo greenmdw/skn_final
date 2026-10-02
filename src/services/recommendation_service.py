@@ -1086,9 +1086,10 @@ def _handle_result_message_inner(
               for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
     known_slots = {r["slot"] for r in rows}
     slot, direction, is_question = _parse_swap_request(text, known_slots)
-    from src.agent.result_agent import is_whatif_question
+    from src.agent.result_agent import classify_intent
     from src.services import result_advice
-    if not (slot and direction and is_whatif_question(text)):
+    intent = classify_intent(text)
+    if not (slot and direction and intent == "ask"):
         # 남은 예산·절약·점검·게임처럼 슬롯·방향 없이 묻는 말 — 에이전트와 같은 계산 함수(P5 규칙 경로)
         advice = result_advice.rule_reply(conn, revision_id, text, slot)
         if advice is not None:
@@ -1098,9 +1099,10 @@ def _handle_result_message_inner(
                           "방향(더 저렴한/더 좋은)을 함께 말씀해 주세요.",
                 "result": get_stored_result(conn, revision_id)}
     hint = ({"cheaper": "더 저렴한", "pricier": "더 좋은"}.get(direction) or "더 저렴한/더 좋은")
-    whatif = is_whatif_question(text)
+    whatif = intent == "ask"
     preview_ok = whatif and values.get("category") == "computer"
-    if direction is None or ((is_question or whatif) and not preview_ok):
+    # 물음표가 있어도 "바꿔줄래?"처럼 바꾸라는 말이면 바꾼다
+    if direction is None or (((is_question and intent != "change") or whatif) and not preview_ok):
         # 묻는 말(또는 방향이 애매한 말)은 실행하지 않고 되묻는다 — "바꿔드릴까요?" 는 사용자가 확정해야 룰 동작이 된다
         return {"reply": f"{slot}를 {hint} 후보로 바꿔드릴까요? 바꾸려면 '{slot} {hint} 걸로'라고 말씀해 주세요. "
                           "지금은 아무것도 바꾸지 않았어요.",

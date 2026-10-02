@@ -9,6 +9,7 @@ from src.engine.brands import canonical_brand, canonical_slot, cpu_brand_pref
 @pytest.mark.parametrize("raw,expected", [
     ("그래픽카드", "GPU"), ("gpu", "GPU"), ("그래픽 카드", "GPU"), ("씨피유", "CPU"), ("램", "RAM"), ("파워", "파워"),
     ("전원", "파워"), ("모니터", "모니터"),        # 모르는 슬롯은 그대로
+    ("글카", "GPU"), ("그카", "GPU"), ("씨퓨", "CPU"), ("마보", "메인보드"), ("nvme", "저장장치"),   # 실제 말투
 ])
 def test_slot_names(raw, expected):
     assert canonical_slot(raw) == expected
@@ -31,3 +32,11 @@ def test_brand_names_follow_the_slots_catalog_spelling(raw, catalog, expected):
 
 def test_cpu_brand_pref_takes_only_intel_or_amd():
     assert [cpu_brand_pref(b) for b in ("인텔", "Intel", "라이젠", "AMD", "NVIDIA", "삼성")] == ["intel", "intel", "amd", "amd", None, None]
+
+
+def test_keyboard_is_not_a_mainboard():
+    """'보드'만은 동의어에 넣지 않는다 — 넣으면 "키보드도 추천해줘"가 메인보드로 잡힌다."""
+    from src.services.recommendation_service import _match_slot
+    slots = {"CPU", "GPU", "RAM", "메인보드", "저장장치", "파워", "케이스", "쿨러"}
+    assert _match_slot("키보드도 추천해줘", slots) is None
+    assert _match_slot("글카 갈아타도됨?", slots) == "GPU"
