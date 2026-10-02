@@ -60,12 +60,66 @@ class RequirementSpec(BaseModel):
     games: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class ReviewRequirementAttribute(BaseModel):
+    aspect_code: str
+    context_code: str
+    alpha: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    selection_reason: str
+    preference_source: str = "default"
+    selected_rule_id: str | None = None
+
+
+class ReviewRequirementProfile(BaseModel):
+    profile_version: str
+    analysis_version: str
+    part_type: str
+    attributes: list[ReviewRequirementAttribute] = Field(default_factory=list)
+    diagnostics: list[str] = Field(default_factory=list)
+
+
+class ReviewEvidenceMember(BaseModel):
+    observation_id: str
+    document_id: str
+    source_code: str
+    direction: Literal["positive", "negative", "mixed"]
+    observation_text: str
+    evidence_sentences: list[str] = Field(default_factory=list)
+
+
+class ReviewAspectContribution(BaseModel):
+    aspect_code: str
+    context_code: str
+    rule_id: str | None = None
+    aggregate_id: str | None = None
+    alpha: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    p: int = Field(default=0, ge=0)
+    n: int = Field(default=0, ge=0)
+    mixed: int = Field(default=0, ge=0)
+    k: float | None = Field(default=None, gt=0.0, allow_inf_nan=False)
+    q: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    alpha_q: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    evidence_state: Literal[
+        "observed", "balanced", "mixed_only", "no_observations",
+        "selected_rule_missing", "product_id_missing",
+    ]
+    neutral_reason: str | None = None
+    members: list[ReviewEvidenceMember] = Field(default_factory=list)
+
+
+class ReviewScoreDetail(BaseModel):
+    profile: ReviewRequirementProfile
+    value: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    contributions: list[ReviewAspectContribution] = Field(default_factory=list)
+    diagnostics: list[str] = Field(default_factory=list)
+
+
 # ── [3-0]~[3-B] 후보 ────────────────────────────────────────────────────
 class Candidate(BaseModel):
     product_key: str
     slot: str
     name: str
     variant_id: str | None = None
+    product_id: str | None = None
     offer_observation_id: str | None = None
     brand: str = ""
     price: int = 0
@@ -81,6 +135,7 @@ class Candidate(BaseModel):
     flags: list[str] = Field(default_factory=list)
     score: float = 0.0
     breakdown: dict[str, float] = Field(default_factory=dict)
+    review_detail: ReviewScoreDetail | None = None
     rank: int = 0
     # E8/E9 — 가격 출처. PC 후보는 기존대로 offer_observation 기반 "observed"(기본값,
     # 동작 불변). 주변기기 로더(E9)는 peripheral_price_snapshot만 있어 "reference_snapshot"을

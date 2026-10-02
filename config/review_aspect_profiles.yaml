@@ -1,0 +1,67 @@
+profile_version: review-profile-v1-20261002
+analysis_version: review-aspect-v6-prod-20261002
+quiet_aspects: [fan_quietness, coil_quietness, pump_quietness]
+default_base_weight: 1
+quiet_base_weight: 3
+part_types:
+  case:
+    airflow: {policy: workload, contexts: [gaming_load, low_load, named_non_gaming_workload, workload_unknown]}
+    assembly_ease: {policy: installation, contexts: [installation_or_use]}
+    build_quality: {policy: visual, contexts: [visual_or_physical_inspection]}
+    port_button_accessibility: {policy: installation, contexts: [installation_or_use]}
+  cooler:
+    cooling: {policy: workload, contexts: [gaming_load, low_load, named_non_gaming_workload, workload_unknown]}
+    fan_quietness: {policy: workload, contexts: [fan_2400rpm, fan_max_speed, gaming_load, low_load, named_non_gaming_workload, workload_unknown]}
+    installation_ease: {policy: installation, contexts: [installation_or_use]}
+    pump_quietness: {policy: workload, contexts: [gaming_load, low_load, named_non_gaming_workload, workload_unknown]}
+  cpu:
+    operational_stability: {policy: duration, contexts: [duration_unknown, extended_use, initial_operation]}
+    thermal_management: {policy: workload, contexts: [gaming_load, low_load, named_non_gaming_workload, workload_unknown]}
+    workload_performance: {policy: workload, contexts: [gaming_load, low_load, named_non_gaming_workload, workload_unknown]}
+  gpu:
+    coil_quietness: {policy: workload, contexts: [gaming_load, low_load, named_non_gaming_workload, workload_unknown]}
+    fan_quietness: {policy: workload, contexts: [gaming_load, low_load, named_non_gaming_workload, workload_unknown]}
+    gaming_performance: {policy: workload, contexts: [gaming_load]}
+    operational_stability: {policy: duration, contexts: [duration_unknown, extended_use, initial_operation]}
+    thermal_management: {policy: workload, contexts: [gaming_load, low_load, named_non_gaming_workload, workload_unknown]}
+  keyboard:
+    connection_stability: {policy: actual_use, contexts: [actual_use]}
+    controls_usability: {policy: actual_use, contexts: [actual_use]}
+    physical_usability: {policy: actual_use, contexts: [actual_use]}
+    typing_feel: {policy: actual_use, contexts: [actual_use]}
+    typing_noise: {policy: actual_use, contexts: [actual_use]}
+  mainboard:
+    assembly_ease: {policy: installation, contexts: [installation_or_use]}
+    bios_usability: {policy: installation, contexts: [installation_or_use]}
+    boot_memory_stability: {policy: duration, contexts: [duration_unknown, extended_use, initial_operation]}
+    connection_stability: {policy: duration, contexts: [duration_unknown, extended_use, initial_operation]}
+    port_connectivity_ease: {policy: installation, contexts: [installation_or_use]}
+  monitor:
+    connection_stability: {policy: actual_use, contexts: [actual_use]}
+    controls_ergonomics: {policy: actual_use, contexts: [actual_use]}
+    functional_reliability: {policy: actual_use, contexts: [actual_use]}
+    image_quality: {policy: actual_use, contexts: [actual_use]}
+    motion_response: {policy: actual_use, contexts: [actual_use]}
+  mouse:
+    battery_runtime: {policy: actual_use, contexts: [actual_use]}
+    connection_stability: {policy: actual_use, contexts: [actual_use]}
+    controls_usability: {policy: actual_use, contexts: [actual_use]}
+    ergonomics: {policy: actual_use, contexts: [actual_use]}
+    tracking_input: {policy: actual_use, contexts: [actual_use]}
+  psu:
+    cable_installation_ease: {policy: installation, contexts: [installation_or_use]}
+    coil_quietness: {policy: workload, contexts: [gaming_load, low_load, named_non_gaming_workload, workload_unknown]}
+    fan_quietness: {policy: workload, contexts: [gaming_load, low_load, named_non_gaming_workload, workload_unknown]}
+  ram:
+    installation_ease: {policy: installation, contexts: [installation_or_use]}
+    recognition_operation_stability: {policy: duration, contexts: [duration_unknown, extended_use, initial_operation]}
+  speaker:
+    connection_controls: {policy: actual_use, contexts: [actual_use]}
+    functional_reliability: {policy: actual_use, contexts: [actual_use]}
+    output_level: {policy: actual_use, contexts: [actual_use]}
+    sound_quality: {policy: actual_use, contexts: [actual_use]}
+    unwanted_noise: {policy: actual_use, contexts: [actual_use]}
+  ssd:
+    io_performance: {policy: workload, contexts: [gaming_load, low_load, named_non_gaming_workload, workload_unknown]}
+    recognition_operation_stability: {policy: duration, contexts: [duration_unknown, extended_use, initial_operation]}
+    thermal_management: {policy: workload, contexts: [gaming_load, low_load, named_non_gaming_workload, workload_unknown]}

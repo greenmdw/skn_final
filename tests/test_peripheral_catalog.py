@@ -403,6 +403,7 @@ def test_db_loader_all_reference_snapshot_no_offer(conn):
     all_candidates = [c for cands in by_kind.values() for c in cands]
     assert all_candidates, "주변기기 후보가 0건입니다 — seed 확인 필요"
     for cand in all_candidates:
+        assert cand.product_id, "DB-loaded peripheral candidate must carry catalog.product.id"
         assert cand.offer_observation_id is None
         assert cand.price_source == "reference_snapshot"
         assert cand.price > 0

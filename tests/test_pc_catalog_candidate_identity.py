@@ -15,7 +15,7 @@ class _Cursor:
         return None
 
     def execute(self, _query, params):
-        self.product_type = params["product_type"]
+        self.product_type = params.get("product_type", "cpu")
 
     def fetchall(self):
         if self.product_type != "cpu":
@@ -40,7 +40,16 @@ def test_db_candidate_keeps_variant_and_price_observation_ids():
     candidate = by_slot["CPU"][0]
     assert candidate.variant_id == "00000000-0000-0000-0000-000000000001"
     assert candidate.offer_observation_id == "00000000-0000-0000-0000-000000000002"
+    assert candidate.product_id == "00000000-0000-0000-0000-000000000003"
     assert candidate.specs["socket"] == "AM5"
+
+
+def test_variant_reread_keeps_the_same_product_id():
+    from src.repo.catalog_repo import load_candidates_by_variant
+
+    variant_id = "00000000-0000-0000-0000-000000000001"
+    candidate = load_candidates_by_variant(_Conn(), [("cpu", variant_id)])[variant_id]
+    assert candidate.product_id == "00000000-0000-0000-0000-000000000003"
 
 
 def test_pc_catalog_key_matches_review_remap_format():
