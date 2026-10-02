@@ -256,14 +256,16 @@ def test_catalog_pc_and_variant_paths_keep_real_product_ids(review_db):
     assert reloaded.product_id == candidate.product_id
 
 
-def test_shared_ranker_persists_profile_for_run_and_passes_r_detail(review_db):
+def test_shared_ranker_persists_profile_for_run_and_passes_r_detail(review_db, monkeypatch):
     from src.dto import Candidate, HardFilterResult, RequirementSpec, Slots
     from src.services.review_ranking import rank_with_review_aspects
 
     conn, ids = review_db
     product = _gpu_products(conn)[0]
     config = load_review_profile_config()
-    version = config["analysis_version"]
+    version = "test-shared-rank-" + uuid4().hex
+    config["analysis_version"] = version
+    monkeypatch.setattr("src.services.review_ranking.load_review_profile_config", lambda: config)
     rule = _add_rule(conn, ids, version)
     observations = [_add_doc_obs(conn, ids, product, rule, direction)[1]
                     for direction in ["positive"] * 3 + ["negative"]]

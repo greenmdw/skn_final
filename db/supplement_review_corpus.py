@@ -5,7 +5,7 @@ import psycopg
 from dotenv import load_dotenv
 from src.services.review_preparation import prepare_documents,catalog_snapshot,preparation_plan,encoded
 from src.services.review_batch import prepare_batches,require_registered_input
-from run_review_corpus import ROOT,save,state
+from seed_review_corpus import ROOT,save,state
 
 def main():
  load_dotenv('.env');os.environ.setdefault('DATABASE_URL','postgresql://truefit:truefit@127.0.0.1:5432/truefit');target=ROOT/'supplement_literal_regional_alias';target.mkdir(exist_ok=True)

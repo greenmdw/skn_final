@@ -1,6 +1,8 @@
 """Recommendation execute contract: a stored request profile or an explicitly failed run."""
 import os
-from uuid import UUID
+from uuid import UUID, uuid4
+from unittest.mock import patch
+from src.services.review_aspect_score import load_review_profile_config
 
 import psycopg
 import pytest
@@ -56,8 +58,11 @@ def test_execute_stores_profile_versions_and_completes_review_rank():
 
 
 def test_execute_marks_review_readiness_failure_as_failed_run():
-    with TestClient(app, raise_server_exceptions=False) as client:
-        _list_id, run_id = _start_recommendation(client)
+    config = load_review_profile_config()
+    config["analysis_version"] = "test-missing-" + uuid4().hex
+    with patch("src.services.review_ranking.load_review_profile_config", return_value=config):
+        with TestClient(app, raise_server_exceptions=False) as client:
+            _list_id, run_id = _start_recommendation(client)
     with psycopg.connect(DSN) as conn:
         row = conn.execute(
             "SELECT status FROM engine.recommendation_run WHERE id=%s", (run_id,),

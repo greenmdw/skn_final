@@ -1,10 +1,11 @@
 """Explicit review prerequisite for recommendation-success regressions, test DBs only.
 
-Other review tests keep an empty baseline. This fixture uses mixed-only evidence so
+The fixture uses an isolated analysis version and mixed-only evidence so
 existing recommendation regression expectations retain a neutral review score.
 """
 from contextlib import contextmanager
 from uuid import uuid4
+from unittest.mock import patch
 
 import psycopg
 from psycopg.conninfo import conninfo_to_dict
@@ -18,6 +19,7 @@ def neutral_review_prerequisite(dsn):
     if 'test' not in conninfo_to_dict(dsn).get('dbname','').lower():
         raise ValueError('review regression prerequisites require an isolated test database')
     config = load_review_profile_config()
+    config["analysis_version"] = "test-neutral-" + uuid4().hex
     rules = []
     document_id, observation_id, aggregate_id = uuid4(), uuid4(), uuid4()
     with psycopg.connect(dsn,autocommit=True) as conn:
@@ -57,7 +59,8 @@ def neutral_review_prerequisite(dsn):
                 'VALUES (%s,%s)',(aggregate_id,observation_id),
             )
         try:
-            yield
+            with patch("src.services.review_ranking.load_review_profile_config", return_value=config):
+                yield
         finally:
             with conn.transaction():
                 conn.execute('DELETE FROM evidence.review_aspect_aggregate_member WHERE aggregate_id=%s',(aggregate_id,))

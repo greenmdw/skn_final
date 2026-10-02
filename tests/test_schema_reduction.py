@@ -232,9 +232,15 @@ def test_baseline_tracking_functions_and_triggers():
 def test_setup_all_is_idempotent():
     tables = ("catalog.product", "catalog.product_variant", "catalog.offer",
               "catalog.offer_observation", "catalog.peripheral_price_snapshot",
-              "evidence.review_summary")
+              "evidence.review_summary", "evidence.review_document",
+              "evidence.review_aspect_rule", "evidence.review_aspect_observation",
+              "evidence.review_aspect_aggregate", "evidence.review_aspect_aggregate_member")
     with psycopg.connect(DSN) as conn:
         before = tuple(conn.execute(f"SELECT count(*) FROM {table}").fetchone()[0] for table in tables)
+        assert before[tables.index("evidence.review_document")] == 5653
+        assert before[tables.index("evidence.review_aspect_rule")] == 102
+        assert before[tables.index("evidence.review_aspect_observation")] == 3676
+        assert before[tables.index("evidence.review_aspect_aggregate")] == 833
     result = subprocess.run([sys.executable, "db/setup_all.py"], cwd=ROOT,
                             env={**os.environ, "DATABASE_URL": DSN, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"},
                             capture_output=True, text=True, encoding="utf-8")

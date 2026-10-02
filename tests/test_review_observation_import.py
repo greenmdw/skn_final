@@ -14,7 +14,9 @@ pytestmark = pytest.mark.db
 @pytest.fixture
 def sample():
     with psycopg.connect(os.environ['DATABASE_URL']) as conn:
-        product = conn.execute('SELECT product_id FROM catalog.gpu_spec LIMIT 1').fetchone()[0]
+        product = uuid4()
+        conn.execute("INSERT INTO catalog.product(id,name,brand,model,product_type) VALUES (%s,'Import test GPU','Test',%s,'gpu')", (product,str(product)))
+        conn.execute('INSERT INTO catalog.gpu_spec(product_id) VALUES (%s)', (product,))
         doc, rule = uuid4(), uuid4()
         body = '게임 중 팬 소리는 거의 안 들립니다.'
         conn.execute('INSERT INTO evidence.review_document(id,product_id,source_code,is_synthetic,body) '
@@ -39,16 +41,16 @@ def sample():
 def test_import_replace_dry_run_and_idempotence(sample):
     conn, source, output = sample
     assert import_observations(conn, source, output, dry_run=True)['changed_documents'] == 1
-    assert conn.execute('SELECT count(*) FROM evidence.review_aspect_observation').fetchone()[0] == 0
+    assert conn.execute('SELECT count(*) FROM evidence.review_aspect_observation WHERE document_id=%s', (source['reviews'][0]['document_id'],)).fetchone()[0] == 0
     assert import_observations(conn, source, output)['changed_documents'] == 1
-    identity = conn.execute('SELECT id FROM evidence.review_aspect_observation').fetchone()[0]
+    identity = conn.execute('SELECT id FROM evidence.review_aspect_observation WHERE document_id=%s', (source['reviews'][0]['document_id'],)).fetchone()[0]
     assert import_observations(conn, source, output)['changed_documents'] == 0
     output['results'][0]['observations'][0]['direction'] = 'negative'
     import_observations(conn, source, output)
-    assert conn.execute('SELECT id FROM evidence.review_aspect_observation').fetchone()[0] == identity
+    assert conn.execute('SELECT id FROM evidence.review_aspect_observation WHERE document_id=%s', (source['reviews'][0]['document_id'],)).fetchone()[0] == identity
     output['results'][0]['observations'] = []
     import_observations(conn, source, output)
-    assert conn.execute('SELECT count(*) FROM evidence.review_aspect_observation').fetchone()[0] == 0
+    assert conn.execute('SELECT count(*) FROM evidence.review_aspect_observation WHERE document_id=%s', (source['reviews'][0]['document_id'],)).fetchone()[0] == 0
 
 
 @pytest.mark.parametrize('failure', ['partial', 'evidence', 'version', 'missing', 'duplicate', 'stale', 'part'])
@@ -64,7 +66,7 @@ def test_invalid_import_leaves_existing_observations_unchanged(sample, failure):
     if failure == 'stale': source['reviews'][0]['body'] += ' changed'
     if failure == 'part': source['reviews'][0]['part_type'] = 'cpu'
     with pytest.raises(ValueError): import_observations(conn, source, changed)
-    assert conn.execute('SELECT direction FROM evidence.review_aspect_observation').fetchone()[0] == 'positive'
+    assert conn.execute('SELECT direction FROM evidence.review_aspect_observation WHERE document_id=%s', (source['reviews'][0]['document_id'],)).fetchone()[0] == 'positive'
 
 
 def test_aggregate_blocks_changes_but_allows_exact_reimport(sample):

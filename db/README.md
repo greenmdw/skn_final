@@ -26,10 +26,16 @@ conda create -p ./pgenv -c conda-forge postgresql=16 -y
 해당 파일을 로컬의 위 경로에 별도로 준비해야 합니다. 파일이 없는 새 체크아웃에서
 `setup_all.py`는 카탈로그 적재 단계에서 완료되지 않습니다.
 
-**한 번에 (추천)** — 마이그레이션 + 기준 데이터 + PC/부속기기 카탈로그 + 매칭된 리뷰 요약을 순서대로 적용:
+**한 번에 (추천)** — 마이그레이션 + 기준 데이터 + PC/부속기기 카탈로그 + 실제 리뷰 원문·규칙·관측·집계를 순서대로 적용:
 ```bash
 DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/setup_all.py
 ```
+
+리뷰 데이터는 비공개 원문 번들 `data/review_seed/`가 필요합니다. 저장소에는 리뷰 내용을
+포함하지 않으므로 팀의 승인된 비공개 전달 경로로 전체 디렉터리를 받아야 합니다. 묶음 생성,
+필수 파일, 해시 검사와 Docker 이미지 준비는 [비공개 리뷰 시드 안내](../data/review_seed/README.md)를
+참고하세요. `setup_all.py`는 원문·분석 규칙을 적재한 뒤 canonical 관측을 넣고 해당 분석 버전의
+집계/member를 다시 계산합니다. 같은 번들을 재적용해도 기존 행과 집계가 유지됩니다.
 
 **단계별로 직접**:
 ```bash
@@ -38,7 +44,9 @@ DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/migra
 DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed.py
 DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed_pc_parts_specs.py
 DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed_peripherals.py
-DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed_review_summaries.py
+DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed_review_corpus.py --load-bundle --apply
+DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/import_review_corpus_all_observations.py --root data/review_seed --apply
+DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/rebuild_review_aspect_aggregates.py --analysis-version review-aspect-v6-prod-20261002 --apply
 
 # 현황
 python db/migrate.py status

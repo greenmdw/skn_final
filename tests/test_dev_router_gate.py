@@ -20,7 +20,8 @@ _PROBE = (
 def _dev_paths(**env: str) -> list[str]:
     base = {k: v for k, v in os.environ.items() if k not in ("APP_ENV", "JWT_SECRET")}
     run = subprocess.run(
-        [sys.executable, "-c", _PROBE], env={**base, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8", **env},
+        [sys.executable, "-c", _PROBE], env={**base, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
+                                                  "PYTHON_DOTENV_DISABLED": "1", **env},
         capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     assert run.returncode == 0, run.stderr[-2000:]

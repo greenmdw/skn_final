@@ -19,6 +19,12 @@ from uuid import uuid4
 
 # src.config 를 import 하기 전에 정한다(config 가 .env 를 읽되 이미 있는 환경변수는 덮지 않는다).
 os.environ.setdefault("MOCK_MODE", "1")
+# HTTP TestClient uses http://testserver. Keep local production .env settings
+# from disabling /dev or marking session cookies Secure in default test runs.
+# Explicit settings supplied by the test runner still take precedence.
+os.environ.setdefault("APP_ENV", "development")
+os.environ.setdefault("AUTH_COOKIE_SECURE", "0")
+os.environ.setdefault("COOKIE_SECURE", "0")
 os.environ.setdefault("PGCONNECT_TIMEOUT", "3")
 _TEST_URL = os.environ.get("TEST_DATABASE_URL")
 if _TEST_URL:

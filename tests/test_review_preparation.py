@@ -22,7 +22,7 @@ def prepared(tmp_path):
         path=tmp_path/'computer_review_processed.jsonl';path.write_text(json.dumps(record,ensure_ascii=False)+'\n')
         manifest=prepare_documents([path],cat);manifest['database_import_allowed']=True
         definition={'label':'fan','positive':'Quiet fan','negative':'Loud fan','context':'Gaming','match_policy':'Explicit actual experience'}
-        rules=production_rules([dict(id=str(uuid4()),part_type='gpu',aspect_code='fan_quietness',context_code='gaming_load',definition=definition)],k=4)
+        rules=production_rules([dict(id=str(uuid4()),part_type='gpu',aspect_code='test_fan_'+uuid4().hex,context_code='gaming_load',definition=definition)],k=4)
         # Production version may have same key in another test; the shared fixture transaction rolls back.
         yield conn,manifest,rules,tmp_path/'provenance'
         conn.rollback()
@@ -68,7 +68,7 @@ def test_unverified_source_and_failed_transaction_isolated(prepared):
     conn,m,r,ledger=prepared;m['rows'][0]['source_verification_required']=True
     assert preparation_plan(conn,m,r,ledger)['conflicts'][0]['reason']=='source_sku_verification_not_approved'
     with pytest.raises(ValueError):preparation_plan(conn,m,r,ledger,apply=True)
-    assert conn.execute('SELECT count(*) FROM evidence.review_document').fetchone()[0]==0
+    assert conn.execute('SELECT count(*) FROM evidence.review_document WHERE id=%s',(m['rows'][0]['document_id'],)).fetchone()[0]==0
 
 
 @pytest.mark.db
@@ -87,7 +87,7 @@ def test_sql_failure_rolls_back_all_documents_and_retry_uses_ledger(prepared):
     conn.execute("CREATE FUNCTION pg_temp.review_test_fail() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'isolated test failure'; END $$")
     conn.execute('CREATE TRIGGER review_test_fail BEFORE INSERT ON evidence.review_aspect_rule FOR EACH ROW EXECUTE FUNCTION pg_temp.review_test_fail()')
     with pytest.raises(psycopg.errors.RaiseException):preparation_plan(conn,m,r,ledger,apply=True)
-    assert conn.execute('SELECT count(*) FROM evidence.review_document').fetchone()[0]==0
+    assert conn.execute('SELECT count(*) FROM evidence.review_document WHERE id=%s',(m['rows'][0]['document_id'],)).fetchone()[0]==0
     assert list(ledger.glob('*.json'))  # planned provenance survives, conveys no approval
     conn.execute('DROP TRIGGER review_test_fail ON evidence.review_aspect_rule')
     assert preparation_plan(conn,m,r,ledger,apply=True)['documents']['create']==1
@@ -127,7 +127,7 @@ def test_literal_monitor_code_and_documented_alias_do_not_guess_variants():
 @pytest.mark.db
 def test_peripheral_registration_and_observation_contract(prepared,tmp_path):
     import runpy
-    peripheral_rules=runpy.run_path("db/run_review_corpus.py")["peripheral_rules"]
+    peripheral_rules=runpy.run_path("db/seed_review_corpus.py")["peripheral_rules"]
     from src.services.review_batch import short_wire,restore_keys,require_registered_input
     from src.services.review_observation_import import import_observations
     conn,_,_,_=prepared
@@ -144,6 +144,8 @@ def test_peripheral_registration_and_observation_contract(prepared,tmp_path):
     wire,keys=short_wire(src);key=next(k for k,v in keys.items() if v==next(r['id'] for r in rules if r['aspect_code']=='ergonomics'))
     raw={'analysis_version':src['analysis_version'],'results':[{'document_id':d['id'],'result':'ok','observations':[{'rule_key':key,'observation_text':'사용 중 손이 편안하고 피로가 적었다.','direction':'positive','evidence_ids':[wire['reviews'][0]['evidence_spans'][0]['evidence_id']]}],'diagnostics':[]}]}
     canonical=restore_keys(src,wire,raw,keys)
+    conn.execute('DELETE FROM evidence.review_aspect_aggregate_member WHERE aggregate_id IN (SELECT id FROM evidence.review_aspect_aggregate WHERE product_id=%s)',(p['id'],))
+    conn.execute('DELETE FROM evidence.review_aspect_aggregate WHERE product_id=%s',(p['id'],))
     report=import_observations(conn,src,canonical)
     assert conn.execute('SELECT evidence_sentences FROM evidence.review_aspect_observation WHERE document_id=%s',(d['id'],)).fetchone()[0]==[body]
     import_observations(conn,src,canonical)

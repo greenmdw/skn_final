@@ -82,6 +82,10 @@ data/amazon23/
 data/reviews/*
 !data/reviews/README.md
 
+# 실제 리뷰 DB 시드 번들 — 원문/분석 결과를 포함하므로 별도 보안 채널로 공유.
+data/review_seed/*
+!data/review_seed/README.md
+
 # 실행 산출물: 로컬 보관용이며 저장소에 넣지 않는다.
 /outputs/
 

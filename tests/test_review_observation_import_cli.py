@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+from uuid import uuid4
 
 import psycopg
 from psycopg.types.json import Jsonb
@@ -27,7 +28,9 @@ def test_agent_response_is_committed_by_cli(tmp_path):
     with psycopg.connect(dsn) as conn:
         assert 'test' in conn.info.dbname.lower()
         # The prompt's product UUID is fictional; map only the input to a seeded GPU.
-        product = str(conn.execute('SELECT product_id FROM catalog.gpu_spec LIMIT 1').fetchone()[0])
+        product = str(uuid4())
+        conn.execute("INSERT INTO catalog.product(id,name,brand,model,product_type) VALUES (%s,'CLI import GPU','Test',%s,'gpu')",(product,product))
+        conn.execute('INSERT INTO catalog.gpu_spec(product_id) VALUES (%s)',(product,))
         for doc, body in zip(ids, bodies):
             conn.execute('INSERT INTO evidence.review_document(id,product_id,source_code,is_synthetic,body) '
                          'VALUES (%s,%s,%s,true,%s)', (doc, product, 'synthetic-smoke-test', body))
@@ -77,3 +80,5 @@ def test_agent_response_is_committed_by_cli(tmp_path):
             conn.execute('DELETE FROM evidence.review_aspect_observation WHERE document_id=ANY(%s::uuid[])', (ids,))
             conn.execute('DELETE FROM evidence.review_document WHERE id=ANY(%s::uuid[])', (ids,))
             conn.execute('DELETE FROM evidence.review_aspect_rule WHERE id=%s', (rule_id,))
+            conn.execute('DELETE FROM catalog.gpu_spec WHERE product_id=%s',(product,))
+            conn.execute('DELETE FROM catalog.product WHERE id=%s',(product,))

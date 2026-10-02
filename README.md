@@ -43,7 +43,8 @@
 - 시드 데이터 파일
   - `data/parts_list_modify.xlsx`: Git에 있음
   - `data/peripherals/{mouse,monitor,speaker,keyboard}_processed.csv`: **Git에 없음**, 팀 공유 파일을 받아 넣기
-- 리뷰 데이터 `data/reviews/*.jsonl` (선택): **Git에 없음**, 팀 공유 파일을 받아 넣기. 아직 읽어 가는 코드가 없어서 없어도 실행에는 지장이 없음
+- 리뷰 원본 `data/reviews/*.jsonl`: **Git에 없음**, 팀 공유 파일을 받아 넣기.
+- DB 초기 설정에 필요한 실제 리뷰 시드 `data/review_seed/`: **Git에 없음**, 팀 공유 번들을 준비하기. `setup_all.py`가 원문·규칙·관측·집계를 순서대로 적재하며, 파일이 없거나 해시가 다르면 실패합니다. [시드 번들 안내](data/review_seed/README.md)를 참고하세요.
 
 ## 처음 한 번만 (최초 설정)
 

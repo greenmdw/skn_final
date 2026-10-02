@@ -60,7 +60,16 @@ data/peripherals/mouse_processed.csv
 data/peripherals/monitor_processed.csv
 data/peripherals/speaker_processed.csv
 data/peripherals/keyboard_processed.csv
+data/review_seed/bundle_manifest.json
+data/review_seed/documents.json
+data/review_seed/rules.json
+data/review_seed/canonical_results.json
+data/review_seed/consolidated_observation_drafts.json
 ```
+
+The review seed bundle contains private review text and is intentionally not tracked. Obtain the
+complete directory through the team's approved private data channel before running setup or
+database tests; see `data/review_seed/README.md`.
 
 ### Using a pre-provisioned test database
 

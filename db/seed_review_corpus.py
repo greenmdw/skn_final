@@ -1,12 +1,97 @@
-"""Authorized full corpus setup/checkpoint. No model calls or implicit approval."""
+"""Seed immutable actual review documents and registered rules from a private bundle.
+
+The default invocation retains the corpus preparation/checkpoint command used during
+curation. ``--load-bundle`` is the deterministic database seed path used by setup_all;
+it makes no model calls and refuses changed bundle contents or conflicting rows.
+"""
 import argparse,json,os
 from collections import Counter
 from pathlib import Path
 from uuid import uuid5
+import hashlib
+import sys
 import psycopg
+from psycopg import sql
 from dotenv import load_dotenv
+ROOT_REPO=Path(__file__).resolve().parents[1]
+if str(ROOT_REPO) not in sys.path:
+ sys.path.insert(0,str(ROOT_REPO))
 from src.services.review_preparation import (prepare_documents,catalog_snapshot,production_rules,preparation_plan,encoded,digest,RULE_NS,VERSION)
 from src.services.review_batch import prepare_batches,require_registered_input
+from psycopg.types.json import Jsonb
+
+BUNDLE = Path('data/review_seed')
+
+def read_bundle(root=BUNDLE):
+ bundle=root.resolve()
+ manifest_path=bundle/'bundle_manifest.json'
+ if not manifest_path.is_file():
+  raise FileNotFoundError(f"Required private review seed bundle is missing: {manifest_path}; see data/review_seed/README.md")
+ manifest=json.loads(manifest_path.read_text(encoding='utf-8'))
+ if manifest.get('bundle_version')!='review-seed-v1' or manifest.get('database_import_allowed') is not True:
+  raise ValueError('Unsupported or unauthorized review seed bundle')
+ if manifest.get('analysis_version')!=VERSION:
+  raise ValueError('Review seed analysis version does not match the setup baseline')
+ checks=manifest.get('sha256',{})
+ for name in ['documents.json','rules.json','canonical_results.json','consolidated_observation_drafts.json']:
+  path=bundle/name
+  if name not in checks or hashlib.sha256(path.read_bytes()).hexdigest()!=checks[name]:
+   raise ValueError('Missing or changed review seed artifact: '+name)
+ documents=json.loads((bundle/'documents.json').read_text(encoding='utf-8'))
+ rules=json.loads((bundle/'rules.json').read_text(encoding='utf-8'))
+ canonical=json.loads((bundle/'canonical_results.json').read_text(encoding='utf-8'))
+ drafts=json.loads((bundle/'consolidated_observation_drafts.json').read_text(encoding='utf-8'))
+ if len(documents)!=manifest.get('documents') or len(rules)!=manifest.get('rules'):
+  raise ValueError('Review seed bundle count mismatch')
+ if len(drafts)!=manifest.get('observations'):
+  raise ValueError('Review seed observation count mismatch')
+ if len({r['document_id'] for r in documents})!=len(documents) or len({r['id'] for r in rules})!=len(rules):
+  raise ValueError('Review seed bundle contains duplicate identities')
+ versions={r.get('analysis_version') for r in rules}
+ if versions!={manifest.get('analysis_version')}:
+  raise ValueError('Review seed rules do not match the declared analysis version')
+ excluded=set(manifest.get('excluded_document_ids',[]))
+ bundle_doc_ids={r['document_id'] for r in documents}
+ if excluded & (bundle_doc_ids | {r['review']['document_id'] for r in canonical} | {r['document_id'] for r in drafts}):
+  raise ValueError('Quarantined source identity is present in the review seed bundle')
+ return bundle,manifest,documents,rules,canonical,drafts
+
+def load_bundle(conn, root=BUNDLE):
+ bundle,manifest,documents,rules,_canonical,_drafts=read_bundle(root)
+ with conn.transaction():
+  conn.execute('LOCK TABLE catalog.product IN SHARE MODE')
+  conn.execute('LOCK TABLE evidence.review_document,evidence.review_aspect_rule IN SHARE ROW EXCLUSIVE MODE')
+  for row in documents:
+   if row.get('is_synthetic') is not False or not row.get('body','').strip():
+    raise ValueError('Production review documents must be actual and non-empty')
+   if row['part_type'] not in {'cpu','gpu','mainboard','ram','ssd','psu','case','cooler','keyboard','mouse','monitor','speaker'}:
+    raise ValueError('Unknown review part type: '+str(row['part_type']))
+   products=conn.execute('SELECT id::text,product_type FROM catalog.product WHERE brand=%s AND model=%s',
+                         (row['product_brand'],row['product_model'])).fetchall()
+   product_type={'motherboard':'mainboard'}.get(products[0][1],products[0][1]) if len(products)==1 else None
+   if len(products)!=1 or product_type!=row['part_type']:
+    raise ValueError('Review target no longer maps uniquely by exact catalog brand/model: '+row['document_id'])
+   product_id=products[0][0]
+   if not conn.execute(sql.SQL('SELECT 1 FROM catalog.{} WHERE product_id=%s').format(sql.Identifier(row['part_type']+'_spec')),(product_id,)).fetchone():
+    raise ValueError('Review target product type mismatch: '+row['document_id'])
+   posted_at=row.get('posted_at')
+   if isinstance(posted_at,str):
+    from datetime import datetime
+    posted_at=datetime.fromisoformat(posted_at.replace('Z','+00:00'))
+   conn.execute('INSERT INTO evidence.review_document(id,product_id,source_code,is_synthetic,body,posted_at) '
+                'VALUES (%s,%s,%s,false,%s,%s) ON CONFLICT (id) DO NOTHING',
+                (row['document_id'],product_id,row['source_code'],row['body'],posted_at))
+   actual=conn.execute('SELECT product_id::text,source_code,is_synthetic,body,posted_at FROM evidence.review_document WHERE id=%s',(row['document_id'],)).fetchone()
+   if actual!=(product_id,row['source_code'],False,row['body'],posted_at):
+    raise ValueError('Existing review document conflicts with immutable bundle: '+row['document_id'])
+  for row in rules:
+   conn.execute('INSERT INTO evidence.review_aspect_rule(id,analysis_version,part_type,aspect_code,context_code,k,definition) '
+                'VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (id) DO NOTHING',
+                (row['id'],row['analysis_version'],row['part_type'],row['aspect_code'],row['context_code'],row['k'],Jsonb(row['definition'])))
+   actual=conn.execute('SELECT analysis_version,part_type,aspect_code,context_code,k,definition FROM evidence.review_aspect_rule WHERE id=%s',(row['id'],)).fetchone()
+   if actual!=(row['analysis_version'],row['part_type'],row['aspect_code'],row['context_code'],row['k'],row['definition']):
+    raise ValueError('Existing review rule conflicts with immutable bundle: '+row['id'])
+ return {'documents':len(documents),'rules':len(rules),'analysis_version':manifest['analysis_version']}
 
 ROOT=Path('outputs/review_full_corpus/20261002_authorized')
 QUALITIES={
@@ -66,7 +151,12 @@ def setup(conn,apply=False):
  print(encoded({'counts':manifest['counts'],'plan':plan,'batches':len(jobs) if apply else None}))
 
 if __name__=='__main__':
- parser=argparse.ArgumentParser();parser.add_argument('--apply',action='store_true');a=parser.parse_args();load_dotenv('.env');os.environ.setdefault('DATABASE_URL','postgresql://truefit:truefit@127.0.0.1:5432/truefit')
+ parser=argparse.ArgumentParser();parser.add_argument('--apply',action='store_true');parser.add_argument('--load-bundle',action='store_true',help='load immutable actual-review seed bundle from data/review_seed');a=parser.parse_args();load_dotenv('.env');os.environ.setdefault('DATABASE_URL','postgresql://truefit:truefit@127.0.0.1:5432/truefit')
+ if a.load_bundle and not a.apply:
+  parser.error('--load-bundle requires --apply')
  with psycopg.connect(os.environ['DATABASE_URL'],autocommit=True) as c:
-  if not a.apply:c.execute('SET default_transaction_read_only=on')
-  setup(c,a.apply)
+  if a.load_bundle:
+   print(encoded(load_bundle(c)))
+  else:
+   if not a.apply:c.execute('SET default_transaction_read_only=on')
+   setup(c,a.apply)
