@@ -62,6 +62,8 @@ export interface WireOwnedPartsPreviewRow {
   matched: string
   matched_note: string
   state: 'ok' | 'warn'
+  match_status: 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'
+  candidate_count: number | null
 }
 export interface WireOwnedPartsPreviewOut { rows: WireOwnedPartsPreviewRow[] }
 
@@ -92,6 +94,13 @@ export interface WireQuotePartCompare {
   candidates: { name: string; price: number; price_delta: number | null; perf_tier: number | null; specs: { key: string; label: string; unit: string; baseline: unknown; candidate: unknown; diff: number | null }[]; incompatible: string[]; compat_changes: { axis: string; label: string; from: string; to: string; detail: string }[]; review: Record<string, unknown> | null }[]
   unmatched_targets: string[]
   note: string | null
+}
+export interface WireLiveSpecLookup {
+  slot: string
+  query: string
+  relevant: boolean
+  supported_fields: Record<string, unknown>
+  source_url: string | null
 }
 export interface WireQuoteChatOut { reply: string; evidence: string[]; via: 'agent' | 'rules' }
 export interface WireQuoteChatHistory { messages: { id: string; role: 'user' | 'assistant' | 'system'; text: string; created_at: string }[] }

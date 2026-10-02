@@ -1,18 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import PlannerShell from '../components/PlannerShell'
-import { api, errorMessage, type QuoteApplyResult, type QuoteChatMessage, type QuotePartComparison, type QuoteReviewResult } from '../api'
+import { api, errorMessage, type LiveSpecLookupResult, type QuoteApplyResult, type QuoteChatMessage, type QuotePartComparison, type QuoteReviewResult } from '../api'
 import type { ReviewRow } from '../state/types'
 import { useToast } from '../state/ToastContext'
 import { wonFmt } from '../utils/format'
-import { checkReviewMock, CHECK_REVIEW_MOCK_PREVIEW_META } from '../mocks/checkReviewMock'
 import '../styles/check.css'
 
 type SourceKind = 'image' | 'text'
 type BusyKind = 'preview' | 'create' | 'update' | 'apply' | null
 
-// TEMP: 점검 백엔드 연결 후 false 분기와 mock import/file을 함께 삭제한다.
-const CHECK_REVIEW_USE_MOCK = true
-const checkReviewClient = CHECK_REVIEW_USE_MOCK ? checkReviewMock : api.checks
+const checkReviewClient = api.checks
 
 function fileSize(size: number): string {
   if (size < 1024) return `${size}B`
@@ -75,9 +72,7 @@ function CheckSidebar({ listId, messages, busy, onSend }: {
       <div className="pl-chat-head"><span className="pl-dot" />견적 점검 대화</div>
       <div className="pl-chat-log" ref={logRef}>
         <div className="pl-msg-bot">
-          {CHECK_REVIEW_USE_MOCK
-            ? '이미지나 텍스트 견적을 올려주세요. 현재는 화면 구성을 확인할 수 있도록 목업 데이터로 결과를 보여줍니다.'
-            : '이미지나 텍스트 견적을 올려주세요. 인식된 부품을 확인한 뒤 호환성, 가격, 용도 대비 균형을 실제 서버 데이터로 분석합니다.'}
+          이미지나 텍스트 견적을 올려주세요. 인식된 부품을 확인한 뒤 호환성, 가격, 용도 대비 균형을 실제 서버 데이터로 분석합니다.
         </div>
         {listId && messages.length === 0 && (
           <div className="pl-msg-bot">분석이 완료됐어요. 결과에서 궁금한 부분을 자유롭게 물어보세요.</div>
@@ -125,12 +120,12 @@ export default function CheckPage() {
   const [chatMessages, setChatMessages] = useState<QuoteChatMessage[]>([])
   const [chatBusy, setChatBusy] = useState(false)
   const [applyResult, setApplyResult] = useState<QuoteApplyResult | null>(null)
+  // DB 미보유 부품 실시간 검색(docs/미보유부품_실시간스펙검색_설계.md) — 슬롯별 상태. 자동 실행 금지라
+  // 사용자가 버튼을 눌렀을 때만 slot별로 채운다.
+  const [liveLookup, setLiveLookup] = useState<Record<string, { status: 'loading' | 'done'; result?: LiveSpecLookupResult; error?: string }>>({})
 
   const priceByPart = useMemo(() => new Map((review?.prices?.rows ?? []).map(row => [row.part, row])), [review])
-  const previewTotal = useMemo(() => {
-    if (!CHECK_REVIEW_USE_MOCK) return 0
-    return previewRows.reduce((sum, row) => sum + (CHECK_REVIEW_MOCK_PREVIEW_META[row.part]?.price ?? 0), 0)
-  }, [previewRows])
+  const unmatchedParts = useMemo(() => (review?.parts ?? []).filter(row => row.matchStatus === 'unmatched'), [review])
   const comparisonSlots = useMemo(() => (review?.parts ?? previewRows).map(row => row.part), [review, previewRows])
   const comparablePriceRows = useMemo(() => (review?.prices?.rows ?? []).filter(row => row.quoted != null && row.catalog != null && row.diff != null), [review])
   const totalPriceDiff = useMemo(() => comparablePriceRows.reduce((sum, row) => sum + (row.diff ?? 0), 0), [comparablePriceRows])
@@ -148,6 +143,18 @@ export default function CheckPage() {
     setShowSavedCompare(false)
     setApplyResult(null)
     setEditingSlot(null)
+    setLiveLookup({})
+  }
+
+  async function runLiveLookup(slot: string) {
+    if (!review) return
+    setLiveLookup(previous => ({ ...previous, [slot]: { status: 'loading' } }))
+    try {
+      const result = await api.checks.liveLookupPart(review.listId, slot)
+      setLiveLookup(previous => ({ ...previous, [slot]: { status: 'done', result } }))
+    } catch (caught) {
+      setLiveLookup(previous => ({ ...previous, [slot]: { status: 'done', error: errorMessage(caught, '실시간 검색에 실패했습니다.') } }))
+    }
   }
 
   async function selectFile(event: ChangeEvent<HTMLInputElement>) {
@@ -275,10 +282,10 @@ export default function CheckPage() {
   }
 
   async function comparePart(slot: string) {
-    if (!review && !CHECK_REVIEW_USE_MOCK) return
+    if (!review) return
     setCompareBusy(slot); setError('')
     try {
-      setComparison(await checkReviewClient.comparePart(review?.listId ?? 'mock-check-review', slot))
+      setComparison(await checkReviewClient.comparePart(review.listId, slot))
       setSelectedCandidate('')
     }
     catch (caught) { setError(errorMessage(caught, '부품 후보를 비교하지 못했습니다.')) }
@@ -363,7 +370,7 @@ export default function CheckPage() {
               <input ref={fileInput} type="file" hidden accept="image/png,image/jpeg,image/webp,.txt,.csv,text/plain,text/csv" onChange={selectFile} />
               <button type="button" className="ck-file-button" onClick={() => fileInput.current?.click()}>파일 선택</button>
               <strong>{sourceKind === 'image' ? 'PNG·JPEG·WebP, 5MB 이하' : 'TXT·CSV, 20,000자 이하'}</strong>
-              <span>{CHECK_REVIEW_USE_MOCK ? '현재 목업 모드에서는 선택한 파일 내용과 관계없이 화면 확인용 결과를 표시합니다.' : '파일은 분석 요청에만 사용되며 화면에서 임의 결과를 만들지 않습니다.'}</span>
+              <span>파일은 분석 요청에만 사용되며 화면에서 임의 결과를 만들지 않습니다.</span>
             </div>
             <div className="ck-file-preview">
               {selectedFile ? (
@@ -385,18 +392,17 @@ export default function CheckPage() {
         </section>
 
         {error && <div className="pl-alert bad" role="alert">{error}</div>}
-        {busy === 'create' && <div className="ck-loading"><div className="pl-spin" /><b>호환성·가격·밸런스를 분석하고 있어요</b><span>{CHECK_REVIEW_USE_MOCK ? '화면 확인용 목업 결과를 준비하는 중입니다.' : '실제 카탈로그 응답을 기다리는 중입니다.'}</span></div>}
+        {busy === 'create' && <div className="ck-loading"><div className="pl-spin" /><b>호환성·가격·밸런스를 분석하고 있어요</b><span>실제 카탈로그 응답을 기다리는 중입니다.</span></div>}
 
         {!review && previewRows.length > 0 && (
           <section className="ck-results ck-recognition">
-            <div className="ck-result-head"><div><b>인식 결과</b><span>잘못 인식된 제품은 행의 연필 버튼으로 수정해주세요.</span></div>{previewTotal > 0 && <strong>인식한 가격 합계 <em>{wonFmt(previewTotal)}</em></strong>}</div>
-            <div className="ck-table-wrap"><table className="ck-parts-table ck-preview-table"><thead><tr><th>슬롯</th><th>인식한 제품명</th><th>카탈로그 대응</th><th>인식한 가격</th><th>상태</th><th>부품 비교</th></tr></thead><tbody>
-              {previewRows.map(row => {
-                const meta = CHECK_REVIEW_USE_MOCK ? CHECK_REVIEW_MOCK_PREVIEW_META[row.part] : null
-                return <tr key={row.part}><td><b>{row.part}</b></td><td>{editableProduct(row)}</td><td>{row.matched || row.matchedNote || '비교 분석 시 확인'}</td><td>{meta ? wonFmt(meta.price) : '—'}</td><td><span className={`ck-status ${row.state}`}>{row.stateLabel}</span></td><td><button type="button" className="ck-compare" disabled={compareBusy === row.part} onClick={() => comparePart(row.part)}>{compareBusy === row.part ? '조회 중' : '비교하기'}</button></td></tr>
-              })}
+            <div className="ck-result-head"><div><b>인식 결과</b><span>잘못 인식된 제품은 행의 연필 버튼으로 수정해주세요.</span></div></div>
+            <div className="ck-table-wrap"><table className="ck-parts-table ck-preview-table"><thead><tr><th>슬롯</th><th>인식한 제품명</th><th>카탈로그 대응</th><th>상태</th></tr></thead><tbody>
+              {previewRows.map(row => (
+                <tr key={row.part}><td><b>{row.part}</b></td><td>{editableProduct(row)}</td><td>{row.matched || row.matchedNote || '비교 분석 시 확인'}</td><td><span className={`ck-status ${row.state}`}>{row.stateLabel}</span></td></tr>
+              ))}
             </tbody></table></div>
-            <div className="ck-recognition-action"><span>{CHECK_REVIEW_USE_MOCK ? '목업 데이터로 호환성·가격·밸런스 결과 화면을 확인합니다.' : '인식한 부품을 실제 카탈로그와 비교하고 호환성을 분석합니다.'}</span><button type="button" className="pl-btn" disabled={busy !== null || editingSlot !== null} onClick={analyze}>{busy === 'create' ? '분석 중…' : '비교 분석하기'}</button></div>
+            <div className="ck-recognition-action"><span>인식한 부품을 실제 카탈로그와 비교하고 호환성을 분석합니다.</span><button type="button" className="pl-btn" disabled={busy !== null || editingSlot !== null} onClick={analyze}>{busy === 'create' ? '분석 중…' : '비교 분석하기'}</button></div>
           </section>
         )}
 
@@ -466,6 +472,47 @@ export default function CheckPage() {
               </article>
             )}
 
+            {unmatchedParts.length > 0 && (
+              <article className="ck-summary-card ck-unmatched-card">
+                <div className="ck-summary-title"><h2>카탈로그에 없는 부품</h2><span>신제품이거나 표기가 특이해 대응을 못 찾았어요</span></div>
+                <div className="ck-unmatched-list">
+                  {unmatchedParts.map(part => {
+                    const lookup = liveLookup[part.part]
+                    return (
+                      <div className="ck-unmatched-row" key={part.part}>
+                        <div className="ck-unmatched-head">
+                          <div><b>{part.part}</b><span>{part.original}</span></div>
+                          {!lookup && (
+                            <button type="button" className="ck-compare" onClick={() => runLiveLookup(part.part)}>실시간으로 찾아볼까요?</button>
+                          )}
+                          {lookup?.status === 'loading' && <span className="ck-unmatched-loading"><span className="pl-spin" />검색 중…</span>}
+                        </div>
+                        {lookup?.status === 'done' && (
+                          <div className="ck-unmatched-result">
+                            {lookup.error ? (
+                              <p className="bad">{lookup.error}</p>
+                            ) : lookup.result && lookup.result.relevant && Object.values(lookup.result.supportedFields).some(v => v != null) ? (
+                              <>
+                                <dl>
+                                  {Object.entries(lookup.result.supportedFields).filter(([, v]) => v != null).map(([key, value]) => (
+                                    <div key={key}><dt>{key}</dt><dd>{String(value)}</dd></div>
+                                  ))}
+                                </dl>
+                                {lookup.result.sourceUrl && <p className="ck-unmatched-source">출처: <a href={lookup.result.sourceUrl} target="_blank" rel="noreferrer">{lookup.result.sourceUrl}</a></p>}
+                                <p className="ck-unmatched-disclaimer">카탈로그 정식 등재 값이 아니라 실시간 검색 결과예요 — 구매 전 공식 사이트에서 다시 확인하세요.</p>
+                              </>
+                            ) : (
+                              <p className="ck-unmatched-disclaimer">실시간 검색으로도 찾지 못했어요. <button type="button" className="ck-unmatched-retry" onClick={() => runLiveLookup(part.part)}>다시 시도</button></p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </article>
+            )}
+
             <div className="ck-analysis-actions">
               <button type="button" className="ck-analysis-outline" onClick={returnToRecognition}>인식 결과 고치기</button>
               <button type="button" className="pl-btn" disabled={busy !== null} onClick={applyWholeQuote}>{busy === 'apply' ? '반영 중…' : '이 견적으로 장바구니 담기'}</button>
@@ -492,7 +539,7 @@ export default function CheckPage() {
                   <span className="ck-card-label">받은 견적</span>
                   <h3>{valueText(comparison.baseline.name)}</h3>
                   <strong className="ck-card-price">{(() => {
-                    const currentPrice = priceByPart.get(comparison.slot)?.quoted ?? (CHECK_REVIEW_USE_MOCK ? CHECK_REVIEW_MOCK_PREVIEW_META[comparison.slot]?.price : null)
+                    const currentPrice = priceByPart.get(comparison.slot)?.quoted ?? null
                     return currentPrice != null ? wonFmt(currentPrice) : '가격 정보 없음'
                   })()}</strong>
                   <div className="ck-card-section"><span>카탈로그 대응</span><p>현재 견적의 기준 제품</p></div>
@@ -514,7 +561,7 @@ export default function CheckPage() {
               </div>
             </div>
             <div className="ck-compare-modal-foot">
-              <span>{CHECK_REVIEW_USE_MOCK ? '수치는 목업 데이터이며 실제 연결 후 카탈로그 값과 리뷰 근거로 교체됩니다.' : '수치는 카탈로그 값과 리뷰 근거를 기준으로 표시됩니다.'}</span>
+              <span>수치는 카탈로그 값과 리뷰 근거를 기준으로 표시됩니다.</span>
               <div><button type="button" className="ck-modal-secondary" onClick={() => { setComparison(null); setSelectedCandidate('') }}>닫기</button><button type="button" className="ck-modal-apply" disabled={!selectedCandidate} onClick={applyComparedCandidate}>이 부품으로 바꾸기</button></div>
             </div>
           </section>

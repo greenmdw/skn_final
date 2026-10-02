@@ -228,6 +228,16 @@ export interface QuotePartComparison {
   note: string | null
 }
 
+/** DB 미보유 부품 실시간 검색 결과(docs/미보유부품_실시간스펙검색_설계.md). relevant가 false거나
+ * supportedFields가 전부 비어 있으면 "찾지 못했다"로 보여준다. */
+export interface LiveSpecLookupResult {
+  slot: string
+  query: string
+  relevant: boolean
+  supportedFields: Record<string, unknown>
+  sourceUrl: string | null
+}
+
 export interface QuoteChatMessage { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: string }
 export interface QuoteApplyResult { listId: string; slots: string[]; missing: string[]; runId: string | null }
 
@@ -295,6 +305,9 @@ export interface Api {
     updateReview(listId: string, request: QuoteReviewRequest): Promise<QuoteReviewResult>
     getReview(listId: string): Promise<QuoteReviewResult>
     comparePart(listId: string, slot: string, direction?: 'cheaper' | 'better'): Promise<QuotePartComparison>
+    /** "대응 안 됨" 부품 하나를 실시간 검색+검증한다 — 사용자가 버튼을 눌렀을 때만 부른다(자동 금지).
+     * 캐시 히트면 비용 없이 바로 응답. 429면 너무 자주 눌렀다는 뜻. */
+    liveLookupPart(listId: string, slot: string): Promise<LiveSpecLookupResult>
     sendMessage(listId: string, text: string): Promise<{ reply: string; evidence: string[]; via: 'agent' | 'rules' }>
     getMessages(listId: string): Promise<QuoteChatMessage[]>
     apply(listId: string, slots: string[]): Promise<QuoteApplyResult>
