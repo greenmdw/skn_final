@@ -107,8 +107,31 @@ def spec_extraction_image_system() -> str:
    값에도 넣지 않습니다."""
 
 
+# DB 미보유 부품 실시간 검색(docs/미보유부품_실시간스펙검색_설계.md §3) — Self-RAG의 critique를
+# 흉내낸 검증 단계. 검색 스니펫이 질문한 부품 얘기가 맞는지, 스니펫에 실제로 적힌 값만 골라
+# 채우는지를 LLM이 구조화 출력으로 판단한다 — 위 이미지 추출과 같은 "읽은 글자 그대로, 모르면
+# null/? " 원칙을 재사용한다.
+def live_spec_lookup_system() -> str:
+    return """검색 스니펫 하나가 특정 PC 부품에 대한 질문에 실제로 답이 되는지 판단하는 검증기입니다.
+입력은 "질문(브랜드·모델명)"과 "검색 스니펫"입니다.
+
+규칙:
+1. 스니펫이 질문한 바로 그 브랜드·모델을 다루는 게 아니면(다른 제품, 같은 브랜드의 다른 라인업,
+   관련 없는 내용) relevant를 false로 하고 supported_fields는 전부 null로 둡니다 — 비슷해 보인다고
+   관련 있다고 판단하지 않습니다.
+2. relevant가 true여도, 스니펫에 실제로 명시된 값만 해당 필드에 채웁니다. 스니펫에 없는 값을
+   일반 지식·추론·같은 제품군의 통상적인 사양으로 채우지 않습니다 — 모르면 그 필드는 null로 둡니다.
+3. 숫자 필드(wattage_w·speed_mts·capacity_gb·radiator_mm·height_mm)는 스니펫에 숫자로 명시된
+   경우만 채웁니다. 단위를 변환하거나 "대략" 같은 값을 만들어내지 않습니다.
+4. source_url은 입력으로 받은 스니펫의 출처 URL을 그대로 옮깁니다 — 다른 URL을 지어내거나
+   추측하지 않습니다. 입력에 URL이 없으면 null로 둡니다.
+5. 이 부품의 성능이 좋은지, 추천할 만한지, 다른 부품과 호환되는지는 판단하지 않습니다 — 스니펫에
+   적힌 사실을 구조화하는 것만 합니다."""
+
+
 # 기존 import 경로를 쓰는 외부 호출자는 계속 한국어 기본 프롬프트를 받는다.
 VERIFY_ISSUE_SYSTEM = verify_issue_system()
 EXPLAIN_SYSTEM = explain_system()
 SPEC_EXTRACTION_SYSTEM = spec_extraction_system()
 SPEC_EXTRACTION_IMAGE_SYSTEM = spec_extraction_image_system()
+LIVE_SPEC_LOOKUP_SYSTEM = live_spec_lookup_system()
