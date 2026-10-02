@@ -11,8 +11,21 @@ from __future__ import annotations
 import threading
 import time
 
+from fastapi import Request
+
+from src.config import TRUST_FORWARDED_FOR
+
 _lock = threading.Lock()
 _hits: dict[str, list[float]] = {}
+
+
+def client_ip(request: Request) -> str:
+    """rate limit 키로 쓸 호출자 IP — 여러 라우터(auth, pc_check)가 같은 기준으로 쓴다."""
+    if TRUST_FORWARDED_FOR:
+        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+        if forwarded:
+            return forwarded
+    return request.client.host if request.client else "unknown"
 
 
 def allow(key: str, *, limit: int, window_seconds: float) -> bool:

@@ -10,20 +10,14 @@ from fastapi import APIRouter, Depends, Request, Response
 from src import schemas
 from src.auth import ratelimit
 from src.auth.deps import Principal, optional_principal
-from src.config import COOKIE_NAME, COOKIE_SECURE, EMAIL_CHECK_LIMIT_PER_MIN, JWT_TTL_DAYS, TRUST_FORWARDED_FOR
+from src.config import COOKIE_NAME, COOKIE_SECURE, EMAIL_CHECK_LIMIT_PER_MIN, JWT_TTL_DAYS
 from src.db import get_conn
 from src.errors import RateLimited
 from src.services import auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-
-def _client_ip(request: Request) -> str:
-    if TRUST_FORWARDED_FOR:
-        forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-        if forwarded:
-            return forwarded
-    return request.client.host if request.client else "unknown"
+_client_ip = ratelimit.client_ip
 
 
 def _set_session_cookie(response: Response, token: str, *, remember: bool) -> None:

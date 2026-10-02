@@ -24,18 +24,27 @@ from uuid import UUID
 
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Request, Response
 
 from src import schemas
 from src.agent import spec_extraction_agent
+from src.auth import ratelimit
 from src.auth.deps import Principal, optional_principal
 from src.categories import load_category
+from src.config import PC_CHECK_LIMIT_PER_MIN
 from src.db import get_conn
 from src.engine.owned_parts import preview_current_specs
 from src.engine.spec_text import parse_spec_text
 from src.engine.stage3_0_candidates import load_pc_catalog
-from src.errors import ServiceUnavailable, ValidationFailed
+from src.errors import RateLimited, ServiceUnavailable, ValidationFailed
 from src.services import quote_apply, quote_chat_service, quote_review_service, recommendation_service
+
+
+def _check_rate_limit(request: Request) -> None:
+    """비로그인 호출 가능 + LLM 호출(추출·대화)이 끼는 엔드포인트 공통 한도(발견 사항)."""
+    key = f"pc-check:{ratelimit.client_ip(request)}"
+    if not ratelimit.allow(key, limit=PC_CHECK_LIMIT_PER_MIN, window_seconds=60):
+        raise RateLimited("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/pc", tags=["pc-check"])
@@ -100,9 +109,11 @@ def _review_out(list_id: str, review: dict) -> schemas.QuoteReviewOut:
 
 @router.post("/reviews", response_model=schemas.QuoteReviewOut, status_code=201)
 def create_quote_review(
-    body: schemas.QuoteReviewIn, response: Response, principal: Principal = Depends(optional_principal),
+    body: schemas.QuoteReviewIn, request: Request, response: Response,
+    principal: Principal = Depends(optional_principal),
 ) -> schemas.QuoteReviewOut:
     """견적(텍스트·이미지·슬롯별 입력)을 분석해 새 세션에 저장한다 — 매칭 표와 호환 검사(CHK-04·CHK-09)."""
+    _check_rate_limit(request)
     current_specs = _resolve_current_specs(body)
     with get_conn() as conn:
         session, review = quote_review_service.create_review(
@@ -115,9 +126,11 @@ def create_quote_review(
 
 @router.put("/reviews/{list_id}", response_model=schemas.QuoteReviewOut)
 def update_quote_review(
-    list_id: UUID, body: schemas.QuoteReviewIn, principal: Principal = Depends(optional_principal),
+    list_id: UUID, body: schemas.QuoteReviewIn, request: Request,
+    principal: Principal = Depends(optional_principal),
 ) -> schemas.QuoteReviewOut:
     """인식 결과를 고친 견적으로 같은 세션의 분석을 다시 계산해 저장한다."""
+    _check_rate_limit(request)
     current_specs = _resolve_current_specs(body)
     with get_conn() as conn:
         review = quote_review_service.update_review(
@@ -165,9 +178,11 @@ def compare_quote_part(
 
 @router.post("/reviews/{list_id}/messages", response_model=schemas.QuoteChatOut)
 def ask_about_quote_review(
-    list_id: UUID, body: schemas.QuoteChatIn, principal: Principal = Depends(optional_principal),
+    list_id: UUID, body: schemas.QuoteChatIn, request: Request,
+    principal: Principal = Depends(optional_principal),
 ) -> schemas.QuoteChatOut:
     """저장된 비교 분석 결과를 근거로 되묻는다 — 답과 근거, 대안 조회(CHAT-04). 대화는 저장된다(CHAT-08)."""
+    _check_rate_limit(request)
     with get_conn() as conn:
         result = quote_chat_service.chat(conn, list_id, principal, body.text)
     return schemas.QuoteChatOut(**result)

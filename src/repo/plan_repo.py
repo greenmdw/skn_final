@@ -68,8 +68,17 @@ class PlanRepo(Repo):
             "JOIN config.domain d ON d.id=dv.domain_id "
             "WHERE p.id=%s AND p.status='active'", (plan_id,))
 
-    def list_owned(self, *, user_id: UUID | None, guest_session_hash: str | None) -> list[dict]:
-        """사이드바 "내 장바구니" — 최근 수정순(§D-4-3)."""
+    def list_owned(self, *, user_id: UUID | None, guest_session_hash: str | None,
+                   limit: int | None = None, offset: int = 0) -> list[dict]:
+        """사이드바 "내 장바구니" — 최근 수정순(§D-4-3).
+
+        limit=None(기본)이면 예전처럼 전량 반환 — 지금 호출부는 전부 이 기본값을 쓴다.
+        계정에 리스트가 아주 많을 때 전량 반환이 느려질 수 있어(발견 사항,
+        docs/전체_테스트_시나리오_실행_기획.md §9) 호출부가 원하면 자를 수 있게만 열어 둔다."""
+        clause = " LIMIT %s OFFSET %s" if limit is not None else ""
+        params = (user_id, user_id, guest_session_hash, guest_session_hash)
+        if limit is not None:
+            params = params + (limit, offset)
         return self._all(
             "SELECT p.id AS list_id, p.name, p.updated_at, pr.id AS revision_id, pr.state, "
             "d.code AS category, "
@@ -90,8 +99,8 @@ class PlanRepo(Repo):
             "WHERE p.status='active' AND ("
             "  (%s::uuid IS NOT NULL AND c.user_id=%s) OR "
             "  (%s::text IS NOT NULL AND c.guest_session_hash=%s)"
-            ") ORDER BY p.updated_at DESC",
-            (user_id, user_id, guest_session_hash, guest_session_hash),
+            ") ORDER BY p.updated_at DESC" + clause,
+            params,
         )
 
     def confirmed_revisions(self, plan_id: UUID) -> list[dict]:

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Query
 
 from src import schemas
 from src.auth.deps import Principal, optional_principal
@@ -14,10 +14,18 @@ router = APIRouter(prefix="/lists", tags=["lists"])
 
 
 @router.get("", response_model=schemas.ListsOut)
-def my_lists(principal: Principal = Depends(optional_principal)) -> schemas.ListsOut:
-    """사이드바 "내 장바구니" — 로그인 사용자 또는 guest 쿠키 소유분, 최근 수정순."""
+def my_lists(
+    principal: Principal = Depends(optional_principal),
+    limit: int | None = Query(default=None, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+) -> schemas.ListsOut:
+    """사이드바 "내 장바구니" — 로그인 사용자 또는 guest 쿠키 소유분, 최근 수정순.
+
+    limit/offset은 선택이다 — 안 주면(기본) 지금까지처럼 전량 반환한다. 리스트가 아주 많은
+    계정에서 전량 반환이 느려질 수 있어(발견 사항) 필요할 때 자를 수 있게만 열어 둔 것으로,
+    기본 동작은 바뀌지 않는다."""
     with get_conn() as conn:
-        items = list_service.list_conversations(conn, principal)
+        items = list_service.list_conversations(conn, principal, limit=limit, offset=offset)
     return schemas.ListsOut(items=[schemas.ListSummaryOut(**item) for item in items])
 
 

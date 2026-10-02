@@ -199,11 +199,14 @@ def _conditions_summary(prepo: PlanRepo, revision_id: UUID, category: str | None
         return ""
 
 
-def list_conversations(conn, principal: Principal) -> list[dict]:
-    """사이드바 "내 장바구니" — 로그인 사용자 또는 guest 쿠키 소유분(§D-4-3)."""
+def list_conversations(conn, principal: Principal, *, limit: int | None = None, offset: int = 0) -> list[dict]:
+    """사이드바 "내 장바구니" — 로그인 사용자 또는 guest 쿠키 소유분(§D-4-3).
+
+    limit=None(기본)이면 전량 — 기존 호출부 동작을 그대로 유지한다."""
     guest_hash = _token_hash(principal.browser_token) if principal.browser_token else None
     prepo = PlanRepo(conn)
-    rows = prepo.list_owned(user_id=principal.user_id, guest_session_hash=guest_hash)
+    rows = prepo.list_owned(user_id=principal.user_id, guest_session_hash=guest_hash,
+                            limit=limit, offset=offset)
     out = []
     for row in rows:
         reports = _reports_out(prepo.confirmed_revisions(row["list_id"]))
