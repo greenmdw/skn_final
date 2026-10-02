@@ -108,6 +108,10 @@ EMAIL_CHECK_LIMIT_PER_MIN: int = int(os.getenv("EMAIL_CHECK_LIMIT_PER_MIN", "30"
 # docs/전체_테스트_시나리오_실행_기획.md §10). LLM 호출(이미지·텍스트 추출, 대화)이 끼어 있어
 # email-availability보다 더 비싼 호출이라 기본 한도를 더 낮게 둔다.
 PC_CHECK_LIMIT_PER_MIN: int = int(os.getenv("PC_CHECK_LIMIT_PER_MIN", "10"))
+# 실시간 부품 검색(버튼 트리거, docs/미보유부품_실시간스펙검색_설계.md) 전용 한도 — 검색+검증
+# 두 번의 LLM 호출이 들어 PC_CHECK_LIMIT_PER_MIN보다 호출당 비용이 크다. 캐시 히트는 이 한도에
+# 걸려도 비용이 없지만(검색·LLM을 안 부름), 카운터 자체는 구분해 가장 비싼 경로를 더 보수적으로 막는다.
+LIVE_PART_LOOKUP_LIMIT_PER_MIN: int = int(os.getenv("LIVE_PART_LOOKUP_LIMIT_PER_MIN", "5"))
 # ALB 같은 프록시 뒤에서는 request.client 가 프록시 주소라 모든 사용자가 한도를 공유한다 — 프록시가 붙이는
 # X-Forwarded-For 를 믿어도 되는 배포에서만 1 로 켠다(직접 노출된 서버에서 켜면 헤더로 한도를 우회할 수 있다).
 TRUST_FORWARDED_FOR: bool = os.getenv("TRUST_FORWARDED_FOR", "0") == "1"

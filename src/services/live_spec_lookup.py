@@ -61,8 +61,8 @@ def available() -> bool:
     return LIVE_PART_LOOKUP and not MOCK_MODE and LLM_PROVIDER == "openai" and bool(OPENAI_API_KEY)
 
 
-def _query_text(brand: str, model: str) -> str:
-    return f"{brand} {model} 정식 스펙"
+def _query_text(part_text: str) -> str:
+    return f"{part_text.strip()} 정식 스펙"
 
 
 def _from_row(row: dict) -> LiveSpecLookupResult:
@@ -71,22 +71,28 @@ def _from_row(row: dict) -> LiveSpecLookupResult:
     })
 
 
-def lookup(conn, *, brand: str, model: str) -> LiveSpecLookupResult:
+def lookup(conn, part_text: str, *, brand: str | None = None, model: str | None = None) -> LiveSpecLookupResult:
     """카탈로그에 없는 부품 하나를 실시간 검색+검증한다 — 캐시 히트면 검색·LLM 호출 없이 바로 반환.
+
+    part_text는 pc_check가 이미 들고 있는 "대응 안 됨" 슬롯의 원문 그대로다
+    (owned_parts.py의 OwnedPartsPreviewRow.original, 예: "[AMD] 라이젠7 9800X3D-636,500원") —
+    owned_parts.py에 브랜드/모델을 따로 뽑는 로직이 없어서, 억지로 쪼개 새 파싱을 만들지 않고
+    원문 전체를 질의로 쓴다. brand/model은 캐시 테이블에 남기는 참고 메타데이터일 뿐 질의에는
+    안 쓴다 — 호출자가 알면 넘기고, 모르면 비워도 된다.
 
     호출 전에 `available()`을 보는 건 호출자 몫이다(기존 에이전트들과 같은 계약) — 이 함수 자체는
     실패하면 예외를 그대로 올린다. relevant=False(검증 실패)도 그대로 캐싱한다(§4) — 같은 질의를
     또 비용 들여 재검색하지 않되, 호출자는 그 결과를 보고 "모름"으로 폴백해야 한다.
     """
     repo = LiveSpecLookupRepo(conn)
-    query_text = _query_text(brand, model)
+    query_text = _query_text(part_text)
 
     cached = repo.get_fresh(query_text, ttl_days=LIVE_SPEC_LOOKUP_TTL_DAYS)
     if cached is not None:
         return _from_row(cached)
 
     search = call_web_search(query_text)
-    prompt = (f"질문: {brand} {model}\n검색 스니펫:\n{search['text']}\n"
+    prompt = (f"질문: {part_text}\n검색 스니펫:\n{search['text']}\n"
              f"스니펫 출처 URL: {search['source_url'] or '(없음)'}")
     raw = call_llm(prompt, system=LIVE_SPEC_LOOKUP_SYSTEM, output_schema=LiveSpecLookupResult.model_json_schema())
     result = LiveSpecLookupResult.model_validate(raw)

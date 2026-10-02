@@ -232,6 +232,18 @@ class QuotePartCompareOut(BaseModel):
     note: str | None = None
 
 
+class LiveSpecLookupOut(BaseModel):
+    """DB 미보유 부품 실시간 검색 결과(docs/미보유부품_실시간스펙검색_설계.md §5).
+    relevant=False거나 supported_fields가 전부 비어 있으면 화면은 "찾지 못했다"로 보여야 한다 —
+    카탈로그 정식 등재 값이 아니라는 안내도 같이 표시한다(프론트 몫, 5단계)."""
+
+    slot: str
+    query: str
+    relevant: bool
+    supported_fields: dict[str, Any]
+    source_url: str | None = None
+
+
 class QuoteApplyIn(BaseModel):
     # 새 계획에서 업그레이드 대상으로 삼을 부품(견적에 적힌 값은 버리고 추천이 다시 고른다).
     # 나머지 부품은 견적에 적힌 대로 유지한다.

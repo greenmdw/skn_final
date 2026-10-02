@@ -31,7 +31,7 @@ from src.agent import spec_extraction_agent
 from src.auth import ratelimit
 from src.auth.deps import Principal, optional_principal
 from src.categories import load_category
-from src.config import PC_CHECK_LIMIT_PER_MIN
+from src.config import LIVE_PART_LOOKUP_LIMIT_PER_MIN, PC_CHECK_LIMIT_PER_MIN
 from src.db import get_conn
 from src.engine.owned_parts import preview_current_specs
 from src.engine.spec_text import parse_spec_text
@@ -174,6 +174,21 @@ def compare_quote_part(
     with get_conn() as conn:
         result = quote_review_service.compare_part(conn, list_id, principal, slot, target, direction)
     return schemas.QuotePartCompareOut(**result)
+
+
+@router.post("/reviews/{list_id}/parts/{slot}/live-lookup", response_model=schemas.LiveSpecLookupOut)
+def live_lookup_quote_part(
+    list_id: UUID, slot: str, request: Request, principal: Principal = Depends(optional_principal),
+) -> schemas.LiveSpecLookupOut:
+    """카탈로그에 "대응 안 됨"으로 뜬 부품을 사용자가 버튼으로 눌렀을 때만 실시간 검색+검증한다
+    (docs/미보유부품_실시간스펙검색_설계.md §2 — 자동 실행 금지, PC_CHECK_LIMIT_PER_MIN보다
+    엄격한 전용 한도를 쓴다). 캐시 히트면 검색·LLM 호출 없이 바로 응답한다."""
+    key = f"live-part-lookup:{ratelimit.client_ip(request)}"
+    if not ratelimit.allow(key, limit=LIVE_PART_LOOKUP_LIMIT_PER_MIN, window_seconds=60):
+        raise RateLimited("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")
+    with get_conn() as conn:
+        result = quote_review_service.live_lookup_part(conn, list_id, principal, slot)
+    return schemas.LiveSpecLookupOut(**result)
 
 
 @router.post("/reviews/{list_id}/messages", response_model=schemas.QuoteChatOut)

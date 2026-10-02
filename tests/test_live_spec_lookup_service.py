@@ -46,7 +46,7 @@ def test_cache_miss_calls_search_then_llm_and_caches(conn, monkeypatch):
     monkeypatch.setattr(lsl, "call_web_search", fake_search)
     monkeypatch.setattr(lsl, "call_llm", fake_llm)
 
-    result = lsl.lookup(conn, brand="AMD", model="라이젠9 9999X")
+    result = lsl.lookup(conn, "AMD 라이젠9 9999X", brand="AMD", model="라이젠9 9999X")
     assert result.relevant is True
     assert result.supported_fields.socket == "AM5"
     assert calls == {"search": 1, "llm": 1}
@@ -61,10 +61,10 @@ def test_cache_hit_skips_search_and_llm(conn, monkeypatch):
 
     from src.repo.live_spec_lookup_repo import LiveSpecLookupRepo
     LiveSpecLookupRepo(conn).upsert(
-        query_text=lsl._query_text("Intel", "Core Ultra 9 999K"), brand="Intel", model="Core Ultra 9 999K",
+        query_text=lsl._query_text("Intel Core Ultra 9 999K"), brand="Intel", model="Core Ultra 9 999K",
         relevant=True, supported_fields={"socket": "LGA1851"}, source_url="https://example.com/b")
 
-    result = lsl.lookup(conn, brand="Intel", model="Core Ultra 9 999K")
+    result = lsl.lookup(conn, "Intel Core Ultra 9 999K", brand="Intel", model="Core Ultra 9 999K")
     assert result.supported_fields.socket == "LGA1851"
 
 
@@ -81,13 +81,13 @@ def test_irrelevant_result_is_still_cached_for_next_call(conn, monkeypatch):
     monkeypatch.setattr(lsl, "call_web_search", fake_search)
     monkeypatch.setattr(lsl, "call_llm", fake_llm)
 
-    first = lsl.lookup(conn, brand="가짜브랜드", model="없는모델")
+    first = lsl.lookup(conn, "가짜브랜드 없는모델")
     assert first.relevant is False
     assert first.has_any_field() is False
     assert calls["n"] == 1
 
     # 두 번째 호출 — 실패 결과도 캐시됐으니 LLM을 또 부르면 안 된다.
-    second = lsl.lookup(conn, brand="가짜브랜드", model="없는모델")
+    second = lsl.lookup(conn, "가짜브랜드 없는모델")
     assert second.relevant is False
     assert calls["n"] == 1
 

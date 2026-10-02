@@ -24,7 +24,7 @@ from src.engine.quote_price import compare_price, line_quantity, parse_price
 from src.engine.stage2_requirement import load_computer_rules, normalize_pc_slot
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.engine.stage4_optimize import pc_compat_details, pc_link_check
-from src.errors import NotFound, ValidationFailed
+from src.errors import NotFound, ServiceUnavailable, ValidationFailed
 from src.repo.plan_repo import QUOTE_REVIEW_KEY, PlanRepo
 from src.services import quote_balance, quote_compare, session_service
 
@@ -216,6 +216,25 @@ def get_review(conn, list_id: UUID, principal: Principal) -> dict:
     if row is None:
         raise NotFound("이 목록에는 견적 점검 결과가 없습니다.")
     return row["value"]["value"]
+
+
+def live_lookup_part(conn, list_id: UUID, principal: Principal, slot: str) -> dict:
+    """저장된 견적 점검에서 "대응 안 됨"인 슬롯 하나를 실시간 검색+검증한다(개발요청 — 사용자가
+    버튼을 눌렀을 때만, docs/미보유부품_실시간스펙검색_설계.md §2·§5). 저장하지 않는다 —
+    같은 질의는 live_spec_lookup의 캐시(§4)가 재검색을 막아 주므로 다시 눌러도 비용이 없다."""
+    from src.services import live_spec_lookup
+
+    if not live_spec_lookup.available():
+        raise ServiceUnavailable("지금은 실시간 검색을 쓸 수 없습니다.", code="live_part_lookup_unavailable")
+    review = get_review(conn, list_id, principal)
+    row = next((p for p in review.get("parts", []) if p["part"] == slot), None)
+    if row is None:
+        raise NotFound(f"그 슬롯을 찾을 수 없습니다: {slot}", field="slot")
+    if row["match_status"] != "unmatched":
+        raise ValidationFailed("카탈로그에 이미 대응된 부품은 실시간 검색 대상이 아닙니다.", field="slot",
+                               code="already_matched")
+    result = live_spec_lookup.lookup(conn, row["original"])
+    return {"slot": slot, "query": row["original"], **result.model_dump()}
 
 
 def compare_part(conn, list_id: UUID, principal: Principal, slot: str, targets: list[str] | None = None,
