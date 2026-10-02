@@ -82,6 +82,9 @@ QUESTIONS: list[Q] = [
     Q("casual", "SSD 1테라 더 달아도 됨", tools=("preview_swap", "set_item", "list_alternatives")),
     Q("casual", "남는돈으로 머 올리지", tools=("upgrade_options",)),
     Q("casual", "글카 한단계 위로 바꿔주셈", change=True, tools=("swap",)),
+    # 시연 대화(2026-10-02)에서 옮긴 것 — 10만원 목표에 CPU 를 등급 8→4 로 내리던 것
+    Q("casual", "10만원 정도 절약할 부품바꿀거 있나 혹시", tools=("savings_options",)),
+    Q("casual", "성능 좀더 좋은걸로 바꿀만한 부품 있나", tools=("upgrade_options", "preview_swap")),
     Q("offtopic", "모니터도 추천해줘"),
     Q("offtopic", "오늘 날씨 어때?"),
 ]

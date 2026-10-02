@@ -32,12 +32,12 @@ def conn():
         connection.close()
 
 
-def _build(conn, budget: int = 1_500_000) -> uuid.UUID:
+def _build(conn, budget: int = 1_500_000, purpose: str = "game") -> uuid.UUID:
     created = session_service.create_session(conn, Principal(user_id=None, browser_token=None))
     principal = Principal(user_id=None, browser_token=created["browser_token"])
     list_uuid = uuid.UUID(created["list_id"])
     session_service.choose_category(conn, list_uuid, "computer", "build", principal)
-    for field, value in (("purpose", "game"), ("budget_max", budget), ("priority", "value")):
+    for field, value in (("purpose", purpose), ("budget_max", budget), ("priority", "value")):
         session_service.patch_slot(conn, list_uuid, field, value, principal)
     revision_id = PlanRepo(conn).get_current_revision(list_uuid)["id"]
     accepted = recommendation_service.start_recommendation(conn, revision_id, strategy="default")
@@ -104,8 +104,7 @@ def test_preview_swap_up_picks_the_next_tier_and_reports_budget(conn):
 def test_savings_options_target_beyond_reach_says_so(conn):
     revision_id = _build(conn)
     out = result_advice.savings_options(conn, revision_id, 10_000_000)
-    assert "못 미칩니다" in out or "더 싸게 바꿀 수 있는 부품이 없습니다" in out
-    assert "아직 아무것도 바꾸지 않았습니다" in out or "없습니다" in out
+    assert "을 줄이는 조합(부품 3개까지)은 없습니다" in out and "아직 아무것도 바꾸지 않았습니다" in out
 
 
 def test_game_check_compares_table_tiers(conn):
@@ -174,3 +173,45 @@ def test_box_cooler_value_reaches_check_and_cpu_preview(conn):
     if no_box is not None:
         preview = result_advice.preview_swap(conn, revision_id, "CPU", no_box.variant_id)
         assert "⚠ 별도 쿨러가 빠져 있는데 이 CPU는 기본 쿨러가 없을 수 있음" in preview
+
+
+def test_target_plan_loses_the_least_performance_not_the_most_money(conn):
+    """"10만원 정도 절약할 부품" — 예전엔 절약액 큰 것부터 더해 CPU 를 등급 8→4 로 내리며 18.6만원을 줄였다(시연).
+    목표를 채우는 조합 중 성능 손실이 가장 적은 것을 고른다: 목표를 채우는 어떤 단일 교체보다 손실이 크지 않다."""
+    revision_id = _build(conn, budget=1_240_000, purpose="office")
+    ctx = result_advice._context(conn, revision_id)
+    options = {r["slot"]: result_advice._cheaper_options(ctx, r["slot"]) for r in ctx.picked}
+    target = 100_000
+    plan = result_advice._target_plan(ctx, options, target)
+    singles = [o for opts in options.values() for o in opts if o[0] >= target]
+    if plan is None:
+        assert not singles
+        return
+    (loss, _, saving), swaps = plan
+    assert saving >= target
+    assert all(loss <= o[1] for o in singles)
+    out = result_advice.savings_options(conn, revision_id, target)
+    assert "성능을 가장 적게 잃는 조합" in out
+
+
+def test_relaxed_target_plan_is_summed_by_code(conn):
+    """"20만원 줄이려면" — 요구 사양을 지켜선 안 될 때, 기준을 낮춘 조합의 합계도 코드가 낸다(모델이 더하다 틀렸다)."""
+    revision_id = _build(conn)
+    ctx = result_advice._context(conn, revision_id)
+    loose = {r["slot"]: result_advice._cheaper_options(ctx, r["slot"], allow_fail=True) for r in ctx.picked}
+    plan = result_advice._target_plan(ctx, loose, 200_000)
+    out = result_advice.savings_options(conn, revision_id, 200_000)
+    if result_advice._target_plan(ctx, {r["slot"]: result_advice._cheaper_options(ctx, r["slot"]) for r in ctx.picked},
+                                  200_000) is None and plan is not None:
+        (_, _, saving), _ = plan
+        assert f"요구 사양을 낮추면 200,000원 이상 줄일 수 있는 조합" in out and f"합계 절약 {saving:,}원" in out
+
+
+def test_relaxing_only_lowers_performance_never_power_or_socket(conn):
+    revision_id = _build(conn)
+    ctx = result_advice._context(conn, revision_id)
+    for row in ctx.picked:
+        for saving, loss, cand in result_advice._cheaper_options(ctx, row["slot"], allow_fail=True):
+            verdict, reasons = result_advice._requirement_verdict(ctx, row["slot"], cand)
+            if verdict == "Fail":
+                assert row["slot"] in ("CPU", "GPU", "RAM"), (row["slot"], reasons)

@@ -412,80 +412,156 @@ def upgrade_options(conn, revision_id: UUID, budget: int | None = None) -> str:
             lines.append(f"    · {label}: {cand.name} {_metric_text(slot, m1)} · {fmt_money(_price(cand))}"
                          f" (추가 {fmt_money(delta)}, 바꾼 뒤 총액 {fmt_money(after)}{left}) · candidate_id={cand.variant_id}")
     if not found:
-        lines.append("→ 이 금액 안에서 성능 등급·용량을 올릴 수 있는 후보가 없습니다.")
+        lines.append("→ 이 금액 안에서 성능 등급·용량을 올릴 수 있는 후보가 없습니다. 더 쓸 수 있는 금액(예: 20만원)을 "
+                     "말씀해 주시면 그 안에서 찾습니다.")
     lines.append("케이스·쿨러·파워·저장장치는 '더 좋다'를 정할 값이 없어 넣지 않았습니다.")
     return "\n".join(lines)
 
 
 # ── 4. 줄일 수 있는 것 ──────────────────────────────────────────────────────
-def savings_options(conn, revision_id: UUID, target: int | None = None) -> str:
-    """슬롯마다 이 견적의 요구 사양을 채우면서 호환되는 가장 싼 후보와 절약액. target 이 있으면 절약액이 큰 것부터
-    더해 그 금액을 채우는 조합(바꾼 부품끼리의 호환도 확인)을 계산한다."""
+def _loss(slot: str, m0: float | None, m1: float | None) -> float:
+    """바꿨을 때 잃는 성능 — CPU·GPU 는 등급 차, RAM 은 용량이 절반이 될 때마다 1. 값이 없는 슬롯(케이스·쿨러·파워·
+    저장장치)은 0 — 요구 사양은 통과한 후보만 오므로 '잴 수 있는 손실이 없다'는 뜻이지 '같다'는 뜻은 아니다."""
+    if m0 is None or m1 is None:
+        return 0.0
+    if slot == "RAM":
+        import math
+        return max(0.0, math.log2(m0 / m1)) if m1 > 0 else 99.0
+    return max(0.0, m0 - m1)
+
+
+def _only_performance_short(slot: str, reasons: list[str]) -> bool:
+    """요구 사양 미달 이유가 성능 등급·용량·VRAM 뿐인가(CPU·GPU·RAM). "기준을 낮추면"은 이것만 뜻한다 — 500W 파워를
+    "기준을 낮춘 절약"으로 내던 것(2026-10-02): 파워 용량 미달은 성능이 아니라 안정성 문제다."""
+    return slot in _UPGRADE_SLOTS and all(
+        r.split(":", 1)[0] in ("FAIL_PERF_BELOW", "FAIL_CAPACITY_BELOW", "FAIL_VRAM_BELOW") for r in reasons)
+
+
+def _cheaper_options(ctx: _Ctx, slot: str, allow_fail: bool = False) -> list[tuple[int, float, object]]:
+    """이 슬롯을 더 싸게 바꾸는 후보 (절약액, 손실, 후보) — 요구 사양을 확인해서 채우고(Pass) 지금 구성과 확정 비호환이
+    없는 것만. 절약액과 손실의 파레토 앞쪽만 남긴다(같은 손실이면 더 많이 줄이는 것, 같은 절약이면 덜 잃는 것)."""
+    row = ctx.row(slot)
+    cur = ctx.by_variant.get(str(row["variant_id"]))
+    m0 = _metric(slot, cur.specs) if cur is not None else None
+    out = []
+    for cand in ctx.pool.get(slot, []):
+        saving = (_price(row) - _price(cand)) * _qty(row)
+        if saving <= 0 or cand.variant_id == str(row["variant_id"]) or _new_failures(ctx, slot, cand):
+            continue
+        verdict, reasons = _requirement_verdict(ctx, slot, cand)
+        if verdict == "Pending":
+            continue                 # 스펙을 몰라 보류(Pending)된 후보는 절약안으로 내지 않는다
+        if verdict == "Fail" and not (allow_fail and _only_performance_short(slot, reasons)):
+            continue                 # 낮춰도 되는 기준은 성능 등급·용량뿐 — 파워 용량·효율·소켓 미달은 안 된다
+        out.append((saving, _loss(slot, m0, _metric(slot, cand.specs)), cand))
+    out.sort(key=lambda o: (o[1], -o[0]))
+    front, best_saving = [], -1
+    for o in out:                    # 손실 오름차순으로 보며 절약액이 커질 때만 남긴다
+        if o[0] > best_saving:
+            front.append(o)
+            best_saving = o[0]
+    return front
+
+
+def _target_plan(ctx: _Ctx, options: dict, target: int, max_swaps: int = 3):
+    """target 이상 줄이면서 **잃는 성능이 가장 적은** 조합. 같으면 바꾸는 부품이 적은 것, 그다음 목표에 가까운(덜 줄이는) 것.
+    예전엔 절약액이 큰 것부터 더해 "10만원 줄여줘"에 CPU 를 등급 8→4 로 내려 18.6만원을 줄였다(2026-10-02 시연)."""
+    from itertools import combinations, product
     from src.engine.stage4_optimize import _pc_known_failures
+    base = ctx.chosen()
+    baseline = _pc_known_failures(base, ctx.spec, ctx.rules)
+    best = None
+    slots = [sl for sl, opts in options.items() if opts]
+    for k in range(1, min(max_swaps, len(slots)) + 1):
+        for combo in combinations(slots, k):
+            for picks in product(*(options[sl][:5] for sl in combo)):
+                saving = sum(p[0] for p in picks)
+                if saving < target:
+                    continue
+                key = (round(sum(p[1] for p in picks), 3), k, saving)
+                if best is not None and key >= best[0]:
+                    continue
+                trial = {**base, **{sl: p[2] for sl, p in zip(combo, picks)}}
+                if _pc_known_failures(trial, ctx.spec, ctx.rules) - baseline:
+                    continue          # 바꾼 부품끼리 안 맞는다
+                best = (key, list(zip(combo, picks)))
+    return best
+
+
+def savings_options(conn, revision_id: UUID, target: int | None = None) -> str:
+    """요구 사양을 채우면서 더 싸게 바꿀 수 있는 부품. target 이 있으면 그 금액 이상 줄이면서 성능을 가장 적게 잃는
+    조합(바꾼 부품끼리의 호환도 확인)을 먼저 낸다. 요구 사양을 낮춰야 줄어드는 것은 따로 ⚠ 로 적는다."""
     ctx = _context(conn, revision_id)
     total = ctx.total()
-    opts, relaxed = [], []           # 요구 사양을 채우는 절약안 / 요구 사양을 낮춰야 하는 절약안
+    options, relaxed = {}, []
     for row in ctx.picked:
         slot = row["slot"]
+        options[slot] = _cheaper_options(ctx, slot)
         cur = ctx.by_variant.get(str(row["variant_id"]))
-        qty = _qty(row)
-        best = below = None
         m0 = _metric(slot, cur.specs) if cur is not None else None
+        below = None
         for cand in ctx.pool.get(slot, []):
-            saving = (_price(row) - _price(cand)) * qty
-            if saving <= 0 or cand.variant_id == str(row["variant_id"]) or _new_failures(ctx, slot, cand):
+            saving = (_price(row) - _price(cand)) * _qty(row)
+            m1 = _metric(slot, cand.specs)
+            if saving <= 0 or m0 is None or m1 is None or m1 >= m0 or _new_failures(ctx, slot, cand):
                 continue
-            # 요구 사양을 *확인해서* 채우는 것만 — 스펙을 몰라 보류(Pending)된 후보는 절약안으로 내지 않는다.
             verdict, reasons = _requirement_verdict(ctx, slot, cand)
-            if verdict == "Pass":
-                if best is None or saving > best[0]:
-                    best = (saving, cand)
-            elif (verdict == "Fail" and m0 is not None and _metric(slot, cand.specs) is not None
-                  and _metric(slot, cand.specs) < m0):
+            if verdict == "Fail":
                 # 성능 등급·용량을 낮추는 대신 싸지는 것 — 바로 아래 단계(가장 덜 내려가는 것) 중 가장 싼 것
-                key = (-(_metric(slot, cand.specs)), -saving)
+                key = (-m1, -saving)
                 if below is None or key < below[0]:
                     below = (key, saving, cand, reasons)
-        if best is not None:
-            opts.append((best[0], slot, row, best[1], m0, _metric(slot, best[1].specs)))
         if below is not None:
             relaxed.append((below[1], slot, row, below[2], m0, _metric(slot, below[2].specs), below[3]))
-    opts.sort(key=lambda o: o[0], reverse=True)
     relaxed.sort(key=lambda o: o[0], reverse=True)
-    if opts:
-        lines = [f"지금 총액 {fmt_money(total)} — 이 견적의 요구 사양을 채우고 호환되는 가장 싼 후보로 바꿀 때 절약액 (큰 순):"]
-    else:
-        lines = [f"지금 총액 {fmt_money(total)} — 이 견적의 요구 사양을 채우면서 더 싸게 바꿀 수 있는 부품이 없습니다."]
-    for saving, slot, row, cand, m0, m1 in opts:
-        tier = f" · {_metric_text(slot, m0)} → {_metric_text(slot, m1)}" if (m0 is not None or m1 is not None) else ""
-        lines.append(f"- {slot}: {row['product_name']} {fmt_money(_price(row))} → {cand.name} {fmt_money(_price(cand))}"
-                     f" (절약 {fmt_money(saving)}){tier} · candidate_id={cand.variant_id}")
+
+    def swap_text(slot: str, saving: int, loss: float, cand) -> str:
+        row = ctx.row(slot)
+        cur = ctx.by_variant.get(str(row["variant_id"]))
+        m0, m1 = (_metric(slot, cur.specs) if cur else None), _metric(slot, cand.specs)
+        verdict, reasons = _requirement_verdict(ctx, slot, cand)
+        perf = (f" · {_metric_text(slot, m0)} → {_metric_text(slot, m1)}" if m0 is not None or m1 is not None
+                else " · 성능 값 없음" + ("(요구 사양은 채움)" if verdict == "Pass" else ""))
+        warn = f" · ⚠ {_reason_text(reasons)}" if verdict == "Fail" else ""
+        return (f"{slot}: {row['product_name']} {fmt_money(_price(row))} → {cand.name} {fmt_money(_price(cand))}"
+                f" (절약 {fmt_money(saving)}){perf}{warn} · candidate_id={cand.variant_id}")
+
+    lines = [f"지금 총액 {fmt_money(total)}" + (f" · 줄이고 싶은 금액 {fmt_money(target)}" if target else "")]
+    if target:
+        plan = _target_plan(ctx, options, target)
+        if plan is not None:
+            (loss, _, saving), swaps = plan
+            lines.append(f"→ {fmt_money(target)} 이상 줄이면서 성능을 가장 적게 잃는 조합"
+                         f"(요구 사양·호환 통과, 바꾼 부품끼리의 호환도 확인): 합계 절약 {fmt_money(saving)}, "
+                         f"바꾼 뒤 총액 {fmt_money(total - saving)}"
+                         + (f"{', 잔여 ' + fmt_money(ctx.budget_max - total + saving) if ctx.budget_max else ''}"))
+            lines += [f"    · {swap_text(sl, p[0], p[1], p[2])}" for sl, p in swaps]
+        else:
+            reach = sum(max((o[0] for o in opts), default=0) for opts in options.values())
+            lines.append(f"→ 요구 사양을 지키면서 {fmt_money(target)}을 줄이는 조합(부품 3개까지)은 없습니다"
+                         f" — 슬롯마다 가장 싼 후보를 다 더해도 최대 {fmt_money(reach)}.")
+            # 기준을 낮추면 되는가도 코드가 더한다 — 모델이 "둘 다 낮춰도 못 미친다"(153,380+85,520 > 200,000)고 틀렸다
+            loose = {r["slot"]: _cheaper_options(ctx, r["slot"], allow_fail=True) for r in ctx.picked}
+            relaxed_plan = _target_plan(ctx, loose, target)
+            if relaxed_plan is not None:
+                (_, _, saving), swaps = relaxed_plan
+                lines.append(f"→ 요구 사양을 낮추면 {fmt_money(target)} 이상 줄일 수 있는 조합(성능을 가장 적게 잃는 것): "
+                             f"합계 절약 {fmt_money(saving)}, 바꾼 뒤 총액 {fmt_money(total - saving)} — ⚠ 표시가 이 견적의 기준 미달")
+                lines += [f"    · {swap_text(sl, p[0], p[1], p[2])}" for sl, p in swaps]
+            else:
+                lines.append(f"→ 요구 사양을 낮춰도 부품 3개까지 바꿔서는 {fmt_money(target)}을 줄일 수 없습니다.")
+    singles = sorted(((opts[-1], sl) for sl, opts in options.items() if opts), key=lambda x: -x[0][0])
+    if singles:
+        lines.append("부품 하나만 바꿀 때 가장 많이 줄어드는 후보 (요구 사양 통과, 큰 순):")
+        lines += [f"- {swap_text(sl, o[0], o[1], o[2])}" for o, sl in singles]
+    elif not target:
+        lines.append("이 견적의 요구 사양을 채우면서 더 싸게 바꿀 수 있는 부품이 없습니다.")
     if relaxed:
         lines.append("요구 사양을 한 단계 낮추면 (⚠ 이 견적의 조건이 정한 기준 아래로 내려감):")
         for saving, slot, row, cand, m0, m1, reasons in relaxed:
             lines.append(f"- {slot}: {row['product_name']} → {cand.name} {fmt_money(_price(cand))} (절약 {fmt_money(saving)})"
                          f" · {_metric_text(slot, m0)} → {_metric_text(slot, m1)} · ⚠ {_reason_text(reasons)}"
                          f" · candidate_id={cand.variant_id}")
-    if not opts and not relaxed:
-        return lines[0]
-    if target:
-        chosen = ctx.chosen()
-        plan, acc = [], 0
-        for saving, slot, row, cand, _, _ in opts:
-            if acc >= target:
-                break
-            trial = {**chosen, slot: cand}
-            if _pc_known_failures(trial, ctx.spec, ctx.rules) - _pc_known_failures(ctx.chosen(), ctx.spec, ctx.rules):
-                continue                  # 앞에서 고른 교체와 함께 쓰면 안 맞는다
-            chosen, acc = trial, acc + saving
-            plan.append(slot)
-        if acc >= target:
-            lines.append(f"→ {fmt_money(target)}을 줄이려면: {', '.join(plan)} 교체 — 합계 절약 {fmt_money(acc)},"
-                         f" 바꾼 뒤 총액 {fmt_money(total - acc)} (바꾼 부품끼리의 호환도 확인함)")
-        else:
-            most = f"{fmt_money(acc)}({', '.join(plan)})" if plan else "0원"
-            lines.append(f"→ 요구 사양을 지키면서 줄일 수 있는 최대는 {most}라 {fmt_money(target)}에 못 미칩니다."
-                         + (" 더 줄이려면 위의 '요구 사양을 한 단계 낮추면' 항목처럼 기준을 낮춰야 합니다." if relaxed else ""))
     lines.append("아직 아무것도 바꾸지 않았습니다.")
     return "\n".join(lines)
 
