@@ -6,10 +6,12 @@ Use this as the default command when validating changes that may affect the data
 
 ```bash
 docker compose up -d db
-PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache TRUEFIT_REQUIRE_TEST_DB=1 uv run pytest -q
+PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache TRUEFIT_REQUIRE_TEST_DB=1 uv run pytest -q -m "not llm_live"
 ```
 
 Always set `TRUEFIT_REQUIRE_TEST_DB=1` for completion checks. It turns PostgreSQL setup failures into errors instead of allowing database tests to be silently skipped.
+
+`-m "not llm_live"` is part of the default — `llm_live` tests call a real LLM API with `MOCK_MODE=0` and cost real money per run, so they are opt-in only (see "Run llm_live tests only" below and `docs/전체_테스트_시나리오_실행_기획.md` §2.5).
 
 At the start of a pytest session, the test harness automatically:
 
@@ -42,6 +44,10 @@ PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache TRUEFIT_REQUIRE_TEST_DB=1 \
 # Run integration tests only
 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache TRUEFIT_REQUIRE_TEST_DB=1 \
   uv run pytest -q -m integration
+
+# Run llm_live tests only (real LLM calls, MOCK_MODE=0, costs money — run deliberately, not by default)
+MOCK_MODE=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache TRUEFIT_REQUIRE_TEST_DB=1 \
+  uv run pytest -q -m llm_live
 ```
 
 ### Required seed inputs
@@ -72,7 +78,7 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
 - If the default uv cache is read-only, keep `UV_CACHE_DIR=/tmp/uv-cache` in the command.
 - If Python raises `ModuleNotFoundError: src`, run from the repository root and set `PYTHONPATH=.`.
 - If database tests are skipped, rerun with `TRUEFIT_REQUIRE_TEST_DB=1` so the underlying setup problem is reported as an error.
-- The current database baseline must contain exactly these eight files:
+- The current database baseline must contain exactly these nine files:
   - `db/migrations/0000_schema.sql`
   - `db/migrations/0001_constraints.sql`
   - `db/migrations/0002_indexes.sql`
@@ -88,3 +94,7 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
   - `db/migrations/0007_peripheral_line.sql` (added 2026-10-01, 개발요청 11번: adds
     `planning.peripheral_line` so a confirmed report can also freeze chosen peripherals
     — monitor/keyboard/mouse/speaker — alongside the PC build in `purchase_line`)
+  - `db/migrations/0008_review_aspect.sql` (added 2026-10-02: enables the `vector` extension and
+    adds `evidence.review_document`/`review_embedding`/`review_aspect_rule`/`review_aspect_observation`/
+    `review_aspect_aggregate(_member)` and `engine.review_requirement_profile` for the review-evidence
+    ingestion pipeline — `src/services/review_*.py`)

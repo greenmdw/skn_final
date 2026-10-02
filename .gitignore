@@ -87,3 +87,7 @@ data/reviews/*
 
 # ── 지금 코드와 안 맞는 옛 기획/보고 문서 (로컬 보관용, git 추적 안 함) ──
 docs/history/*
+
+# ── 사양 추출 llm_live 회귀 테스트용 이미지: 저작권·개인정보 때문에 README만 추적 ──
+tests/fixtures/spec_images/*
+!tests/fixtures/spec_images/README.md
