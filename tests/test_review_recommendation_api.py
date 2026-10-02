@@ -33,7 +33,10 @@ def test_execute_stores_profile_versions_and_completes_review_rank():
         with TestClient(app) as client:
             _list_id, run_id = _start_recommendation(client)
         with psycopg.connect(DSN) as conn:
-            run = conn.execute("SELECT status,engine_versions FROM engine.recommendation_run WHERE id=%s", (run_id,)).fetchone()
+            run = conn.execute(
+                "SELECT status,engine_versions,reasoning_log FROM engine.recommendation_run WHERE id=%s",
+                (run_id,),
+            ).fetchone()
             profile = conn.execute(
                 "SELECT profile_version,analysis_version,parts FROM engine.review_requirement_profile WHERE run_id=%s",
                 (run_id,),
@@ -42,6 +45,14 @@ def test_execute_stores_profile_versions_and_completes_review_rank():
         assert run[1]["review_profile"] == profile[0]
         assert run[1]["review_analysis"] == profile[1]
         assert profile[2]
+        review_steps = [step for step in run[2] if step.get("step") == "리뷰 관측"]
+        assert review_steps
+        assert any("R=0.500" in step["detail"] and any(
+            state in step["detail"] for state in (
+                "혼합 방향 관측만 있음", "선택 조건에 관측 없음"))
+                   for step in review_steps)
+        assert not any("순위만 내렸습니다" in step["detail"] or "7일 몰림" in step["detail"]
+                       for step in review_steps)
 
 
 def test_execute_marks_review_readiness_failure_as_failed_run():

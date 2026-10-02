@@ -172,9 +172,19 @@ def _run_peripherals(scenario: dict, result: PipelineResult, log: LogFn, *, cata
         return
     from src.engine.peripheral_select import run_peripherals
     from src.engine.research_loop import resolve_chosen
+    from src.engine.peripheral_rules import requested_kinds
 
     log("── [P] 주변기기 단계 (계획 §3.3 E11) ──")
     candidates = _load_peripheral_catalog(log, catalog_source=catalog_source)
+    from src.services.review_ranking import score_peripheral_candidates
+    source = catalog_source if catalog_source is not None else os.environ.get("CATALOG_SOURCE", "db")
+    requested_candidates = {kind: candidates.get(kind, []) for kind in requested_kinds(values)}
+    if source == "mock":
+        score_peripheral_candidates(None, requested_candidates, values, catalog_source="mock")
+    else:
+        from src.db import get_conn
+        with get_conn() as review_conn:
+            score_peripheral_candidates(review_conn, requested_candidates, values, catalog_source="db")
 
     gpu_specs: dict | None = None
     if result.rank is not None and result.build is not None:
@@ -183,10 +193,12 @@ def _run_peripherals(scenario: dict, result: PipelineResult, log: LogFn, *, cata
             gpu_specs = gpu.specs
     pc_context = {"resolution": values.get("resolution"), "gpu_specs": gpu_specs}
 
-    result.peripherals = run_peripherals(values, candidates, log, pc_context=pc_context)
+    result.peripherals = run_peripherals(
+        values, candidates, log, pc_context=pc_context, require_review_details=True,
+    )
 
-    # E13 — payload는 저장·응답에는 아직 연결하지 않는다(R-7 대기, 계획 §3.3 E13 "실행 연결").
-    # 데모 로그에만 요약을 남겨 가공 결과를 눈으로 확인할 수 있게 한다. peripherals 조건이
+    # E13 — payload를 데모 로그에 요약해 가공 결과를 확인한다. 주변기기 R도 payload에 포함된다.
+    # peripherals 조건이
     # 없는 시나리오는 이 함수가 위에서 이미 return하므로 이 로그도 그 경우엔 절대 찍히지
     # 않는다(계획 §4 "기존 결과 불변 원칙").
     from src.engine.peripheral_payload import peripheral_payload

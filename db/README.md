@@ -85,7 +85,7 @@ PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
 
 Stage 4 PC 랭킹은 요청 후보 전체의 등록 규칙과 관측/member 커버리지를 snapshot 안에서 검증한 뒤 R을 주입합니다. DB 경로는 aggregate가 버전 전체에 전혀 없거나 요청 범위가 불일치하면 추천을 실패시키고, scoped 검증을 통과해도 전역 완전성 미확인을 실행 로그와 저장 프로필 진단에 남깁니다. 지금은 전체 manifest를 추가하지 않으므로, 이 경로가 보장하는 범위는 요청 후보뿐입니다. API는 실제 DB 경로를 강제하며 프로필/분석 버전을 `engine.review_requirement_profile`과 `recommendation_run.engine_versions`에 기록합니다. 로컬 시나리오 데모는 `run_from_scenario`에서 명시적으로 mock source를 선택하고, 다른 호출자는 `CATALOG_SOURCE=mock`을 설정해야만 중립 리뷰 상세를 쓸 수 있습니다. DB 카탈로그 오류나 빈 결과를 mock/CSV로 자동 대체하지 않습니다.
 
-`stage3b_rank.run`은 DB를 직접 열지 않는 순수 랭커입니다. 런타임 오케스트레이션은 `require_review_details=True`로 호출해 모든 후보의 주입 누락을 거부합니다. 순수 점수 단위 테스트에서만 상세 미주입 시 중립값을 쓸 수 있습니다. Stage 4는 계산 상세를 rank의 `Candidate.review_detail`로 보존하지만 Stage 5 설명 문구 교체는 후속 단계입니다.
+`stage3b_rank.run`은 DB를 직접 열지 않는 순수 랭커입니다. 런타임 오케스트레이션은 `require_review_details=True`로 호출해 모든 후보의 주입 누락을 거부합니다. 순수 점수 단위 테스트에서만 상세 미주입 시 중립값을 쓸 수 있습니다. Stage 5는 rank에 보존된 동일 snapshot에서 요청 프로필, R/Q/α, 관측 수와 실제 member ID를 설명·trace에 전달하며 DB를 재조회하지 않습니다. 균형 관측, 혼합 관측만 있음, 관측 없음, 선택 규칙 없음, 식별자 없음은 별도 상태로 표시합니다. 주변기기 요청도 요청 종류의 후보만 공통 scorer에 전달하고 R과 근거를 선택품 및 대안에 보존하지만 외부 리뷰 가중치는 0이며 프로필을 run에 따로 저장하지 않습니다. 전역 완전성 manifest 부재에 따른 readiness 범위 제한은 계속 적용됩니다.
 
 ## AWS 호환 원칙 (반영됨)
 

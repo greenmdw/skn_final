@@ -149,7 +149,6 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
     from src.repo.catalog_repo import load_candidates_by_slot_from_db
     from src.repo.engine_repo import EngineRepo
     from src.repo.plan_repo import PlanRepo
-    from src.repo.review_repo import is_obs_flag, parse_obs_flag
     from src.rag.care_guides import search_care_guide
     from src.engine.owned_parts import upgrade_tier_notes
     from src.services import review_service
@@ -325,25 +324,11 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
                 trace.insert(-1, {"step": "기여도", "title": "기여도",
                                   "detail": " · ".join(f"{axis} {pct}%" for axis, pct in explanation.contribution.items()),
                                   "contribution": explanation.contribution})
-            # 관측 문장(7일 몰림 · 공유 리뷰어 · 5점 비율)은 슬롯별 evidence 에 있다.
-            # 그것까지 실어야 검토자가 확인·반박할 수 있다 — 요약만으로는 못 한다.
+            # 요청 프로필의 Q/R/α와 실제 aggregate member ID·방향을 trace에 남긴다.
+            # 이 자료는 stage5가 rank snapshot에서 가져왔으므로 여기서 DB 재조회하지 않는다.
             evidence_by_slot = {it.slot: it.evidence for it in explanation.items if it.evidence}
             for step in review_service.review_trace_steps(explanation.review_line_by_slot, evidence_by_slot):
                 trace.insert(-1, step)
-
-            # 리뷰축이 순위를 낮춘 후보 — 추천된 것들은 대개 "특이 없음" 이라(걸린 것이 밀려나므로)
-            # 축이 실제로 한 일이 화면에 안 나온다. rank 는 알고 있으니 꺼내 싣는다.
-            demoted: dict[str, list[dict]] = {}
-            for slot, info in rank.slots.items():
-                for c in info.get("ranked", []):
-                    over = [pair for pair in
-                            (parse_obs_flag(f) for f in c.get("flags", []) if is_obs_flag(f))
-                            if pair is not None]
-                    if over:
-                        demoted.setdefault(slot, []).append({"name": c.get("name", "?"), "over": over})
-            demotion = review_service.review_demotion_step(demoted)
-            if demotion is not None:
-                trace.insert(-1, demotion)
 
             # 03 "추천 요약" 본문 = summary + 확인이 필요한 것. 슬롯별 reason 은 각 부품의 "추천 이유" 에
             # 따로 나가므로 여기 나열하지 않는다 (전에는 reason 8줄을 이어붙여 요약이 아니었다).

@@ -50,6 +50,7 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
     from src.engine.peripheral_payload import peripheral_payload
     from src.engine.peripheral_select import run_peripherals
     from src.repo.catalog_repo import load_peripheral_candidates
+    from src.services.review_ranking import score_peripheral_candidates
 
     resolution = body.resolution or (pc_context or {}).get("resolution")
     values = {
@@ -61,5 +62,10 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
         "resolution": resolution,
     }
     candidates = load_peripheral_candidates(conn)
-    result = run_peripherals(values, candidates, log=lambda *_: None, pc_context=pc_context)
+    requested_candidates = {kind: candidates.get(kind, []) for kind in body.kinds}
+    score_peripheral_candidates(conn, requested_candidates, values, catalog_source="db")
+    result = run_peripherals(
+        values, candidates, log=lambda *_: None, pc_context=pc_context,
+        require_review_details=True,
+    )
     return peripheral_payload(result)

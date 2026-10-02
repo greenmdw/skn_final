@@ -12,10 +12,8 @@ pref 목록으로 바꿔 Fail만 제외한다. **조건을 완화하지 않는�
 
 ## [3-B] rank_candidates
 
-축 넷(가격/선호적합/데이터충실/리뷰) 중 리뷰는 항상 가중치 0이다 — 대조군이 PC 부품이라
-주변기기 리뷰 관측은 영구히 "모름"이기 때문이다(현황 문서 §4.2, `peripheral_rules.
-_check_weights`가 이미 가중치 0을 강제한다). 값 자체는 0.5(모름)로 두어 breakdown에서
-다른 축과 같은 모양을 유지한다.
+축 넷(가격/선호적합/데이터충실/리뷰) 중 리뷰 가중치는 계속 0이다. 주변기기 R과 근거는
+설명용으로 전달하되 현재 순위 점수에는 반영하지 않는다.
 
 ## 조합(choose)
 
@@ -121,7 +119,7 @@ def _fullness_axis(cand: Candidate, judged_keys: list[str]) -> float:
 
 def rank_candidates(
     kind: str, requirement: PeripheralRequirement, kept: list[Candidate], weights: dict[str, float],
-    *, budget: int | None = None,
+    *, budget: int | None = None, require_review_details: bool = False,
 ) -> list[Candidate]:
     """[3-B]. score/breakdown/rank를 채워 점수 내림차순으로 정렬한다.
 
@@ -134,6 +132,8 @@ def rank_candidates(
     """
     if not kept:
         return []
+    if require_review_details and any(c.review_detail is None for c in kept):
+        raise ValueError(f"peripheral review score missing for {kind}")
     median_price = statistics.median(c.price for c in kept)
     soft_prefs = spec_rules.dedupe_prefs((requirement.soft or {}).get("preferences") or [])
     hard_spec_keys = (_HARD_KEY_TO_PREF[name][0] for name in requirement.hard)
@@ -145,9 +145,8 @@ def rank_candidates(
             "가격": round(_price_axis(cand.price, median_price), 3),
             "선호적합": round(_preference_axis(cand, soft_prefs), 3),
             "데이터충실": round(_fullness_axis(cand, judged_keys), 3),
-            # 리뷰축은 가중치 항상 0(peripheral_rules._check_weights가 로드 시 강제) — 값은
-            # 다른 축과 같은 모양을 유지하려고 중립 0.5로만 둔다. 가중치 0이라 점수에는 영향 없다.
-            "리뷰": 0.5,
+            # R/상세는 표시하되 peripheral_rules가 보장하는 외부 가중치 0을 유지한다.
+            "리뷰": cand.review_detail.value if cand.review_detail else 0.5,
         }
         raw = sum(weights.get(axis, 0.0) * value for axis, value in breakdown.items())
         if cand.verdict == "Pending":
@@ -226,6 +225,7 @@ def _empty_reason(kind: str, requirement: PeripheralRequirement, rules: dict, po
 
 def run_peripherals(
     values: dict, candidates: dict[str, list[Candidate]], log: LogFn, *, pc_context: dict | None = None,
+    require_review_details: bool = False,
 ) -> PeripheralResult:
     """진입점(계획 §3.3 E11). `peripherals` 조건이 없으면 이 단계 자체를 건너뛴다.
 
@@ -263,10 +263,13 @@ def run_peripherals(
             log(f"      [P] {label}: 조건에 맞는 후보 0건 — {reason}")
             continue
         weights = rules["ranking"][kind]["weights"]
-        ranked = rank_candidates(kind, req, kept, weights, budget=values.get("peripheral_budget_max"))
+        ranked = rank_candidates(
+            kind, req, kept, weights, budget=values.get("peripheral_budget_max"),
+            require_review_details=require_review_details,
+        )
         kinds_ranked[kind] = ranked
         log(f"      [P] {label}: {stats['pool']} → 유지 {len(kept)}"
-            f" (Pass {stats['pass']}/Pending {stats['pending']}/Fail {stats['fail']})")
+            f" (Pass {stats['pass']}/Pending {stats['pending']}/Fail {stats['fail']}) · 리뷰 R은 참고값, 가중치 0")
 
     if not kinds_ranked:
         log("[P] 주변기기: 요청한 종류 전부 조건에 맞는 후보가 없습니다")

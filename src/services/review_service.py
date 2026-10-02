@@ -12,7 +12,7 @@ from src.config import REVIEW_SUMMARIES_DEMO
 from src.errors import NotFound, ValidationFailed
 from src.db import get_conn
 from src.repo.review_repo import ReviewRepo, ReviewSubjectRepo
-from src.repo.review_repo import (OBS_LABEL, SUSPECT_SOURCE, ReviewSummaryDemoFile,
+from src.repo.review_repo import (SUSPECT_SOURCE, ReviewSummaryDemoFile,
                                  default_risk_store, default_suspect_counts, resolve_risk_store)
 from src.schemas import ProductRiskOut, ReviewSummaryOut, ReviewTelemetry, SyntheticDemoOut
 from src.services import review_plain
@@ -310,10 +310,9 @@ def list_pending_for_user(user_id: UUID) -> dict:
 
 
 # ── [5] 리뷰 관측을 저장 경로로 나르기 ──────────────────────────────────────
-# [3-B] 가 랭킹에 반영하고 [5] 가 문장으로 만든 관측 사실은, DB 경로
-# (POST /session/{id}/recommend → engine.recommendation_run)에서 버려지고 있었다.
-# stage5 의 review_line_by_slot·caveats 를 아무도 읽지 않아서, 감점은 되는데
-# "왜" 가 화면에 안 갔다 — 점수 대신 확인·반박 가능한 문장을 낸다는 설계의 정반대다.
+# [3-B]가 요청 프로필 기반 리뷰 적합도를 계산하고 [5]가 설명으로 만든 사실은
+# DB 경로(POST /session/{id}/recommend → engine.recommendation_run)의 reasoning_log에
+# 실린다. 중립 상태와 실제 관측 member도 함께 기록해 화면과 검토자가 근거를 추적한다.
 #
 # 자리를 둘 다 **쓰지 않는** 이유를 남겨 둔다:
 #   · `ItemOut.review`(ReviewBriefOut) — 필드가 excluded_ratio·rating_refined 다.
@@ -322,77 +321,37 @@ def list_pending_for_user(user_id: UUID) -> dict:
 #     돌아서 아무것도 못 찾은 것처럼 읽힌다. 우리는 탐지기를 돌리지 않았다
 #   · `ItemOut.checks`("구매 전 확인") — [3-C] 스펙 검증 문장의 자리다. 상품 단위
 #     리뷰 관측을 섞으면 나중에 [3-C] 가 채울 때 서로 덮는다
-# 그래서 이미 자유 형식인 reasoning_log(추천 과정 기록)와 explanation_text 에 싣는다.
+# 따라서 리뷰 상세는 reasoning_log와 explanation_text에 싣는다.
 
 REVIEW_TRACE_STEP = "리뷰 관측"
 
 def review_trace_steps(review_line_by_slot: dict[str, str],
                        evidence_by_slot: dict[str, list[dict]] | None = None) -> list[dict]:
-    """[5] 의 리뷰 관측을 reasoning_log 단계들로. 관측이 없으면 빈 목록.
-
-    첫 단계는 요약(N/M 슬롯), 이어서 **관측 문장이 있는 슬롯마다 한 단계**다.
-    "리뷰 449건 중 15건(3.3%)이 7일 안에 몰림 — 전체 상품 중앙값 5.5%" 처럼
-    값과 대조군 중앙값을 그 자리에 풀어 쓴 문장이고, 점수가 아니다. 검토자가
-    확인·반박할 수 있어야 하므로 원 상품 주소(verify_url)도 같이 낸다.
-
-    슬롯마다 나누는 이유: 화면이 detail 을 한 단락으로 그린다. 세 슬롯의 문장
-    아홉 개를 한 단락에 넣으면 읽을 수 없다.
-
-    관측이 하나도 없으면 단계를 만들지 않는다 — "리뷰를 봤지만 깨끗했다" 와
-    "볼 리뷰가 없었다" 는 다른 말이고, 뒤쪽을 앞쪽으로 보이게 하면 안 된다.
-    """
-    observed = {
-        slot: line for slot, line in (review_line_by_slot or {}).items()
-        if line and not line.startswith("리뷰 관측 없음")
-    }
-    if not observed:
+    """Carry the exact ranked review details (including neutral states) into run trace."""
+    lines = {slot: line for slot, line in (review_line_by_slot or {}).items() if line}
+    if not lines:
         return []
     steps = [{
         "step": REVIEW_TRACE_STEP,
-        "title": f"{REVIEW_TRACE_STEP} {len(observed)}/{len(review_line_by_slot)} 슬롯",
-        "detail": " · ".join(f"{slot} {line}" for slot, line in observed.items()),
+        "title": f"{REVIEW_TRACE_STEP} {len(lines)}개 슬롯",
+        "detail": " · ".join(f"{slot} {line}" for slot, line in lines.items()),
     }]
-    for slot in observed:
-        facts = [e for e in (evidence_by_slot or {}).get(slot, []) if e.get("text")]
+    for slot in lines:
+        facts = [e for e in (evidence_by_slot or {}).get(slot, [])
+                 if e.get("observation_id") or e.get("text")]
         if not facts:
             continue
-        detail = " · ".join(e["text"] for e in facts)
-        verify = next((e.get("verify_url") for e in facts if e.get("verify_url")), None)
-        if verify:
-            detail += f" — 확인: {verify}"
+        detail = " · ".join(
+            f"{e.get('direction', 'unknown')} {e.get('text', '')} "
+            f"(observation_id={e.get('observation_id')}, document_id={e.get('document_id')})"
+            for e in facts
+        )
         steps.append({
             "step": f"{REVIEW_TRACE_STEP} · {slot}",
-            "title": f"{slot} 관측 사실 {len(facts)}건 (점수 아님)",
+            "title": f"{slot} 적용 관측 근거 {len(facts)}건",
             "detail": detail,
         })
     return steps
-
-
-def review_demotion_step(demoted_by_slot: dict[str, list[dict]] | None) -> dict | None:
-    """리뷰축이 **순위를 낮춘 후보**를 reasoning_log 한 단계로. 없으면 None.
-
-    추천된 8개는 대개 "특이 없음" 이다 — 걸린 후보가 감점을 받아 밀려나기 때문이다. 그래서
-    축이 실제로 한 일(덜 보여준 것)이 화면에 하나도 안 나온다. 랭킹은 알고 있는데 안 말한다.
-
-    낮춘 것은 **제외가 아니다.** 후보 목록에 그대로 남아 있고 순위만 내려갔다 — 되돌릴 수 있는
-    자리라 검증 없이 쓴다는 것이 이 축을 랭킹에만 쓰는 근거다(`docs/decisions/0001`).
-    그래서 문장도 "제외" 가 아니라 "순위를 낮췄다" 로 쓴다.
-
-    `demoted_by_slot`: {슬롯: [{"name": 상품명, "over": [(지표, 값, 중앙값), ...]}, ...]}
-    """
-    rows = [(slot, d) for slot, ds in (demoted_by_slot or {}).items() for d in ds if d.get("over")]
-    if not rows:
-        return None
-    parts = []
-    for slot, d in rows:
-        facts = " · ".join(f"{OBS_LABEL.get(k, k)} {100 * v:.1f}% (부류 중앙값 {100 * m:.1f}%)"
-                           for k, v, m in d["over"])
-        parts.append(f"{slot} {d.get('name', '?')} — {facts}")
-    return {
-        "step": f"{REVIEW_TRACE_STEP} · 순위 조정",
-        "title": f"관측 때문에 순위를 낮춘 후보 {len(rows)}개 (제외 아님)",
-        "detail": " · ".join(parts) + " — 후보 목록에는 남아 있고 순위만 내렸습니다",
-    }
 
 
 def explanation_text_with_caveats(summary: str, caveats: list[str]) -> str:

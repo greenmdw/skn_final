@@ -3,9 +3,9 @@
 (a) 속성 기여도 — 계산(LLM 아님). [3-B] breakdown 을 세트 단위로 집계 → 축별 비율(가격·성능·밸런스·리뷰·호환여유, 합 100%).
 (b) 문장 — LLM structured output 1회. 수치·부품명·통과여부는 코드가 확정, LLM 은 서술만.
     실패 시 규칙 템플릿 fallback.
-(c) 리뷰 관측 — [3-B] 가 후보에 남긴 REVIEW_OBS flags 를 슬롯별 한 줄(review_line_by_slot)과
-    근거 문장(items[].evidence)으로. 점수가 아니라 관측이고 개별 리뷰의 진위가 아니다.
-    대조군 중앙값을 넘은 것은 "주의" 로도 올린다 — 검토자가 반박할 수 있게 확인 경로를 같이 준다.
+(c) 리뷰 적합도 — [3-B]가 사용한 request profile, R, Q, α, 관측 수/member를 rank에 보존된
+    상세에서 읽어 슬롯별 한 줄과 확인 가능한 관측 근거로 전달한다. 별도 DB 재조회는 하지 않는다.
+    R은 요청 조건과 집계의 적합도이지 확률이나 개별 리뷰 진위 판정이 아니다.
 """
 from __future__ import annotations
 
@@ -15,8 +15,6 @@ from src.dto import (BuildResult, Explanation, ExplanationDraft, ExplanationItem
 from src.engine import LogFn
 from src.engine.lang import fmt_money
 from src.engine.prompts import explain_system
-from src.repo.review_repo import (OBS_LABEL, default_risk_store, default_suspect_counts,
-                                 is_obs_flag, parse_obs_flag, risk_store_note)
 
 # 앞 넷: 지시문 문구가 결과에 들어오면 모델이 프롬프트를 베낀 것이다 — 실제로 한 번 그랬다.
 # 마지막 여섯: 평가·마케팅 표현 — 규칙 7 위반(실호출에서 "강력한 성능"처럼 새나온 적 있다).
@@ -25,41 +23,68 @@ _BANNED_IN_DRAFT = ("score", "점수", "1~2문장", "문장 한두 개", "슬롯
                     "강력", "뛰어나", "최고", "압도적", "완벽", "훌륭", "극대화", "원활", "안정성")
 
 
-def _ranked_flags(rank: RankResult | None, slot: str, product_key: str) -> list[str]:
+def _ranked_candidate(rank: RankResult | None, slot: str, product_key: str) -> dict | None:
     if rank is None:
-        return []
-    for c in rank.slots.get(slot, {}).get("ranked", []):
-        if c.get("product_key") == product_key:
-            return [f for f in c.get("flags", []) if is_obs_flag(f)]
-    return []
+        return None
+    info = rank.slots.get(slot, {})
+    # Optimizer may select a candidate outside top-N; use the exact same retained pool.
+    for key in ("ranked", "pool"):
+        for candidate in info.get(key, []):
+            if candidate.get("product_key") == product_key:
+                return candidate
+    return None
 
 
-def _review_line(product_key: str, flags: list[str]) -> tuple[str, list[dict], str | None]:
-    """(슬롯 한 줄, 근거 목록, 주의 문장 또는 None). flags 가 없으면 관측 없음."""
-    if not flags:
-        # 왜 없는지를 원인별로 말한다 — 산출물 미탑재를 "문턱 미만" 으로 보이게 하면
-        # 파일을 안 받은 사람이 그 사실을 모른다.
-        return f"리뷰 관측 없음 ({risk_store_note()})", [], None
-    store = default_risk_store()
-    facts = store.get(product_key) if store else None
-    n = int(facts["n"]) if facts else 0
-    over = [p for p in map(parse_obs_flag, flags) if p is not None]
-    evidence = []
-    if store and facts:
-        ref = store.resolve(product_key)
-        evidence = [{"kind": "review_observation", "text": t, "verify_url": f"https://www.amazon.com/dp/{ref}"}
-                    for t in store.observations(product_key)]
-        # 규칙 기반 의심 건수 — kind 를 달리 둬서 관측 사실과 구별한다(정밀도를 못 재는 값이다)
-        sus = default_suspect_counts()
-        line = sus.sentence(product_key) if sus else None
-        if line:
-            evidence.append({"kind": "review_suspect_rule", "text": line, "verify_url": None})
-    if not over:
-        return f"리뷰 {n}건 관측 — 대조군 중앙값 대비 특이 없음", evidence, None
-    parts = [f"{OBS_LABEL.get(k, k)} {100 * v:.1f}% (부류 중앙값 {100 * m:.1f}%)" for k, v, m in over]
-    line = f"리뷰 {n}건 관측 — " + " · ".join(parts) + " — 검토 권장"
-    names = ", ".join(OBS_LABEL.get(k, k) for k, _, _ in over)
-    caveat = f"리뷰 관측({names})은 상품 단위 신호이며 개별 리뷰의 진위가 아닙니다"
+_REVIEW_STATE_LABELS = {
+    "balanced": "긍정·부정 관측이 균형을 이룸",
+    "mixed_only": "혼합 방향 관측만 있음",
+    "no_observations": "선택 조건에 관측 없음",
+    "selected_rule_missing": "선택 조건의 등록 규칙 없음",
+    "product_id_missing": "상품 식별자 없음(명시 데모 중립값)",
+    "observed": "방향별 관측 있음",
+}
+
+
+def _review_line(candidate: dict | None) -> tuple[str, list[dict], str | None]:
+    """Render only the immutable Q/R/profile/member details retained by stage 3-B."""
+    detail = (candidate or {}).get("review_detail")
+    if not detail:
+        return "리뷰 적합도 상세 없음", [], "리뷰 계산 근거를 찾을 수 없습니다"
+    profile = detail.get("profile") or {}
+    contributions = detail.get("contributions") or []
+    parts: list[str] = []
+    evidence: list[dict] = []
+    for contribution in contributions:
+        state = contribution.get("evidence_state", "selected_rule_missing")
+        counts = (f"P={contribution.get('p', 0)}, N={contribution.get('n', 0)}, "
+                  f"mixed={contribution.get('mixed', 0)}")
+        part = (f"{contribution.get('aspect_code')} / {contribution.get('context_code')}: "
+                f"Q={contribution.get('q', 0.5):.3f}, α={contribution.get('alpha', 0):.3f}, {counts} "
+                f"({_REVIEW_STATE_LABELS.get(state, state)})")
+        if contribution.get("rule_id"):
+            part += f", rule={contribution['rule_id']}"
+        parts.append(part)
+        for member in contribution.get("members") or []:
+            evidence.append({
+                "kind": "review_aspect_observation",
+                "product_id": (candidate or {}).get("product_id"),
+                "profile_version": profile.get("profile_version"),
+                "analysis_version": profile.get("analysis_version"),
+                "aspect_code": contribution.get("aspect_code"),
+                "context_code": contribution.get("context_code"),
+                "rule_id": contribution.get("rule_id"),
+                "aggregate_id": contribution.get("aggregate_id"),
+                "observation_id": member.get("observation_id"),
+                "document_id": member.get("document_id"),
+                "source_code": member.get("source_code"),
+                "direction": member.get("direction"),
+                "text": member.get("observation_text"),
+                "evidence_sentences": member.get("evidence_sentences") or [],
+            })
+    r = float(detail.get("value", 0.5))
+    line = (f"리뷰 적합도 R={r:.3f} (프로필 {profile.get('profile_version', 'unknown')}) — "
+            + (" · ".join(parts) if parts else "적용 속성 없음; 중립값 0.5"))
+    caveat = "리뷰 적합도는 요청 조건과 관측 집계의 부합 점수이며 확률이나 개별 리뷰의 진위를 뜻하지 않습니다"
     return line, evidence, caveat
 
 
@@ -101,11 +126,11 @@ def _top_axes(rank: RankResult | None, slot: str, product_key: str) -> str:
     """그 후보에서 기여가 큰 축 둘 — 이유 문장의 방향 힌트 (기획서 §11-3)."""
     if rank is None:
         return ""
-    for c in rank.slots.get(slot, {}).get("ranked", []):
-        if c.get("product_key") == product_key:
-            bd = c.get("breakdown") or {}
-            top = sorted(bd.items(), key=lambda kv: kv[1], reverse=True)[:2]
-            return ", ".join(k for k, _ in top)
+    candidate = _ranked_candidate(rank, slot, product_key)
+    if candidate:
+        bd = candidate.get("breakdown") or {}
+        top = sorted(bd.items(), key=lambda kv: kv[1], reverse=True)[:2]
+        return ", ".join(k for k, _ in top)
     return ""
 
 
@@ -237,7 +262,7 @@ def run(build: BuildResult, verification: VerificationResult, log: LogFn,
 
     items, review_lines, review_caveats = [], {}, []
     for it in build.items:
-        line, evidence, caveat = _review_line(it.product_key, _ranked_flags(rank, it.slot, it.product_key))
+        line, evidence, caveat = _review_line(_ranked_candidate(rank, it.slot, it.product_key))
         review_lines[it.slot] = line
         if caveat:
             review_caveats.append(f"{it.slot} {caveat}")

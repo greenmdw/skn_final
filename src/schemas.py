@@ -10,6 +10,7 @@ from uuid import UUID
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+from src.dto import ReviewScoreDetail as ReviewScoreDetailDTO
 
 
 # ── auth: 코드 로그인 (보류 — §G 재사용 예정) ──
@@ -601,6 +602,9 @@ class PeripheralAlternativeOut(BaseModel):
     name: str
     price: int
     diff: int
+    review: ReviewScoreDetailDTO | None = None
+    review_weight: float = 0.0
+    review_note: str = "리뷰 점수 미반영"
 
 
 class PeripheralItemOut(BaseModel):
@@ -615,6 +619,9 @@ class PeripheralItemOut(BaseModel):
     reason: TextStatusOut
     alternatives: list[PeripheralAlternativeOut] = Field(default_factory=list)
     guide: TextStatusOut
+    review: ReviewScoreDetailDTO | None = None
+    review_weight: float = 0.0
+    review_note: str
 
 
 class PeripheralEmptyOut(BaseModel):

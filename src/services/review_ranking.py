@@ -9,6 +9,7 @@ from src.dto import HardFilterResult, ReviewRequirementProfile, Slots
 from src.engine import LogFn, stage3b_rank
 from src.repo.review_aspect_repo import load_review_aspect_snapshot
 from src.services.review_aspect_score import (
+    ReviewProductIdentifierError,
     build_review_requirement_profile,
     calculate_review_score,
     load_review_profile_config,
@@ -137,3 +138,60 @@ def rank_with_review_aspects(
 
     rank = stage3b_rank.run(hf, spec, slots, log, require_review_details=True)
     return rank, profiles
+
+
+def score_peripheral_candidates(conn, candidates_by_kind: dict, values: dict, *, catalog_source: str):
+    """Attach versioned review details to peripheral candidates in one request snapshot.
+
+    This does not create a recommendation run or persist a profile. The caller owns the
+    transaction and passes the same candidates onward to peripheral ranking/payload.
+    """
+    config = load_review_profile_config()
+    candidates = [candidate for group in candidates_by_kind.values() for candidate in group]
+    profiles: dict[str, ReviewRequirementProfile] = {}
+    if catalog_source == "mock":
+        for kind, group in candidates_by_kind.items():
+            if kind not in config["part_types"]:
+                raise ReviewRankingError(f"no review profile mapping for peripheral kind {kind}")
+            if any(candidate.product_id is not None for candidate in group):
+                raise ReviewRankingError("offline peripheral mock received a DB product_id")
+            profiles[kind] = build_review_requirement_profile(kind, values, config=config)
+        snapshot = {"analysis_version": config["analysis_version"], "products": {}}
+        for kind, group in candidates_by_kind.items():
+            for candidate in group:
+                candidate.review_detail = calculate_review_score(
+                    profiles[kind], snapshot, candidate.product_id, allow_missing_product_id=True,
+                )
+        return profiles
+    if catalog_source != "db":
+        raise ReviewRankingError(f"unsupported CATALOG_SOURCE: {catalog_source}")
+    if any(candidate.product_id is None for candidate in candidates):
+        raise ReviewProductIdentifierError("DB peripheral candidate is missing product_id")
+    snapshot = load_review_aspect_snapshot(
+        conn, config["analysis_version"], [candidate.product_id for candidate in candidates],
+    )
+    for kind, group in candidates_by_kind.items():
+        for candidate in group:
+            product = snapshot["products"].get(str(candidate.product_id))
+            if product is None or product["part_type"] != kind:
+                raise ReviewRankingError(f"peripheral candidate kind/product mismatch: {kind}")
+            if kind not in profiles:
+                profiles[kind] = build_review_requirement_profile(
+                    kind, values, registered_rules=list(product["rules"].values()), config=config,
+                )
+            candidate.review_detail = calculate_review_score(
+                profiles[kind], snapshot, candidate.product_id,
+            )
+    if not snapshot["readiness"]["global_completeness_verified"]:
+        for kind, profile in list(profiles.items()):
+            profiles[kind] = profile.model_copy(update={
+                "diagnostics": [*profile.diagnostics, "global_completeness_unverified"],
+            })
+            for candidate in candidates_by_kind[kind]:
+                if candidate.review_detail is not None:
+                    candidate.review_detail = candidate.review_detail.model_copy(update={
+                        "profile": profiles[kind],
+                        "diagnostics": [*candidate.review_detail.diagnostics,
+                                        "global_completeness_unverified"],
+                    })
+    return profiles

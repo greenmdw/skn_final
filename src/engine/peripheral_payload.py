@@ -5,9 +5,7 @@
 읽기 시점에 언제든 다시 계산해도 되는 값만 만든다(계획 §0.3 "① pydantic DTO와 ②
 공개 계약 모양의 dict를 만드는 순수 함수").
 
-**여기서 끝난다** — `execute_recommendation`에 연결하는 일(E13 "실행 연결")은 저장 위치
-결정(R-7) 뒤로 미뤄졌다. `src/schemas.py`·`src/routers/*`도 건드리지 않는다(§0.2 제외
-목록). 지금은 데모 파이프라인(`main.py`)과 테스트에서만 이 함수를 부른다.
+선택 후보의 계산된 리뷰 상세도 순위 explanation 계약으로 함께 반환한다. DB 연결·재조회는 하지 않는다.
 
 ## dict 모양 (계획 §3.3 E13 dict 원문 + 본문 산문에 있는 guide)
 
@@ -20,7 +18,9 @@
             "requirement": [{"key", "label", "value"}],
             "checks": [{"axis", "label", "state": "ok|unknown|fail", "detail"}],
             "reason": {"status": "ready", "text": <규칙 템플릿>},
-            "alternatives": [{"name", "price", "diff"}],
+            "alternatives": [{"name", "price", "diff", "review", "review_weight", "review_note"}],
+            "review": <actual ReviewScoreDetail>, "review_weight": 0,
+            "review_note": <리뷰가 순위에 영향을 주지 않았다는 문구>,
             "guide": {"status": "none" | "ready", "text": str}}],
  "empty": [{"kind", "reason"}],
  "totals": {"reference_price": int, "note": "PC 예산과 별도"}}
@@ -238,7 +238,10 @@ def _checks_for_pick(kind: str, pick: PeripheralPick, verification) -> list[dict
 
 
 def _alternatives(pick: PeripheralPick) -> list[dict[str, Any]]:
-    return [{"name": alt.name, "price": alt.price, "diff": alt.price - pick.candidate.price}
+    return [{"name": alt.name, "price": alt.price, "diff": alt.price - pick.candidate.price,
+             "review": alt.review_detail.model_dump(mode="json") if alt.review_detail else None,
+             "review_weight": 0.0,
+             "review_note": "요청 조건과 연결한 참고 적합도이며 주변기기 점수와 순위에는 반영되지 않았습니다."}
             for alt in pick.alternatives]
 
 
@@ -268,6 +271,9 @@ def _item_dict(kind: str, pick: PeripheralPick, req: PeripheralRequirement,
         "reason": {"status": "ready", "text": _reason_text(kdef["label"], req, cand, stats)},
         "alternatives": _alternatives(pick),
         "guide": _guide_for_kind(kind),
+        "review": cand.review_detail.model_dump(mode="json") if cand.review_detail else None,
+        "review_weight": 0.0,
+        "review_note": "요청 조건과 연결한 참고 적합도이며 주변기기 점수와 순위에는 반영되지 않았습니다.",
     }
 
 

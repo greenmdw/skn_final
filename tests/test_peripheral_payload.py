@@ -19,6 +19,7 @@ from src.engine.peripheral_payload import _requirement_rows, peripheral_payload
 from src.engine.peripheral_requirement import build_requirements
 from src.engine.peripheral_rules import load_peripheral_rules
 from src.engine.peripheral_select import run_peripherals
+from src.schemas import PeripheralItemOut
 from src.engine.stage3c_verify import _BANNED_KOREAN_VERDICTS
 from src.rag.care_guides import SLOT_GUIDE_IDS, search_care_guide
 
@@ -27,7 +28,8 @@ _NOLOG = lambda _m: None  # noqa: E731
 
 _TOP_KEYS = {"status", "items", "empty", "totals"}
 _ITEM_KEYS = {"kind", "kind_label", "product", "price", "price_source", "price_note",
-              "requirement", "checks", "reason", "alternatives", "guide"}
+              "requirement", "checks", "reason", "alternatives", "guide", "review",
+              "review_weight", "review_note"}
 _PRODUCT_KEYS = {"name", "brand", "variant_id", "product_url", "image_url"}
 
 
@@ -97,8 +99,11 @@ def test_ready_top_and_item_key_sets_are_fixed():
             assert set(check) == {"axis", "label", "state", "detail"}
             assert check["state"] in ("ok", "unknown", "fail")
         for alt in item["alternatives"]:
-            assert set(alt) == {"name", "price", "diff"}
+            assert set(alt) == {"name", "price", "diff", "review", "review_weight", "review_note"}
+            assert alt["review_weight"] == 0.0
+            assert alt["review_note"]
         assert item["guide"].keys() == {"status", "text"}
+        PeripheralItemOut.model_validate(item)
 
 
 def test_ready_totals_is_sum_of_picked_prices():
@@ -129,6 +134,8 @@ def test_alternatives_diff_is_price_minus_pick_price():
         assert alt_dict["name"] == alt_cand.name
         assert alt_dict["price"] == alt_cand.price
         assert alt_dict["diff"] == alt_cand.price - pick_price
+        assert alt_dict["review"] == (alt_cand.review_detail.model_dump(mode="json")
+                                       if alt_cand.review_detail else None)
 
 
 # ── reason: 규칙 템플릿, 판정어·confidence 숫자 없음 ─────────────────────
