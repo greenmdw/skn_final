@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.clients.llm_client import call_llm, call_web_search
@@ -100,3 +102,34 @@ def lookup(conn, part_text: str, *, brand: str | None = None, model: str | None 
     row = repo.upsert(query_text=query_text, brand=brand, model=model, relevant=result.relevant,
                       supported_fields=result.supported_fields.model_dump(), source_url=result.source_url)
     return _from_row(row)
+
+
+def cached_for_kept_parts(conn, owned: dict, current_specs: Any) -> None:
+    """업그레이드 모드 확장(6단계) — 유지하는 부품(owned) 중 대응 실패(unverified)한 슬롯을, 사용자가 받은
+    견적 점검에서 이미 눌러 둔 실시간 검색 캐시(TTL 안)가 있으면 그 값으로 보강한다.
+
+    새로 검색하지 않는다 — 캐시를 읽기만 한다. pc_check 버튼(명시적 사용자 행동)으로 이미 채워진 캐시가
+    없으면 그대로 unverified로 남는다(설계 문서 §8 자동 실행 금지 원칙: 로그인 없는 추천 계산마다
+    검색이 자동으로 돌면 비용·오남용 위험이 있다).
+
+    owned의 specs 키가 socket·mem_type 같은 호환성 축일 뿐 perf_tier(성능 등급)는 여기 없다 — 교체
+    대상 부품의 성능 등급 하한(current_part_tiers)은 이 캐시로 메울 수 없다. 이건 호환성 보강이지
+    성능 등급 추정이 아니다."""
+    if not isinstance(current_specs, dict) or not owned:
+        return
+    from src.engine.owned_parts import merge_live_lookup
+    from src.engine.stage2_requirement import normalize_pc_slot
+
+    given = {(normalize_pc_slot(k) or str(k).strip()): v for k, v in current_specs.items()}
+    repo = LiveSpecLookupRepo(conn)
+    cached: dict[str, dict] = {}
+    for slot, info in owned.items():
+        if info.get("source") != "unverified":
+            continue
+        text = str(given.get(slot) or "").strip()
+        if not text:
+            continue
+        row = repo.get_fresh(_query_text(text), ttl_days=LIVE_SPEC_LOOKUP_TTL_DAYS)
+        if row:
+            cached[slot] = row
+    merge_live_lookup(owned, current_specs, cached)

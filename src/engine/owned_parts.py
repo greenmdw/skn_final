@@ -438,10 +438,12 @@ _SPEC_LABEL = {
     "capacity_gb": "용량(GB)", "module_config": "구성", "form_factor": "크기", "supports_form_factors": "지원 보드 크기",
     "cooling_type": "방식", "radiator_mm": "라디에이터(mm)", "height_mm": "높이(mm)", "interface": "인터페이스",
 }
-_PREVIEW_STATE = {"catalog": "ok", "candidate": "warn", "text": "warn", "inferred": "warn", "unverified": "warn"}
+_PREVIEW_STATE = {"catalog": "ok", "candidate": "warn", "text": "warn", "inferred": "warn", "unverified": "warn",
+                  "live": "warn"}
 # state(ok/warn) 두 가지로는 화면이 "확정"과 "여러 후보 중 공통값만 씀(모호함)"을 구분하지 못한다 —
 # match_status 는 그 구분을 낸다. state 는 하위 호환을 위해 그대로 둔다.
-_MATCH_STATUS = {"candidate": "candidate", "text": "inferred", "inferred": "inferred", "unverified": "unmatched"}
+_MATCH_STATUS = {"candidate": "candidate", "text": "inferred", "inferred": "inferred", "unverified": "unmatched",
+                 "live": "inferred"}
 
 
 def _match_status(info: dict[str, Any]) -> str:
@@ -468,6 +470,11 @@ def _preview_note(info: dict[str, Any]) -> str:
     if source == "candidate":
         bits = [str(v) for v in (specs.get("socket"), specs.get("mem_type")) if v]
         return f"카탈로그의 '{info['candidate']}'와 가장 비슷합니다 — 같은 제품인지 확인하세요" + (" · " + " · ".join(bits) if bits else "")
+    if source == "live":
+        parts = [f"{_SPEC_LABEL.get(k, k)}: {v}" for k, v in specs.items()]
+        detail = ", ".join(parts) if parts else "세부 스펙 없음"
+        src = f" · 출처: {info['source_url']}" if info.get("source_url") else ""
+        return f"실시간 검색 결과 — {detail}{src} · 카탈로그 정식 등재 값 아님"
     parts = [f"{_SPEC_LABEL.get(k, k)}: {'/'.join(map(str, v)) if isinstance(v, list) else v}" for k, v in specs.items()]
     prefix = "모델명·칩셋 규칙으로 추정 — " if info.get("inferred") else "글에서 읽음 — "
     return prefix + (", ".join(parts) if parts else "세부 스펙 없음")
@@ -516,6 +523,30 @@ def owned_for_conditions(values: dict, by_slot: dict[str, list[Candidate]], targ
     owned = resolve_owned_parts(values.get("current_specs"), by_slot, keep)
     _fill_platform(owned, values, targets, keep)
     return owned
+
+
+def merge_live_lookup(owned: dict[str, dict[str, Any]], current_specs: Any, cached: dict[str, dict]) -> None:
+    """유지 부품 중 카탈로그·추정 모두 실패한(unverified) 슬롯을, 호출자가 미리 읽어 둔 실시간 검색
+    캐시 결과(cached: slot -> catalog.live_spec_lookup_cache 행)로 보강한다(6단계, 업그레이드 모드 확장).
+
+    이 파일은 "DB·LLM 없이 도는 순수 함수"가 원칙이라 캐시 조회 자체는 호출자(conn이 있는 서비스
+    계층 — src.services.live_spec_lookup.cached_for_kept_parts)가 하고, 여기서는 이미 읽어 온 결과를
+    owned 딕셔너리에 합치기만 한다. 캐시가 없거나(아직 검색 버튼을 안 눌렀거나 TTL 만료) relevant=False
+    면 그대로 unverified로 둔다 — 여기서 새로 검색하지 않는다(자동 실행 금지 원칙, §8)."""
+    if not isinstance(current_specs, dict):
+        return
+    for slot, info in owned.items():
+        if info.get("source") != "unverified":
+            continue
+        row = cached.get(slot)
+        if not row or not row.get("relevant"):
+            continue
+        fields = {k: v for k, v in (row.get("supported_fields") or {}).items() if v is not None}
+        if not fields:
+            continue
+        info["specs"] = fields
+        info["source"] = "live"
+        info["source_url"] = row.get("source_url")
 
 
 def _ensure(owned: dict, slot: str, name: str) -> dict:

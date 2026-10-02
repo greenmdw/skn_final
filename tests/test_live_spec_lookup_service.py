@@ -92,6 +92,29 @@ def test_irrelevant_result_is_still_cached_for_next_call(conn, monkeypatch):
     assert calls["n"] == 1
 
 
+def test_cached_for_kept_parts_fills_unverified_slot_from_existing_cache(conn):
+    """6단계 — 캐시 읽기만 한다(검색·LLM 재호출 없음): 사용자가 pc_check 버튼으로 이미 받아 둔
+    결과가 있으면 업그레이드 모드의 '유지 부품' 호환성 계산에도 그대로 쓴다."""
+    from src.repo.live_spec_lookup_repo import LiveSpecLookupRepo
+
+    text = "모름브랜드 쿨러 Z1"
+    LiveSpecLookupRepo(conn).upsert(
+        query_text=lsl._query_text(text), brand=None, model=None, relevant=True,
+        supported_fields={"cooling_type": "수랭", "radiator_mm": 240}, source_url="https://example.com/z1")
+
+    owned = {"쿨러": {"name": text, "specs": {}, "source": "unverified"}}
+    lsl.cached_for_kept_parts(conn, owned, {"쿨러": text})
+
+    assert owned["쿨러"]["source"] == "live"
+    assert owned["쿨러"]["specs"] == {"cooling_type": "수랭", "radiator_mm": 240}
+
+
+def test_cached_for_kept_parts_leaves_unverified_when_no_cache(conn):
+    owned = {"쿨러": {"name": "아무도 안 찾아본 쿨러", "specs": {}, "source": "unverified"}}
+    lsl.cached_for_kept_parts(conn, owned, {"쿨러": "아무도 안 찾아본 쿨러"})
+    assert owned["쿨러"]["source"] == "unverified"
+
+
 @pytest.mark.parametrize("live_part_lookup,mock_mode,has_key,expected", [
     (True, False, True, True),
     (False, False, True, False),   # opt-in 꺼짐

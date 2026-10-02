@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from src.engine.owned_parts import _SPEC_LABEL
+from src.engine.owned_parts import _SPEC_LABEL, merge_live_lookup
 from src.engine.prompts import live_spec_lookup_system
 from src.services.live_spec_lookup import LiveSpecLookupResult, SupportedFields
 
@@ -45,3 +45,37 @@ def test_prompt_mentions_core_anti_hallucination_rules():
     system = live_spec_lookup_system()
     for phrase in ("relevant", "source_url", "스니펫에 실제로 명시된 값만", "지어내"):
         assert phrase in system, f"프롬프트에 '{phrase}' 규칙이 빠짐"
+
+
+# --- merge_live_lookup (6단계, 업그레이드 모드 확장) ------------------------------------------
+
+
+def test_merge_live_lookup_fills_unverified_slot_with_cached_fields():
+    owned = {"쿨러": {"name": "모름쿨러 X1", "specs": {}, "source": "unverified"}}
+    cached = {"쿨러": {"relevant": True, "supported_fields": {"cooling_type": "수랭", "radiator_mm": 240},
+                     "source_url": "https://example.com/cooler"}}
+    merge_live_lookup(owned, {"쿨러": "모름쿨러 X1"}, cached)
+    assert owned["쿨러"]["source"] == "live"
+    assert owned["쿨러"]["specs"] == {"cooling_type": "수랭", "radiator_mm": 240}
+    assert owned["쿨러"]["source_url"] == "https://example.com/cooler"
+
+
+def test_merge_live_lookup_skips_slots_that_already_matched():
+    owned = {"CPU": {"name": "i5-13600K", "specs": {"socket": "LGA1700"}, "source": "catalog"}}
+    cached = {"CPU": {"relevant": True, "supported_fields": {"socket": "AM5"}, "source_url": None}}
+    merge_live_lookup(owned, {"CPU": "i5-13600K"}, cached)
+    assert owned["CPU"]["source"] == "catalog"
+    assert owned["CPU"]["specs"] == {"socket": "LGA1700"}  # 캐시가 있어도 이미 확정된 매칭을 덮어쓰지 않는다
+
+
+def test_merge_live_lookup_ignores_irrelevant_or_empty_cache():
+    owned = {"쿨러": {"name": "모름쿨러 X1", "specs": {}, "source": "unverified"}}
+    cached = {"쿨러": {"relevant": False, "supported_fields": {}, "source_url": None}}
+    merge_live_lookup(owned, {"쿨러": "모름쿨러 X1"}, cached)
+    assert owned["쿨러"]["source"] == "unverified"
+
+
+def test_merge_live_lookup_no_cache_entry_leaves_unverified():
+    owned = {"쿨러": {"name": "모름쿨러 X1", "specs": {}, "source": "unverified"}}
+    merge_live_lookup(owned, {"쿨러": "모름쿨러 X1"}, {})
+    assert owned["쿨러"]["source"] == "unverified"
