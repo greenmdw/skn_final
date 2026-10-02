@@ -83,6 +83,10 @@ PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
 
 추천 요청용 `review_aspect_repo`는 규칙·집계·member·근거를 하나의 SQL 문장 snapshot으로 함께 읽고, 요청 후보 상품/규칙의 원본 관측 수와 member를 대조합니다. 버전 전체에 집계 행이 없거나 요청 범위 원본 관측에 대응하는 집계/member가 없으면 준비되지 않은 상태로 오류를 냅니다. 현 스키마에는 전역 완료 manifest가 없으므로, 이 조회는 요청에 포함되지 않은 다른 상품까지 포함한 버전 전체 완전성을 증명하지 않습니다. snapshot 결과도 이 범위를 `global_completeness_verified=false`로 표시하며, 후속 엔진 연결은 이를 일반적인 무관측 중립 결과로 취급하지 않아야 합니다.
 
+Stage 4 PC 랭킹은 요청 후보 전체의 등록 규칙과 관측/member 커버리지를 snapshot 안에서 검증한 뒤 R을 주입합니다. DB 경로는 aggregate가 버전 전체에 전혀 없거나 요청 범위가 불일치하면 추천을 실패시키고, scoped 검증을 통과해도 전역 완전성 미확인을 실행 로그와 저장 프로필 진단에 남깁니다. 지금은 전체 manifest를 추가하지 않으므로, 이 경로가 보장하는 범위는 요청 후보뿐입니다. API는 실제 DB 경로를 강제하며 프로필/분석 버전을 `engine.review_requirement_profile`과 `recommendation_run.engine_versions`에 기록합니다. 로컬 시나리오 데모는 `run_from_scenario`에서 명시적으로 mock source를 선택하고, 다른 호출자는 `CATALOG_SOURCE=mock`을 설정해야만 중립 리뷰 상세를 쓸 수 있습니다. DB 카탈로그 오류나 빈 결과를 mock/CSV로 자동 대체하지 않습니다.
+
+`stage3b_rank.run`은 DB를 직접 열지 않는 순수 랭커입니다. 런타임 오케스트레이션은 `require_review_details=True`로 호출해 모든 후보의 주입 누락을 거부합니다. 순수 점수 단위 테스트에서만 상세 미주입 시 중립값을 쓸 수 있습니다. Stage 4는 계산 상세를 rank의 `Candidate.review_detail`로 보존하지만 Stage 5 설명 문구 교체는 후속 단계입니다.
+
 ## AWS 호환 원칙 (반영됨)
 
 - `gen_random_uuid()` = PG13+ 코어 → `pgcrypto` 불필요

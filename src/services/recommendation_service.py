@@ -27,7 +27,7 @@ log = logging.getLogger(__name__)
 
 def run_from_scenario(scenario_name: str) -> PipelineResult:
     """개발용: 시나리오 파일로 파이프라인 1회 (DB 미사용)."""
-    return _run_scenario(scenario_name, on_log=lambda _m: None)
+    return _run_scenario(scenario_name, on_log=lambda _m: None, catalog_source="mock")
 
 
 # 예산의 이 비율 이상을 남겼을 때만 안내한다 — 조금 남는 건 흔해서 알릴 일이 아니다.
@@ -144,7 +144,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
     """백그라운드 태스크 — 엔진 [2]~[5] 실행 + 저장 + run 종료. 자체 커넥션을 연다."""
     from src.db import get_conn
     from src.engine import feasibility as feasibility_engine
-    from src.engine import stage2_requirement, stage3a_hardfilter, stage3b_rank, stage3c_verify, stage4_optimize, stage5_explain
+    from src.engine import stage2_requirement, stage3a_hardfilter, stage3c_verify, stage4_optimize, stage5_explain
     from src.engine import research_loop
     from src.repo.catalog_repo import load_candidates_by_slot_from_db
     from src.repo.engine_repo import EngineRepo
@@ -204,7 +204,10 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
             spec.budget["feasibility"] = feasibility["level"]
             spec.budget["feasibility_detail"] = feasibility
             hf = stage3a_hardfilter.run(spec, by_slot, noop)
-            rank = stage3b_rank.run(hf, spec, slots, noop)
+            from src.services.review_ranking import rank_with_review_aspects
+            rank, _review_profiles = rank_with_review_aspects(
+                hf, spec, slots, noop, conn=conn, run_id=run_id, catalog_source="db",
+            )
             # 지금 쓰는 부품 자체를 다시 추천하지 않는다(같은 제품으로 '교체'하는 견적이 나왔다).
             already_owned = {(slot, key) for slot, info in current_tiers.items() for key in info["keys"]}
             computer_rules = stage2_requirement.load_computer_rules()

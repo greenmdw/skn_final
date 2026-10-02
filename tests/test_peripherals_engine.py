@@ -318,7 +318,7 @@ def test_verify_per_item_extra_issues_extension_point_for_e12():
 def test_pipeline_computer_pass_unaffected_without_peripherals_condition():
     from src.pipeline import run_pipeline
 
-    result = run_pipeline("computer_pass", on_log=_NOLOG)
+    result = run_pipeline("computer_pass", on_log=_NOLOG, catalog_source="mock")
     assert result.peripherals is None
     assert result.build is not None and len(result.build.items) == 8
     assert result.verification.targets[0].passed is True
@@ -336,13 +336,13 @@ def test_pipeline_runs_peripherals_when_condition_present(monkeypatch):
     def fake_load_scenario(name: str) -> dict:
         return scenario if name == "computer_pass" else original
 
-    def fake_catalog(log):
+    def fake_catalog(log, *, catalog_source=None):
         return load_peripheral_candidates_from_csv(_FIXTURES)
 
     monkeypatch.setattr(pipeline_module, "load_scenario", fake_load_scenario)
     monkeypatch.setattr(pipeline_module, "_load_peripheral_catalog", fake_catalog)
 
-    result = pipeline_module.run_pipeline("computer_pass", on_log=_NOLOG)
+    result = pipeline_module.run_pipeline("computer_pass", on_log=_NOLOG, catalog_source="mock")
 
     assert result.peripherals is not None
     assert result.peripherals.status == "ready"

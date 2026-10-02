@@ -15,7 +15,7 @@ from src.categories import load_category, verify_branch
 from src.config import DATA_DIR, SCENARIO_DIR
 from src.dto import BuildResult, Candidate, PipelineResult, VerificationResult
 from src.engine import stage1_intent, stage2_requirement, stage3_0_candidates
-from src.engine import stage3a_hardfilter, stage3b_rank, stage3c_verify
+from src.engine import stage3a_hardfilter, stage3c_verify
 from src.engine import stage5_explain
 from src.engine.research_loop import run_set_with_research
 from src.rag.evidence_search import load_mini_corpus
@@ -31,7 +31,7 @@ def load_scenario(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def run_pipeline(scenario_name: str, on_log: LogFn = print) -> PipelineResult:
+def run_pipeline(scenario_name: str, on_log: LogFn = print, *, catalog_source: str | None = None) -> PipelineResult:
     scenario = load_scenario(scenario_name)
     cat = scenario["category"]
     cat_def = load_category(cat)
@@ -50,16 +50,20 @@ def run_pipeline(scenario_name: str, on_log: LogFn = print) -> PipelineResult:
     # ── ② 공통 단계 ──────────────────────────────────────────────────
     result.slots = stage1_intent.run(scenario, cat_def, log); log("")
     result.requirement = stage2_requirement.run(result.slots, cat_def, log); log("")
-    by_slot = stage3_0_candidates.run(result.requirement, log); log("")
+    by_slot = stage3_0_candidates.run(result.requirement, log, catalog_source=catalog_source); log("")
     result.hard_filter = stage3a_hardfilter.run(result.requirement, by_slot, log); log("")
-    result.rank = stage3b_rank.run(result.hard_filter, result.requirement, result.slots, log); log("")
+    from src.services.review_ranking import rank_with_review_aspects
+    result.rank, result.review_requirement_profiles = rank_with_review_aspects(
+        result.hard_filter, result.requirement, result.slots, log,
+        catalog_source=catalog_source,
+    ); log("")
 
     # ── ③ 카테고리별 검증 분기 ──────────────────────────────────────
     branch = verify_branch(cat)
     if branch == "set":
         log("── 분기: 컴퓨터 → [4] 세트 최적화 먼저, 그다음 [3-C] 세트 검증 ──")
         _run_computer_branch(scenario, result, log)
-        _run_peripherals(scenario, result, log)
+        _run_peripherals(scenario, result, log, catalog_source=catalog_source)
     elif branch == "per_item":
         _run_per_item_branch(scenario, result, log)
     else:
@@ -118,38 +122,28 @@ def _run_per_item_branch(scenario: dict, result: PipelineResult, log: LogFn) -> 
     )
 
 
-def _load_peripheral_catalog(log: LogFn) -> dict[str, list[Candidate]]:
-    """[3-0] 대응 — 주변기기 후보 로더. `stage3_0_candidates.load_pc_catalog`와 같은
-    강등 방식이다: `CATALOG_SOURCE=mock`이면 곧바로 CSV, 아니면 DB를 먼저 시도하고
-    실패하면(연결 불가·빈 결과) CSV로 강등한다.
-
-    실제 데이터 디렉터리(`data/peripherals/*_processed.csv`, E9가 정한 이름)를 쓴다.
-    `load_peripheral_candidates_from_csv`의 `filename_template` 인자가 `{kind}_processed.csv`
-    이름 규칙을 그대로 받으므로 파일을 복사·링크할 필요가 없다. `data/peripherals`가 아예
-    없는 환경(AGENTS.md의 시드 입력 파일이 배포되지 않은 경우)에서도 그 함수가 빈 dict를
-    내므로 여기서는 예외 없이 빈 결과로 넘어간다 — `run_peripherals`가 이를 종류별
-    `empty`로 처리한다.
-    """
+def _load_peripheral_catalog(log: LogFn, *, catalog_source: str | None = None) -> dict[str, list[Candidate]]:
+    """`CATALOG_SOURCE=mock`이면 CSV, 그 외에는 DB만 사용한다. DB 오류/빈 결과는 실패시킨다."""
     from src.engine.peripheral_catalog import load_peripheral_candidates_from_csv
 
-    if os.environ.get("CATALOG_SOURCE") != "mock":
-        try:
-            from src.db import get_conn
-            from src.repo.catalog_repo import load_peripheral_candidates
+    source = catalog_source if catalog_source is not None else os.environ.get("CATALOG_SOURCE", "db")
+    if source == "mock":
+        by_kind = load_peripheral_candidates_from_csv(
+            DATA_DIR / "peripherals", filename_template="{kind}_processed.csv",
+        )
+    elif source == "db":
+        from src.db import get_conn
+        from src.repo.catalog_repo import load_peripheral_candidates
 
-            with get_conn() as conn:
-                by_kind = load_peripheral_candidates(conn)
-            if any(by_kind.values()):
-                summary = " / ".join(f"{k} {len(c)}" for k, c in by_kind.items())
-                log(f"      [P][DB] 주변기기 카탈로그 로드 → {summary}")
-                return by_kind
-            log("      [P][DB] 주변기기 카탈로그가 비어 있음 → data/peripherals CSV로 대체")
-        except Exception as e:  # noqa: BLE001 — DB 미가용은 데모를 막을 이유가 아니다
-            log(f"      [P][DB] 접속/조회 실패({type(e).__name__}) → data/peripherals CSV로 대체")
-
-    by_kind = load_peripheral_candidates_from_csv(
-        DATA_DIR / "peripherals", filename_template="{kind}_processed.csv",
-    )
+        with get_conn() as conn:
+            by_kind = load_peripheral_candidates(conn)
+        if not any(by_kind.values()):
+            raise RuntimeError("DB peripheral catalog is empty")
+        summary = " / ".join(f"{k} {len(c)}" for k, c in by_kind.items())
+        log(f"      [P][DB] 주변기기 카탈로그 로드 → {summary}")
+        return by_kind
+    else:
+        raise ValueError(f"unsupported CATALOG_SOURCE: {source}")
     if not any(by_kind.values()):
         log("      [P][MOCK] data/peripherals CSV를 찾지 못함 → 주변기기 후보 0건")
         return by_kind
@@ -158,7 +152,7 @@ def _load_peripheral_catalog(log: LogFn) -> dict[str, list[Candidate]]:
     return by_kind
 
 
-def _run_peripherals(scenario: dict, result: PipelineResult, log: LogFn) -> None:
+def _run_peripherals(scenario: dict, result: PipelineResult, log: LogFn, *, catalog_source: str | None = None) -> None:
     """컴퓨터 set 분기 뒤에 붙는 주변기기 단계(계획 §3.3 E11 + E12).
 
     시나리오 조건([1]의 결과, `result.slots.values`)에 `peripherals`가 없으면 아무 것도
@@ -180,7 +174,7 @@ def _run_peripherals(scenario: dict, result: PipelineResult, log: LogFn) -> None
     from src.engine.research_loop import resolve_chosen
 
     log("── [P] 주변기기 단계 (계획 §3.3 E11) ──")
-    candidates = _load_peripheral_catalog(log)
+    candidates = _load_peripheral_catalog(log, catalog_source=catalog_source)
 
     gpu_specs: dict | None = None
     if result.rank is not None and result.build is not None:

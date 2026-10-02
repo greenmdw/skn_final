@@ -317,6 +317,7 @@ class PipelineResult(BaseModel):
     requirement: Optional[RequirementSpec] = None
     hard_filter: Optional[HardFilterResult] = None
     rank: Optional[RankResult] = None
+    review_requirement_profiles: dict[str, ReviewRequirementProfile] = Field(default_factory=dict)
     build: Optional[BuildResult] = None
     basket: Optional[BasketResult] = None
     verification: Optional[VerificationResult] = None

@@ -238,3 +238,72 @@ def test_catalog_pc_and_variant_paths_keep_real_product_ids(review_db):
         conn, [(product_type, candidate.variant_id)],
     )[candidate.variant_id]
     assert reloaded.product_id == candidate.product_id
+
+
+def test_shared_ranker_persists_profile_for_run_and_passes_r_detail(review_db):
+    from src.dto import Candidate, HardFilterResult, RequirementSpec, Slots
+    from src.services.review_ranking import rank_with_review_aspects
+
+    conn, ids = review_db
+    product = _gpu_products(conn)[0]
+    config = load_review_profile_config()
+    version = config["analysis_version"]
+    rule = _add_rule(conn, ids, version)
+    observations = [_add_doc_obs(conn, ids, product, rule, direction)[1]
+                    for direction in ["positive"] * 3 + ["negative"]]
+    aggregate_id = uuid4()
+    _add_aggregate(conn, ids, aggregate_id, product, rule, 3, 1, 0, 4, observations)
+
+    domain_version = conn.execute(
+        "SELECT dv.id FROM config.domain_version dv JOIN config.domain d ON d.id=dv.domain_id "
+        "WHERE d.code='computer' AND d.status='active' ORDER BY dv.version_no DESC LIMIT 1",
+    ).fetchone()[0]
+    conversation_id = conn.execute(
+        "INSERT INTO identity.conversation(guest_session_hash) VALUES (%s) RETURNING id",
+        (f"review-profile-{uuid4().hex}",),
+    ).fetchone()[0]
+    plan_id = conn.execute(
+        "INSERT INTO planning.plan(conversation_id,name) VALUES (%s,'review profile test') RETURNING id",
+        (conversation_id,),
+    ).fetchone()[0]
+    revision_id = conn.execute(
+        "INSERT INTO planning.plan_revision(plan_id,revision_no,domain_version_id,name_snapshot) "
+        "VALUES (%s,1,%s,'review profile test') RETURNING id", (plan_id, domain_version),
+    ).fetchone()[0]
+    run_id = conn.execute(
+        "INSERT INTO engine.recommendation_run(revision_id,domain_version_id,input_snapshot,input_hash,"
+        "draft_lock_version,engine_versions,status) VALUES (%s,%s,%s,'review-profile',0,%s,'running') RETURNING id",
+        (revision_id, domain_version, Jsonb({}), Jsonb({"pipeline": "test"})),
+    ).fetchone()[0]
+    try:
+        candidate = Candidate(product_key=str(product), product_id=str(product), slot="GPU", name="GPU", price=10,
+                              specs={"perf_tier": 5})
+        hf = HardFilterResult(slots={"GPU": [candidate]})
+        spec = RequirementSpec(list_id=str(revision_id), category="computer", mode="build",
+                               targets={"GPU": {}}, budget={"total": 100, "alloc": {"GPU": 1.0}})
+        slots = Slots(category="computer", mode="build", objective_text="", values={"purpose": "game"})
+        rank, profiles = rank_with_review_aspects(
+            hf, spec, slots, lambda _message: None, conn=conn, run_id=run_id, catalog_source="db",
+        )
+        ranked = rank.slots["GPU"]["pool"][0]
+        assert ranked["breakdown"]["리뷰"] == pytest.approx(0.525)
+        fan = next(item for item in ranked["review_detail"]["contributions"]
+                   if item["aspect_code"] == "fan_quietness")
+        assert fan["members"][0]["observation_id"] in {
+            str(observation) for observation in observations
+        }
+        saved = conn.execute(
+            "SELECT profile_version,analysis_version,parts FROM engine.review_requirement_profile WHERE run_id=%s",
+            (run_id,),
+        ).fetchone()
+        assert saved[0] == config["profile_version"] and saved[1] == version
+        assert "gpu" in saved[2] and "gpu" in profiles
+        versions = conn.execute(
+            "SELECT engine_versions FROM engine.recommendation_run WHERE id=%s", (run_id,),
+        ).fetchone()[0]
+        assert versions["review_profile"] == config["profile_version"]
+    finally:
+        conn.execute("DELETE FROM engine.recommendation_run WHERE id=%s", (run_id,))
+        conn.execute("DELETE FROM planning.plan_revision WHERE id=%s", (revision_id,))
+        conn.execute("DELETE FROM planning.plan WHERE id=%s", (plan_id,))
+        conn.execute("DELETE FROM identity.conversation WHERE id=%s", (conversation_id,))

@@ -1,8 +1,8 @@
 """PC 견적 점검 — 우리 추천과 나란히 비교 (CHK-07).
 
 같은 조건(용도·해상도·게임·예산·우선순위)으로 추천엔진 2~4단계를 **그대로 호출**해 우리 구성을 만들고, 견적의 부품과
-품목별로 나란히 놓는다. 엔진 계산은 DB 없이 도는 순수 함수(stage2_requirement · feasibility · stage3a_hardfilter ·
-stage3b_rank · stage4_optimize)라 세션·run·저장이 필요 없다 — 저장하는 5단계 설명 문장(LLM)은 부르지 않는다.
+품목별로 나란히 놓는다. 리뷰 집계는 공통 서비스에서 조회해 순수 엔진 계산에 주입한다.
+세션·run·저장은 필요 없으며, 5단계 설명 문장(LLM)은 부르지 않는다. 명시적 mock 모드만 DB 없이 실행한다.
 
 우열을 가리지 않는다: 이름·가격·성능 등급과 그 차이만 숫자로 보여 주고, 판단은 사용자가 한다(기획서: 판정마다 계산 근거).
 예산은 조건의 예산을 쓰고, 없으면 견적의 모든 부품에 가격이 있을 때 그 합계를 쓴다("같은 돈으로 우리가 추천하면?").
@@ -17,9 +17,8 @@ from typing import Any
 from src.categories import load_category
 from src.dto import Candidate, Slots
 from src.engine import feasibility as feasibility_engine
-from src.engine import stage2_requirement, stage3a_hardfilter, stage3b_rank, stage4_optimize
+from src.engine import stage2_requirement, stage3a_hardfilter, stage4_optimize
 from src.engine.quote_price import compare_price
-from src.repo.review_repo import RISK_STORE_OK, risk_store_note, risk_store_reason
 
 log = logging.getLogger(__name__)
 _noop = lambda _msg: None  # noqa: E731
@@ -67,7 +66,8 @@ def _recommend(conditions: dict, budget: int, by_slot: dict[str, list[Candidate]
     spec.budget["feasibility"] = feasibility["level"]
     spec.budget["feasibility_detail"] = feasibility
     hf = stage3a_hardfilter.run(spec, pool, _noop)
-    rank = stage3b_rank.run(hf, spec, slots, _noop)
+    from src.services.review_ranking import rank_with_review_aspects
+    rank, _profiles = rank_with_review_aspects(hf, spec, slots, _noop)
     return spec, stage4_optimize.run(rank, spec, _noop), feasibility
 
 
@@ -146,8 +146,6 @@ def assess(conditions: dict | None, owned: dict[str, dict], prices: dict, by_slo
         notes.append("우선순위를 알려 주지 않아 추천엔진의 기본 가중치로 만들었습니다.")
     if not conditions.get("resolution") and "resolution_assumed" in spec.flags:
         notes.append("해상도를 알려 주지 않아 기본 해상도 기준으로 만들었습니다.")
-    if risk_store_reason() != RISK_STORE_OK:
-        notes.append(f"리뷰 분석 자료가 없어 리뷰 축은 반영하지 못했습니다({risk_store_note()}).")
     if summary["missing_in_quote"]:
         notes.append("견적에 없는 부품군은 우리 추천 합계에만 들어 있어, 견적과 같은 부품군끼리의 합계를 따로 냈습니다.")
     return {

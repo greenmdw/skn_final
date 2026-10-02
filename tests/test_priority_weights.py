@@ -28,11 +28,6 @@ def _cand(slot, key, price, **specs) -> Candidate:
     return Candidate(product_key=key, slot=slot, name=key, price=price, specs=specs)
 
 
-@pytest.fixture(autouse=True)
-def _no_review_signal(monkeypatch):
-    monkeypatch.setattr(stage3b_rank, "_review_axis", lambda _: (0.5, []))
-
-
 def _rank(slot, cands, budget=2_000_000, alloc=0.4, **values):
     spec = RequirementSpec(list_id="r", category="computer", mode="build", targets={slot: {}},
                            budget={"total": budget, "alloc": {slot: alloc}})

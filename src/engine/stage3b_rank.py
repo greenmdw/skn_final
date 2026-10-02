@@ -2,33 +2,15 @@
 
 [3-A] 통과분을 슬롯별 점수화 → 슬롯별 top-N. LLM·RAG 없음.
 score = Σ w_axis·norm_axis − (Pending 이면 0.20).
-축: 가격 / 성능 여유 / 밸런스 적합 / 리뷰 신뢰도 / 호환 여유.
+축: 가격 / 성능 여유 / 밸런스 적합 / 리뷰 적합도 / 호환 여유.
 병목: balance_profiles 의 ideal_tier 대비 최선 후보가 낮으면 bottleneck_hint 방출.
 """
 from __future__ import annotations
 
-from src.config import PENDING_SCORE_PENALTY, REVIEW_AXIS_EXCESS, TOP_N_DEFAULT, TOP_N_IMPACT
-from src.dto import Candidate, HardFilterResult, RankResult, RequirementSpec, Slots
+from src.config import PENDING_SCORE_PENALTY, TOP_N_DEFAULT, TOP_N_IMPACT
+from src.dto import Candidate, HardFilterResult, RankResult, RequirementSpec, ReviewScoreDetail, Slots
 from src.engine import LogFn
 from src.engine.stage2_requirement import load_computer_rules
-from src.repo.review_repo import (OBS_FLAG_OBSERVED, RISK_STORE_OK, default_risk_store, format_obs_flag,
-                                 risk_store_note, risk_store_reason)
-
-# ── 리뷰축: 관계·행동 축의 관측 사실을 랭킹 신호로만 쓴다 (docs/decisions/0001 §3) ──
-# 세 단계뿐이다. 관측 없음 0.5(모름) · 관측됨·중앙값의 REVIEW_AXIS_EXCESS 배를 넘는 지표 없음 0.75 ·
-# 하나라도 넘음 0.25. 판정이 아니다 — 덜 보여줄 뿐이고 되돌릴 수 있는 자리라 검증 없이 쓴다.
-# 넘은 지표는 flags 에 남겨 [5] 설명이 "왜" 를 보여줄 수 있게 한다.
-_REVIEW_UNKNOWN, _REVIEW_CLEAR, _REVIEW_FLAGGED = 0.5, 0.75, 0.25
-
-
-def _review_axis(cand: Candidate) -> tuple[float, list[str]]:
-    store = default_risk_store()
-    if store is None or store.get(cand.product_key) is None:
-        return _REVIEW_UNKNOWN, []
-    over = [(k, v, m) for k, v, m in store.excess(cand.product_key) if v >= REVIEW_AXIS_EXCESS * m]
-    if over:
-        return _REVIEW_FLAGGED, [format_obs_flag(k, v, m, REVIEW_AXIS_EXCESS) for k, v, m in over]
-    return _REVIEW_CLEAR, [OBS_FLAG_OBSERVED]
 
 
 _NOISE = "소음"
@@ -129,10 +111,14 @@ def _ram_dual_channel_bonus(cand: Candidate, slot: str, target: dict, ranking: d
 
 
 def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int, slot: str, target: dict,
-           weights: dict[str, float] | None = None, gap_penalty: float = 0.0) -> Candidate:
+           weights: dict[str, float] | None = None, gap_penalty: float = 0.0,
+           review_detail: ReviewScoreDetail | None = None) -> Candidate:
     tier = float(cand.specs.get("perf_tier", 5))
     price = cand.price or 1
-    review, review_flags = _review_axis(cand)
+    review_detail = review_detail or cand.review_detail
+    # Pure engine unit tests may omit injected review data. Runtime orchestration sets
+    # require_review_details=True, so DB paths cannot silently take this neutral branch.
+    review = review_detail.value if review_detail is not None else 0.5
     b = {
         "가격": max(0.0, 1 - price / max(slot_budget, 1)),
         "성능": min(1.0, tier / 10),
@@ -149,17 +135,18 @@ def _score(cand: Candidate, ideal_tier: float | None, slot_budget: int, slot: st
         raw -= PENDING_SCORE_PENALTY
     raw -= gap_penalty
     raw += _ram_dual_channel_bonus(cand, slot, target, ranking)
-    return cand.model_copy(update={"score": round(raw, 3), "breakdown": {k: round(v, 3) for k, v in b.items()},
-                                   "flags": list(cand.flags) + review_flags})
+    rounded_breakdown = {k: (v if k == "리뷰" else round(v, 3)) for k, v in b.items()}
+    return cand.model_copy(update={"score": round(raw, 3), "breakdown": rounded_breakdown,
+                                   "review_detail": review_detail})
 
 
-def run(hf: HardFilterResult, spec: RequirementSpec, slots: Slots, log: LogFn) -> RankResult:
+def run(hf: HardFilterResult, spec: RequirementSpec, slots: Slots, log: LogFn, *,
+        require_review_details: bool = False) -> RankResult:
     log("[3-B] 적합도 · 병목 순위 ...")
-    # 산출물을 못 쓰면 리뷰축이 전 후보에서 0.5(모름) 고정이라 구성이 달라진다.
-    # 조용히 지나가면 "리뷰가 적은 상품들" 로 오해하므로 한 번 알린다.
-    reason = risk_store_reason()
-    if reason != RISK_STORE_OK:
-        log(f"      ⚠ 리뷰축 비활성 — {risk_store_note()} (리뷰 관측 0건으로 계산)")
+    if require_review_details:
+        missing = [c.product_key for cands in hf.slots.values() for c in cands if c.review_detail is None]
+        if missing:
+            raise ValueError(f"review score is missing for {len(missing)} ranked candidates")
     ranking = load_computer_rules()["ranking"]
     weights, notes = _weights_for(slots.values, ranking)
     rr = RankResult(weights_used=weights, weight_adjustments=notes)
@@ -212,9 +199,12 @@ def run(hf: HardFilterResult, spec: RequirementSpec, slots: Slots, log: LogFn) -
             "pool": [c.model_dump() for c in ranked_all],
             "bottleneck_hint": hint,
         }
-        n_obs = sum(1 for c in scored if c.breakdown.get("리뷰") != _REVIEW_UNKNOWN)
-        n_flag = sum(1 for c in scored if c.breakdown.get("리뷰") == _REVIEW_FLAGGED)
+        observed = sum(
+            1 for c in scored if c.review_detail and any(
+                item.p + item.n + item.mixed > 0 for item in c.review_detail.contributions
+            )
+        )
         log(f"      {slot}: top-{len(top)}  (ideal_tier={ideal})  1위 score={top[0].score if top else '-'}"
-            f"  리뷰관측 {n_obs}/{len(scored)}" + (f" (검토필요 {n_flag})" if n_flag else ""))
+            f"  리뷰 관측 {observed}/{len(scored)}")
     return rr
 

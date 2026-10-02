@@ -109,12 +109,6 @@ def test_service_surfaces_unknown_games_and_trace_row():
 
 # ── E6 — games 조건을 [3-B] 랭킹(ideal_tier)에 반영 ──────────────────────────
 
-@pytest.fixture(autouse=True)
-def _no_review_signal(monkeypatch):
-    # 리뷰축은 [3-B]의 다른 관심사다 — 산출물 유무로 점수가 흔들리지 않게 0.5(모름) 고정.
-    monkeypatch.setattr(stage3b_rank, "_review_axis", lambda _cand: (0.5, []))
-
-
 def _cand(slot, key, price, **specs) -> Candidate:
     return Candidate(product_key=key, slot=slot, name=key, price=price, specs=specs)
 
