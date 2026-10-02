@@ -52,6 +52,8 @@ class ConditionDraft:
     # 채팅에서 직접 말한 브랜드 선호·비선호(docs/사용자_선호비선호_기록_설계.md 파이프라인 A).
     # 에이전트는 DB를 안 만지므로 여기 모아만 두고, session_service가 로그인 사용자에 한해
     # identity.preference_signal에 반영한다(§7 — 게스트는 저장 안 함).
+    conn: object = None            # 실시간 부품 검색 전용 — 읽기만 한다(카탈로그 조회·캐시), 조건은 여전히 안 쓴다
+    search_confirmed: bool = False  # 직전 턴에 검색 동의를 구했고 이번 메시지가 동의인지(run_turn이 미리 판정)
 
     def question(self, key: str) -> dict | None:
         return next((q for q in self.cat_def.get("question_sets", []) if q["maps_to"] == key), None)
@@ -127,6 +129,35 @@ class ConditionDraft:
             self.patches["brand_pref"] = pref
         return self._record(call, f"{slot} 브랜드 {direction} 기록: {brand}" + self._status())
 
+    def search_unavailable_part(self, slot: str, product_text: str) -> str:
+        """사용자가 조건 대화 중 구체적인 제품명을 말했는데 카탈로그에 없을 때
+        (docs/미보유부품_실시간스펙검색_설계.md 확장). 이 에이전트는 부품을 직접 고르지
+        않으므로(그건 추천 엔진 몫), 찾은 스펙은 extra 조건으로만 남긴다 — 판정 없이 기록."""
+        from src.repo.catalog_repo import load_candidates_by_slot_from_db
+        from src.engine.owned_parts import _match_catalog
+        call = f"search_unavailable_part({slot!r}, {product_text!r})"
+        if self.conn is None:
+            return self._record(call, "오류: 지금은 이 기능을 쓸 수 없습니다.")
+        canon = canonical_slot(slot) or slot
+        pool = load_candidates_by_slot_from_db(self.conn).get(canon, [])
+        matches = _match_catalog(product_text, pool)
+        if matches:
+            names = ", ".join(c.name for c in matches[:3])
+            return self._record(call, f"'{product_text}'는 실제로 카탈로그에 있습니다: {names}.")
+        if not self.search_confirmed:
+            return self._record(call, f"'{product_text}'는 저희 DB에 없는 상품으로 확인됩니다. {SEARCH_PERMISSION_MARKER}")
+        from src.services import live_spec_lookup
+        if not live_spec_lookup.available():
+            return self._record(call, "지금은 실시간 검색을 쓸 수 없습니다.")
+        result = live_spec_lookup.lookup(self.conn, product_text)
+        if not result.relevant or not result.has_any_field():
+            return self._record(call, f"'{product_text}'에 대한 정보를 실시간 검색으로도 찾지 못했습니다.")
+        fields = ", ".join(f"{k}={v}" for k, v in result.supported_fields.model_dump().items() if v is not None)
+        src = f" · 출처: {result.source_url}" if result.source_url else ""
+        self.add_extra(f"{slot} 희망: {product_text} ({fields}){src} · 카탈로그 정식 등재 값 아님")
+        return self._record(call, f"실시간 검색 결과 — {fields}{src} · 카탈로그 정식 등재 값이 아니니 참고만 하세요. "
+                                  "추가 조건으로 기록했습니다." + self._status())
+
     def add_extra(self, text: str) -> str:
         call = f"add_extra_condition({text!r})"
         text = text.strip()
@@ -139,6 +170,25 @@ class ConditionDraft:
             items.append(text)
         self.patches["extra"] = items
         return self._record(call, f"extra 에 추가: {text}" + self._status())
+
+
+# ── DB 미보유 부품 실시간 검색 — 동의 확인(conditions_agent·result_agent 공유) ─────────
+# docs/미보유부품_실시간스펙검색_설계.md §2(자동 실행 금지)를 대화로 옮긴 것 — 직전 턴에
+# 에이전트가 이 문구로 동의를 구했고, 이번 메시지가 동의로 읽히면 그 턴에서만 실제 검색을
+# 허용한다. 동의 여부는 LLM 재량이 아니라 이 함수(코드)가 판정한다 — 문구를 고치면 여기도
+# 같이 고쳐야 한다.
+SEARCH_PERMISSION_MARKER = "외부 검색을 진행해도 될까요?"
+_SEARCH_CONFIRM_RE = re.compile(
+    r"^\s*(?:응|ㅇㅇ|ㅇㅋ|오케이|ok|okay|네|넵|예|그래|좋아|콜|부탁해|부탁|그렇게\s*해|해줘|해봐|찾아줘|검색해줘|진행해)"
+    r"(?:\s|[.!~,?]|$)", re.IGNORECASE)
+
+
+def is_search_confirmation(last_reply: str | None, text: str) -> bool:
+    """직전 턴의 에이전트 답변이 검색 동의를 구했고(SEARCH_PERMISSION_MARKER 포함) 이번
+    사용자 메시지가 동의인지."""
+    if not last_reply:
+        return False
+    return SEARCH_PERMISSION_MARKER in last_reply and bool(_SEARCH_CONFIRM_RE.search(text.strip()))
 
 
 def _parse_amount(text: str) -> int | None:
@@ -254,7 +304,21 @@ def make_tools(draft: ConditionDraft) -> list:
         """
         return draft.record_brand_preference(slot, brand, direction)
 
-    return [set_condition, add_extra_condition, clear_condition, record_brand_preference]
+    @tool
+    def search_unavailable_part(slot: str, product_text: str) -> str:
+        """사용자가 구체적인 제품명을 말했는데(예: "RTX 6090으로 해줘", "9950X3D 있어?") 그게
+        지금 카탈로그에 있는지 확신이 안 설 때 부른다. 먼저 카탈로그 전체에서 코드가 다시
+        확인하고, 정말 없으면 실시간 검색에 동의를 구하는 문장만 돌려준다(바로 검색하지 않는다)
+        — 동의는 사용자의 다음 메시지로 받는다.
+
+        Args:
+            slot: 부품 슬롯 (예: CPU, GPU, RAM, 메인보드, 저장장치, 파워, 케이스, 쿨러)
+            product_text: 사용자가 말한 제품명 원문(브랜드·모델 포함)
+        """
+        return draft.search_unavailable_part(slot, product_text)
+
+    return [set_condition, add_extra_condition, clear_condition, record_brand_preference,
+            search_unavailable_part]
 
 
 # ── 프롬프트 ───────────────────────────────────────────────────────────────
@@ -320,6 +384,11 @@ def system_prompt(
         "7. 금액은 원화로만 씁니다. 금액을 새로 계산하지 않습니다.",
         "8. 사용자가 특정 부품 브랜드를 좋아하거나 싫어한다고 직접 말하면(예: \"인텔은 별로예요\", "
         "\"AMD가 좋아요\") record_brand_preference 로 기록합니다. 짐작해서 부르지 않습니다.",
+        "9. 사용자가 구체적인 제품명을 말했으면(예: \"RTX 6090으로 해줘\", \"9950X3D 있어?\") "
+        "search_unavailable_part(slot, product_text)를 부릅니다. 돌려준 문장을 그대로 전합니다 — "
+        "동의를 구하는 문장이면 그걸로 끝내고, 검색 결과가 오면 '카탈로그 정식 등재 값이 아니다'는 "
+        "부분까지 그대로 전합니다. 이 제품을 조건으로 확정하지 않습니다 — brand_pref·extra 외의 "
+        "필드에 특정 제품명을 넣지 않습니다.",
         "",
         "답변 언어: 한국어 존댓말.",
     ])
@@ -366,17 +435,21 @@ def _model():
 
 
 def run_turn(category: str, cat_def: dict, values: dict, history: list[dict], text: str,
-             *, missing_fn: MissingFn, next_question_fn: NextQuestionFn) -> TurnResult:
+             *, missing_fn: MissingFn, next_question_fn: NextQuestionFn, conn=None) -> TurnResult:
     """한 턴 실행. history 는 이번 사용자 메시지를 제외한 DB 대화 행.
 
     `missing_fn`·`next_question_fn` 은 규칙(`session_service`)이다 — 무엇이 필수이고 다음에 무엇을
     물을지는 에이전트가 정하지 않는다. 도구 결과마다 다시 계산해 모델에 돌려준다.
+
+    `conn`은 실시간 부품 검색 전용(선택) — 이 에이전트는 여전히 조건 외에는 DB에 쓰지 않는다.
     """
     from strands import Agent
     from strands.tools.executors import SequentialToolExecutor
 
+    last_reply = next((r["content"] for r in reversed(history) if r["role"] == "assistant"), None)
     draft = ConditionDraft(category=category, cat_def=cat_def, values=dict(values),
-                           missing_fn=missing_fn, next_question_fn=next_question_fn)
+                           missing_fn=missing_fn, next_question_fn=next_question_fn,
+                           conn=conn, search_confirmed=is_search_confirmation(last_reply, text))
     agent = Agent(
         model=_model(),
         system_prompt=system_prompt(draft, text, history),

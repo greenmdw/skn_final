@@ -29,7 +29,8 @@ import re
 from dataclasses import dataclass, field
 from uuid import UUID
 
-from src.agent.conditions_agent import _model
+from src.agent.conditions_agent import SEARCH_PERMISSION_MARKER as _SEARCH_PERMISSION_MARKER
+from src.agent.conditions_agent import _model, is_search_confirmation
 from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, RESULT_AGENT
 from src.errors import NotFound
 
@@ -60,6 +61,7 @@ class ResultSession:
     outputs: list[str] = field(default_factory=list)   # 도구 결과 원문 — 수치 가드의 허용 근거(trace 는 160자로 자른다)
     changed: bool = False
     read_only: bool = False                        # 바꾸라는 말이 아니면(classify_intent) 이번 턴은 구성표를 바꾸지 않는다
+    search_confirmed: bool = False                  # 직전 턴에 실시간 검색 동의를 구했고 이번 메시지가 동의인지(run_turn이 미리 판정)
 
     def _record(self, call: str, out: str) -> str:
         self.trace.append(f"{call} → {out[:160]}")
@@ -283,6 +285,37 @@ class ResultSession:
             return no
         return self._record(call, result_advice.game_check(self.conn, self.revision_id, game))
 
+    # ── DB 미보유 부품 실시간 검색 (docs/미보유부품_실시간스펙검색_설계.md 확장) ──
+    def search_unavailable_part(self, slot: str, product_text: str) -> str:
+        """사용자가 언급한 제품이 카탈로그에 없을 때 — 먼저 코드가 직접 카탈로그 전체에서 다시
+        확인하고(LLM이 "없다"고 잘못 판단했을 수 있어서), 정말 없으면 동의를 구하는 문장만
+        돌려준다(검색은 아직 안 함). 실제 검색은 `self.search_confirmed`가 True일 때만 — 이건
+        LLM이 정하는 게 아니라 run_turn이 "직전 턴에 동의를 구했고 이번 메시지가 동의"인지를
+        코드로 판정해 미리 정해 둔다(§2 자동 실행 금지, 2턴 확인을 LLM 재량이 아니라 코드로 강제)."""
+        from src.repo.catalog_repo import load_candidates_by_slot_from_db
+        from src.engine.owned_parts import _match_catalog
+        call = f"search_unavailable_part({slot!r}, {product_text!r})"
+        it = self.item(slot)
+        if it is None:
+            return self._record(call, f"오류: '{slot}' 슬롯이 없습니다.")
+        pool = load_candidates_by_slot_from_db(self.conn).get(it["slot"], [])
+        matches = _match_catalog(product_text, pool)
+        if matches:
+            names = ", ".join(c.name for c in matches[:3])
+            return self._record(call, f"'{product_text}'는 실제로 카탈로그에 있습니다: {names}. "
+                                      "list_alternatives로 candidate_id를 확인해 안내하세요.")
+        if not self.search_confirmed:
+            return self._record(call, f"'{product_text}'는 저희 DB에 없는 상품으로 확인됩니다. {_SEARCH_PERMISSION_MARKER}")
+        from src.services import live_spec_lookup
+        if not live_spec_lookup.available():
+            return self._record(call, "지금은 실시간 검색을 쓸 수 없습니다.")
+        result = live_spec_lookup.lookup(self.conn, product_text)
+        if not result.relevant or not result.has_any_field():
+            return self._record(call, f"'{product_text}'에 대한 정보를 실시간 검색으로도 찾지 못했습니다.")
+        fields = ", ".join(f"{k}={v}" for k, v in result.supported_fields.model_dump().items() if v is not None)
+        src = f" · 출처: {result.source_url}" if result.source_url else ""
+        return self._record(call, f"실시간 검색 결과 — {fields}{src} · 카탈로그 정식 등재 값이 아니니 참고만 하세요.")
+
 
 # ── 도구 등록 ──────────────────────────────────────────────────────────────
 def make_tools(s: ResultSession) -> list:
@@ -390,8 +423,22 @@ def make_tools(s: ResultSession) -> list:
         """
         return s.game_check(game)
 
+    @tool
+    def search_unavailable_part(slot: str, product_text: str) -> str:
+        """사용자가 말한 제품이 이 견적의 후보 목록·카탈로그에 안 보일 때 부른다 — "RTX 6090으로
+        바꿔줘", "9950X3D 있어?"처럼 지금 카탈로그에 없을 수 있는 제품을 언급했을 때.
+        먼저 카탈로그 전체에서 코드가 다시 확인하고, 정말 없으면 실시간 검색에 동의를 구하는
+        문장만 돌려준다(이 호출로 바로 검색하지 않는다) — 동의는 사용자의 다음 메시지로 받는다.
+
+        Args:
+            slot: 슬롯 이름
+            product_text: 사용자가 말한 제품명 원문(브랜드·모델 포함, 예: "RTX 6090")
+        """
+        return s.search_unavailable_part(slot, product_text)
+
     return [list_alternatives, swap, set_qty, remove_or_restore, explain,
-            preview_swap, upgrade_options, savings_options, check_build, game_check]
+            preview_swap, upgrade_options, savings_options, check_build, game_check,
+            search_unavailable_part]
 
 
 # ── 프롬프트 ───────────────────────────────────────────────────────────────
@@ -432,6 +479,12 @@ _CHANGE_RE = re.compile(
     r"|^\s*(?:응|ㅇㅇ|ㅇㅋ|오케이|ok|okay|네|넵|예|그래|좋아|콜|ㄱㄱ|고고|부탁해|그렇게\s*해)(?:\s|[.!~,]|$)"
     r"|ㄱㄱ(?!\s*\?)"
 )
+
+
+# ── DB 미보유 부품 실시간 검색 — 동의 확인(conditions_agent.is_search_confirmation 공유) ──
+def _search_confirmed(pairs: list[tuple[str, str]], text: str) -> bool:
+    last_reply = pairs[-1][1] if pairs else None
+    return is_search_confirmation(last_reply, text)
 
 
 def classify_intent(text: str) -> str:
@@ -507,6 +560,11 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "(b) 이 견적 부품에 대한 판정(충분하다·호환된다·더 낫다)을 하지 않고 (c) 특정 제품의 사실(동봉품·사양·출시·가격 전망)을 지어내지 않습니다 — 그런 건 '데이터에 없다'고 말합니다. "
         "마지막에 이 견적으로 확인할 수 있는 질문을 하나 제안합니다(예: '파워 충분해?', '남은 예산으로 뭘 올릴까?', '쿨러 빼줘').",
         "14. 소음·발열·가격 전망처럼 데이터가 없는 질문은 없다고 말하고 추측하지 않습니다. 날씨처럼 PC와 무관한 말은 이 화면은 PC 견적만 다룬다고 한 문장으로 답합니다.",
+        "15. 사용자가 말한 제품이 list_alternatives·upgrade_options·savings_options 결과에 안 보이면(지어내지 말고) "
+        "search_unavailable_part(slot, product_text)를 부릅니다. 돌려준 문장을 그대로 전합니다 — 동의를 구하는 "
+        "문장이면 그걸로 끝내고(이 턴에 swap하지 않습니다), 검색 결과가 오면 '카탈로그 정식 등재 값이 아니다'는 "
+        "부분까지 그대로 전합니다. 검색 결과로 얻은 스펙만으로 swap하지 않습니다 — 그 제품은 여전히 카탈로그에 없어 "
+        "교체할 candidate_id가 없습니다.",
         *(["", "사용자 질문에 대해 미리 조회한 근거 (이걸로 답합니다. 더 필요하면 explain):", prefetched] if prefetched else []),
         "",
         "답변 언어: 한국어 존댓말. 화면은 평문이라 마크다운(**굵게**, #, 표)을 쓰지 않습니다.",
@@ -578,7 +636,8 @@ def _reply_within(reply: str, allowed_sources: list[str]) -> tuple[bool, set[str
     return (not outside), outside
 
 
-_READ_TOOLS = ("preview_swap(", "upgrade_options(", "savings_options(", "check_build(", "game_check(")
+_READ_TOOLS = ("preview_swap(", "upgrade_options(", "savings_options(", "check_build(", "game_check(",
+              "search_unavailable_part(")
 
 
 def _guarded_reply(session: ResultSession, prefetched: str) -> str:
@@ -619,7 +678,8 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
     pairs = _db_history(conn, revision_id, run_id)
     hist_rows = [{"role": "user", "content": u} for u, _ in pairs]
     session = ResultSession(conn=conn, revision_id=revision_id, result=result, user_id=user_id,
-                            read_only=classify_intent(text) != "change")
+                            read_only=classify_intent(text) != "change",
+                            search_confirmed=_search_confirmed(pairs, text))
     prefetched = _prefetch_explanations(session, text)
     prompt = system_prompt(result, text, hist_rows, prefetched)
     agent = Agent(

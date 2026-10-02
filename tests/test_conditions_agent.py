@@ -119,11 +119,12 @@ def test_history_cuts_at_reset_merges_roles_and_starts_with_user():
 
 
 # ── Strands 등록 (네트워크 없음) ───────────────────────────────────────────
-def test_strands_registers_four_tools():
+def test_strands_registers_five_tools():
     d = _draft("computer")
     tools = ca.make_tools(d)
     assert [t.tool_name for t in tools] == [
         "set_condition", "add_extra_condition", "clear_condition", "record_brand_preference",
+        "search_unavailable_part",
     ]
     spec = tools[0].tool_spec
     assert set(spec["inputSchema"]["json"]["required"]) == {"field", "value"}
@@ -179,4 +180,67 @@ def test_unavailable_under_mock_mode(monkeypatch):
     monkeypatch.setattr(ca, "MOCK_MODE", True)
     monkeypatch.setattr(ca, "CONDITIONS_AGENT", True)
     assert ca.available() is False
+
+
+# ── DB 미보유 부품 실시간 검색 (docs/미보유부품_실시간스펙검색_설계.md 확장) ──────────────
+def test_is_search_confirmation_requires_both_marker_and_affirmation():
+    marker_reply = f"RTX 6090은 저희 DB에 없는 상품으로 확인됩니다. {ca.SEARCH_PERMISSION_MARKER}"
+    assert ca.is_search_confirmation(marker_reply, "응") is True
+    assert ca.is_search_confirmation(marker_reply, "아니 됐어") is False
+    assert ca.is_search_confirmation("그냥 평범한 답변", "응") is False  # 마커 없으면 동의로 안 침
+    assert ca.is_search_confirmation(None, "응") is False
+
+
+def test_search_unavailable_part_without_conn_refuses():
+    d = _draft("computer")
+    assert d.conn is None
+    out = d.search_unavailable_part("GPU", "RTX 6090")
+    assert out.startswith("오류:")
+
+
+def test_search_unavailable_part_found_in_catalog_tells_agent_not_missing(monkeypatch):
+    from src.dto import Candidate
+
+    d = _draft("computer")
+    d.conn = object()  # 실제 DB는 안 쓴다 — 아래서 조회 함수 자체를 바꿔 끼운다
+    found = Candidate(product_key="k", slot="GPU", name="NVIDIA GeForce RTX 5090")
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": [found]})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: pool)
+
+    out = d.search_unavailable_part("GPU", "RTX 5090")
+    assert "실제로 카탈로그에 있습니다" in out
+
+
+def test_search_unavailable_part_not_confirmed_asks_permission_without_calling_lookup(monkeypatch):
+    def boom(*_a, **_kw):
+        raise AssertionError("동의 전인데 실시간 검색이 호출됨")
+
+    d = _draft("computer")
+    d.conn = object()
+    assert d.search_confirmed is False
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": []})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: [])
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", boom)
+
+    out = d.search_unavailable_part("GPU", "RTX 6090")
+    assert ca.SEARCH_PERMISSION_MARKER in out
+    assert "DB에 없는 상품" in out
+
+
+def test_search_unavailable_part_confirmed_records_extra_condition(monkeypatch):
+    from src.services.live_spec_lookup import LiveSpecLookupResult
+
+    d = _draft("computer")
+    d.conn = object()
+    d.search_confirmed = True
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": []})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: [])
+    monkeypatch.setattr("src.services.live_spec_lookup.available", lambda: True)
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", lambda conn, text, **kw: LiveSpecLookupResult.model_validate(
+        {"relevant": True, "supported_fields": {"interface": "PCIe 5.0"}, "source_url": "https://example.com/rtx6090"}))
+
+    out = d.search_unavailable_part("GPU", "RTX 6090")
+    assert "PCIe 5.0" in out
+    assert "카탈로그 정식 등재 값이 아니" in out
+    assert any("RTX 6090" in e for e in d.patches.get("extra", []))
 
