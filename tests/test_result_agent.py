@@ -73,10 +73,11 @@ def test_system_prompt_carries_table_reasons_budget_and_language():
     assert "미리 조회한 근거" not in ra.system_prompt(r, "swap the gpu", [])
 
 
-def test_strands_registers_five_tools():
+def test_strands_registers_change_and_question_tools():
     tools = ra.make_tools(_session())
     assert [t.tool_name for t in tools] == [
-        "list_alternatives", "swap", "set_qty", "remove_or_restore", "explain"]
+        "list_alternatives", "swap", "set_qty", "remove_or_restore", "explain",
+        "preview_swap", "upgrade_options", "savings_options", "check_build", "game_check"]
     swap_spec = next(t for t in tools if t.tool_name == "swap").tool_spec
     assert set(swap_spec["inputSchema"]["json"]["required"]) == {"slot", "candidate_id"}
 
@@ -113,3 +114,51 @@ def test_guarded_reply_prefers_changes_then_prefetched_then_template():
     assert ra._guarded_reply(s2, "CPU X 255,000원\n저장된 추천 이유: …") == "CPU X 255,000원 저장된 추천 이유: …"
     assert ra._guarded_reply(_session(), "").startswith("구성표 기준으로만 답할 수 있어요")
 
+
+
+# ── 묻는 말 (2026-10-02) ───────────────────────────────────────────────────
+def test_whatif_questions_are_told_apart_from_change_requests():
+    for q in ("CPU 더 성능 좋은 걸로 바꿔도 문제없을까?", "램 32기가로 늘려도 돼?", "그래픽카드 올려도 괜찮아?",
+              "그래픽카드 더 좋은 걸로 바꾸면 어때?", "파워 이걸로 바꾸면 될까?", "CPU 바꿔도 되나요"):
+        assert ra.is_whatif_question(q), q
+    for q in ("CPU 한 단계 좋은 걸로 바꿔줘", "그래픽카드도 바꿔줘", "SSD 2개로", "왜 이 CPU야?",
+              "그래픽카드 더 싼 걸로 바꿔줄래?", "돈 남았는데 바꿀 거 추천해 줄 수 있나?"):
+        assert not ra.is_whatif_question(q), q
+
+
+def test_read_only_turn_refuses_writes_without_touching_db():
+    """"램 32기가로 늘려도 돼?"에 모델이 set_qty 를 불러 수량을 2로 바꾸던 문제 — 묻는 말이면 코드가 막는다."""
+    s = _session()
+    s.read_only = True                        # conn=None — DB 에 닿으면 터진다
+    assert s.set_item("RAM", qty="2").startswith("거절")
+    assert s.swap("GPU", str(uuid4())).startswith("거절")
+    assert not s.changed and len(s.outputs) == 2
+
+
+def test_whatif_question_skips_why_prefetch(monkeypatch):
+    s = _session()
+    monkeypatch.setattr(ra.ResultSession, "explain", lambda self, slot: f"EXPLAIN[{slot}]")
+    assert ra._prefetch_explanations(s, "그래픽카드 올려도 괜찮아?") == ""
+
+
+def test_guard_sources_are_full_tool_outputs_not_trimmed_trace():
+    """trace 는 160자로 잘린다 — 가드가 trace 를 보면 긴 후보 목록의 뒤쪽 가격을 '지어낸 숫자'로 버렸다(실측)."""
+    s = _session()
+    long_out = "후보:\n" + "\n".join(f"{i}. 제품{i} · {100_000 + i * 1_111:,}원" for i in range(1, 20))
+    s._record("list_alternatives('CPU')", long_out)
+    assert "119,998" not in s.trace[0] and "119,998" in s.outputs[0]
+    ok, _ = ra._reply_within("제품18은 119,998원입니다.", [*s.outputs])
+    assert ok
+
+
+def test_guarded_reply_falls_back_to_question_tool_output_without_ids():
+    s = _session()
+    s._record("upgrade_options(extra='', new_budget='')",
+              "- CPU: 지금 X\n    · 한 단계 위: Y 279,000원 (추가 57,250원) · candidate_id=514d34f7-438a-49b5-b902-5c30a7021058")
+    out = ra._guarded_reply(s, "")
+    assert "한 단계 위: Y 279,000원 (추가 57,250원)" in out and "candidate_id" not in out
+
+
+def test_reply_within_accepts_fraction_as_percent():
+    ok, _ = ra._reply_within("230W가 675W(750W의 90%) 이내입니다.", ["230W ≤ 파워 750W × 0.9 = 675W"])
+    assert ok
