@@ -16,7 +16,7 @@ Always set `TRUEFIT_REQUIRE_TEST_DB=1` for completion checks. It turns PostgreSQ
 At the start of a pytest session, the test harness automatically:
 
 1. Creates a unique `truefit_test_<UUID>` database on the running PostgreSQL server.
-2. Runs `db/setup_all.py` to apply the four baseline migrations and all seeds.
+2. Runs `db/setup_all.py` to apply the ten baseline migrations and all seeds.
 3. Runs the tests.
 4. Drops the temporary database with `DROP DATABASE ... WITH (FORCE)` when the session ends.
 

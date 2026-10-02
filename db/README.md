@@ -57,10 +57,29 @@ python db/migrate.py status
 | `0005_preference_signal.sql` | 사용자 브랜드 선호·비선호 신호 테이블(`identity.preference_signal`). 설계는 `docs/사용자_선호비선호_기록_설계.md` |
 | `0006_report_soft_delete.sql` | 견적서 하나만 삭제하기 위한 `planning.plan_revision.deleted_at` 컬럼(개발요청 10번) |
 | `0007_peripheral_line.sql` | 확정 견적서에 같이 저장하는 주변기기 줄 `planning.peripheral_line`(개발요청 11번) |
+| `0008_review_aspect.sql` | 리뷰 원문·속성 규칙·관측·집계와 근거 member, 임베딩 및 `engine.review_requirement_profile` |
 
 이미 만들어 둔 로컬 DB는 pull 뒤 `python db/migrate.py up`으로 새 파일만 적용합니다(`status`로 pending 확인).
 
 phase 방식(테이블 전부 → 제약 전부 → 인덱스 전부)을 쓴 이유는 스키마 간 순환 참조가 있기 때문이다.
+
+## 리뷰 속성 집계 미리보기·재생성
+
+`review_aspect_aggregate`는 선택한 분석 버전의 등록 규칙 k와 현재 구조적으로 유효한 관측을 사용합니다. 기본 실행은 읽기 전용 미리보기이며, 쓰기는 `--apply`를 명시해야 합니다.
+
+```bash
+PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
+  uv run python db/rebuild_review_aspect_aggregates.py \
+  --analysis-version review-aspect-v6-prod-20261002
+
+# 쓰기 동작은 격리 테스트 DB에서만 검증
+DATABASE_URL=postgresql://truefit:truefit@127.0.0.1:5432/truefit_test \
+PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
+  uv run python db/rebuild_review_aspect_aggregates.py \
+  --analysis-version test-version --apply
+```
+
+`--apply`는 원문·규칙·관측·집계·member 쓰기를 멈춘 유지보수 구간에 실행합니다. importer와 같은 순서로 원본/집계 테이블 잠금을 얻고 한 트랜잭션에서 집계 ID를 유지하며 member를 교체합니다. 다른 분석 버전은 수정하지 않습니다. 프로세스가 커밋 뒤 별도 읽기 스냅샷의 감사에서 실패했다고 보고하면 변경은 이미 커밋됐을 수 있으므로, 이를 rollback으로 해석하지 말고 대상 버전의 집계 상태를 읽어 확인해야 합니다.
 
 ## AWS 호환 원칙 (반영됨)
 
