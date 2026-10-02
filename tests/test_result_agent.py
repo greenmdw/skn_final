@@ -162,3 +162,9 @@ def test_guarded_reply_falls_back_to_question_tool_output_without_ids():
 def test_reply_within_accepts_fraction_as_percent():
     ok, _ = ra._reply_within("230W가 675W(750W의 90%) 이내입니다.", ["230W ≤ 파워 750W × 0.9 = 675W"])
     assert ok
+
+
+def test_prefetch_skips_words_that_point_at_no_part():
+    """"오늘 날씨 어때?"의 '어때'로 부품 8개 근거를 다 조회하던 것 — 부품도 구성 전체도 가리키지 않으면 조회하지 않는다."""
+    s = _session()
+    assert ra._prefetch_explanations(s, "오늘 날씨 어때?") == ""

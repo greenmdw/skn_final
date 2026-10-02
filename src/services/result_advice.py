@@ -186,6 +186,16 @@ def step_candidate(ctx: _Ctx, slot: str, direction: str):
     up = direction == "up"
     m0 = _metric(slot, cur.specs)
     pool = [c for c in ctx.pool.get(slot, []) if c.variant_id != cur.variant_id and not _new_failures(ctx, slot, c)]
+    # 이 견적의 요구 사양(파워 용량·효율, 성능 하한 …)을 채우는 후보가 있으면 그 안에서 고른다 — "파워 더 싼 걸로"에
+    # 750W·골드 요구를 못 채우는 700W 를 고르던 것(2026-10-02 평가). 다 못 채우면 그대로 두고 preview 가 ⚠ 로 알린다.
+    meets = [c for c in pool if _requirement_verdict(ctx, slot, c)[0] != "Fail"]
+    if m0 is not None:
+        stepped = [c for c in meets if _metric(slot, c.specs) is not None
+                   and (_metric(slot, c.specs) > m0 if up else _metric(slot, c.specs) < m0)]
+        pool = stepped or pool
+    else:
+        stepped = [c for c in meets if (_price(c) > _price(cur) if up else _price(c) < _price(cur))]
+        pool = stepped or pool
     if m0 is not None:
         pool = [c for c in pool if _metric(slot, c.specs) is not None
                 and (_metric(slot, c.specs) > m0 if up else _metric(slot, c.specs) < m0)]
@@ -237,6 +247,10 @@ def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = No
     if m0 is not None or m1 is not None:
         lines.append(f"{slot} {_metric_text(slot, m0)} → {_metric_text(slot, m1)}")
     verdict, reasons = _requirement_verdict(ctx, slot, cand)
+    if verdict == "Fail" and not variant_id:
+        # step_candidate 는 요구 사양을 채우는 후보를 먼저 고른다 — 여기 왔으면 그런 후보가 카탈로그에 없다
+        word = "위" if direction == "up" else "아래"
+        lines.insert(0, f"이 견적의 요구 사양을 채우는 한 단계 {word} {slot}는 카탈로그에 없어, 가장 가까운 후보로 계산함:")
     if verdict == "Fail":
         lines.append(f"⚠ 이 견적의 요구 사양을 못 채움: {_reason_text(reasons)}")
     elif verdict == "Pending":
@@ -269,7 +283,21 @@ def check_build(conn, revision_id: UUID) -> str:
     if not rows:
         return "점검할 부품이 없습니다."
     mark = {"ok": "통과", "fail": "⚠ 문제", "unknown": "스펙 정보 없어 확인 못 함"}
-    return "\n".join(f"- {r['label']}: {mark.get(r['state'], r['state'])} — {r['detail']}" for r in rows)
+    lines = [f"- {r['label']}: {mark.get(r['state'], r['state'])} — {r['detail']}" for r in rows]
+    # "CPU가 그래픽카드 발목 잡지 않아?" — 병목을 fps 로 계산하지는 않는다. 추천 엔진이 쓰는 용도별 기준 등급과
+    # 지금 등급을 나란히 보여 줄 뿐이다(어느 쪽이 기준에 못 미치는지).
+    ideals = _ideal_tiers(ctx)
+    tiers = []
+    for slot in ("CPU", "GPU"):
+        row = ctx.row(slot)
+        cand = ctx.by_variant.get(str(row["variant_id"])) if row else None
+        tier = _metric(slot, cand.specs) if cand is not None else None
+        if tier is not None and slot in ideals:
+            tiers.append(f"{slot} {tier:g}(기준 {ideals[slot]:g}{', 못 미침' if tier < ideals[slot] else ''})")
+    if tiers:
+        lines.append("- 성능 등급과 이 용도 기준 등급: " + " · ".join(tiers)
+                     + " — 병목(fps)은 계산하지 않고 등급만 비교")
+    return "\n".join(lines)
 
 
 # ── 3. 남은 돈으로 올릴 수 있는 것 ───────────────────────────────────────────

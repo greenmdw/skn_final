@@ -128,6 +128,7 @@ def test_rule_path_answers_questions_without_changing_the_build(conn):
 
     power = recommendation_service.handle_result_message(conn, revision_id, "파워 용량 충분해?")
     assert "파워 용량" in power["reply"]
+    assert "성능 등급과 이 용도 기준 등급: CPU" in power["reply"]          # 병목 질문의 근거 — 등급만, fps 아님
 
     game = recommendation_service.handle_result_message(conn, revision_id, "배그 돌아가?")
     assert "배틀그라운드" in game["reply"]
@@ -136,3 +137,19 @@ def test_rule_path_answers_questions_without_changing_the_build(conn):
     # 바꾸라는 말은 예전처럼 바꾼다
     done = recommendation_service.handle_result_message(conn, revision_id, "그래픽카드를 더 저렴한 걸로 바꿔줘")
     assert "바꿨어요" in done["reply"] and _snapshot(conn, revision_id) != before
+
+
+def test_step_down_prefers_parts_that_still_meet_the_requirement(conn):
+    """"파워 더 싼 걸로"가 요구 용량·효율을 못 채우는 파워를 고르던 것 — 채우는 후보가 있으면 그 안에서 고른다."""
+    revision_id = _build(conn)
+    ctx = result_advice._context(conn, revision_id)
+    cheaper_ok = [c for c in ctx.pool["파워"] if c.price < ctx.row("파워")["price"]
+                  and result_advice._requirement_verdict(ctx, "파워", c)[0] != "Fail"
+                  and not result_advice._new_failures(ctx, "파워", c)]
+    cand = result_advice.step_candidate(ctx, "파워", "down")
+    out = result_advice.preview_swap(conn, revision_id, "파워", direction="down")
+    if cheaper_ok:
+        assert cand.variant_id == max(cheaper_ok, key=lambda c: c.price).variant_id
+        assert "요구 사양을 못 채움" not in out
+    elif cand is not None:                      # 채우는 후보가 없으면 그 사실을 먼저 밝힌다
+        assert out.startswith("이 견적의 요구 사양을 채우는 한 단계 아래 파워는 카탈로그에 없어") and "⚠" in out
