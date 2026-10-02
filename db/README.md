@@ -87,6 +87,8 @@ Stage 4 PC 랭킹은 요청 후보 전체의 등록 규칙과 관측/member 커�
 
 `stage3b_rank.run`은 DB를 직접 열지 않는 순수 랭커입니다. 런타임 오케스트레이션은 `require_review_details=True`로 호출해 모든 후보의 주입 누락을 거부합니다. 순수 점수 단위 테스트에서만 상세 미주입 시 중립값을 쓸 수 있습니다. Stage 5는 rank에 보존된 동일 snapshot에서 요청 프로필, R/Q/α, 관측 수와 실제 member ID를 설명·trace에 전달하며 DB를 재조회하지 않습니다. 균형 관측, 혼합 관측만 있음, 관측 없음, 선택 규칙 없음, 식별자 없음은 별도 상태로 표시합니다. 주변기기 요청도 요청 종류의 후보만 공통 scorer에 전달하고 R과 근거를 선택품 및 대안에 보존하지만 외부 리뷰 가중치는 0이며 프로필을 run에 따로 저장하지 않습니다. 전역 완전성 manifest 부재에 따른 readiness 범위 제한은 계속 적용됩니다.
 
+Stage 6은 격리된 자동 test DB에서 문서·관측 fixture를 넣고 실제 집계 rebuild → 단일 snapshot 조회 → PC 공통 랭킹 → Stage 5 설명·trace까지 연결해 검증합니다. 별도 주변기기 케이스는 seeded DB 후보의 fixture 관측을 공통 scorer·랭킹·typed payload에 연결해 확인합니다. fixture는 고유 분석 버전/ID를 쓰며 rule 기준 cleanup을 수행하고, 개발 DB `truefit`에는 fixture를 쓰거나 실제 집계를 적용하지 않습니다.
+
 ## AWS 호환 원칙 (반영됨)
 
 - `gen_random_uuid()` = PG13+ 코어 → `pgcrypto` 불필요
