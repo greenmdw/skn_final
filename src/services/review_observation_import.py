@@ -43,7 +43,8 @@ class Output(Contract):
     results: list[Result]
 
 
-Part = Literal["gpu", "cpu", "cooler", "mainboard", "ram", "ssd", "case", "psu"]
+Part = Literal["gpu", "cpu", "cooler", "mainboard", "ram", "ssd", "case", "psu",
+               "keyboard", "mouse", "monitor", "speaker"]
 
 
 class Rule(Contract):

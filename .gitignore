@@ -82,9 +82,8 @@ data/amazon23/
 data/reviews/*
 !data/reviews/README.md
 
-# 외부 후기 원문: 로컬 검토용이며 저장소에 넣지 않는다.
-/outputs/danawa_review_raw_*/
-/outputs/review_mix_final_*/
+# 실행 산출물: 로컬 보관용이며 저장소에 넣지 않는다.
+/outputs/
 
 # ── 지금 코드와 안 맞는 옛 기획/보고 문서 (로컬 보관용, git 추적 안 함) ──
 docs/history/*
