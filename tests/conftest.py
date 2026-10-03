@@ -183,7 +183,7 @@ _REVIEW_SUCCESS_MODULES = {
     'test_list_revisions_http', 'test_list_service', 'test_notification_acc02',
     'test_peripheral_line_confirm_http', 'test_peripherals_recommend_http',
     'test_pipeline_http_smoke', 'test_preference_signal', 'test_quote_apply',
-    'test_report_delete_rename_http', 'test_research_loop', 'test_result_interaction',
+    'test_report_delete_rename_http', 'test_research_loop', 'test_result_advice', 'test_result_interaction',
     'test_reverify_after_swap', 'test_revise_confirmed_report',
     'test_revision_from_old_report_http', 'test_session_resume_http',
     'test_upgrade_mode', 'test_upgrade_notes', 'test_upgrade_questions',
@@ -195,7 +195,15 @@ def recommendation_review_prerequisite(request):
     if request.module.__name__.rsplit('.', 1)[-1] not in _REVIEW_SUCCESS_MODULES:
         yield
         return
+    # 이 목록의 모듈엔 DB가 필요 없는 순수 단위 테스트도 섞여 있다(예: test_alternatives_compat.py의
+    # 폼팩터 이름 정규화 테스트) — DATABASE_URL이 없는 "빠른 테스트" 모드(AGENTS.md)에서도 모듈
+    # 전체가 import·수집되므로, 여기서 바로 KeyError로 죽이지 않고 그 모듈의 DB 의존 테스트만
+    # 알아서 스킵되게 둔다(각 테스트의 pytest.mark.db/skipif가 담당).
+    dsn = os.environ.get('DATABASE_URL')
+    if not dsn:
+        yield
+        return
     from review_ranking_seed import neutral_review_prerequisite
 
-    with neutral_review_prerequisite(os.environ['DATABASE_URL']):
+    with neutral_review_prerequisite(dsn):
         yield

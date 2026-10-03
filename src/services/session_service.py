@@ -351,7 +351,7 @@ def handle_message(
             turn = conditions_agent.run_turn(
                 category, cat_def, values, history, text,
                 missing_fn=lambda v: compute_missing(cat_def, v),
-                next_question_fn=lambda v: _next_question(cat_def, v))
+                next_question_fn=lambda v: _next_question(cat_def, v), conn=conn)
             extracted, reply = turn.patches, turn.reply
             log.info("conditions agent [%s]: %s", list_id, " | ".join(turn.trace) or "(도구 호출 없음)")
             apply_explicit_preference_patches(conn, principal.user_id, turn.preference_patches)

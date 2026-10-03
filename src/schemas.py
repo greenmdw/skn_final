@@ -508,6 +508,23 @@ class ReviewBriefOut(BaseModel):
     plain: ReviewPlainOut | None = None
 
 
+class RecommendationReviewOut(BaseModel):
+    """추천 당시 snapshot. 별점/리뷰 총수 및 설명 생성 상태와 독립적이다."""
+
+    status: Literal["ready", "unavailable", "failed"] = "unavailable"
+    reason: str | None = "snapshot_missing"
+    source_run_id: str | None = None
+    product_id: str | None = None
+    variant_id: str | None = None
+    selection_source: Literal["automatic", "user_swap", "alternative"] = "automatic"
+    applied_to_ranking: bool = False
+    request_conditions: dict[str, Any] = Field(default_factory=dict)
+    rank_weight: float | None = None
+    rank_contribution: float | None = None
+    rank_score: float | None = None
+    detail: ReviewScoreDetailDTO | None = None
+
+
 class ItemOut(BaseModel):
     item_id: str
     slot: str
@@ -520,6 +537,8 @@ class ItemOut(BaseModel):
     selected: bool = True
     budget_share: float | None = None
     review: ReviewBriefOut | None = None
+    review_detail: RecommendationReviewOut = Field(default_factory=RecommendationReviewOut)
+    original_review_detail: RecommendationReviewOut | None = None
     reason: TextStatusOut
     checks: TextStatusOut
     alternatives_count: int = 0
@@ -557,6 +576,7 @@ class AlternativeOut(BaseModel):
     price: int
     price_delta: int
     review: ReviewBriefOut | None = None
+    review_detail: RecommendationReviewOut = Field(default_factory=RecommendationReviewOut)
 
 
 class AlternativesOut(BaseModel):
@@ -786,6 +806,8 @@ class ReportItemOut(BaseModel):
     price: int            # 단가 — 줄 금액은 price × qty
     qty: int = 1
     review: ReviewBriefOut | None = None
+    review_detail: RecommendationReviewOut = Field(default_factory=RecommendationReviewOut)
+    original_review_detail: RecommendationReviewOut | None = None
     evidence_text: str | None = None
 
 

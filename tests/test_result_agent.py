@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import pytest
+
 from src.agent import result_agent as ra
 
 
@@ -69,16 +71,73 @@ def test_system_prompt_carries_table_reasons_budget_and_language():
     assert "예산 상한: 1,500,000원 · 총액: 780,000원 · 잔여: 720,000원" in p
     assert "[power] ok (근사)" in p
     assert "미리 조회한 근거" in p and "\nPRE" in p
-    assert p.endswith("답변 언어: 한국어 존댓말.")
+    assert "답변 언어: 한국어 존댓말." in p and "마크다운" in p.splitlines()[-1]
     assert "미리 조회한 근거" not in ra.system_prompt(r, "swap the gpu", [])
 
 
-def test_strands_registers_five_tools():
+def test_strands_registers_change_and_question_tools():
     tools = ra.make_tools(_session())
     assert [t.tool_name for t in tools] == [
-        "list_alternatives", "swap", "set_qty", "remove_or_restore", "explain"]
+        "list_alternatives", "swap", "set_qty", "remove_or_restore", "explain",
+        "preview_swap", "upgrade_options", "savings_options", "check_build", "game_check",
+        "search_unavailable_part"]
     swap_spec = next(t for t in tools if t.tool_name == "swap").tool_spec
     assert set(swap_spec["inputSchema"]["json"]["required"]) == {"slot", "candidate_id"}
+
+
+# ── DB 미보유 부품 실시간 검색 — 동의 확인은 코드가 정한다 ──────────────────────────
+def test_search_confirmed_requires_both_marker_and_affirmation():
+    marker_reply = f"RTX 6090은 저희 DB에 없는 상품으로 확인됩니다. {ra._SEARCH_PERMISSION_MARKER}"
+    assert ra._search_confirmed([("RTX 6090으로 바꿔줘", marker_reply)], "응") is True
+    assert ra._search_confirmed([("RTX 6090으로 바꿔줘", marker_reply)], "아니 됐어") is False
+    assert ra._search_confirmed([("아무 말", "그냥 평범한 답변")], "응") is False  # 마커 없으면 동의로 안 침
+    assert ra._search_confirmed([], "응") is False
+
+
+def test_search_unavailable_part_found_in_catalog_tells_agent_not_missing(monkeypatch):
+    from src.dto import Candidate
+
+    s = _session()
+    found = Candidate(product_key="k", slot="GPU", name="NVIDIA GeForce RTX 5090")
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": [found]})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: pool)
+
+    out = s.search_unavailable_part("GPU", "RTX 5090")
+    assert "실제로 카탈로그에 있습니다" in out
+    assert "RTX 5090" in out or "5090" in out
+
+
+def test_search_unavailable_part_not_confirmed_asks_permission_without_calling_lookup(monkeypatch):
+    def boom(*_a, **_kw):
+        raise AssertionError("동의 전인데 실시간 검색이 호출됨")
+
+    s = _session()
+    assert s.search_confirmed is False
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": []})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: [])
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", boom)
+    monkeypatch.setattr("src.services.live_spec_lookup.available", lambda: True)
+
+    out = s.search_unavailable_part("GPU", "RTX 6090")
+    assert ra._SEARCH_PERMISSION_MARKER in out
+    assert "DB에 없는 상품" in out
+
+
+def test_search_unavailable_part_confirmed_calls_lookup_and_adds_disclaimer(monkeypatch):
+    from src.services.live_spec_lookup import LiveSpecLookupResult
+
+    s = _session()
+    s.search_confirmed = True
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": []})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: [])
+    monkeypatch.setattr("src.services.live_spec_lookup.available", lambda: True)
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", lambda conn, text, **kw: LiveSpecLookupResult.model_validate(
+        {"relevant": True, "supported_fields": {"interface": "PCIe 5.0"}, "source_url": "https://example.com/rtx6090"}))
+
+    out = s.search_unavailable_part("GPU", "RTX 6090")
+    assert "PCIe 5.0" in out
+    assert "example.com/rtx6090" in out
+    assert "카탈로그 정식 등재 값이 아니" in out
 
 
 def test_unavailable_under_mock_mode(monkeypatch):
@@ -106,10 +165,91 @@ def test_reply_within_accepts_input_numbers_and_rejects_invented():
 def test_guarded_reply_prefers_changes_then_prefetched_then_template():
     s = _session()
     s.changed = True
-    s.trace = ["prefetch:explain('CPU') → …", "set_qty('저장장치', '2') → 저장장치: selected=True qty=2 · 총액 780,000원 · 예산 잔여 720,000원"]
+    s.trace = ["prefetch:explain('CPU') → …", "list_alternatives('CPU') → CPU 현재: X\n1. candidate_id=abc",
+               "set_item('저장장치', selected='', qty='2') → 저장장치: selected=True qty=2 · 총액 780,000원 · 예산 잔여 720,000원"]
     out = ra._guarded_reply(s, "")
     assert out.startswith("적용된 변경: 저장장치: selected=True qty=2") and "총액 780,000원" in out
+    assert "candidate_id" not in out          # 후보 목록 조회는 '적용된 변경'이 아니다
     s2 = _session()
     assert ra._guarded_reply(s2, "CPU X 255,000원\n저장된 추천 이유: …") == "CPU X 255,000원 저장된 추천 이유: …"
     assert ra._guarded_reply(_session(), "").startswith("구성표 기준으로만 답할 수 있어요")
 
+
+
+# ── 묻는 말 (2026-10-02) ───────────────────────────────────────────────────
+_ASK = ("CPU 더 성능 좋은 걸로 바꿔도 문제없을까?", "램 32기가로 늘려도 돼?", "그래픽카드 올려도 괜찮아?",
+        "그래픽카드 더 좋은 걸로 바꾸면 어때?", "파워 이걸로 바꾸면 될까?", "CPU 바꿔도 되나요", "CPU 바꿀까?",
+        "그래픽카드 한 단계 올리면 파워는 괜찮아?",
+        # 실제 말투 (2026-10-02 — 예전 정규식은 이 7개 중 1개만 잡았다)
+        "글카 갈아타도됨?", "cpu 7600x로 가면 괜찮음?", "램 32로 ㄱㄱ?", "그래픽 올리는거 어케생각함",
+        "파워 바꾸는거 ㄱㅊ?", "씨퓨 업글 해도 무방?", "SSD 1테라 더 달아도 됨")
+_CHANGE = ("CPU 한 단계 좋은 걸로 바꿔줘", "그래픽카드도 바꿔줘", "SSD 2개로", "SSD 2개로 해줘", "쿨러 빼줘",
+           "그래픽카드 더 싼 걸로 바꿔줄래?", "응 그걸로 바꿔줘", "ㅇㅇ", "응", "네", "7600X로", "그걸로 ㄱㄱ",
+           "예산 200만원으로 늘려줘", "그래픽카드 더 저렴한 걸로", "글카 4060ti로 바꿔주세요", "글카 한단계 위로 바꿔주셈")
+_OTHER = ("돈 남았는데 바꿀 거 추천해 줄 수 있나?", "왜 이 그래픽카드 골랐어?", "이 구성 괜찮아?", "파워 용량 충분해?",
+          "이 글카 ㄱㅊ?", "쿨러 꼭 사야 돼?", "인텔이랑 AMD 차이가 뭐야?", "남는돈으로 머 올리지")
+
+
+@pytest.mark.parametrize("text", _ASK)
+def test_classify_ask(text):
+    assert ra.classify_intent(text) == "ask"
+
+
+@pytest.mark.parametrize("text", _CHANGE)
+def test_classify_change(text):
+    assert ra.classify_intent(text) == "change"
+
+
+@pytest.mark.parametrize("text", _OTHER)
+def test_classify_other_does_not_open_write_tools(text):
+    """바꾸라는 말이 아니면(묻는 말이든 다른 말이든) 바꾸는 도구가 닫힌다 — 허용 목록."""
+    assert ra.classify_intent(text) == "other"
+
+
+def test_read_only_turn_refuses_writes_without_touching_db():
+    """"램 32기가로 늘려도 돼?"에 모델이 set_qty 를 불러 수량을 2로 바꾸던 문제 — 묻는 말이면 코드가 막는다."""
+    s = _session()
+    s.read_only = True                        # conn=None — DB 에 닿으면 터진다
+    assert s.set_item("RAM", qty="2").startswith("거절")
+    assert s.swap("GPU", str(uuid4())).startswith("거절")
+    assert not s.changed and len(s.outputs) == 2
+
+
+def test_whatif_question_skips_why_prefetch(monkeypatch):
+    s = _session()
+    monkeypatch.setattr(ra.ResultSession, "explain", lambda self, slot: f"EXPLAIN[{slot}]")
+    assert ra._prefetch_explanations(s, "그래픽카드 올려도 괜찮아?") == ""
+
+
+def test_guard_sources_are_full_tool_outputs_not_trimmed_trace():
+    """trace 는 160자로 잘린다 — 가드가 trace 를 보면 긴 후보 목록의 뒤쪽 가격을 '지어낸 숫자'로 버렸다(실측)."""
+    s = _session()
+    long_out = "후보:\n" + "\n".join(f"{i}. 제품{i} · {100_000 + i * 1_111:,}원" for i in range(1, 20))
+    s._record("list_alternatives('CPU')", long_out)
+    assert "119,998" not in s.trace[0] and "119,998" in s.outputs[0]
+    ok, _ = ra._reply_within("제품18은 119,998원입니다.", [*s.outputs])
+    assert ok
+
+
+def test_guarded_reply_falls_back_to_question_tool_output_without_ids():
+    s = _session()
+    s._record("upgrade_options(extra='', new_budget='')",
+              "- CPU: 지금 X\n    · 한 단계 위: Y 279,000원 (추가 57,250원) · candidate_id=514d34f7-438a-49b5-b902-5c30a7021058")
+    out = ra._guarded_reply(s, "")
+    assert "한 단계 위: Y 279,000원 (추가 57,250원)" in out and "candidate_id" not in out
+
+
+def test_reply_within_accepts_fraction_as_percent():
+    ok, _ = ra._reply_within("230W가 675W(750W의 90%) 이내입니다.", ["230W ≤ 파워 750W × 0.9 = 675W"])
+    assert ok
+
+
+def test_prefetch_skips_words_that_point_at_no_part():
+    """"오늘 날씨 어때?"의 '어때'로 부품 8개 근거를 다 조회하던 것 — 부품도 구성 전체도 가리키지 않으면 조회하지 않는다."""
+    s = _session()
+    assert ra._prefetch_explanations(s, "오늘 날씨 어때?") == ""
+
+
+def test_highest_price_word_is_not_evaluative():
+    assert ra.evaluative_words("각 슬롯의 최고가 후보로 바꿨습니다") == []
+    assert ra.evaluative_words("최고의 선택입니다") == ["최고"]

@@ -322,6 +322,8 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
             "slot": row["slot"], "slot_label": (item_view or {}).get("slot_label") or row["slot_label"],  # 결과 화면과 같은 언어
             "qty": qty, "timing": row["timing"] or "now",
             "review": review_by_item_id.get(str(row["id"])), "evidence_text": row["reason"] or "",
+            "review_detail": (item_view or {}).get("review_detail"),
+            "original_review_detail": (item_view or {}).get("original_review_detail"),
             "product": {
                 "product_key": (item_view or {}).get("product", {}).get("product_key") or row["product_key"],
                 "name": row["product_name"],
@@ -368,6 +370,8 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
             # price 는 단가(화면이 × qty 한다). line_amount 는 줄 합계라 수량으로 나눈다 — 수량이 1 이던 예전 확정본은 그대로다.
             "price": int(line["line_amount"]) // max(int(line["pack_count"]), 1), "qty": int(line["pack_count"]),
             "timing": snapshot.get("timing", "now"), "review": snapshot.get("review"),
+            "review_detail": snapshot.get("review_detail") or {"status": "unavailable", "reason": "snapshot_missing"},
+            "original_review_detail": snapshot.get("original_review_detail"),
             "evidence_text": snapshot.get("evidence_text", "") or "",
         })
     peripherals = []

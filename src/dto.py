@@ -111,6 +111,7 @@ class ReviewScoreDetail(BaseModel):
     value: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
     contributions: list[ReviewAspectContribution] = Field(default_factory=list)
     diagnostics: list[str] = Field(default_factory=list)
+    readiness: dict[str, Any] = Field(default_factory=dict)
 
 
 # ── [3-0]~[3-B] 후보 ────────────────────────────────────────────────────

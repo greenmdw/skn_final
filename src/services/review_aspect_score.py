@@ -232,6 +232,7 @@ def calculate_review_score(
         raise ReviewProfileConfigurationError("review score is outside [0,1]")
     return ReviewScoreDetail(
         profile=profile, value=value, contributions=contributions, diagnostics=diagnostics,
+        readiness=dict(snapshot.get("readiness") or {}),
     )
 
 

@@ -177,6 +177,8 @@ export interface ReviewRow {
   matchedNote: string
   state: 'ok' | 'warn'
   stateLabel: string
+  /** state(ok/warn)보다 세분화된 값 — unmatched일 때만 실시간 검색 버튼을 보여준다. */
+  matchStatus: 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'
 }
 
 export interface CheckDraft {

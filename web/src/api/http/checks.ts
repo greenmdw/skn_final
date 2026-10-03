@@ -3,7 +3,7 @@ import { ApiError } from '../types'
 import { request } from './client'
 import { plans } from './plans'
 import { backendSlotFromRowPart, reviewRowsFromWire, suggestionFromPlan } from './mapping'
-import type { WireOwnedPartsPreviewOut, WireQuoteApply, WireQuoteChatHistory, WireQuoteChatOut, WireQuotePartCompare, WireQuoteReview } from './wire'
+import type { WireLiveSpecLookup, WireOwnedPartsPreviewOut, WireQuoteApply, WireQuoteChatHistory, WireQuoteChatOut, WireQuotePartCompare, WireQuoteReview } from './wire'
 
 function translatedSpecs(currentSpecs?: Record<string, string>): Record<string, string> {
   const translated: Record<string, string> = {}
@@ -104,6 +104,10 @@ export const checks: Api['checks'] = {
         compatChanges: candidate.compat_changes, review: candidate.review,
       })),
     }
+  },
+  async liveLookupPart(listId, slot) {
+    const result = await request<WireLiveSpecLookup>('POST', `/pc/reviews/${encodeURIComponent(listId)}/parts/${encodeURIComponent(slot)}/live-lookup`)
+    return { slot: result.slot, query: result.query, relevant: result.relevant, supportedFields: result.supported_fields, sourceUrl: result.source_url }
   },
   async sendMessage(listId, text) {
     return request<WireQuoteChatOut>('POST', `/pc/reviews/${encodeURIComponent(listId)}/messages`, { text })
