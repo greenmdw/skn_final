@@ -202,3 +202,25 @@ export interface WireAlternative {
   price_delta: number
   review: WireReview | null
 }
+
+// ---- 주변기기 추천 (POST /session/{id}/peripherals/recommend) ----
+export interface WirePeripheralText { status: string; text: string | null }
+export interface WirePeripheralItem {
+  kind: 'monitor' | 'keyboard' | 'mouse' | 'speaker'
+  kind_label: string
+  product: { name: string; brand: string; variant_id: string | null; product_url: string | null; image_url: string | null }
+  price: number
+  price_source: string
+  price_note: string
+  requirement: { key: string; label: string; value: string }[]
+  checks: { axis: string; label: string; state: string; detail: string }[]
+  reason: WirePeripheralText
+  alternatives: { name: string; price: number; diff: number }[]
+  guide: WirePeripheralText
+}
+export interface WirePeripherals {
+  status: 'ready' | 'empty' | 'skipped'
+  items: WirePeripheralItem[]
+  empty: { kind: string; reason: string }[]
+  totals: { reference_price: number; note: string }
+}

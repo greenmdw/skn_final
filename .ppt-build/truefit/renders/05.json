@@ -1,0 +1,1040 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/uyamu6",
+    "id": "uyamu6",
+    "slide": 5,
+    "layoutId": "eee2c25d-dc0f-4c7d-908d-35b8b72a5bb6",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "6c9fb4cd-9ad7-478b-a40d-864397500637",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#FFFFFF",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Malgun Gothic"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "eee2c25d-dc0f-4c7d-908d-35b8b72a5bb6",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "6c9fb4cd-9ad7-478b-a40d-864397500637",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "6c9fb4cd-9ad7-478b-a40d-864397500637",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/ze10jyxg",
+      "id": "1",
+      "name": "text-39",
+      "bbox": [
+        64,
+        47,
+        1150,
+        59
+      ],
+      "geometry": "rect",
+      "text": "하나로 연결된 구매 여정",
+      "textPreview": "하나로 연결된 구매 여정",
+      "resolvedFontSize": 36,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 36,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "하나로 연결된 구매 여정"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "하나로 연결된 구매 여정",
+          "resolvedTextStyle": {
+            "fontSize": 36,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "하나로 연결된 구매 여정",
+              "fontSize": 36,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/0fa1c3yl",
+      "id": "2",
+      "name": "text-40",
+      "bbox": [
+        66,
+        116,
+        1140,
+        35
+      ],
+      "geometry": "rect",
+      "text": "조건을 말하고, 추천의 이유를 확인하며, 원하는 구성으로 수정합니다",
+      "textPreview": "조건을 말하고, 추천의 이유를 확인하며, 원하는 구성으로 수정합니다",
+      "resolvedFontSize": 20,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 20,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "조건을 말하고, 추천의 이유를 확인하며, 원하는 구성으로 수정합니다"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "조건을 말하고, 추천의 이유를 확인하며, 원하는 구성으로 수정합니다",
+          "resolvedTextStyle": {
+            "fontSize": 20,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "조건을 말하고, 추천의 이유를 확인하며, 원하는 구성으로 수정합니다",
+              "fontSize": 20,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/lgjil8f6",
+      "id": "3",
+      "bbox": [
+        64,
+        668,
+        1152,
+        0
+      ],
+      "geometry": "line",
+      "lineColor": "#DDE2EA",
+      "lineWidth": 1
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/mhsjedgr",
+      "id": "4",
+      "name": "text-41",
+      "bbox": [
+        64,
+        683,
+        140,
+        20
+      ],
+      "geometry": "rect",
+      "text": "TrueFit",
+      "textPreview": "TrueFit",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 13,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "TrueFit"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "TrueFit",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "TrueFit",
+              "fontSize": 13,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/n2l0nixc",
+      "id": "5",
+      "name": "text-42",
+      "bbox": [
+        1170,
+        681,
+        44,
+        22
+      ],
+      "geometry": "rect",
+      "text": "05",
+      "textPreview": "05",
+      "resolvedFontSize": 15,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 15,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "05"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "05",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "05",
+              "fontSize": 15,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "image",
+      "scope": "slide",
+      "aid": "im/9kze98bu",
+      "id": "6",
+      "bbox": [
+        430,
+        196,
+        786,
+        418
+      ],
+      "alt": "plan.png",
+      "contentType": "image/jpeg",
+      "imageCrop": {
+        "left": 0.3,
+        "top": 0.085,
+        "right": 0.02,
+        "bottom": 0.02
+      },
+      "imageFit": "contain",
+      "asset": {
+        "assetId": "70f65ee4-818e-424b-88c4-a6c23277c914",
+        "contentType": "image/jpeg",
+        "byteLength": 73442
+      }
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/9432psfi",
+      "id": "7",
+      "name": "text-43",
+      "bbox": [
+        64,
+        201,
+        40,
+        35
+      ],
+      "geometry": "rect",
+      "text": "01",
+      "textPreview": "01",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "Malgun Gothic",
+        "color": "#244BC4",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "01"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "01",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "typeface": "Malgun Gothic",
+            "color": "#244BC4",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "01",
+              "fontSize": 21,
+              "typeface": "Malgun Gothic",
+              "color": "#244BC4",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 8,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/2l8j2tgn",
+      "id": "8",
+      "name": "text-44",
+      "bbox": [
+        116,
+        201,
+        288,
+        37
+      ],
+      "geometry": "rect",
+      "text": "조건 입력",
+      "textPreview": "조건 입력",
+      "resolvedFontSize": 24,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 24,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "조건 입력"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "조건 입력",
+          "resolvedTextStyle": {
+            "fontSize": 24,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "조건 입력",
+              "fontSize": 24,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 9,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/3mh0bex8",
+      "id": "9",
+      "name": "text-45",
+      "bbox": [
+        116,
+        246,
+        288,
+        67
+      ],
+      "geometry": "rect",
+      "text": "용도·예산·우선순위를 대화로 정리",
+      "textPreview": "용도·예산·우선순위를 대화로 정리",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "용도·예산·우선순위를 대화로"
+          },
+          {
+            "index": 2,
+            "text": "정리"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "용도·예산·우선순위를 대화로 정리",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "용도·예산·우선순위를 대화로 정리",
+              "fontSize": 21,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 10,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/3ixkz6pw",
+      "id": "10",
+      "name": "text-46",
+      "bbox": [
+        64,
+        349,
+        40,
+        35
+      ],
+      "geometry": "rect",
+      "text": "02",
+      "textPreview": "02",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "Malgun Gothic",
+        "color": "#244BC4",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "02"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "02",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "typeface": "Malgun Gothic",
+            "color": "#244BC4",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "02",
+              "fontSize": 21,
+              "typeface": "Malgun Gothic",
+              "color": "#244BC4",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 11,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/2ho3618b",
+      "id": "11",
+      "name": "text-47",
+      "bbox": [
+        116,
+        349,
+        288,
+        37
+      ],
+      "geometry": "rect",
+      "text": "비교와 교체",
+      "textPreview": "비교와 교체",
+      "resolvedFontSize": 24,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 24,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "비교와 교체"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "비교와 교체",
+          "resolvedTextStyle": {
+            "fontSize": 24,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "비교와 교체",
+              "fontSize": 24,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 12,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/pkf21g7m",
+      "id": "12",
+      "name": "text-48",
+      "bbox": [
+        116,
+        394,
+        288,
+        67
+      ],
+      "geometry": "rect",
+      "text": "추천 이유 확인 후 대안으로 변경",
+      "textPreview": "추천 이유 확인 후 대안으로 변경",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "추천 이유 확인 후 대안으로"
+          },
+          {
+            "index": 2,
+            "text": "변경"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "추천 이유 확인 후 대안으로 변경",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "추천 이유 확인 후 대안으로 변경",
+              "fontSize": 21,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 13,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/oj6l8bqh",
+      "id": "13",
+      "name": "text-49",
+      "bbox": [
+        64,
+        497,
+        40,
+        35
+      ],
+      "geometry": "rect",
+      "text": "03",
+      "textPreview": "03",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "Malgun Gothic",
+        "color": "#244BC4",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "03"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "03",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "typeface": "Malgun Gothic",
+            "color": "#244BC4",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "03",
+              "fontSize": 21,
+              "typeface": "Malgun Gothic",
+              "color": "#244BC4",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 14,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/fedkv6pk",
+      "id": "14",
+      "name": "text-50",
+      "bbox": [
+        116,
+        497,
+        288,
+        37
+      ],
+      "geometry": "rect",
+      "text": "구매 이후 연결",
+      "textPreview": "구매 이후 연결",
+      "resolvedFontSize": 24,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 24,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "구매 이후 연결"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "구매 이후 연결",
+          "resolvedTextStyle": {
+            "fontSize": 24,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "구매 이후 연결",
+              "fontSize": 24,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 15,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/ut43218z",
+      "id": "15",
+      "name": "text-51",
+      "bbox": [
+        116,
+        542,
+        288,
+        67
+      ],
+      "geometry": "rect",
+      "text": "리포트·조립 가이드와 제품 리뷰",
+      "textPreview": "리포트·조립 가이드와 제품 리뷰",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "리포트·조립 가이드와 제품"
+          },
+          {
+            "index": 2,
+            "text": "리뷰"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "리포트·조립 가이드와 제품 리뷰",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "리포트·조립 가이드와 제품 리뷰",
+              "fontSize": 21,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 16,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/1gf2xw7q",
+      "id": "16",
+      "name": "text-52",
+      "bbox": [
+        777,
+        633,
+        437,
+        22
+      ],
+      "geometry": "rect",
+      "text": "목업 화면 · 가격·리뷰 수는 시연용 예시",
+      "textPreview": "목업 화면 · 가격·리뷰 수는 시연용 예시",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 13,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "목업 화면 · 가격·리뷰 수는 시연용 예시"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "목업 화면 · 가격·리뷰 수는 시연용 예시",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "목업 화면 · 가격·리뷰 수는 시연용 예시",
+              "fontSize": 13,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

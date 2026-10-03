@@ -1,0 +1,473 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/qjln4u",
+    "id": "qjln4u",
+    "slide": 1,
+    "layoutId": "eee2c25d-dc0f-4c7d-908d-35b8b72a5bb6",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "6c9fb4cd-9ad7-478b-a40d-864397500637",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#FFFFFF",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Malgun Gothic"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "eee2c25d-dc0f-4c7d-908d-35b8b72a5bb6",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "6c9fb4cd-9ad7-478b-a40d-864397500637",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "6c9fb4cd-9ad7-478b-a40d-864397500637",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "image",
+      "scope": "slide",
+      "aid": "im/x8jyxgjm",
+      "id": "1",
+      "bbox": [
+        555,
+        0,
+        725,
+        720
+      ],
+      "alt": "truefit-hero.png",
+      "contentType": "image/png",
+      "imageCrop": {
+        "left": 0.34,
+        "top": 0,
+        "right": 0,
+        "bottom": 0
+      },
+      "imageFit": "contain",
+      "asset": {
+        "assetId": "c3e23743-a28f-4235-9201-7039806f5f1e",
+        "contentType": "image/png",
+        "byteLength": 1788343
+      }
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/jup8nahc",
+      "id": "2",
+      "name": "text-1",
+      "bbox": [
+        64,
+        162,
+        490,
+        83
+      ],
+      "geometry": "rect",
+      "text": "TrueFit",
+      "textPreview": "TrueFit",
+      "resolvedFontSize": 64,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 64,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "TrueFit"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "TrueFit",
+          "resolvedTextStyle": {
+            "fontSize": 64,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "TrueFit",
+              "fontSize": 64,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/itgrup0r",
+      "id": "3",
+      "name": "text-2",
+      "bbox": [
+        66,
+        264,
+        460,
+        125
+      ],
+      "geometry": "rect",
+      "text": "사양과 사용 경험을\n함께 반영하는\nPC 구매설계 플랫폼",
+      "textPreview": "사양과 사용 경험을 | 함께 반영하는 | PC 구매설계 플랫폼",
+      "resolvedFontSize": 30,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 30,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 3,
+        "lines": [
+          {
+            "index": 1,
+            "text": "사양과 사용 경험을"
+          },
+          {
+            "index": 2,
+            "text": "함께 반영하는"
+          },
+          {
+            "index": 3,
+            "text": "PC 구매설계 플랫폼"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "사양과 사용 경험을",
+          "resolvedTextStyle": {
+            "fontSize": 30,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "사양과 사용 경험을",
+              "fontSize": 30,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "함께 반영하는",
+          "resolvedTextStyle": {
+            "fontSize": 30,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "함께 반영하는",
+              "fontSize": 30,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "PC 구매설계 플랫폼",
+          "resolvedTextStyle": {
+            "fontSize": 30,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "PC 구매설계 플랫폼",
+              "fontSize": 30,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/t0rqt4ze",
+      "id": "4",
+      "name": "text-3",
+      "bbox": [
+        68,
+        412,
+        422,
+        114
+      ],
+      "geometry": "rect",
+      "text": "나의 목적에 맞는 구성\n근거를 확인하는 추천\n사용 경험이 쌓이는 리뷰",
+      "textPreview": "나의 목적에 맞는 구성 | 근거를 확인하는 추천 | 사용 경험이 쌓이는 리뷰",
+      "resolvedFontSize": 23,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 23,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 3,
+        "lines": [
+          {
+            "index": 1,
+            "text": "나의 목적에 맞는 구성"
+          },
+          {
+            "index": 2,
+            "text": "근거를 확인하는 추천"
+          },
+          {
+            "index": 3,
+            "text": "사용 경험이 쌓이는 리뷰"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "나의 목적에 맞는 구성",
+          "resolvedTextStyle": {
+            "fontSize": 23,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "나의 목적에 맞는 구성",
+              "fontSize": 23,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "근거를 확인하는 추천",
+          "resolvedTextStyle": {
+            "fontSize": 23,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "근거를 확인하는 추천",
+              "fontSize": 23,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "사용 경험이 쌓이는 리뷰",
+          "resolvedTextStyle": {
+            "fontSize": 23,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "사용 경험이 쌓이는 리뷰",
+              "fontSize": 23,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/szi90zit",
+      "id": "5",
+      "name": "text-4",
+      "bbox": [
+        68,
+        621,
+        454,
+        50
+      ],
+      "geometry": "rect",
+      "text": "2026 신격호 롯데 청년기업가대상\n① 유통·서비스 분야",
+      "textPreview": "2026 신격호 롯데 청년기업가대상 | ① 유통·서비스 분야",
+      "resolvedFontSize": 16,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 16,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 2,
+        "lines": [
+          {
+            "index": 1,
+            "text": "2026 신격호 롯데 청년기업가대상"
+          },
+          {
+            "index": 2,
+            "text": "① 유통·서비스 분야"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "2026 신격호 롯데 청년기업가대상",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "2026 신격호 롯데 청년기업가대상",
+              "fontSize": 16,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "① 유통·서비스 분야",
+          "resolvedTextStyle": {
+            "fontSize": 16,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "① 유통·서비스 분야",
+              "fontSize": 16,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

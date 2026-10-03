@@ -1,0 +1,1338 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/1ggcdz",
+    "id": "1ggcdz",
+    "slide": 11,
+    "layoutId": "eee2c25d-dc0f-4c7d-908d-35b8b72a5bb6",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "6c9fb4cd-9ad7-478b-a40d-864397500637",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#FFFFFF",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Malgun Gothic"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "eee2c25d-dc0f-4c7d-908d-35b8b72a5bb6",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "6c9fb4cd-9ad7-478b-a40d-864397500637",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "6c9fb4cd-9ad7-478b-a40d-864397500637",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/mton2lcf",
+      "id": "1",
+      "name": "text-125",
+      "bbox": [
+        64,
+        47,
+        1150,
+        59
+      ],
+      "geometry": "rect",
+      "text": "현재 개발 수준과 12개월 계획",
+      "textPreview": "현재 개발 수준과 12개월 계획",
+      "resolvedFontSize": 36,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 36,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "현재 개발 수준과 12개월 계획"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "현재 개발 수준과 12개월 계획",
+          "resolvedTextStyle": {
+            "fontSize": 36,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "현재 개발 수준과 12개월 계획",
+              "fontSize": 36,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/9wz6xgb6",
+      "id": "2",
+      "name": "text-126",
+      "bbox": [
+        66,
+        116,
+        1140,
+        35
+      ],
+      "geometry": "rect",
+      "text": "현재 구현한 PC 추천 흐름을 전체 서비스와 자체 리뷰로 확장",
+      "textPreview": "현재 구현한 PC 추천 흐름을 전체 서비스와 자체 리뷰로 확장",
+      "resolvedFontSize": 20,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 20,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "현재 구현한 PC 추천 흐름을 전체 서비스와 자체 리뷰로 확장"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "현재 구현한 PC 추천 흐름을 전체 서비스와 자체 리뷰로 확장",
+          "resolvedTextStyle": {
+            "fontSize": 20,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "현재 구현한 PC 추천 흐름을 전체 서비스와 자체 리뷰로 확장",
+              "fontSize": 20,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/ovq54vul",
+      "id": "3",
+      "bbox": [
+        64,
+        668,
+        1152,
+        0
+      ],
+      "geometry": "line",
+      "lineColor": "#DDE2EA",
+      "lineWidth": 1
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/zqxor6t4",
+      "id": "4",
+      "name": "text-127",
+      "bbox": [
+        64,
+        683,
+        140,
+        20
+      ],
+      "geometry": "rect",
+      "text": "TrueFit",
+      "textPreview": "TrueFit",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 13,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "TrueFit"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "TrueFit",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "TrueFit",
+              "fontSize": 13,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/epony1cj",
+      "id": "5",
+      "name": "text-128",
+      "bbox": [
+        1170,
+        681,
+        44,
+        22
+      ],
+      "geometry": "rect",
+      "text": "11",
+      "textPreview": "11",
+      "resolvedFontSize": 15,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 15,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "11"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "11",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "11",
+              "fontSize": 15,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/1sf6tgbu",
+      "id": "6",
+      "name": "text-129",
+      "bbox": [
+        64,
+        204,
+        285,
+        48
+      ],
+      "geometry": "rect",
+      "text": "현재 구현",
+      "textPreview": "현재 구현",
+      "resolvedFontSize": 28,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 28,
+        "typeface": "Malgun Gothic",
+        "color": "#244BC4",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "현재 구현"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "현재 구현",
+          "resolvedTextStyle": {
+            "fontSize": 28,
+            "typeface": "Malgun Gothic",
+            "color": "#244BC4",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "현재 구현",
+              "fontSize": 28,
+              "typeface": "Malgun Gothic",
+              "color": "#244BC4",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/0r650bu9",
+      "id": "7",
+      "name": "text-130",
+      "bbox": [
+        64,
+        277,
+        455,
+        119
+      ],
+      "geometry": "rect",
+      "text": "조건 대화·PC 추천\n부품 교체와 호환 검사\n장바구니·저장 리포트",
+      "textPreview": "조건 대화·PC 추천 | 부품 교체와 호환 검사 | 장바구니·저장 리포트",
+      "resolvedFontSize": 24,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 24,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 3,
+        "lines": [
+          {
+            "index": 1,
+            "text": "조건 대화·PC 추천"
+          },
+          {
+            "index": 2,
+            "text": "부품 교체와 호환 검사"
+          },
+          {
+            "index": 3,
+            "text": "장바구니·저장 리포트"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "조건 대화·PC 추천",
+          "resolvedTextStyle": {
+            "fontSize": 24,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "조건 대화·PC 추천",
+              "fontSize": 24,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 2,
+          "text": "부품 교체와 호환 검사",
+          "resolvedTextStyle": {
+            "fontSize": 24,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "부품 교체와 호환 검사",
+              "fontSize": 24,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24"
+            }
+          ],
+          "marginLeft": 0
+        },
+        {
+          "index": 3,
+          "text": "장바구니·저장 리포트",
+          "resolvedTextStyle": {
+            "fontSize": 24,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "장바구니·저장 리포트",
+              "fontSize": 24,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 8,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/rmdon6ts",
+      "id": "8",
+      "name": "text-131",
+      "bbox": [
+        64,
+        436,
+        470,
+        34
+      ],
+      "geometry": "rect",
+      "text": "React · FastAPI · PostgreSQL",
+      "textPreview": "React · FastAPI · PostgreSQL",
+      "resolvedFontSize": 20,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 20,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "React · FastAPI · PostgreSQL"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "React · FastAPI · PostgreSQL",
+          "resolvedTextStyle": {
+            "fontSize": 20,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "React · FastAPI · PostgreSQL",
+              "fontSize": 20,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 9,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/q14nu1c7",
+      "id": "9",
+      "name": "text-132",
+      "bbox": [
+        64,
+        486,
+        450,
+        30
+      ],
+      "geometry": "rect",
+      "text": "코드·문서 확인 기준",
+      "textPreview": "코드·문서 확인 기준",
+      "resolvedFontSize": 15,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 15,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "코드·문서 확인 기준"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "코드·문서 확인 기준",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "코드·문서 확인 기준",
+              "fontSize": 15,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 10,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/kjmh0jut",
+      "id": "10",
+      "name": "text-133",
+      "bbox": [
+        648,
+        198,
+        180,
+        33
+      ],
+      "geometry": "rect",
+      "text": "1–3개월",
+      "textPreview": "1–3개월",
+      "resolvedFontSize": 19,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 19,
+        "typeface": "Malgun Gothic",
+        "color": "#244BC4",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "1–3개월"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "1–3개월",
+          "resolvedTextStyle": {
+            "fontSize": 19,
+            "typeface": "Malgun Gothic",
+            "color": "#244BC4",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "1–3개월",
+              "fontSize": 19,
+              "typeface": "Malgun Gothic",
+              "color": "#244BC4",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 11,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/lkvy9obe",
+      "id": "11",
+      "name": "text-134",
+      "bbox": [
+        648,
+        236,
+        540,
+        40
+      ],
+      "geometry": "rect",
+      "text": "서비스 연결",
+      "textPreview": "서비스 연결",
+      "resolvedFontSize": 27,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 27,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "서비스 연결"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "서비스 연결",
+          "resolvedTextStyle": {
+            "fontSize": 27,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "서비스 연결",
+              "fontSize": 27,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 12,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/yx4zy9cn",
+      "id": "12",
+      "name": "text-135",
+      "bbox": [
+        648,
+        286,
+        540,
+        38
+      ],
+      "geometry": "rect",
+      "text": "견적 점검·주변기기 화면",
+      "textPreview": "견적 점검·주변기기 화면",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "견적 점검·주변기기 화면"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "견적 점검·주변기기 화면",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "견적 점검·주변기기 화면",
+              "fontSize": 21,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 13,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/zydg7et8",
+      "id": "13",
+      "bbox": [
+        648,
+        326,
+        550,
+        0
+      ],
+      "geometry": "line",
+      "lineColor": "#DDE2EA",
+      "lineWidth": 1
+    },
+    {
+      "order": 14,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/cvmxwzux",
+      "id": "14",
+      "name": "text-136",
+      "bbox": [
+        648,
+        338,
+        180,
+        33
+      ],
+      "geometry": "rect",
+      "text": "4–6개월",
+      "textPreview": "4–6개월",
+      "resolvedFontSize": 19,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 19,
+        "typeface": "Malgun Gothic",
+        "color": "#244BC4",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "4–6개월"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "4–6개월",
+          "resolvedTextStyle": {
+            "fontSize": 19,
+            "typeface": "Malgun Gothic",
+            "color": "#244BC4",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "4–6개월",
+              "fontSize": 19,
+              "typeface": "Malgun Gothic",
+              "color": "#244BC4",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 15,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/xwvy54b2",
+      "id": "15",
+      "name": "text-137",
+      "bbox": [
+        648,
+        376,
+        540,
+        40
+      ],
+      "geometry": "rect",
+      "text": "리뷰 수집",
+      "textPreview": "리뷰 수집",
+      "resolvedFontSize": 27,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 27,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "리뷰 수집"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "리뷰 수집",
+          "resolvedTextStyle": {
+            "fontSize": 27,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "리뷰 수집",
+              "fontSize": 27,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 16,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/atkfupcr",
+      "id": "16",
+      "name": "text-138",
+      "bbox": [
+        648,
+        426,
+        540,
+        38
+      ],
+      "geometry": "rect",
+      "text": "제품 모델·사용 맥락·구매 확인",
+      "textPreview": "제품 모델·사용 맥락·구매 확인",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "제품 모델·사용 맥락·구매 확인"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "제품 모델·사용 맥락·구매 확인",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "제품 모델·사용 맥락·구매 확인",
+              "fontSize": 21,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 17,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/butg3utc",
+      "id": "17",
+      "bbox": [
+        648,
+        466,
+        550,
+        0
+      ],
+      "geometry": "line",
+      "lineColor": "#DDE2EA",
+      "lineWidth": 1
+    },
+    {
+      "order": 18,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/wr6h83u1",
+      "id": "18",
+      "name": "text-139",
+      "bbox": [
+        648,
+        478,
+        180,
+        33
+      ],
+      "geometry": "rect",
+      "text": "7–12개월",
+      "textPreview": "7–12개월",
+      "resolvedFontSize": 19,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 19,
+        "typeface": "Malgun Gothic",
+        "color": "#244BC4",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "7–12개월"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "7–12개월",
+          "resolvedTextStyle": {
+            "fontSize": 19,
+            "typeface": "Malgun Gothic",
+            "color": "#244BC4",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "7–12개월",
+              "fontSize": 19,
+              "typeface": "Malgun Gothic",
+              "color": "#244BC4",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 19,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/hsfyh8bm",
+      "id": "19",
+      "name": "text-140",
+      "bbox": [
+        648,
+        516,
+        540,
+        40
+      ],
+      "geometry": "rect",
+      "text": "추천 반영과 실증",
+      "textPreview": "추천 반영과 실증",
+      "resolvedFontSize": 27,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 27,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "추천 반영과 실증"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "추천 반영과 실증",
+          "resolvedTextStyle": {
+            "fontSize": 27,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "추천 반영과 실증",
+              "fontSize": 27,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 20,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/58bylo3q",
+      "id": "20",
+      "name": "text-141",
+      "bbox": [
+        648,
+        566,
+        540,
+        38
+      ],
+      "geometry": "rect",
+      "text": "사용자 평가·판매점 파일럿",
+      "textPreview": "사용자 평가·판매점 파일럿",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "사용자 평가·판매점 파일럿"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "사용자 평가·판매점 파일럿",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "사용자 평가·판매점 파일럿",
+              "fontSize": 21,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 21,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/472hsjm5",
+      "id": "21",
+      "name": "text-142",
+      "bbox": [
+        65,
+        632,
+        1140,
+        24
+      ],
+      "geometry": "rect",
+      "text": "일정은 제안 목표이며, 데이터 확보와 사용자 검증 결과에 따라 조정합니다.",
+      "textPreview": "일정은 제안 목표이며, 데이터 확보와 사용자 검증 결과에 따라 조정합니다.",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 13,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "일정은 제안 목표이며, 데이터 확보와 사용자 검증 결과에 따라 조정합니다."
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "일정은 제안 목표이며, 데이터 확보와 사용자 검증 결과에 따라 조정합니다.",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "일정은 제안 목표이며, 데이터 확보와 사용자 검증 결과에 따라 조정합니다.",
+              "fontSize": 13,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

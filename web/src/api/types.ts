@@ -238,7 +238,49 @@ export interface SetupsListResult {
   warning: string
 }
 
+// ---- 주변기기 추천 ----
+export type PeripheralKind = 'monitor' | 'keyboard' | 'mouse' | 'speaker'
+export interface PeripheralRecommendRequest {
+  kinds: PeripheralKind[]
+  /** 선택한 품목 전체에 쓸 예산 상한(원). 말하지 않았으면 생략 */
+  budgetMax?: number
+  purpose?: string
+  priority?: string
+  noiseSensitive?: boolean
+  /** 서버 enum: FHD_144 | QHD_165 | 4K */
+  resolution?: string
+  /** 같이 보는 PC 견적의 목록 id — 주면 그 PC의 해상도로 모니터 교차검사를 한다 */
+  pcListId?: string
+}
+export interface PeripheralText { status: 'pending' | 'ready' | 'failed' | 'none'; text: string | null }
+export interface PeripheralCheck { axis: string; label: string; state: 'ok' | 'unknown' | 'fail'; detail: string }
+export interface PeripheralItem {
+  kind: PeripheralKind
+  kindLabel: string
+  product: { name: string; brand: string; productUrl: string | null; imageUrl: string | null }
+  /** 0 이하면 서버가 가격을 모르는 것 — 화면은 가격을 숨긴다 */
+  price: number
+  priceNote: string
+  requirement: { key: string; label: string; value: string }[]
+  checks: PeripheralCheck[]
+  reason: PeripheralText
+  alternatives: { name: string; price: number; diff: number }[]
+  guide: PeripheralText
+}
+export interface PeripheralRecommendation {
+  status: 'ready' | 'empty' | 'skipped'
+  items: PeripheralItem[]
+  /** 조건에 맞는 제품을 못 찾은 품목과 그 까닭 */
+  empty: { kind: string; reason: string }[]
+  referencePrice: number
+  totalNote: string
+}
+
 export interface Api {
+  peripherals: {
+    /** 주변기기 추천. 매번 새 조건 세션을 만들 필요 없이 한 번 만든 세션을 재사용한다(없어지면 다시 만든다). */
+    recommend(request: PeripheralRecommendRequest): Promise<PeripheralRecommendation>
+  }
   auth: {
     login(request: LoginRequest): Promise<AuthUser>
     signup(request: SignupRequest): Promise<AuthUser>

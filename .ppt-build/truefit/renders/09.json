@@ -1,0 +1,1250 @@
+{
+  "schema": "openai.presentation.layout/v4",
+  "unit": "px",
+  "slide": {
+    "aid": "sl/r5x06q",
+    "id": "r5x06q",
+    "slide": 9,
+    "layoutId": "eee2c25d-dc0f-4c7d-908d-35b8b72a5bb6",
+    "layoutName": "Title Slide",
+    "layoutType": "title",
+    "masterLayoutId": "6c9fb4cd-9ad7-478b-a40d-864397500637",
+    "masterLayoutName": "Master",
+    "backgroundColor": "#FFFFFF",
+    "frame": {
+      "left": 0,
+      "top": 0,
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "theme": {
+    "colorSchemeName": "ChatGPT",
+    "colors": {
+      "accent1": "#156082",
+      "accent2": "#E97132",
+      "accent3": "#196B24",
+      "accent4": "#0F9ED5",
+      "accent5": "#A02B93",
+      "accent6": "#4EA72E",
+      "bg1": "#FFFFFF",
+      "bg2": "#000000",
+      "tx1": "#1F1F1F",
+      "tx2": "#FFFFFF",
+      "dk1": "#000000",
+      "lt1": "#FFFFFF",
+      "dk2": "#0E2841",
+      "lt2": "#E8E8E8",
+      "hlink": "#467886",
+      "folHlink": "#96607D"
+    },
+    "typefaces": [
+      "Malgun Gothic"
+    ]
+  },
+  "inheritedLayers": [
+    {
+      "scope": "layout",
+      "id": "eee2c25d-dc0f-4c7d-908d-35b8b72a5bb6",
+      "name": "Title Slide",
+      "type": "title",
+      "parentLayoutId": "6c9fb4cd-9ad7-478b-a40d-864397500637",
+      "elements": []
+    },
+    {
+      "scope": "master",
+      "id": "6c9fb4cd-9ad7-478b-a40d-864397500637",
+      "name": "Master",
+      "type": "master",
+      "elements": []
+    }
+  ],
+  "elements": [
+    {
+      "order": 1,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/i187m5cv",
+      "id": "1",
+      "name": "text-88",
+      "bbox": [
+        64,
+        47,
+        1150,
+        59
+      ],
+      "geometry": "rect",
+      "text": "수익 구조",
+      "textPreview": "수익 구조",
+      "resolvedFontSize": 36,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 36,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "수익 구조"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "수익 구조",
+          "resolvedTextStyle": {
+            "fontSize": 36,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "수익 구조",
+              "fontSize": 36,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 2,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/54j6x0v6",
+      "id": "2",
+      "name": "text-89",
+      "bbox": [
+        66,
+        116,
+        1140,
+        35
+      ],
+      "geometry": "rect",
+      "text": "초기에는 구매 전환, 이후에는 판매점 도입과 집계 분석으로 확장",
+      "textPreview": "초기에는 구매 전환, 이후에는 판매점 도입과 집계 분석으로 확장",
+      "resolvedFontSize": 20,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 20,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "초기에는 구매 전환, 이후에는 판매점 도입과 집계 분석으로 확장"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "초기에는 구매 전환, 이후에는 판매점 도입과 집계 분석으로 확장",
+          "resolvedTextStyle": {
+            "fontSize": 20,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "초기에는 구매 전환, 이후에는 판매점 도입과 집계 분석으로 확장",
+              "fontSize": 20,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 3,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/43apoful",
+      "id": "3",
+      "bbox": [
+        64,
+        668,
+        1152,
+        0
+      ],
+      "geometry": "line",
+      "lineColor": "#DDE2EA",
+      "lineWidth": 1
+    },
+    {
+      "order": 4,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/vyhorqd4",
+      "id": "4",
+      "name": "text-90",
+      "bbox": [
+        64,
+        683,
+        140,
+        20
+      ],
+      "geometry": "rect",
+      "text": "TrueFit",
+      "textPreview": "TrueFit",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 13,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "TrueFit"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "TrueFit",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "TrueFit",
+              "fontSize": 13,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 5,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/ux87ilcj",
+      "id": "5",
+      "name": "text-91",
+      "bbox": [
+        1170,
+        681,
+        44,
+        22
+      ],
+      "geometry": "rect",
+      "text": "09",
+      "textPreview": "09",
+      "resolvedFontSize": 15,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 15,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "09"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "09",
+          "resolvedTextStyle": {
+            "fontSize": 15,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "09",
+              "fontSize": 15,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 6,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/h0z6t0va",
+      "id": "6",
+      "bbox": [
+        64,
+        231,
+        256,
+        92
+      ],
+      "geometry": "rect",
+      "text": "소비자",
+      "textPreview": "소비자",
+      "resolvedFontSize": 22,
+      "resolvedTextStyle": {
+        "anchor": 2,
+        "fontSize": 22,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "center",
+        "verticalAlignment": "middle",
+        "insets": {
+          "top": 7,
+          "right": 10,
+          "bottom": 7,
+          "left": 10
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "소비자"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "소비자",
+          "resolvedTextStyle": {
+            "fontSize": 22,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true,
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "소비자",
+              "fontSize": 22,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true,
+              "alignment": "center"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "fillColor": "#EEF2FC",
+      "lineWidth": 0
+    },
+    {
+      "order": 7,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/gzqpkvup",
+      "id": "7",
+      "bbox": [
+        491,
+        231,
+        280,
+        92
+      ],
+      "geometry": "rect",
+      "text": "TrueFit",
+      "textPreview": "TrueFit",
+      "resolvedFontSize": 22,
+      "resolvedTextStyle": {
+        "anchor": 2,
+        "fontSize": 22,
+        "typeface": "Malgun Gothic",
+        "color": "#FFFFFF",
+        "bold": true,
+        "alignment": "center",
+        "verticalAlignment": "middle",
+        "insets": {
+          "top": 7,
+          "right": 10,
+          "bottom": 7,
+          "left": 10
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "TrueFit"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "TrueFit",
+          "resolvedTextStyle": {
+            "fontSize": 22,
+            "typeface": "Malgun Gothic",
+            "color": "#FFFFFF",
+            "bold": true,
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "TrueFit",
+              "fontSize": 22,
+              "typeface": "Malgun Gothic",
+              "color": "#FFFFFF",
+              "bold": true,
+              "alignment": "center"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "fillColor": "#244BC4",
+      "lineWidth": 0
+    },
+    {
+      "order": 8,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/ful83ud8",
+      "id": "8",
+      "bbox": [
+        948,
+        231,
+        268,
+        92
+      ],
+      "geometry": "rect",
+      "text": "제휴 판매점",
+      "textPreview": "제휴 판매점",
+      "resolvedFontSize": 22,
+      "resolvedTextStyle": {
+        "anchor": 2,
+        "fontSize": 22,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "center",
+        "verticalAlignment": "middle",
+        "insets": {
+          "top": 7,
+          "right": 10,
+          "bottom": 7,
+          "left": 10
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "제휴 판매점"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "제휴 판매점",
+          "resolvedTextStyle": {
+            "fontSize": 22,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true,
+            "alignment": "center"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "제휴 판매점",
+              "fontSize": 22,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true,
+              "alignment": "center"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "fillColor": "#EEF2FC",
+      "lineWidth": 0
+    },
+    {
+      "order": 9,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/etc7upcn",
+      "id": "9",
+      "bbox": [
+        320,
+        277,
+        171,
+        0
+      ],
+      "geometry": "straightConnector1",
+      "lineColor": "#244BC4",
+      "lineWidth": 2
+    },
+    {
+      "order": 10,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/g7yxw7eh",
+      "id": "10",
+      "bbox": [
+        771,
+        277,
+        177,
+        0
+      ],
+      "geometry": "straightConnector1",
+      "lineColor": "#244BC4",
+      "lineWidth": 2
+    },
+    {
+      "order": 11,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/h87ypcv2",
+      "id": "11",
+      "name": "text-92",
+      "bbox": [
+        341,
+        197,
+        162,
+        32
+      ],
+      "geometry": "rect",
+      "text": "무료 구매설계",
+      "textPreview": "무료 구매설계",
+      "resolvedFontSize": 19,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 19,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "무료 구매설계"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "무료 구매설계",
+          "resolvedTextStyle": {
+            "fontSize": 19,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "무료 구매설계",
+              "fontSize": 19,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 12,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/u5gfuxwb",
+      "id": "12",
+      "name": "text-93",
+      "bbox": [
+        792,
+        197,
+        147,
+        32
+      ],
+      "geometry": "rect",
+      "text": "구매 연결",
+      "textPreview": "구매 연결",
+      "resolvedFontSize": 19,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 19,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "구매 연결"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "구매 연결",
+          "resolvedTextStyle": {
+            "fontSize": 19,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "구매 연결",
+              "fontSize": 19,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 13,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/f6pgn2dw",
+      "id": "13",
+      "name": "text-94",
+      "bbox": [
+        173,
+        371,
+        1030,
+        46
+      ],
+      "geometry": "rect",
+      "text": "초기 수익: 확인된 구매 전환에 따른 제휴 수수료",
+      "textPreview": "초기 수익: 확인된 구매 전환에 따른 제휴 수수료",
+      "resolvedFontSize": 26,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 26,
+        "typeface": "Malgun Gothic",
+        "color": "#244BC4",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "초기 수익: 확인된 구매 전환에 따른 제휴 수수료"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "초기 수익: 확인된 구매 전환에 따른 제휴 수수료",
+          "resolvedTextStyle": {
+            "fontSize": 26,
+            "typeface": "Malgun Gothic",
+            "color": "#244BC4",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "초기 수익: 확인된 구매 전환에 따른 제휴 수수료",
+              "fontSize": 26,
+              "typeface": "Malgun Gothic",
+              "color": "#244BC4",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 14,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/sjyxs7el",
+      "id": "14",
+      "bbox": [
+        64,
+        452,
+        1152,
+        0
+      ],
+      "geometry": "line",
+      "lineColor": "#DDE2EA",
+      "lineWidth": 1
+    },
+    {
+      "order": 15,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/tk7ylcv6",
+      "id": "15",
+      "name": "text-95",
+      "bbox": [
+        64,
+        482,
+        40,
+        35
+      ],
+      "geometry": "rect",
+      "text": "02",
+      "textPreview": "02",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "Malgun Gothic",
+        "color": "#244BC4",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "02"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "02",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "typeface": "Malgun Gothic",
+            "color": "#244BC4",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "02",
+              "fontSize": 21,
+              "typeface": "Malgun Gothic",
+              "color": "#244BC4",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 16,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/6hwfqxwf",
+      "id": "16",
+      "name": "text-96",
+      "bbox": [
+        116,
+        482,
+        488,
+        37
+      ],
+      "geometry": "rect",
+      "text": "판매점용 SaaS·API",
+      "textPreview": "판매점용 SaaS·API",
+      "resolvedFontSize": 24,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 24,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "판매점용 SaaS·API"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "판매점용 SaaS·API",
+          "resolvedTextStyle": {
+            "fontSize": 24,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "판매점용 SaaS·API",
+              "fontSize": 24,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 17,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/7i5gj2d0",
+      "id": "17",
+      "name": "text-97",
+      "bbox": [
+        116,
+        527,
+        488,
+        67
+      ],
+      "geometry": "rect",
+      "text": "추천 위젯·견적 검증의 월 또는 사용량 과금",
+      "textPreview": "추천 위젯·견적 검증의 월 또는 사용량 과금",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "추천 위젯·견적 검증의 월 또는 사용량 과금"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "추천 위젯·견적 검증의 월 또는 사용량 과금",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "추천 위젯·견적 검증의 월 또는 사용량 과금",
+              "fontSize": 21,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 18,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/kfexone9",
+      "id": "18",
+      "name": "text-98",
+      "bbox": [
+        665,
+        482,
+        40,
+        35
+      ],
+      "geometry": "rect",
+      "text": "03",
+      "textPreview": "03",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "Malgun Gothic",
+        "color": "#244BC4",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "03"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "03",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "typeface": "Malgun Gothic",
+            "color": "#244BC4",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "03",
+              "fontSize": 21,
+              "typeface": "Malgun Gothic",
+              "color": "#244BC4",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 19,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/5gnyhsvu",
+      "id": "19",
+      "name": "text-99",
+      "bbox": [
+        717,
+        482,
+        499,
+        37
+      ],
+      "geometry": "rect",
+      "text": "집계 리뷰 인사이트",
+      "textPreview": "집계 리뷰 인사이트",
+      "resolvedFontSize": 24,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 24,
+        "typeface": "Malgun Gothic",
+        "color": "#171B24",
+        "bold": true,
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "집계 리뷰 인사이트"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "집계 리뷰 인사이트",
+          "resolvedTextStyle": {
+            "fontSize": 24,
+            "typeface": "Malgun Gothic",
+            "color": "#171B24",
+            "bold": true
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "집계 리뷰 인사이트",
+              "fontSize": 24,
+              "typeface": "Malgun Gothic",
+              "color": "#171B24",
+              "bold": true
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 20,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/l0vm5k3m",
+      "id": "20",
+      "name": "text-100",
+      "bbox": [
+        717,
+        527,
+        499,
+        67
+      ],
+      "geometry": "rect",
+      "text": "제조사·유통사를 위한 사용 경험 분석",
+      "textPreview": "제조사·유통사를 위한 사용 경험 분석",
+      "resolvedFontSize": 21,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 21,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "제조사·유통사를 위한 사용 경험 분석"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "제조사·유통사를 위한 사용 경험 분석",
+          "resolvedTextStyle": {
+            "fontSize": 21,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "제조사·유통사를 위한 사용 경험 분석",
+              "fontSize": 21,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    },
+    {
+      "order": 21,
+      "kind": "shape",
+      "scope": "slide",
+      "aid": "sh/0zm5wf21",
+      "id": "21",
+      "name": "text-101",
+      "bbox": [
+        65,
+        632,
+        1150,
+        24
+      ],
+      "geometry": "rect",
+      "text": "사업 가설 · 제휴 조건과 단가는 검증 예정 · 추천 순위와 수수료의 분리 원칙",
+      "textPreview": "사업 가설 · 제휴 조건과 단가는 검증 예정 · 추천 순위와 수수료의 분리 원칙",
+      "resolvedFontSize": 13,
+      "resolvedTextStyle": {
+        "anchor": 1,
+        "fontSize": 13,
+        "typeface": "Malgun Gothic",
+        "color": "#5E6674",
+        "alignment": "left",
+        "verticalAlignment": "top",
+        "autoFit": "none",
+        "insets": {
+          "top": 0,
+          "right": 0,
+          "bottom": 0,
+          "left": 0
+        }
+      },
+      "textLayout": {
+        "lineCount": 1,
+        "lines": [
+          {
+            "index": 1,
+            "text": "사업 가설 · 제휴 조건과 단가는 검증 예정 · 추천 순위와 수수료의 분리 원칙"
+          }
+        ]
+      },
+      "paragraphs": [
+        {
+          "index": 1,
+          "text": "사업 가설 · 제휴 조건과 단가는 검증 예정 · 추천 순위와 수수료의 분리 원칙",
+          "resolvedTextStyle": {
+            "fontSize": 13,
+            "typeface": "Malgun Gothic",
+            "color": "#5E6674"
+          },
+          "runs": [
+            {
+              "index": 1,
+              "text": "사업 가설 · 제휴 조건과 단가는 검증 예정 · 추천 순위와 수수료의 분리 원칙",
+              "fontSize": 13,
+              "typeface": "Malgun Gothic",
+              "color": "#5E6674"
+            }
+          ],
+          "marginLeft": 0
+        }
+      ],
+      "lineWidth": 0
+    }
+  ],
+  "composeRuns": []
+}

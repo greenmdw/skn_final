@@ -1,0 +1,236 @@
+{"kind":"deck","id":"pr/lrcz6l","name":"Deck"}
+{"kind":"layout","layoutId":"6c9fb4cd-9ad7-478b-a40d-864397500637","name":"Master","type":"master"}
+{"kind":"layout","layoutId":"eee2c25d-dc0f-4c7d-908d-35b8b72a5bb6","name":"Title Slide","type":"title"}
+{"kind":"slide","id":"sl/qjln4u","slide":1,"title":"TrueFit","textShapes":4}
+{"kind":"textbox","id":"sh/jup8nahc","slide":1,"name":"text-1","text":"TrueFit","textPreview":"TrueFit","textChars":7,"textLines":1,"bbox":[64,162,490,83]}
+{"kind":"textbox","id":"sh/itgrup0r","slide":1,"name":"text-2","text":"사양과 사용 경험을\n함께 반영하는\nPC 구매설계 플랫폼","textPreview":"사양과 사용 경험을 | 함께 반영하는 | PC 구매설계 플랫폼","textChars":30,"textLines":3,"bbox":[66,264,460,125]}
+{"kind":"textbox","id":"sh/t0rqt4ze","slide":1,"name":"text-3","text":"나의 목적에 맞는 구성\n근거를 확인하는 추천\n사용 경험이 쌓이는 리뷰","textPreview":"나의 목적에 맞는 구성 | 근거를 확인하는 추천 | 사용 경험이 쌓이는 리뷰","textChars":38,"textLines":3,"bbox":[68,412,422,114]}
+{"kind":"textbox","id":"sh/szi90zit","slide":1,"name":"text-4","text":"2026 신격호 롯데 청년기업가대상\n① 유통·서비스 분야","textPreview":"2026 신격호 롯데 청년기업가대상 | ① 유통·서비스 분야","textChars":31,"textLines":2,"bbox":[68,621,454,50]}
+{"kind":"image","id":"im/x8jyxgjm","slide":1,"name":"","alt":"truefit-hero.png","bbox":[555,0,725,720]}
+{"kind":"notes","id":"nt/qjln4u","slide":1,"text":"안녕하세요. TrueFit은 PC를 잘 모르는 사용자도 자신의 목적과 예산에 맞는 제품을 고를 수 있도록 돕는 구매설계 플랫폼입니다. 가격과 사양에 실제 리뷰에 담긴 소음과 사용감까지 더해 추천합니다. 새 PC 구성과 외부 견적 점검, 주변기기 추천을 연결하고, 구매 후에는 제품별 사용 경험을 축적하는 서비스를 목표로 합니다.\n\n자료 및 상태: 사용자 제공 목업: C:/Users/green/Downloads/TrueFit Prototype v2.html. 화면의 가격·리뷰 수·제품 설명은 시연용 예시이며 실제 운영 성과가 아님.\n표지 이미지: 프로젝트 자산 web/public/assets/truefit-hero.png. 연출 이미지."}
+{"kind":"slide","id":"sl/i1vy8j","slide":2,"title":"PC 구매의 두 가지 정보 공백","textShapes":11}
+{"kind":"textbox","id":"sh/1sbi9sny","slide":2,"name":"text-5","text":"PC 구매의 두 가지 정보 공백","textPreview":"PC 구매의 두 가지 정보 공백","textChars":17,"textLines":1,"bbox":[64,47,1150,59]}
+{"kind":"textbox","id":"sh/ep0zexo7","slide":2,"name":"text-6","text":"함께 작동하는 구성과 나에게 맞는 사용 경험을 동시에 판단해야 합니다","textPreview":"함께 작동하는 구성과 나에게 맞는 사용 경험을 동시에 판단해야 합니다","textChars":38,"textLines":1,"bbox":[66,116,1140,35]}
+{"kind":"shape","id":"sh/zqt0n25s","slide":2,"bbox":[64,668,1152,0]}
+{"kind":"textbox","id":"sh/c3ihcn6h","slide":2,"name":"text-7","text":"TrueFit","textPreview":"TrueFit","textChars":7,"textLines":1,"bbox":[64,683,140,20]}
+{"kind":"textbox","id":"sh/d4rilsn2","slide":2,"name":"text-8","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[1170,681,44,22]}
+{"kind":"textbox","id":"sh/q10zadob","slide":2,"name":"text-9","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[68,197,80,45]}
+{"kind":"textbox","id":"sh/r29gjipw","slide":2,"name":"text-10","text":"기술적으로 맞는가","textPreview":"기술적으로 맞는가","textChars":9,"textLines":1,"bbox":[68,258,490,52]}
+{"kind":"textbox","id":"sh/4zih8365","slide":2,"name":"text-11","text":"CPU 소켓과 메모리 규격\n케이스 크기와 전력 여유\n전체 예산 안의 성능 균형","textPreview":"CPU 소켓과 메모리 규격 | 케이스 크기와 전력 여유 | 전체 예산 안의 성능 균형","textChars":43,"textLines":3,"bbox":[68,337,490,140]}
+{"kind":"shape","id":"sh/p0ryh87q","slide":2,"bbox":[620,205,0,0]}
+{"kind":"shape","id":"sh/x0r2p0jy","slide":2,"bbox":[620,201,1,304]}
+{"kind":"textbox","id":"sh/czi1gvid","slide":2,"name":"text-12","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[682,197,80,45]}
+{"kind":"textbox","id":"sh/by9knq1s","slide":2,"name":"text-13","text":"내가 쓰기에 편한가","textPreview":"내가 쓰기에 편한가","textChars":10,"textLines":1,"bbox":[682,258,500,52]}
+{"kind":"textbox","id":"sh/ax0jel07","slide":2,"name":"text-14","text":"밤에 사용해도 조용한 키보드\n작은 손에 맞는 마우스\n오래 사용하는 모니터의 체감","textPreview":"밤에 사용해도 조용한 키보드 | 작은 손에 맞는 마우스 | 오래 사용하는 모니터의 체감","textChars":44,"textLines":3,"bbox":[682,337,500,140]}
+{"kind":"shape","id":"sh/pwr2lgjm","slide":2,"bbox":[64,553,1152,71]}
+{"kind":"textbox","id":"sh/ovy1cvi1","slide":2,"name":"text-15","text":"가격·사양·리뷰를 여러 곳에서 찾고 조합하는 부담","textPreview":"가격·사양·리뷰를 여러 곳에서 찾고 조합하는 부담","textChars":27,"textLines":1,"bbox":[88,575,1100,38]}
+{"kind":"notes","id":"nt/i1vy8j","slide":2,"text":"PC 구매자는 두 가지 문제를 동시에 해결해야 합니다. 먼저 부품이 서로 맞고 예산 안에서 필요한 성능을 내는지 확인해야 합니다. 동시에 같은 사양의 제품 중 무엇이 더 조용한지, 어떤 마우스가 손에 편한지도 판단해야 합니다. 저희가 해결하려는 문제는 이렇게 흩어진 정보를 사용자 목적에 맞춰 다시 조합해야 하는 부담입니다. 이 문제의 크기는 초기 사용자 인터뷰와 사용성 테스트로 검증할 계획입니다.\n\n자료 및 상태: 사용자 제공 목업: C:/Users/green/Downloads/TrueFit Prototype v2.html. 화면의 가격·리뷰 수·제품 설명은 시연용 예시이며 실제 운영 성과가 아님.\n문제 정의는 사업 가설이며 정량 조사 결과를 주장하지 않음."}
+{"kind":"slide","id":"sl/d19jtp","slide":3,"title":"초기 고객과 구매 과업","textShapes":15}
+{"kind":"textbox","id":"sh/6lwfetwz","slide":3,"name":"text-16","text":"초기 고객과 구매 과업","textPreview":"초기 고객과 구매 과업","textChars":12,"textLines":1,"bbox":[64,47,1150,59]}
+{"kind":"textbox","id":"sh/tonyp8fq","slide":3,"name":"text-17","text":"구매 목적은 분명하지만 제품 선택의 기준이 필요한 사용자","textPreview":"구매 목적은 분명하지만 제품 선택의 기준이 필요한 사용자","textChars":31,"textLines":1,"bbox":[66,116,1140,35]}
+{"kind":"shape","id":"sh/snehg3e5","slide":3,"bbox":[64,668,1152,0]}
+{"kind":"textbox","id":"sh/jilgjexo","slide":3,"name":"text-18","text":"TrueFit","textPreview":"TrueFit","textChars":7,"textLines":1,"bbox":[64,683,140,20]}
+{"kind":"textbox","id":"sh/ihcfatw3","slide":3,"name":"text-19","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[1170,681,44,22]}
+{"kind":"shape","id":"sh/5knylofe","slide":3,"bbox":[64,190,534,391]}
+{"kind":"textbox","id":"sh/kjuxcjet","slide":3,"name":"text-20","text":"“150만 원으로\n엘든링을 할 수 있는\n조용한 PC가 필요해요.”","textPreview":"“150만 원으로 | 엘든링을 할 수 있는 | 조용한 PC가 필요해요.”","textChars":36,"textLines":3,"bbox":[97,252,460,185]}
+{"kind":"textbox","id":"sh/3epgvids","slide":3,"name":"text-21","text":"대표 고객 시나리오 · 실제 인터뷰 인용 아님","textPreview":"대표 고객 시나리오 · 실제 인터뷰 인용 아님","textChars":25,"textLines":1,"bbox":[98,520,445,29]}
+{"kind":"textbox","id":"sh/2dgzmdw7","slide":3,"name":"text-22","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[656,201,40,35]}
+{"kind":"textbox","id":"sh/gfuxc3m5","slide":3,"name":"text-23","text":"첫 구매와 교체","textPreview":"첫 구매와 교체","textChars":8,"textLines":1,"bbox":[708,201,493,37]}
+{"kind":"textbox","id":"sh/hg3e58nq","slide":3,"name":"text-24","text":"부품 지식이 부족한 조립 PC 구매자","textPreview":"부품 지식이 부족한 조립 PC 구매자","textChars":20,"textLines":1,"bbox":[708,246,493,67]}
+{"kind":"textbox","id":"sh/udcfad4z","slide":3,"name":"text-25","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[656,343,40,35]}
+{"kind":"textbox","id":"sh/velw3i5k","slide":3,"name":"text-26","text":"체감 조건이 중요한 선택","textPreview":"체감 조건이 중요한 선택","textChars":13,"textLines":1,"bbox":[708,343,493,37]}
+{"kind":"textbox","id":"sh/8bax83m9","slide":3,"name":"text-27","text":"저소음·타건감·그립감이 중요한 사용자","textPreview":"저소음·타건감·그립감이 중요한 사용자","textChars":20,"textLines":1,"bbox":[708,388,493,67]}
+{"kind":"textbox","id":"sh/tc3e18nu","slide":3,"name":"text-28","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[656,485,40,35]}
+{"kind":"textbox","id":"sh/69sf6t43","slide":3,"name":"text-29","text":"구매 전 마지막 확인","textPreview":"구매 전 마지막 확인","textChars":11,"textLines":1,"bbox":[708,485,493,37]}
+{"kind":"textbox","id":"sh/7a1wzy5o","slide":3,"name":"text-30","text":"이미 받은 견적의 가격·호환성 점검","textPreview":"이미 받은 견적의 가격·호환성 점검","textChars":19,"textLines":1,"bbox":[708,530,493,67]}
+{"kind":"notes","id":"nt/d19jtp","slide":3,"text":"초기 고객은 구매 목적은 분명하지만 제품 선택의 기준이 필요한 사용자입니다. 예를 들어 150만 원으로 조용한 게임용 PC를 원한다고 말할 수는 있지만, 어떤 부품을 골라야 하는지는 모르는 고객입니다. 주변기기에서도 작은 손에 맞는 마우스처럼 원하는 경험은 표현할 수 있습니다. TrueFit은 이 표현을 구매 조건으로 바꾸고, 추천 제품과 선택 근거를 연결합니다.\n\n자료 및 상태: 사용자 제공 목업: C:/Users/green/Downloads/TrueFit Prototype v2.html. 화면의 가격·리뷰 수·제품 설명은 시연용 예시이며 실제 운영 성과가 아님.\n대표 고객은 기획 시나리오."}
+{"kind":"slide","id":"sl/ngglh5","slide":4,"title":"TrueFit 서비스 구조","textShapes":12}
+{"kind":"textbox","id":"sh/fqhk7y14","slide":4,"name":"text-31","text":"TrueFit 서비스 구조","textPreview":"TrueFit 서비스 구조","textChars":14,"textLines":1,"bbox":[64,47,1150,59]}
+{"kind":"textbox","id":"sh/grql032p","slide":4,"name":"text-32","text":"서로 다른 구매 출발점을 하나의 구매 계획으로 연결합니다","textPreview":"서로 다른 구매 출발점을 하나의 구매 계획으로 연결합니다","textChars":31,"textLines":1,"bbox":[66,116,1140,35]}
+{"kind":"shape","id":"sh/1sz298ja","slide":4,"bbox":[64,668,1152,0]}
+{"kind":"textbox","id":"sh/61oja9kn","slide":4,"name":"text-33","text":"TrueFit","textPreview":"TrueFit","textChars":7,"textLines":1,"bbox":[64,683,140,20]}
+{"kind":"textbox","id":"sh/r2hk3e18","slide":4,"name":"text-34","text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[1170,681,44,22]}
+{"kind":"textbox","id":"sh/snq1cj2d","slide":4,"text":"새 PC 본체","textPreview":"새 PC 본체","textChars":7,"textLines":1,"bbox":[64,202,343,75]}
+{"kind":"textbox","id":"sh/toz25ojy","slide":4,"text":"받은 견적 점검","textPreview":"받은 견적 점검","textChars":8,"textLines":1,"bbox":[468,202,343,75]}
+{"kind":"textbox","id":"sh/qxs36dkr","slide":4,"text":"주변기기 견적","textPreview":"주변기기 견적","textChars":7,"textLines":1,"bbox":[873,202,343,75]}
+{"kind":"textbox","id":"sh/by1kfi1c","slide":4,"name":"text-35","text":"용도와 예산으로\n부품 8종 구성","textPreview":"용도와 예산으로 | 부품 8종 구성","textChars":17,"textLines":2,"bbox":[85,302,310,73]}
+{"kind":"textbox","id":"sh/3u9kvup4","slide":4,"name":"text-36","text":"이미지·텍스트 인식\n가격과 호환성 비교","textPreview":"이미지·텍스트 인식 | 가격과 호환성 비교","textChars":21,"textLines":2,"bbox":[489,302,310,73]}
+{"kind":"textbox","id":"sh/it0jmp8j","slide":4,"name":"text-37","text":"사양과 체감 조건으로\n필요한 품목 선택","textPreview":"사양과 체감 조건으로 | 필요한 품목 선택","textChars":21,"textLines":2,"bbox":[895,302,310,73]}
+{"kind":"shape","id":"sh/pwb2x47a","slide":4,"bbox":[222,395,26,31]}
+{"kind":"shape","id":"sh/4v21ozqp","slide":4,"bbox":[627,395,26,31]}
+{"kind":"shape","id":"sh/ritkzepg","slide":4,"bbox":[1032,395,26,31]}
+{"kind":"textbox","id":"sh/qhkjq98v","slide":4,"text":"통합 장바구니와 구매 리포트","textPreview":"통합 장바구니와 구매 리포트","textChars":15,"textLines":1,"bbox":[64,450,1152,72]}
+{"kind":"textbox","id":"sh/dkb21476","slide":4,"name":"text-38","text":"판매처 연결     /     맞춤 조립 가이드     /     저장한 대화 이어가기","textPreview":"판매처 연결     /     맞춤 조립 가이드     /     저장한 대화 이어가기","textChars":48,"textLines":1,"bbox":[230,564,850,39]}
+{"kind":"notes","id":"nt/ngglh5","slide":4,"text":"TrueFit에는 세 가지 진입점이 있습니다. 새 PC를 처음부터 구성하거나, 다른 곳에서 받은 견적을 점검하거나, 필요한 주변기기만 고를 수 있습니다. 사용자가 어느 경로로 시작하든 선택한 제품은 통합 장바구니와 구매 리포트로 이어집니다. 리포트에는 판매처 링크와 구성에 맞는 조립 가이드를 담고, 저장한 견적과 대화는 다시 열어 활용하도록 설계했습니다.\n\n자료 및 상태: 사용자 제공 목업: C:/Users/green/Downloads/TrueFit Prototype v2.html. 화면의 가격·리뷰 수·제품 설명은 시연용 예시이며 실제 운영 성과가 아님.\n전체 서비스 설계 범위. 현재 구현 상태는 11장 참조."}
+{"kind":"slide","id":"sl/uyamu6","slide":5,"title":"하나로 연결된 구매 여정","textShapes":14}
+{"kind":"textbox","id":"sh/ze10jyxg","slide":5,"name":"text-39","text":"하나로 연결된 구매 여정","textPreview":"하나로 연결된 구매 여정","textChars":13,"textLines":1,"bbox":[64,47,1150,59]}
+{"kind":"textbox","id":"sh/0fa1c3yl","slide":5,"name":"text-40","text":"조건을 말하고, 추천의 이유를 확인하며, 원하는 구성으로 수정합니다","textPreview":"조건을 말하고, 추천의 이유를 확인하며, 원하는 구성으로 수정합니다","textChars":37,"textLines":1,"bbox":[66,116,1140,35]}
+{"kind":"shape","id":"sh/lgjil8f6","slide":5,"bbox":[64,668,1152,0]}
+{"kind":"textbox","id":"sh/mhsjedgr","slide":5,"name":"text-41","text":"TrueFit","textPreview":"TrueFit","textChars":7,"textLines":1,"bbox":[64,683,140,20]}
+{"kind":"textbox","id":"sh/n2l0nixc","slide":5,"name":"text-42","text":"05","textPreview":"05","textChars":2,"textLines":1,"bbox":[1170,681,44,22]}
+{"kind":"textbox","id":"sh/9432psfi","slide":5,"name":"text-43","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[64,201,40,35]}
+{"kind":"textbox","id":"sh/2l8j2tgn","slide":5,"name":"text-44","text":"조건 입력","textPreview":"조건 입력","textChars":5,"textLines":1,"bbox":[116,201,288,37]}
+{"kind":"textbox","id":"sh/3mh0bex8","slide":5,"name":"text-45","text":"용도·예산·우선순위를 대화로 정리","textPreview":"용도·예산·우선순위를 대화로 정리","textChars":18,"textLines":1,"bbox":[116,246,288,67]}
+{"kind":"textbox","id":"sh/3ixkz6pw","slide":5,"name":"text-46","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[64,349,40,35]}
+{"kind":"textbox","id":"sh/2ho3618b","slide":5,"name":"text-47","text":"비교와 교체","textPreview":"비교와 교체","textChars":6,"textLines":1,"bbox":[116,349,288,37]}
+{"kind":"textbox","id":"sh/pkf21g7m","slide":5,"name":"text-48","text":"추천 이유 확인 후 대안으로 변경","textPreview":"추천 이유 확인 후 대안으로 변경","textChars":18,"textLines":1,"bbox":[116,394,288,67]}
+{"kind":"textbox","id":"sh/oj6l8bqh","slide":5,"name":"text-49","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[64,497,40,35]}
+{"kind":"textbox","id":"sh/fedkv6pk","slide":5,"name":"text-50","text":"구매 이후 연결","textPreview":"구매 이후 연결","textChars":8,"textLines":1,"bbox":[116,497,288,37]}
+{"kind":"textbox","id":"sh/ut43218z","slide":5,"name":"text-51","text":"리포트·조립 가이드와 제품 리뷰","textPreview":"리포트·조립 가이드와 제품 리뷰","textChars":17,"textLines":1,"bbox":[116,542,288,67]}
+{"kind":"textbox","id":"sh/1gf2xw7q","slide":5,"name":"text-52","text":"목업 화면 · 가격·리뷰 수는 시연용 예시","textPreview":"목업 화면 · 가격·리뷰 수는 시연용 예시","textChars":23,"textLines":1,"bbox":[777,633,437,22]}
+{"kind":"image","id":"im/9kze98bu","slide":5,"name":"","alt":"plan.png","bbox":[430,196,786,418]}
+{"kind":"notes","id":"nt/uyamu6","slide":5,"text":"사용자는 전문 용어를 몰라도 원하는 조건을 말할 수 있습니다. TrueFit은 대화에서 조건을 정리하고, 추천 결과에서 각 부품을 선택한 이유와 확인이 필요한 항목을 제시합니다. 화면은 목업 예시입니다. 사용자는 더 저렴한 제품을 찾거나 특정 부품을 교체하며 구성을 완성할 수 있습니다. 이후에는 리포트와 조립 가이드를 활용하고, 실제 사용한 제품의 리뷰를 남기는 과정으로 연결할 계획입니다.\n\n자료 및 상태: 사용자 제공 목업: C:/Users/green/Downloads/TrueFit Prototype v2.html. 화면의 가격·리뷰 수·제품 설명은 시연용 예시이며 실제 운영 성과가 아님."}
+{"kind":"slide","id":"sl/1a4jx9","slide":6,"title":"사양 적합성과 경험 적합성","textShapes":14}
+{"kind":"textbox","id":"sh/nq5c7qho","slide":6,"name":"text-53","text":"사양 적합성과 경험 적합성","textPreview":"사양 적합성과 경험 적합성","textChars":14,"textLines":1,"bbox":[64,47,1150,59]}
+{"kind":"textbox","id":"sh/obedgvi9","slide":6,"name":"text-54","text":"기술 조건을 충족하는 후보 안에서 사용 경험의 근거를 찾습니다","textPreview":"기술 조건을 충족하는 후보 안에서 사용 경험의 근거를 찾습니다","textChars":34,"textLines":1,"bbox":[66,116,1140,35]}
+{"kind":"shape","id":"sh/9cne90ze","slide":6,"bbox":[64,668,1152,0]}
+{"kind":"textbox","id":"sh/adwvi50z","slide":6,"name":"text-55","text":"TrueFit","textPreview":"TrueFit","textChars":7,"textLines":1,"bbox":[64,683,140,20]}
+{"kind":"textbox","id":"sh/be5wbahk","slide":6,"name":"text-56","text":"06","textPreview":"06","textChars":2,"textLines":1,"bbox":[1170,681,44,22]}
+{"kind":"textbox","id":"sh/xg7edkzq","slide":6,"name":"text-57","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[813,203,40,35]}
+{"kind":"textbox","id":"sh/yhgvmp0b","slide":6,"name":"text-58","text":"사양 적합성","textPreview":"사양 적합성","textChars":6,"textLines":1,"bbox":[865,203,355,37]}
+{"kind":"textbox","id":"sh/jipwfahw","slide":6,"name":"text-59","text":"규격·성능·연결 방식·예산","textPreview":"규격·성능·연결 방식·예산","textChars":14,"textLines":1,"bbox":[865,248,355,67]}
+{"kind":"textbox","id":"sh/jy14vu1o","slide":6,"name":"text-60","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[813,342,40,35]}
+{"kind":"textbox","id":"sh/ixs32pk3","slide":6,"name":"text-61","text":"경험 적합성","textPreview":"경험 적합성","textChars":6,"textLines":1,"bbox":[865,342,355,37]}
+{"kind":"textbox","id":"sh/50jmxkje","slide":6,"name":"text-62","text":"소음·타건감·피로감 관련 리뷰","textPreview":"소음·타건감·피로감 관련 리뷰","textChars":16,"textLines":1,"bbox":[865,387,355,67]}
+{"kind":"textbox","id":"sh/4zal4f29","slide":6,"name":"text-63","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[813,481,40,35]}
+{"kind":"textbox","id":"sh/vuhkralc","slide":6,"name":"text-64","text":"설명 가능한 선택","textPreview":"설명 가능한 선택","textChars":9,"textLines":1,"bbox":[865,481,355,37]}
+{"kind":"textbox","id":"sh/ut83y5kr","slide":6,"name":"text-65","text":"근거 문장과 표본 수를 함께 표시","textPreview":"근거 문장과 표본 수를 함께 표시","textChars":18,"textLines":1,"bbox":[865,526,355,67]}
+{"kind":"textbox","id":"sh/hwjmtk3i","slide":6,"name":"text-66","text":"목업 화면 · 리뷰 인용과 건수는 시연용 예시","textPreview":"목업 화면 · 리뷰 인용과 건수는 시연용 예시","textChars":25,"textLines":1,"bbox":[66,630,700,23]}
+{"kind":"image","id":"im/donul07a","slide":6,"name":"","alt":"periPlan.png","bbox":[64,194,699,413]}
+{"kind":"notes","id":"nt/1a4jx9","slide":6,"text":"추천은 사양과 리뷰를 함께 사용하도록 설계했습니다. 먼저 가격과 규격처럼 반드시 충족해야 하는 조건으로 후보를 좁힙니다. 이후 리뷰에서 소음과 타건감처럼 체감에 관련된 경험을 찾습니다. 화면은 이러한 추천 방식을 표현한 목업이며 리뷰 수치는 시연용 예시입니다. 리뷰의 눈이 편하다는 평가는 주관적 경험으로 다루며 효과를 보장하지 않습니다. 자료가 부족한 경우에는 그 한계도 함께 알립니다.\n\n자료 및 상태: 사용자 제공 목업: C:/Users/green/Downloads/TrueFit Prototype v2.html. 화면의 가격·리뷰 수·제품 설명은 시연용 예시이며 실제 운영 성과가 아님.\n추천 설계: 규칙 기반 필터와 리뷰 근거 활용. 성능 개선 효과는 향후 검증 대상."}
+{"kind":"slide","id":"sl/6qlukv","slide":7,"title":"제품별 리뷰 데이터 자산","textShapes":19}
+{"kind":"textbox","id":"sh/rmlcf6ts","slide":7,"name":"text-67","text":"제품별 리뷰 데이터 자산","textPreview":"제품별 리뷰 데이터 자산","textChars":13,"textLines":1,"bbox":[64,47,1150,59]}
+{"kind":"textbox","id":"sh/snut8bax","slide":7,"name":"text-68","text":"사용 맥락을 연결한 리뷰를 축적하고 추천 개선에 활용합니다","textPreview":"사용 맥락을 연결한 리뷰를 축적하고 추천 개선에 활용합니다","textChars":32,"textLines":1,"bbox":[66,116,1140,35]}
+{"kind":"shape","id":"sh/do3uhgri","slide":7,"bbox":[64,668,1152,0]}
+{"kind":"textbox","id":"sh/ixsb21sv","slide":7,"name":"text-69","text":"TrueFit","textPreview":"TrueFit","textChars":7,"textLines":1,"bbox":[64,683,140,20]}
+{"kind":"textbox","id":"sh/3y1cb6tg","slide":7,"name":"text-70","text":"07","textPreview":"07","textChars":2,"textLines":1,"bbox":[1170,681,44,22]}
+{"kind":"textbox","id":"sh/4jat4ba1","slide":7,"name":"text-71","text":"리뷰에 담을 정보","textPreview":"리뷰에 담을 정보","textChars":9,"textLines":1,"bbox":[64,194,435,40]}
+{"kind":"shape","id":"sh/5kjudgbm","slide":7,"bbox":[64,252,424,0]}
+{"kind":"textbox","id":"sh/2twvelsf","slide":7,"name":"text-72","text":"제품","textPreview":"제품","textChars":2,"textLines":1,"bbox":[64,264,132,36]}
+{"kind":"textbox","id":"sh/ne5cnq90","slide":7,"name":"text-73","text":"정확한 모델과 구성","textPreview":"정확한 모델과 구성","textChars":10,"textLines":1,"bbox":[204,264,288,45]}
+{"kind":"shape","id":"sh/3ih47q90","slide":7,"bbox":[64,324,424,0]}
+{"kind":"textbox","id":"sh/ih8ne58f","slide":7,"name":"text-74","text":"사용 맥락","textPreview":"사용 맥락","textChars":5,"textLines":1,"bbox":[64,336,132,36]}
+{"kind":"textbox","id":"sh/5kz690r6","slide":7,"name":"text-75","text":"목적·기간·환경","textPreview":"목적·기간·환경","textChars":8,"textLines":1,"bbox":[204,336,288,45]}
+{"kind":"shape","id":"sh/4jq5gvql","slide":7,"bbox":[64,396,424,0]}
+{"kind":"textbox","id":"sh/rmhoba9w","slide":7,"name":"text-76","text":"사용 경험","textPreview":"사용 경험","textChars":5,"textLines":1,"bbox":[64,408,132,36]}
+{"kind":"textbox","id":"sh/ql8ni58r","slide":7,"name":"text-77","text":"장점·불편·체감 특성","textPreview":"장점·불편·체감 특성","textChars":11,"textLines":1,"bbox":[204,408,288,45]}
+{"kind":"shape","id":"sh/d8z6dkr2","slide":7,"bbox":[64,468,424,0]}
+{"kind":"textbox","id":"sh/snq5kfqh","slide":7,"name":"text-78","text":"신뢰 단서","textPreview":"신뢰 단서","textChars":5,"textLines":1,"bbox":[64,480,132,36]}
+{"kind":"textbox","id":"sh/fa1ofap8","slide":7,"name":"text-79","text":"구매 확인·중복·표본 수","textPreview":"구매 확인·중복·표본 수","textChars":13,"textLines":1,"bbox":[204,480,288,45]}
+{"kind":"textbox","id":"sh/e9snmp8n","slide":7,"text":"목적에 맞춘 추천","textPreview":"목적에 맞춘 추천","textChars":9,"textLines":1,"bbox":[567,244,263,74]}
+{"kind":"textbox","id":"sh/ahwzudw7","slide":7,"text":"구매 후 제품 리뷰","textPreview":"구매 후 제품 리뷰","textChars":10,"textLines":1,"bbox":[928,244,263,74]}
+{"kind":"textbox","id":"sh/bi503ixs","slide":7,"text":"경험 특성 분석","textPreview":"경험 특성 분석","textChars":8,"textLines":1,"bbox":[928,435,263,74]}
+{"kind":"textbox","id":"sh/wjehwned","slide":7,"text":"근거 품질 평가","textPreview":"근거 품질 평가","textChars":8,"textLines":1,"bbox":[567,435,263,74]}
+{"kind":"shape","id":"sh/xkni5sfi","slide":7,"bbox":[0,0,0,0]}
+{"kind":"shape","id":"sh/mdczqdwv","slide":7,"bbox":[0,0,0,0]}
+{"kind":"shape","id":"sh/ne5gzyxg","slide":7,"bbox":[0,0,0,0]}
+{"kind":"shape","id":"sh/ofehs3e1","slide":7,"bbox":[0,0,0,0]}
+{"kind":"textbox","id":"sh/9gny18fm","slide":7,"name":"text-80","text":"표본이 적으면 판단을 유보하고,\n추천 개선은 사용자 실험으로 확인","textPreview":"표본이 적으면 판단을 유보하고, | 추천 개선은 사용자 실험으로 확인","textChars":36,"textLines":2,"bbox":[593,560,590,72]}
+{"kind":"textbox","id":"sh/69gz2xwf","slide":7,"name":"text-81","text":"신규 개발 계획 · 리뷰 작성 UI와 수집 정책 포함","textPreview":"신규 개발 계획 · 리뷰 작성 UI와 수집 정책 포함","textChars":29,"textLines":1,"bbox":[65,629,810,24]}
+{"kind":"notes","id":"nt/6qlukv","slide":7,"text":"자체 리뷰는 TrueFit의 장기적인 자산입니다. 제품 모델뿐 아니라 어떤 목적으로, 얼마나 오래, 어떤 환경에서 사용했는지 함께 수집할 계획입니다. 구매 확인 리뷰와 일반 리뷰를 구분하고 중복이나 비정상적인 집중도 살펴보겠습니다. 핵심은 리뷰 수 자체보다 사용 맥락과 연결된 정보입니다. 초기에는 사용 권한을 확보한 자료와 검수된 근거를 활용하고 자체 리뷰를 늘려 가겠습니다. 추천 품질이 실제로 개선되는지는 사용자 실험으로 확인하겠습니다.\n\n자료 및 상태: 사용자 제공 목업: C:/Users/green/Downloads/TrueFit Prototype v2.html. 화면의 가격·리뷰 수·제품 설명은 시연용 예시이며 실제 운영 성과가 아님.\n사용자 추가 요구사항: 자체 제품 리뷰 수집 및 비정형 경험 데이터 기반 추천. 신규 개발 계획."}
+{"kind":"slide","id":"sl/euf8kx","slide":8,"title":"기존 구매 방법과의 차이","textShapes":6}
+{"kind":"textbox","id":"sh/retsnyds","slide":8,"name":"text-82","text":"기존 구매 방법과의 차이","textPreview":"기존 구매 방법과의 차이","textChars":13,"textLines":1,"bbox":[64,47,1150,59]}
+{"kind":"textbox","id":"sh/sf29w3ex","slide":8,"name":"text-83","text":"흩어진 정보를 한 번의 구매 과정에서 연결하는 전략","textPreview":"흩어진 정보를 한 번의 구매 과정에서 연결하는 전략","textChars":28,"textLines":1,"bbox":[66,116,1140,35]}
+{"kind":"shape","id":"sh/tgbap8vi","slide":8,"bbox":[64,668,1152,0]}
+{"kind":"textbox","id":"sh/ip0rqtwv","slide":8,"name":"text-84","text":"TrueFit","textPreview":"TrueFit","textChars":7,"textLines":1,"bbox":[64,683,140,20]}
+{"kind":"textbox","id":"sh/jqtsjydg","slide":8,"name":"text-85","text":"08","textPreview":"08","textChars":2,"textLines":1,"bbox":[1170,681,44,22]}
+{"kind":"textbox","id":"sh/5cbalovm","slide":8,"name":"text-86","text":"차별화의 중심: 구매 맥락에 연결된 자체 리뷰 데이터","textPreview":"차별화의 중심: 구매 맥락에 연결된 자체 리뷰 데이터","textChars":29,"textLines":1,"bbox":[66,581,1140,42]}
+{"kind":"textbox","id":"sh/ul0rm9wz","slide":8,"name":"text-87","text":"구매 방식별 일반적 활용을 정리한 전략 비교이며, 개별 서비스의 기능 유무를 단정하지 않습니다.","textPreview":"구매 방식별 일반적 활용을 정리한 전략 비교이며, 개별 서비스의 기능 유무를 단정하지 않습니다.","textChars":53,"textLines":1,"bbox":[65,634,1150,22]}
+{"kind":"table","id":"tb/tszadgvu","slide":8,"name":"","rows":5,"cols":3,"preview":"구매 방법 | 주요 활용 | TrueFit에서 연결할 가치","bbox":[64,207,1152,339]}
+{"kind":"notes","id":"nt/euf8kx","slide":8,"text":"소비자는 가격 비교와 커뮤니티, AI를 목적에 따라 함께 사용합니다. TrueFit의 전략은 이러한 정보 탐색을 사용자 조건에 맞는 하나의 구매 과정으로 연결하는 것입니다. 차별화의 중심에는 정확한 제품 모델과 사용 목적에 연결한 자체 리뷰가 있습니다. 다만 리뷰를 보유하는 것만으로 경쟁력이 보장되지는 않습니다. 조건별 데이터 범위와 근거 품질을 높여 실제로 더 적합한 선택을 돕는지 검증하겠습니다.\n\n자료 및 상태: 사용자 제공 목업: C:/Users/green/Downloads/TrueFit Prototype v2.html. 화면의 가격·리뷰 수·제품 설명은 시연용 예시이며 실제 운영 성과가 아님.\n비교표는 사업 포지셔닝 설명. 개별 경쟁 서비스의 현행 기능 조사표가 아님."}
+{"kind":"slide","id":"sl/r5x06q","slide":9,"title":"수익 구조","textShapes":17}
+{"kind":"textbox","id":"sh/i187m5cv","slide":9,"name":"text-88","text":"수익 구조","textPreview":"수익 구조","textChars":5,"textLines":1,"bbox":[64,47,1150,59]}
+{"kind":"textbox","id":"sh/54j6x0v6","slide":9,"name":"text-89","text":"초기에는 구매 전환, 이후에는 판매점 도입과 집계 분석으로 확장","textPreview":"초기에는 구매 전환, 이후에는 판매점 도입과 집계 분석으로 확장","textChars":35,"textLines":1,"bbox":[66,116,1140,35]}
+{"kind":"shape","id":"sh/43apoful","slide":9,"bbox":[64,668,1152,0]}
+{"kind":"textbox","id":"sh/vyhorqd4","slide":9,"name":"text-90","text":"TrueFit","textPreview":"TrueFit","textChars":7,"textLines":1,"bbox":[64,683,140,20]}
+{"kind":"textbox","id":"sh/ux87ilcj","slide":9,"name":"text-91","text":"09","textPreview":"09","textChars":2,"textLines":1,"bbox":[1170,681,44,22]}
+{"kind":"textbox","id":"sh/h0z6t0va","slide":9,"text":"소비자","textPreview":"소비자","textChars":3,"textLines":1,"bbox":[64,231,256,92]}
+{"kind":"textbox","id":"sh/gzqpkvup","slide":9,"text":"TrueFit","textPreview":"TrueFit","textChars":7,"textLines":1,"bbox":[491,231,280,92]}
+{"kind":"textbox","id":"sh/ful83ud8","slide":9,"text":"제휴 판매점","textPreview":"제휴 판매점","textChars":6,"textLines":1,"bbox":[948,231,268,92]}
+{"kind":"shape","id":"sh/etc7upcn","slide":9,"bbox":[0,0,0,0]}
+{"kind":"shape","id":"sh/g7yxw7eh","slide":9,"bbox":[0,0,0,0]}
+{"kind":"textbox","id":"sh/h87ypcv2","slide":9,"name":"text-92","text":"무료 구매설계","textPreview":"무료 구매설계","textChars":7,"textLines":1,"bbox":[341,197,162,32]}
+{"kind":"textbox","id":"sh/u5gfuxwb","slide":9,"name":"text-93","text":"구매 연결","textPreview":"구매 연결","textChars":5,"textLines":1,"bbox":[792,197,147,32]}
+{"kind":"textbox","id":"sh/f6pgn2dw","slide":9,"name":"text-94","text":"초기 수익: 확인된 구매 전환에 따른 제휴 수수료","textPreview":"초기 수익: 확인된 구매 전환에 따른 제휴 수수료","textChars":27,"textLines":1,"bbox":[173,371,1030,46]}
+{"kind":"shape","id":"sh/sjyxs7el","slide":9,"bbox":[64,452,1152,0]}
+{"kind":"textbox","id":"sh/tk7ylcv6","slide":9,"name":"text-95","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[64,482,40,35]}
+{"kind":"textbox","id":"sh/6hwfqxwf","slide":9,"name":"text-96","text":"판매점용 SaaS·API","textPreview":"판매점용 SaaS·API","textChars":13,"textLines":1,"bbox":[116,482,488,37]}
+{"kind":"textbox","id":"sh/7i5gj2d0","slide":9,"name":"text-97","text":"추천 위젯·견적 검증의 월 또는 사용량 과금","textPreview":"추천 위젯·견적 검증의 월 또는 사용량 과금","textChars":24,"textLines":1,"bbox":[116,527,488,67]}
+{"kind":"textbox","id":"sh/kfexone9","slide":9,"name":"text-98","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[665,482,40,35]}
+{"kind":"textbox","id":"sh/5gnyhsvu","slide":9,"name":"text-99","text":"집계 리뷰 인사이트","textPreview":"집계 리뷰 인사이트","textChars":10,"textLines":1,"bbox":[717,482,499,37]}
+{"kind":"textbox","id":"sh/l0vm5k3m","slide":9,"name":"text-100","text":"제조사·유통사를 위한 사용 경험 분석","textPreview":"제조사·유통사를 위한 사용 경험 분석","textChars":20,"textLines":1,"bbox":[717,527,499,67]}
+{"kind":"textbox","id":"sh/0zm5wf21","slide":9,"name":"text-101","text":"사업 가설 · 제휴 조건과 단가는 검증 예정 · 추천 순위와 수수료의 분리 원칙","textPreview":"사업 가설 · 제휴 조건과 단가는 검증 예정 · 추천 순위와 수수료의 분리 원칙","textChars":44,"textLines":1,"bbox":[65,632,1150,24]}
+{"kind":"notes","id":"nt/r5x06q","slide":9,"text":"소비자에게는 기본 구매설계를 무료로 제공하고, 판매처에서 실제 구매가 확인됐을 때 제휴 수수료를 받는 모델을 우선 검증하겠습니다. 다음 단계에서는 판매점에 추천 위젯과 견적 검증 API를 제공합니다. 리뷰가 충분히 쌓이면 사용 목적별 선호와 반복 불만을 집계한 분석 서비스도 검토할 수 있습니다. 원문이나 개인 정보 판매를 전제로 하지 않습니다. 현재 제휴 매출은 검증 전 가설이며, 구매 추적과 환불 반영, 데이터 비용을 포함해 수익성을 확인할 계획입니다.\n\n자료 및 상태: 사용자 제공 목업: C:/Users/green/Downloads/TrueFit Prototype v2.html. 화면의 가격·리뷰 수·제품 설명은 시연용 예시이며 실제 운영 성과가 아님.\n수익 구조 및 정책은 기획안. 제휴 계약·매출 실적 없음으로 취급."}
+{"kind":"slide","id":"sl/1bviy2","slide":10,"title":"초기 시장과 시장 진입","textShapes":23}
+{"kind":"textbox","id":"sh/xgb2p436","slide":10,"name":"text-102","text":"초기 시장과 시장 진입","textPreview":"초기 시장과 시장 진입","textChars":12,"textLines":1,"bbox":[64,47,1150,59]}
+{"kind":"textbox","id":"sh/at03upkf","slide":10,"name":"text-103","text":"국내 조립 PC와 주변기기 구매자의 구체적인 구매 과업부터 시작","textPreview":"국내 조립 PC와 주변기기 구매자의 구체적인 구매 과업부터 시작","textChars":35,"textLines":1,"bbox":[66,116,1140,35]}
+{"kind":"shape","id":"sh/vutknul0","slide":10,"bbox":[64,668,1152,0]}
+{"kind":"textbox","id":"sh/8rilsf2p","slide":10,"name":"text-104","text":"TrueFit","textPreview":"TrueFit","textChars":7,"textLines":1,"bbox":[64,683,140,20]}
+{"kind":"textbox","id":"sh/9sr2lk3a","slide":10,"name":"text-105","text":"10","textPreview":"10","textChars":2,"textLines":1,"bbox":[1170,681,44,22]}
+{"kind":"textbox","id":"sh/mp03qpkj","slide":10,"name":"text-106","text":"사용자 확보","textPreview":"사용자 확보","textChars":6,"textLines":1,"bbox":[64,199,460,46]}
+{"kind":"textbox","id":"sh/nq9kjal4","slide":10,"name":"text-107","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[64,267,40,35]}
+{"kind":"textbox","id":"sh/snml4j2t","slide":10,"name":"text-108","text":"외부 견적 무료 점검","textPreview":"외부 견적 무료 점검","textChars":11,"textLines":1,"bbox":[116,267,488,37]}
+{"kind":"textbox","id":"sh/tovmxo3e","slide":10,"name":"text-109","text":"구매를 고민 중인 사용자의 첫 진입점","textPreview":"구매를 고민 중인 사용자의 첫 진입점","textChars":20,"textLines":1,"bbox":[116,312,488,67]}
+{"kind":"textbox","id":"sh/p4zeh0vi","slide":10,"name":"text-110","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[64,408,40,35]}
+{"kind":"textbox","id":"sh/43qdovex","slide":10,"name":"text-111","text":"커뮤니티·크리에이터","textPreview":"커뮤니티·크리에이터","textChars":10,"textLines":1,"bbox":[116,408,488,37]}
+{"kind":"textbox","id":"sh/32hwfads","slide":10,"name":"text-112","text":"용도별 추천과 실제 사용 경험 콘텐츠","textPreview":"용도별 추천과 실제 사용 경험 콘텐츠","textChars":20,"textLines":1,"bbox":[116,453,488,67]}
+{"kind":"textbox","id":"sh/218vm5w7","slide":10,"name":"text-113","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[64,543,40,35]}
+{"kind":"textbox","id":"sh/h0zed0vm","slide":10,"name":"text-114","text":"판매점 파일럿","textPreview":"판매점 파일럿","textChars":7,"textLines":1,"bbox":[116,543,488,37]}
+{"kind":"textbox","id":"sh/gz6dkve1","slide":10,"name":"text-115","text":"상담 과정에 적용하고 구매 연결 확인","textPreview":"상담 과정에 적용하고 구매 연결 확인","textChars":20,"textLines":1,"bbox":[116,588,488,67]}
+{"kind":"textbox","id":"sh/fyxcbqdg","slide":10,"name":"text-116","text":"사업성 검증","textPreview":"사업성 검증","textChars":6,"textLines":1,"bbox":[712,199,490,46]}
+{"kind":"textbox","id":"sh/uxovilwv","slide":10,"name":"text-117","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[714,279,55,35]}
+{"kind":"textbox","id":"sh/lwjepkvq","slide":10,"name":"text-118","text":"견적 완성률","textPreview":"견적 완성률","textChars":6,"textLines":1,"bbox":[785,279,410,36]}
+{"kind":"shape","id":"sh/0vadwfu5","slide":10,"bbox":[714,331,488,0]}
+{"kind":"textbox","id":"sh/kzixs32h","slide":10,"name":"text-119","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[714,352,55,35]}
+{"kind":"textbox","id":"sh/l0ryl832","slide":10,"name":"text-120","text":"판매처 이동률","textPreview":"판매처 이동률","textChars":7,"textLines":1,"bbox":[785,352,410,36]}
+{"kind":"shape","id":"sh/yd0fqtkb","slide":10,"bbox":[714,404,488,0]}
+{"kind":"textbox","id":"sh/je9gjylw","slide":10,"name":"text-121","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[714,425,55,35]}
+{"kind":"textbox","id":"sh/wbyxoj25","slide":10,"name":"text-122","text":"확인된 구매 전환","textPreview":"확인된 구매 전환","textChars":9,"textLines":1,"bbox":[785,425,410,36]}
+{"kind":"shape","id":"sh/xcryho3q","slide":10,"bbox":[714,477,488,0]}
+{"kind":"textbox","id":"sh/a9gfm9kf","slide":10,"name":"text-123","text":"04","textPreview":"04","textChars":2,"textLines":1,"bbox":[714,498,55,35]}
+{"kind":"textbox","id":"sh/bapgfel0","slide":10,"name":"text-124","text":"제품별 리뷰 작성률","textPreview":"제품별 리뷰 작성률","textChars":10,"textLines":1,"bbox":[785,498,410,36]}
+{"kind":"shape","id":"sh/o7yxkj29","slide":10,"bbox":[714,550,488,0]}
+{"kind":"notes","id":"nt/1bviy2","slide":10,"text":"초기에는 국내 조립 PC와 주변기기를 함께 다루되, 외부 견적 무료 점검을 사용자 확보의 첫 접점으로 삼겠습니다. 커뮤니티와 크리에이터 협업으로 구매 상황이 분명한 사용자를 만나고, 판매점과는 소규모 파일럿을 제안할 계획입니다. 견적 완성과 판매처 이동, 실제 구매 확인까지 이어지는 비율을 측정하고 구매 후 리뷰 작성도 확인하겠습니다. 사용자 확보 비용과 건당 제휴 수익, 추천 운영 비용을 함께 비교해 사업성을 판단하겠습니다.\n\n자료 및 상태: 사용자 제공 목업: C:/Users/green/Downloads/TrueFit Prototype v2.html. 화면의 가격·리뷰 수·제품 설명은 시연용 예시이며 실제 운영 성과가 아님.\n채널·지표는 검증 계획이며 실제 확보 고객이나 제휴 실적이 아님."}
+{"kind":"slide","id":"sl/1ggcdz","slide":11,"title":"현재 개발 수준과 12개월 계획","textShapes":18}
+{"kind":"textbox","id":"sh/mton2lcf","slide":11,"name":"text-125","text":"현재 개발 수준과 12개월 계획","textPreview":"현재 개발 수준과 12개월 계획","textChars":17,"textLines":1,"bbox":[64,47,1150,59]}
+{"kind":"textbox","id":"sh/9wz6xgb6","slide":11,"name":"text-126","text":"현재 구현한 PC 추천 흐름을 전체 서비스와 자체 리뷰로 확장","textPreview":"현재 구현한 PC 추천 흐름을 전체 서비스와 자체 리뷰로 확장","textChars":34,"textLines":1,"bbox":[66,116,1140,35]}
+{"kind":"shape","id":"sh/ovq54vul","slide":11,"bbox":[64,668,1152,0]}
+{"kind":"textbox","id":"sh/zqxor6t4","slide":11,"name":"text-127","text":"TrueFit","textPreview":"TrueFit","textChars":7,"textLines":1,"bbox":[64,683,140,20]}
+{"kind":"textbox","id":"sh/epony1cj","slide":11,"name":"text-128","text":"11","textPreview":"11","textChars":2,"textLines":1,"bbox":[1170,681,44,22]}
+{"kind":"textbox","id":"sh/1sf6tgbu","slide":11,"name":"text-129","text":"현재 구현","textPreview":"현재 구현","textChars":5,"textLines":1,"bbox":[64,204,285,48]}
+{"kind":"textbox","id":"sh/0r650bu9","slide":11,"name":"text-130","text":"조건 대화·PC 추천\n부품 교체와 호환 검사\n장바구니·저장 리포트","textPreview":"조건 대화·PC 추천 | 부품 교체와 호환 검사 | 장바구니·저장 리포트","textChars":36,"textLines":3,"bbox":[64,277,455,119]}
+{"kind":"textbox","id":"sh/rmdon6ts","slide":11,"name":"text-131","text":"React · FastAPI · PostgreSQL","textPreview":"React · FastAPI · PostgreSQL","textChars":28,"textLines":1,"bbox":[64,436,470,34]}
+{"kind":"textbox","id":"sh/q14nu1c7","slide":11,"name":"text-132","text":"코드·문서 확인 기준","textPreview":"코드·문서 확인 기준","textChars":11,"textLines":1,"bbox":[64,486,450,30]}
+{"kind":"textbox","id":"sh/kjmh0jut","slide":11,"name":"text-133","text":"1–3개월","textPreview":"1–3개월","textChars":5,"textLines":1,"bbox":[648,198,180,33]}
+{"kind":"textbox","id":"sh/lkvy9obe","slide":11,"name":"text-134","text":"서비스 연결","textPreview":"서비스 연결","textChars":6,"textLines":1,"bbox":[648,236,540,40]}
+{"kind":"textbox","id":"sh/yx4zy9cn","slide":11,"name":"text-135","text":"견적 점검·주변기기 화면","textPreview":"견적 점검·주변기기 화면","textChars":13,"textLines":1,"bbox":[648,286,540,38]}
+{"kind":"shape","id":"sh/zydg7et8","slide":11,"bbox":[648,326,550,0]}
+{"kind":"textbox","id":"sh/cvmxwzux","slide":11,"name":"text-136","text":"4–6개월","textPreview":"4–6개월","textChars":5,"textLines":1,"bbox":[648,338,180,33]}
+{"kind":"textbox","id":"sh/xwvy54b2","slide":11,"name":"text-137","text":"리뷰 수집","textPreview":"리뷰 수집","textChars":5,"textLines":1,"bbox":[648,376,540,40]}
+{"kind":"textbox","id":"sh/atkfupcr","slide":11,"name":"text-138","text":"제품 모델·사용 맥락·구매 확인","textPreview":"제품 모델·사용 맥락·구매 확인","textChars":17,"textLines":1,"bbox":[648,426,540,38]}
+{"kind":"shape","id":"sh/butg3utc","slide":11,"bbox":[648,466,550,0]}
+{"kind":"textbox","id":"sh/wr6h83u1","slide":11,"name":"text-139","text":"7–12개월","textPreview":"7–12개월","textChars":6,"textLines":1,"bbox":[648,478,180,33]}
+{"kind":"textbox","id":"sh/hsfyh8bm","slide":11,"name":"text-140","text":"추천 반영과 실증","textPreview":"추천 반영과 실증","textChars":9,"textLines":1,"bbox":[648,516,540,40]}
+{"kind":"textbox","id":"sh/58bylo3q","slide":11,"name":"text-141","text":"사용자 평가·판매점 파일럿","textPreview":"사용자 평가·판매점 파일럿","textChars":14,"textLines":1,"bbox":[648,566,540,38]}
+{"kind":"textbox","id":"sh/472hsjm5","slide":11,"name":"text-142","text":"일정은 제안 목표이며, 데이터 확보와 사용자 검증 결과에 따라 조정합니다.","textPreview":"일정은 제안 목표이며, 데이터 확보와 사용자 검증 결과에 따라 조정합니다.","textChars":41,"textLines":1,"bbox":[65,632,1140,24]}
+{"kind":"notes","id":"nt/1ggcdz","slide":11,"text":"현재 코드에는 조건 대화, PC 추천, 부품 교체, 호환 검사, 장바구니와 저장 리포트가 있습니다. 목업으로 정의한 전체 서비스와 현재 구현 범위를 구분해 보여드리고 있습니다. 앞으로 3개월은 외부 견적과 주변기기 서비스 연결을 우선하고, 6개월까지 제품별 리뷰 수집 구조를 구축하는 계획입니다. 이후 리뷰를 추천에 반영하고 사용자 평가와 판매점 파일럿으로 효과를 검증하겠습니다. 이는 제안 일정으로 데이터 확보와 검증 결과에 따라 조정할 수 있습니다.\n\n자료 및 상태: 사용자 제공 목업: C:/Users/green/Downloads/TrueFit Prototype v2.html. 화면의 가격·리뷰 수·제품 설명은 시연용 예시이며 실제 운영 성과가 아님.\n프로젝트 README.md, web/src/pages 및 src 추천 관련 코드의 이전 대화 내 확인. 이번 PPT 작업에서 실행 테스트를 수행한 것은 아님."}
+{"kind":"slide","id":"sl/csrg5o","slide":12,"title":"팀과 지원금 활용","textShapes":17}
+{"kind":"textbox","id":"sh/1gv6t07y","slide":12,"name":"text-143","text":"팀과 지원금 활용","textPreview":"팀과 지원금 활용","textChars":9,"textLines":1,"bbox":[64,47,1150,59]}
+{"kind":"textbox","id":"sh/ed4ni587","slide":12,"name":"text-144","text":"구현한 제품을 실제 구매 경험과 데이터로 검증하겠습니다","textPreview":"구현한 제품을 실제 구매 경험과 데이터로 검증하겠습니다","textChars":30,"textLines":1,"bbox":[66,116,1140,35]}
+{"kind":"shape","id":"sh/zedoraps","slide":12,"bbox":[64,668,1152,0]}
+{"kind":"textbox","id":"sh/crm5gvq1","slide":12,"name":"text-145","text":"TrueFit","textPreview":"TrueFit","textChars":7,"textLines":1,"bbox":[64,683,140,20]}
+{"kind":"textbox","id":"sh/dcv6p07m","slide":12,"name":"text-146","text":"12","textPreview":"12","textChars":2,"textLines":1,"bbox":[1170,681,44,22]}
+{"kind":"textbox","id":"sh/qpknel8b","slide":12,"name":"text-147","text":"확인된 실행 기반","textPreview":"확인된 실행 기반","textChars":9,"textLines":1,"bbox":[64,200,527,48]}
+{"kind":"textbox","id":"sh/rqtonqpg","slide":12,"name":"text-148","text":"추천 엔진과 호환 규칙\n상품·리뷰 데이터 처리 구조\n대화형 화면과 저장 리포트","textPreview":"추천 엔진과 호환 규칙 | 상품·리뷰 데이터 처리 구조 | 대화형 화면과 저장 리포트","textChars":43,"textLines":3,"bbox":[64,281,536,146]}
+{"kind":"textbox","id":"sh/4n25cvq5","slide":12,"name":"text-149","text":"프로젝트 코드와 서비스 목업을\n기반으로 검증 단계에 진입","textPreview":"프로젝트 코드와 서비스 목업을 | 기반으로 검증 단계에 진입","textChars":31,"textLines":2,"bbox":[64,483,529,78]}
+{"kind":"textbox","id":"sh/pob6lg7q","slide":12,"name":"text-150","text":"지원금 활용 우선순위","textPreview":"지원금 활용 우선순위","textChars":11,"textLines":1,"bbox":[688,200,521,48]}
+{"kind":"textbox","id":"sh/tk3q58by","slide":12,"name":"text-151","text":"01","textPreview":"01","textChars":2,"textLines":1,"bbox":[688,278,40,35]}
+{"kind":"textbox","id":"sh/8ju9c3ud","slide":12,"name":"text-152","text":"데이터 기반 확보","textPreview":"데이터 기반 확보","textChars":9,"textLines":1,"bbox":[740,278,474,37]}
+{"kind":"textbox","id":"sh/7i183yts","slide":12,"name":"text-153","text":"상품·가격 갱신과 제품 식별 정비","textPreview":"상품·가격 갱신과 제품 식별 정비","textChars":18,"textLines":1,"bbox":[740,323,474,67]}
+{"kind":"textbox","id":"sh/6hsratc7","slide":12,"name":"text-154","text":"02","textPreview":"02","textChars":2,"textLines":1,"bbox":[688,398,40,35]}
+{"kind":"textbox","id":"sh/lgjq18b2","slide":12,"name":"text-155","text":"자체 리뷰 시스템","textPreview":"자체 리뷰 시스템","textChars":9,"textLines":1,"bbox":[740,398,474,37]}
+{"kind":"textbox","id":"sh/kfa983uh","slide":12,"name":"text-156","text":"사용 맥락 수집과 근거 품질 관리","textPreview":"사용 맥락 수집과 근거 품질 관리","textChars":18,"textLines":1,"bbox":[740,443,474,67]}
+{"kind":"textbox","id":"sh/ze18zytw","slide":12,"name":"text-157","text":"03","textPreview":"03","textChars":2,"textLines":1,"bbox":[688,518,40,35]}
+{"kind":"textbox","id":"sh/ydsr6tcb","slide":12,"name":"text-158","text":"실제 사용자·판매점 검증","textPreview":"실제 사용자·판매점 검증","textChars":13,"textLines":1,"bbox":[740,518,474,37]}
+{"kind":"textbox","id":"sh/xcjqxobq","slide":12,"name":"text-159","text":"구매 전환과 추천 적합성 측정","textPreview":"구매 전환과 추천 적합성 측정","textChars":16,"textLines":1,"bbox":[740,563,474,67]}
+{"kind":"notes","id":"nt/csrg5o","slide":12,"text":"저희는 추천 엔진과 데이터베이스, 사용자 화면을 갖춘 프로젝트를 바탕으로 다음 검증 단계에 들어가고자 합니다. 지원금은 상품과 가격 데이터 정비, 자체 리뷰 수집 시스템, 사용자와 판매점 실증에 우선 사용하겠습니다. 핵심 목표는 사용자가 자신의 목적에 맞는 제품을 선택하도록 돕는 것입니다. 구매 전에 선택의 근거를 제공하고, 구매 후에는 사용 경험을 축적해 다음 사용자의 추천을 개선하겠습니다. 감사합니다.\n\n자료 및 상태: 사용자 제공 목업: C:/Users/green/Downloads/TrueFit Prototype v2.html. 화면의 가격·리뷰 수·제품 설명은 시연용 예시이며 실제 운영 성과가 아님.\n팀원 성명·경력·역할 배분은 제공되지 않아 기재하지 않음. 지원금 세부 금액은 확정 전."}

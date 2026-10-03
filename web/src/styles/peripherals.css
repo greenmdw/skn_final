@@ -54,3 +54,36 @@
   .pf-action { align-items: stretch; flex-direction: column; }
   .pf-action > div { align-items: flex-start; }
 }
+
+/* 추천 결과 */
+.pf-results { display: flex; flex-direction: column; gap: 14px; }
+.pf-result-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.pf-result-card { display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+.pf-result-card header, .pf-result-card footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.pf-result-kind { padding: 4px 9px; border-radius: 999px; background: rgba(96,237,192,.13); color: var(--mint); font-size: 11px; }
+.pf-result-price { font-size: 16px; }
+.pf-result-body { display: flex; gap: 12px; }
+.pf-result-body img { width: 72px; height: 72px; object-fit: contain; border-radius: 8px; background: var(--ink); flex: none; }
+.pf-result-body h3 { margin: 0; font-size: 14px; line-height: 1.45; }
+.pf-result-brand { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+.pf-result-reason { margin: 8px 0 0; font-size: 12px; line-height: 1.6; }
+.pf-result-req { display: grid; gap: 4px; margin: 0; font-size: 12px; }
+.pf-result-req > div { display: flex; justify-content: space-between; gap: 10px; }
+.pf-result-req dt { color: var(--muted); }
+.pf-result-req dd { margin: 0; text-align: right; }
+.pf-result-checks { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 12px; }
+.pf-result-checks li { display: grid; grid-template-columns: 16px auto 1fr; gap: 6px; align-items: baseline; }
+.pf-result-checks small { color: var(--muted); }
+.pf-result-checks .ok b { color: var(--ok); }
+.pf-result-checks .unknown b { color: var(--info); }
+.pf-result-checks .fail b { color: var(--warn); }
+.pf-result-alt { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 11px; color: var(--muted); }
+.pf-result-alt span { padding: 3px 8px; border-radius: 999px; border: 1px solid var(--line); }
+.pf-result-guide { margin: 0; font-size: 11px; line-height: 1.55; color: var(--muted); }
+.pf-result-card footer small { color: var(--muted); font-size: 11px; }
+.pf-result-card footer a { color: var(--mint); font-size: 12px; }
+.pf-result-empty { margin: 0; padding: 12px 16px; list-style: none; border-radius: 10px; background: var(--panel); border: 1px dashed var(--line2); font-size: 12px; line-height: 1.7; color: var(--muted); }
+.pf-result-empty b { color: var(--text); }
+.pf-result-none, .pf-result-total { margin: 0; font-size: 12px; color: var(--muted); }
+.pf-result-total b { color: var(--text); font-size: 14px; }
+@media (max-width: 760px) { .pf-result-grid { grid-template-columns: 1fr; } }
