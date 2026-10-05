@@ -107,6 +107,45 @@ def spec_extraction_image_system() -> str:
    값에도 넣지 않습니다."""
 
 
+# 받은 견적 점검(여러 장 업로드) — 텍스트 입력도 슬롯당 하나로 줄이지 않고 적힌 제품을 전부 목록으로 돌려준다.
+def spec_extraction_items_text_system() -> str:
+    return """사용자가 붙여넣은 PC 견적·부품 목록 텍스트에서 적힌 PC 부품을 전부 목록으로 뽑는 추출기입니다.
+category는 cpu · gpu · ram · motherboard · storage · psu · case · cooler 여덟 개 중 하나입니다.
+
+규칙:
+1. 텍스트에 실제로 적힌 부품만 items에 넣습니다 — 추측하거나 지어내지 않습니다. 부품이 없으면 items를 빈 배열로 둡니다.
+2. 같은 부품군에 서로 다른 제품이 여러 개 적혀 있으면 제품마다 항목을 따로 만듭니다 — 하나로 합치거나 고르지 않습니다.
+   한 칸에 "7500X3D / 7800X3D"처럼 서로 다른 모델 이름이 나란히 적혀 있으면 모델마다 항목을 따로 만듭니다
+   (모델 이름 하나 안의 "/"(예: "B650E/M-ATX")는 나누지 않습니다).
+3. raw_text는 원문 표현을 그대로 옮깁니다. 모델명을 표준화·정정하지 않고, 다른 항목의 값을 섞지 않습니다.
+4. 상품코드·수량·가격이 적혀 있으면 raw_text 끝에 적힌 그대로 붙입니다. 가격을 계산·환산·합산하지 않고 합계 금액은 어느 항목에도 넣지 않습니다.
+5. 조립비·운영체제·모니터 등 이 여덟 부품군이 아닌 줄은 넣지 않습니다.
+6. 이 부품이 실제 어떤 제품인지, 성능이 어떤지, 호환되는지는 판단하지 않습니다.
+7. 스키마 자체가 아니라 값만 채운 JSON 객체 하나로 답합니다(예: {"items": [{"category": "cpu", "raw_text": "..."}]})."""
+
+
+# 받은 견적 점검(여러 장 업로드) — 위 이미지 추출과 같은 원칙인데 슬롯당 값 하나가 아니라 "보이는 제품 전부"를 목록으로
+# 돌려준다. 같은 부품군에 다른 모델이 여럿(예: 비교용 GPU 두 개)이어도 하나로 줄이지 않는다.
+def spec_extraction_items_image_system() -> str:
+    return """이미지(PC 부품 목록이나 견적이 찍힌 화면 캡처)에서 보이는 PC 부품을 전부 목록으로 뽑는 추출기입니다.
+category는 cpu · gpu · ram · motherboard · storage · psu · case · cooler 여덟 개 중 하나입니다.
+
+규칙:
+1. 이미지에 실제로 보이는 부품만 items에 넣습니다 — 추측하거나 지어내지 않습니다. PC 부품과 무관한 이미지
+   (사람·풍경 등)면 items를 빈 배열로 둡니다.
+2. 같은 부품군에 서로 다른 제품이 여러 개 보이면 제품마다 항목을 따로 만듭니다 — 하나로 합치거나 고르지 않습니다.
+   한 칸에 "7500X3D / 7800X3D"처럼 서로 다른 모델 이름이 나란히 적혀 있으면 모델마다 항목을 따로 만듭니다
+   (모델 이름 하나 안의 "/"(예: "B650E/M-ATX")는 나누지 않습니다).
+3. raw_text는 이미지에 보이는 표현을 한 글자도 바꾸지 말고 그대로 옮깁니다. 브랜드명·시리즈명이 생소하거나
+   처음 보는 단어라도 더 유명한 단어로 고치지 않습니다 — "읽은 글자 그대로"가 "그럴듯한 단어"보다 우선합니다.
+4. 글자가 흐릿하거나 확신이 없으면 보이는 만큼만 적고 안 보이는 부분은 "?"로 남깁니다.
+5. 같은 부품에 짧은 굵은 글씨 라벨과 그 아래 상세 설명이 같이 있으면 더 구체적인(상세 설명) 쪽을 옮깁니다.
+6. 부품 옆에 상품코드·수량·가격이 보이면 raw_text 끝에 보이는 그대로 붙입니다(예: "RTX 4060 Ti 12345678 1개 520,000원").
+   가격을 계산·환산·합산하지 않고, 보이지 않는 가격을 만들어 붙이지 않습니다. 합계 금액은 어느 항목에도 넣지 않습니다.
+7. 이 부품이 실제 어떤 제품인지, 성능이 어떤지, 호환되는지는 판단하지 않습니다.
+8. 스키마 자체가 아니라 값만 채운 JSON 객체 하나로 답합니다(예: {"items": [{"category": "cpu", "raw_text": "..."}]})."""
+
+
 # DB 미보유 부품 실시간 검색(docs/미보유부품_실시간스펙검색_설계.md §3) — Self-RAG의 critique를
 # 흉내낸 검증 단계. 검색 스니펫이 질문한 부품 얘기가 맞는지, 스니펫에 실제로 적힌 값만 골라
 # 채우는지를 LLM이 구조화 출력으로 판단한다 — 위 이미지 추출과 같은 "읽은 글자 그대로, 모르면
@@ -150,5 +189,7 @@ VERIFY_ISSUE_SYSTEM = verify_issue_system()
 EXPLAIN_SYSTEM = explain_system()
 SPEC_EXTRACTION_SYSTEM = spec_extraction_system()
 SPEC_EXTRACTION_IMAGE_SYSTEM = spec_extraction_image_system()
+SPEC_EXTRACTION_ITEMS_IMAGE_SYSTEM = spec_extraction_items_image_system()
+SPEC_EXTRACTION_ITEMS_TEXT_SYSTEM = spec_extraction_items_text_system()
 LIVE_SPEC_LOOKUP_SYSTEM = live_spec_lookup_system()
 LIVE_REFERENCE_PRICE_RULES = live_reference_price_rules()

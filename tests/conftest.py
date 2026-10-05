@@ -207,3 +207,12 @@ def recommendation_review_prerequisite(request):
 
     with neutral_review_prerequisite(dsn):
         yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_request_rate_limits():
+    """인메모리 요청 한도(분당 N회)가 테스트 사이에 새지 않게 한다 — 한도에 닿는 건 그 한도를 시험하는 테스트만이어야 한다.
+    안 그러면 같은 IP(testclient)로 /pc/*를 부르는 테스트가 한 번에 많이 돌 때 앞선 테스트 때문에 429로 실패한다."""
+    from src.auth import ratelimit
+    ratelimit.reset_all()
+    yield

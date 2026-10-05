@@ -272,3 +272,16 @@ def test_price_claims_guard_skips_a_clause_whose_direction_is_ambiguous():
 
     review = _prices_review({"CPU": "cheaper", "GPU": "pricier"})
     assert price_claims_are_grounded("CPU는 비싸고 GPU는 저렴합니다", review) is True
+
+
+def test_guard_accepts_the_same_value_written_as_a_percentage_but_not_a_new_number():
+    """근거의 "750W × 0.9 = 675W"를 "90%"로 쓴 답은 같은 값의 다른 표기라 통과해야 한다 — 새 숫자(95%)는 여전히 막는다."""
+    from src.agent.quote_review_agent import reply_is_grounded
+
+    facts = ["파워 750W × 0.9 = 675W, CPU 120W + GPU 115W = 235W"]
+    ok, outside, _ = reply_is_grounded("합계 235W는 750W의 90%인 675W 이하입니다.", facts)
+    assert ok and not outside
+    bad, outside, _ = reply_is_grounded("합계 235W는 750W의 95%입니다.", facts)
+    assert not bad and "95" in outside
+    ok_back, _, _ = reply_is_grounded("여유율은 0.9입니다.", ["여유율 90% 기준 675W"])
+    assert ok_back

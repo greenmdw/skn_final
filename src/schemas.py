@@ -266,14 +266,36 @@ class QuoteApplyOut(BaseModel):
     run_id: str | None = None               # missing 이 비어 있으면 즉시 추천을 시작한 run id
 
 
+class QuoteChatContextIn(BaseModel):
+    type: Literal["saved_quote_comparison"]
+    comparison_id: UUID
+
+
 class QuoteChatIn(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
+    client_message_id: str | None = Field(default=None, max_length=100)   # 같은 요청의 재전송이면 저장된 답을 돌려준다
+    context: QuoteChatContextIn | None = None                             # 저장 견적 비교에 대한 질문
+
+
+class QuoteGuideRefOut(BaseModel):
+    id: str
+    slot: str
+    kind: Literal["care", "install"]
+    text: str
+    score: float | None = None
 
 
 class QuoteChatOut(BaseModel):
     reply: str
     evidence: list[str] = Field(default_factory=list)      # 답의 근거가 된 분석 블록(호환 검사 · 가격 비교 …)
     via: Literal["agent", "rules"]                          # 어느 경로로 답했는가
+    message_id: str | None = None
+    answer_id: str | None = None
+    guide_refs: list[QuoteGuideRefOut] = Field(default_factory=list)
+    visuals: list[dict[str, Any]] = Field(default_factory=list)     # 서버가 조립한 표·제품 카드·호환 자료
+    display_target: Literal["saved_comparison_explanation", "chat"] = "chat"
+    duplicate_of: str | None = None                                  # 같은 질문이면 재사용한 원래 답의 answer_id
+    created_at: str | None = None
 
 
 class QuoteChatMessageOut(BaseModel):
@@ -281,6 +303,60 @@ class QuoteChatMessageOut(BaseModel):
     role: Literal["user", "assistant", "system"]
     text: str
     created_at: str
+    # 저장 견적 비교 질문의 복원 정보 — 새로고침 뒤에도 질문별 해설과 자료를 그대로 보인다(없으면 비어 있다).
+    comparison_id: str | None = None
+    answer_id: str | None = None
+    evidence: list[str] = Field(default_factory=list)
+    guide_refs: list[QuoteGuideRefOut] = Field(default_factory=list)
+    visuals: list[dict[str, Any]] = Field(default_factory=list)
+    via: Literal["agent", "rules"] | None = None
+    display_target: Literal["saved_comparison_explanation", "chat"] | None = None
+    duplicate_of: str | None = None
+
+
+# BE-09 저장 견적 비교
+class QuoteSavedComparisonIn(BaseModel):
+    saved_list_id: UUID
+    saved_revision_no: int | None = Field(default=None, ge=1)
+
+
+class QuoteComparisonProductOut(BaseModel):
+    product_id: str | None = None
+    product_key: str | None = None
+    name: str | None = None
+    image_url: str | None = None
+    quantity: int = 1
+    line_total: int | None = None
+
+
+class QuoteComparisonRowOut(BaseModel):
+    category: str
+    same_product: bool                                  # 문자열이 아니라 카탈로그 제품 키로 판정
+    received: QuoteComparisonProductOut | None = None
+    saved: QuoteComparisonProductOut | None = None
+    price_diff: int | None = None                       # 저장 견적 − 받은 견적(품목 합계 기준)
+
+
+class QuoteComparisonSummaryOut(BaseModel):
+    changed_count: int
+    largest_price_difference_category: str | None = None
+    text: str
+
+
+class QuoteSavedComparisonOut(BaseModel):
+    comparison_id: str
+    received_total: int
+    saved_total: int
+    total_diff: int                                      # 가격이 양쪽에 모두 있는 부품(comparable_categories)만의 차이(저장 − 받은)
+    comparable_categories: list[str] = Field(default_factory=list)
+    excluded_received_categories: list[str] = Field(default_factory=list)   # 받은 견적에 가격이 없어 합계에서 뺀 부품군
+    rows: list[QuoteComparisonRowOut]
+    brief_summary: QuoteComparisonSummaryOut
+    saved: dict[str, Any] = Field(default_factory=dict)                      # 비교한 저장 견적(list_id·revision_no·name)
+    labels: dict[str, str] = Field(default_factory=dict)                     # received/saved 쪽의 이름(견적 이름 — 없으면 받은 견적/저장 견적)
+    sides: dict[str, Any] | None = None                                      # 견적끼리 비교할 때 각 견적의 합계·호환 요약
+    kind: str | None = None
+    computed_at: str
 
 
 class QuoteChatHistoryOut(BaseModel):
@@ -303,6 +379,165 @@ class QuoteReviewOut(BaseModel):
     balance: QuoteBalanceOut | None = None  # 용도 대비 균형(CHK-06) — 이 기능 이전에 저장된 결과에는 없다
     compare: QuoteCompareOut | None = None  # 우리 추천과 비교(CHK-07) — 이 기능 이전에 저장된 결과에는 없다
     computed_at: str
+
+
+# ── 받은 견적 점검: 여러 장 업로드 초안 (docs 개발요청서 BE-01~04·07) ──
+class QuoteCapabilitiesOut(BaseModel):
+    image_extraction: bool
+    supported_types: list[str]
+    max_files: int
+    max_file_bytes: int
+    max_total_bytes: int
+    text_max_chars: int
+
+
+class QuoteDraftSourceOut(BaseModel):
+    id: str
+    type: Literal["image", "text", "replacement"]
+    file_name: str | None = None
+    sort_order: int
+    status: Literal["completed", "failed"]
+    error_code: str | None = None
+
+
+class QuoteDraftItemOut(BaseModel):
+    id: str
+    category: str
+    raw_text: str
+    normalized_name: str                                 # 상품코드·가격이 없는 이름
+    product_code: str | None = None
+    quantity: int = 1
+    quote_unit_price: int | None = None
+    quote_line_total: int | None = None
+    quote_price_type: Literal["unit", "line_total", "unknown"] = "unknown"
+    matched_product_id: str | None = None                # 카탈로그와 확정 대응(confirmed)일 때만
+    matched_product_key: str | None = None               # 저장 견적과 "같은 제품"을 가를 때 쓰는 키(제품 ID와 한 쌍)
+    matched_name: str | None = None
+    image_url: str | None = None                         # catalog.product.image_url, 없으면 null
+    match_status: Literal["confirmed", "ambiguous", "candidate", "inferred", "unmatched"] = "unmatched"
+    candidate_count: int | None = None
+    source_ids: list[str] = Field(default_factory=list)
+    selected_for_analysis: bool = False
+    user_edited: bool = False
+
+
+class QuoteDraftGroupOut(BaseModel):
+    """견적 묶음 — 올린 이미지(텍스트) 하나가 견적 하나. 서로 다른 견적을 올렸을 때 묶음별로 분석·비교한다."""
+    id: str
+    name: str
+    source_ids: list[str]
+    item_ids: list[str]
+
+
+class QuoteDraftOut(BaseModel):
+    draft_id: str
+    version: int
+    sources: list[QuoteDraftSourceOut]
+    items: list[QuoteDraftItemOut]
+    selected_item_by_category: dict[str, str] = Field(default_factory=dict)
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    question: str | None = None
+    partial_success: bool = False
+    groups: list[QuoteDraftGroupOut] = Field(default_factory=list)
+    created_at: str
+
+
+class QuoteDraftAnalysisIn(BaseModel):
+    source_ids: list[str] | None = Field(default=None, max_length=10)   # 주면 그 견적(이미지)의 항목만 분석
+
+
+class QuoteQuoteComparisonIn(BaseModel):
+    a_source_ids: list[str] = Field(min_length=1, max_length=10)
+    b_source_ids: list[str] = Field(min_length=1, max_length=10)
+
+
+class QuoteDraftItemEdit(BaseModel):
+    id: str
+    normalized_name: str | None = Field(default=None, max_length=200)
+    quantity: int | None = Field(default=None, ge=1, le=20)
+    quote_line_total: int | None = Field(default=None, ge=0, le=100_000_000)
+
+
+class QuoteDraftPatchIn(BaseModel):
+    expected_version: int
+    items: list[QuoteDraftItemEdit] = Field(default_factory=list, max_length=50)
+    selected_item_by_category: dict[str, str] | None = None
+
+
+class QuotePriceExcludedOut(BaseModel):
+    category: str
+    item_id: str
+    reason: str
+
+
+class QuotePriceRowOut(BaseModel):
+    category: str
+    item_id: str
+    quantity: int
+    quote_unit_price: int | None = None
+    quote_line_total: int | None = None
+    quote_price_type: Literal["unit", "line_total", "unknown"] = "unknown"
+    catalog_unit_price: int | None = None
+    catalog_line_total: int | None = None
+    catalog_checked_at: str | None = None
+    catalog_status: Literal["available", "out_of_stock", "no_price", "unmatched"]
+    diff_line_total: int | None = None
+
+
+class QuoteDraftAnalysisOut(QuoteReviewOut):
+    used_items: list[QuoteDraftItemOut] = Field(default_factory=list)   # 분석에 쓴 항목(분석 기준으로 고른 것)
+    question: str | None = None
+    draft_version: int
+    price_excluded: list[QuotePriceExcludedOut] = Field(default_factory=list)   # 가격이 없어 합계에서 뺀 항목
+    price_rows: list[QuotePriceRowOut] = Field(default_factory=list)            # 항목별 견적·카탈로그 가격(BE-08)
+
+
+# BE-05 분석 전 제품 비교 · BE-06 교체 영향 미리보기
+class QuoteCompareProductOut(BaseModel):
+    product_id: str | None = None
+    name: str
+    image_url: str | None = None
+    price: int | None = None
+    price_delta: int | None = None
+    perf_tier: float | int | None = None
+    specs: list[dict[str, Any]] = Field(default_factory=list)
+    compat_changes: list[dict[str, Any]] = Field(default_factory=list)
+    incompatible: list[str] = Field(default_factory=list)
+    additional_replacements: list[dict[str, Any]] = Field(default_factory=list)
+    review: dict[str, Any] | None = None
+    reason: str = ""
+
+
+class QuoteDraftComparisonOut(BaseModel):
+    category: str
+    baseline_item_id: str
+    recognized: list[dict[str, Any]] = Field(default_factory=list)
+    recommended: list[QuoteCompareProductOut] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class QuoteReplacementIn(BaseModel):
+    category: str
+    candidate_product_id: str
+
+
+class QuoteReplacementsPreviewIn(BaseModel):
+    replacements: list[QuoteReplacementIn] = Field(min_length=1, max_length=8)
+
+
+class QuoteReplacementsApplyIn(QuoteReplacementsPreviewIn):
+    expected_version: int
+
+
+class QuoteReplacementPreviewOut(BaseModel):
+    before_total: int
+    after_total: int
+    total_diff: int
+    new_issues: list[dict[str, Any]] = Field(default_factory=list)
+    resolved_issues: list[dict[str, Any]] = Field(default_factory=list)
+    additional_replacements: list[dict[str, Any]] = Field(default_factory=list)
+    replaced_items: list[dict[str, Any]] = Field(default_factory=list)
+    price_excluded: list[QuotePriceExcludedOut] = Field(default_factory=list)
 
 
 # ── 조건 대화 (§D-4-1) ──

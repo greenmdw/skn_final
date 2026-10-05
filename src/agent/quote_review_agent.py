@@ -26,7 +26,8 @@ log = logging.getLogger(__name__)
 
 FactFn = Callable[[str, dict], str]          # (도구 이름, 인자) -> 근거 문장
 EVIDENCE_LABEL = {"overview": "견적 분석 요약", "compat": "호환 검사", "prices": "가격 비교", "balance": "용도 대비 균형",
-                  "compare": "우리 추천과 비교", "alternatives": "대안 조회", "compare_parts": "부품 비교"}
+                  "compare": "우리 추천과 비교", "alternatives": "대안 조회", "compare_parts": "부품 비교",
+                  "saved_comparison": "저장 견적 비교"}
 
 
 def available() -> bool:
@@ -154,6 +155,8 @@ def system_prompt(review: dict, overview: str, prefetched: str = "") -> str:
         "안내하지 않고 어떤 대안이 있는지만 말합니다.",
         "5. 답변은 4문장 이내, 한국어 존댓말. '죄송'·'확인할 수 없다'로 시작하지 않고 아는 사실부터 말합니다.",
         "6. 분석 결과에 없는 부품·조건을 물으면 없다고 하고, 견적에 무엇이 들어 있는지 알려 줍니다.",
+        "7. 미리 조회한 근거에 [저장 견적 비교]가 있으면 질문은 받은 견적과 저장한 견적의 차이를 묻는 것입니다 — 그 근거의 제품·금액으로 "
+        "답하고, 카탈로그 가격 비교로 대신하지 않습니다. 근거에 없는 제품·금액을 만들지 않습니다.",
         *(["", "질문에 대해 미리 조회한 근거(이걸로 답하고, 더 필요하면 도구를 부릅니다):", prefetched] if prefetched else []),
     ])
 
@@ -209,11 +212,35 @@ def price_claims_are_grounded(reply: str, review: dict) -> bool:
     return True
 
 
+_PERCENT = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+
+
+def _equivalent_forms(sources: list[str], numbers: set[str]) -> set[str]:
+    """근거에 있는 값의 다른 표기 — 0.9 → 90(백분율), 근거에 "90%"가 있으면 0.9. 새 값을 만드는 게 아니라 같은 값을 다르게
+    쓴 것이라 날조가 아니다(2026-10-05 실측: 근거의 "750W × 0.9 = 675W"를 모델이 "90%"로 쓴 답이 가드에 걸려 버려졌다).
+    계산(곱·합)은 여기서 허용하지 않는다 — 표기 변환만."""
+    extra: set[str] = set()
+    for n in numbers:
+        try:
+            value = float(n)
+        except ValueError:
+            continue
+        if 0 < value < 1:
+            percent = round(value * 100, 2)
+            extra.add(str(int(percent)) if percent == int(percent) else str(percent))
+    for src in sources:
+        for m in _PERCENT.finditer(src or ""):
+            value = float(m.group(1)) / 100
+            extra.add(f"{value:g}")
+    return extra
+
+
 def reply_is_grounded(reply: str, sources: list[str]) -> tuple[bool, set[str], list[str]]:
     """(통과 여부, 입력에 없던 숫자, 걸린 평가어)."""
     allowed: set[str] = set()
     for src in sources:
         allowed |= _numbers(src)
+    allowed |= _equivalent_forms(sources, allowed)
     outside = _numbers(reply) - allowed
     bad = [w for w in _EVALUATIVE if w in reply]
     return (not outside and not bad), outside, bad

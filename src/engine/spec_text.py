@@ -27,6 +27,11 @@ _SPEC_KEY_MAP = {
 }
 
 
+def parse_spec_lines(content: str) -> list[tuple[str, str]]:
+    """'CPU: …' 줄을 **줄마다** [(슬롯, 문구)]로 — 같은 슬롯이 여러 줄이면 모두 남긴다(parse_spec_text 는 마지막 하나만)."""
+    return [(_SPEC_KEY_MAP[m.group(1).lower()], m.group(2).strip()) for m in _SPEC_LINE.finditer(content)]
+
+
 def parse_spec_text(content: str) -> dict[str, str]:
     """'CPU: i5-13600K' 같은 key: value 줄만 규칙 기반으로 뽑는다. 매칭 안 되면 빈 dict."""
     specs: dict[str, str] = {}
