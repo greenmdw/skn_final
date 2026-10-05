@@ -244,3 +244,118 @@ def test_search_unavailable_part_confirmed_records_extra_condition(monkeypatch):
     assert "카탈로그 정식 등재 값이 아니" in out
     assert any("RTX 6090" in e for e in d.patches.get("extra", []))
 
+
+def test_search_unavailable_part_busy_lookup_is_a_sentence_not_an_exception(monkeypatch):
+    from src.errors import ServiceUnavailable
+
+    def busy(conn, text, **kw):
+        raise ServiceUnavailable("지금 검색 요청이 몰려 있어요. 잠시 후 다시 시도해 주세요.", code="live_part_lookup_busy")
+
+    d = _draft("computer")
+    d.conn = object()
+    d.search_confirmed = True
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": []})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: [])
+    monkeypatch.setattr("src.services.live_spec_lookup.available", lambda: True)
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", busy)
+
+    out = d.search_unavailable_part("GPU", "RTX 6090")
+    assert "몰려 있어요" in out and "가져오지 못했습니다" in out
+    assert not d.patches.get("extra")            # 못 가져왔으니 추가 조건으로 기록하지 않는다
+
+
+def test_search_unavailable_part_passes_the_canonical_slot_to_lookup(monkeypatch):
+    from src.services.live_spec_lookup import LiveSpecLookupResult
+
+    seen = {}
+
+    def fake(conn, text, **kw):
+        seen.update(kw)
+        return LiveSpecLookupResult(relevant=False)
+
+    d = _draft("computer")
+    d.conn = object()
+    d.search_confirmed = True
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": []})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: [])
+    monkeypatch.setattr("src.services.live_spec_lookup.available", lambda: True)
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", fake)
+    d.search_unavailable_part("GPU", "RTX 6090")
+    assert seen.get("slot") == "GPU"
+
+
+# ── 원한 미보유 부품 → wanted_parts 조건 (설계 §11) ──────────────────────────────────────────
+
+
+def _confirmed_lookup(monkeypatch, fields, values=None, source="https://example.com/spec"):
+    from src.services.live_spec_lookup import LiveSpecLookupResult
+
+    d = _draft("computer", values)
+    d.conn = object()
+    d.search_confirmed = True
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"CPU": [], "GPU": [], "RAM": []})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: [])
+    monkeypatch.setattr("src.services.live_spec_lookup.available", lambda: True)
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", lambda conn, text, **kw: LiveSpecLookupResult.model_validate(
+        {"relevant": True, "supported_fields": fields, "source_url": source}))
+    return d
+
+
+def test_found_cpu_is_saved_as_a_wanted_part_and_the_reply_says_which_condition_it_makes(monkeypatch):
+    d = _confirmed_lookup(monkeypatch, {"socket": "AM5", "mem_type": "DDR5"}, {"mode": "build"})
+    out = d.search_unavailable_part("CPU", "Ryzen 9 9999X")
+    wanted = d.patches["wanted_parts"]["CPU"]
+    assert wanted["name"] == "Ryzen 9 9999X" and wanted["fields"] == {"socket": "AM5", "mem_type": "DDR5"}
+    assert wanted["source_url"] == "https://example.com/spec"
+    assert "CPU 소켓 AM5 기준으로 나머지 부품을 맞춰" in out and "카탈로그의 비슷한 제품이 추천" in out
+
+
+def test_found_gpu_is_saved_but_the_reply_says_it_does_not_change_the_recommendation(monkeypatch):
+    d = _confirmed_lookup(monkeypatch, {"interface": "PCIe 5.0"}, {"mode": "build"})
+    out = d.search_unavailable_part("GPU", "RTX 6090")
+    assert d.patches["wanted_parts"]["GPU"]["fields"] == {"interface": "PCIe 5.0"}
+    assert "호환 조건을 만들지 않아 추천은 달라지지 않습니다" in out
+
+
+def test_in_upgrade_mode_the_wanted_part_is_only_recorded(monkeypatch):
+    d = _confirmed_lookup(monkeypatch, {"socket": "AM5"}, {"mode": "upgrade"})
+    out = d.search_unavailable_part("CPU", "Ryzen 9 9999X")
+    assert "wanted_parts" in d.patches and "기록만 합니다" in out and "기준으로 나머지 부품을 맞춰" not in out
+
+
+def test_second_wanted_part_is_added_without_dropping_the_first(monkeypatch):
+    d = _confirmed_lookup(monkeypatch, {"socket": "AM5"}, {"mode": "build", "wanted_parts": {"RAM": {"name": "r", "fields": {"mem_type": "DDR5"}}}})
+    d.search_unavailable_part("CPU", "Ryzen 9 9999X")
+    assert set(d.patches["wanted_parts"]) == {"RAM", "CPU"}
+
+
+def test_not_found_or_unconfirmed_search_saves_no_wanted_part(monkeypatch):
+    d = _confirmed_lookup(monkeypatch, {"socket": "AM5"}, {"mode": "build"})
+    d.search_confirmed = False
+    d.search_unavailable_part("CPU", "Ryzen 9 9999X")
+    assert "wanted_parts" not in d.patches                      # 동의 전에는 검색도, 기록도 없다
+
+
+# ── 모드별 필드 — 새 조립 화면에서 업그레이드를 받은 척하지 않는다 ─────────────────────────────
+
+_UPGRADE_ONLY = {"upgrade_parts", "owned_platform", "owned_ram_type", "owned_psu_w"}
+
+
+def test_build_mode_hides_upgrade_only_fields_from_the_agent():
+    draft = _draft("computer", {"mode": "build"})
+    assert not (_UPGRADE_ONLY & set(draft.schema()))
+    assert "오류" in draft.set("upgrade_parts", "GPU")
+    assert "owned_platform" not in ca.system_prompt(draft)
+
+
+def test_upgrade_mode_keeps_upgrade_fields():
+    assert _UPGRADE_ONLY <= set(_draft("computer", {"mode": "upgrade"}).schema())
+
+
+def test_unknown_mode_does_not_filter_fields():
+    assert _UPGRADE_ONLY <= set(_draft("computer", {}).schema())
+
+
+def test_build_prompt_tells_the_agent_upgrade_is_out_of_scope():
+    assert "새 컴퓨터 조립만" in ca.system_prompt(_draft("computer", {"mode": "build"}))
+    assert "새 컴퓨터 조립만" not in ca.system_prompt(_draft("computer", {"mode": "upgrade"}))

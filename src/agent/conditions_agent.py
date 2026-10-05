@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from src.engine.brands import canonical_slot, cpu_brand_pref
 from src.config import CONDITIONS_AGENT, LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY
 from src.engine.slot_rules import _parse_won
+from src.errors import ServiceUnavailable
 
 # 대화로 설정하지 않는 필드 — 사양 파일 첨부(/spec-file)가 채운다
 _NOT_CONVERSATIONAL = {"current_specs", "spec_file_name"}
@@ -75,8 +76,13 @@ class ConditionDraft:
         return " · 필수 항목 모두 채워짐 — 추천을 받아볼 수 있다고 안내"
 
     def schema(self) -> dict[str, dict]:
+        mode = self.values.get("mode")
+        # 다른 모드 전용 필드(업그레이드의 upgrade_parts·owned_*)는 열어 두지 않는다 — 열어 두면 새 조립 화면에서
+        # "업그레이드로 반영했다"고 답하면서 엔진은 새 조립으로 계산하는 불일치가 생긴다. 모드를 아직 모르면 거르지 않는다.
+        other_mode_only = {m["key"] for m in self.cat_def.get("fields", [])
+                           if mode and m.get("mode_only") and m["mode_only"] != mode}
         return {k: v for k, v in (self.cat_def.get("slot_schema") or {}).items()
-                if k not in _NOT_CONVERSATIONAL}
+                if k not in _NOT_CONVERSATIONAL and k not in other_mode_only}
 
     def current(self, key: str):
         return self.patches[key] if key in self.patches else self.values.get(key)
@@ -149,14 +155,40 @@ class ConditionDraft:
         from src.services import live_spec_lookup
         if not live_spec_lookup.available():
             return self._record(call, "지금은 실시간 검색을 쓸 수 없습니다.")
-        result = live_spec_lookup.lookup(self.conn, product_text)
+        try:
+            result = live_spec_lookup.lookup(self.conn, product_text, slot=canon)
+        except ServiceUnavailable as exc:      # 검색이 몰려 있거나 연결 실패 — 대화를 끊지 않고 문장으로 알린다
+            return self._record(call, f"{exc.message} 지금은 이 제품 정보를 가져오지 못했습니다.")
         if not result.relevant or not result.has_any_field():
             return self._record(call, f"'{product_text}'에 대한 정보를 실시간 검색으로도 찾지 못했습니다.")
-        fields = ", ".join(f"{k}={v}" for k, v in result.supported_fields.model_dump().items() if v is not None)
+        found = {k: v for k, v in result.supported_fields.model_dump().items() if v is not None}
+        fields = ", ".join(f"{k}={v}" for k, v in found.items())
         src = f" · 출처: {result.source_url}" if result.source_url else ""
         self.add_extra(f"{slot} 희망: {product_text} ({fields}){src} · 카탈로그 정식 등재 값 아님")
         return self._record(call, f"실시간 검색 결과 — {fields}{src} · 카탈로그 정식 등재 값이 아니니 참고만 하세요. "
-                                  "추가 조건으로 기록했습니다." + self._status())
+                                  "추가 조건으로 기록했습니다. " + self._wanted_part(canon, product_text, found, result.source_url)
+                                  + self._status())
+
+    def _wanted_part(self, slot: str, product_text: str, fields: dict, source_url: str | None) -> str:
+        """원한 미보유 부품을 `wanted_parts` 조건에 남기고, 그것이 추천에 어떻게 반영되는지(또는 안 되는지) 알리는 문장.
+
+        신규 조립만 호환 조건으로 쓰인다(소켓·메모리 규격 — engine/wanted_parts.py). 그 부품 자체는 가격·성능 점수가
+        없어 견적에 넣을 수 없고, 같은 슬롯은 카탈로그에서 추천된다."""
+        from src.engine.wanted_parts import describe_hints, platform_hints
+
+        if "wanted_parts" not in self.schema():
+            return ""
+        wanted = dict(self.current("wanted_parts") or {})
+        wanted[slot] = {"name": product_text, "fields": fields, "source_url": source_url}
+        self.patches["wanted_parts"] = wanted
+        if self.merged().get("mode") == "upgrade":
+            return "업그레이드 모드에서는 이 부품으로 다른 부품을 맞추지 않고 기록만 합니다."
+        conditions = describe_hints(platform_hints({slot: {"fields": fields}}))
+        if conditions:
+            return (f"이 부품 자체는 카탈로그에 없어 견적에 넣을 수 없지만, {conditions} 기준으로 나머지 부품을 맞춰 "
+                    f"추천합니다. {slot}은 카탈로그의 비슷한 제품이 추천됩니다.")
+        return ("이 부품은 소켓·메모리 규격 같은 호환 조건을 만들지 않아 추천은 달라지지 않습니다. "
+                f"{slot}은 카탈로그의 제품이 추천됩니다.")
 
     def add_extra(self, text: str) -> str:
         call = f"add_extra_condition({text!r})"
@@ -389,9 +421,19 @@ def system_prompt(
         "동의를 구하는 문장이면 그걸로 끝내고, 검색 결과가 오면 '카탈로그 정식 등재 값이 아니다'는 "
         "부분까지 그대로 전합니다. 이 제품을 조건으로 확정하지 않습니다 — brand_pref·extra 외의 "
         "필드에 특정 제품명을 넣지 않습니다.",
+        *_mode_rules(draft),
         "",
         "답변 언어: 한국어 존댓말.",
     ])
+
+
+def _mode_rules(draft: ConditionDraft) -> list[str]:
+    """새 조립 화면에서 기존 PC 업그레이드를 말했을 때 — 조건으로 받은 척하지 않고 이 화면의 범위를 알린다."""
+    if draft.values.get("mode") != "build" or "upgrade" not in (draft.cat_def.get("modes") or []):
+        return []
+    return ["10. 이 화면은 새 컴퓨터 조립만 다룹니다. 사용자가 지금 쓰는 PC의 일부만 바꾸는 '업그레이드'를 원하면 "
+            "그 내용을 조건으로 기록하거나 반영했다고 말하지 말고, 이 화면에서는 새 컴퓨터 조립만 가능하다고 "
+            "안내한 뒤 새로 맞출 PC의 용도·예산을 묻습니다."]
 
 
 def _history(rows: list[dict], limit: int = _HISTORY_LIMIT) -> list[dict]:

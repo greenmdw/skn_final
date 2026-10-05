@@ -56,9 +56,22 @@ SPEC_EXTRACTION_AGENT: bool = os.getenv("SPEC_EXTRACTION_AGENT", "0") == "1"
 # "0" — opt-in. 자동 트리거가 아니라 버튼 트리거다(§2 — 로그인 없이 호출 가능한 엔드포인트라 비용·남용
 # 리스크 때문에 사용자 확인을 거친다).
 LIVE_PART_LOOKUP: bool = os.getenv("LIVE_PART_LOOKUP", "0") == "1"
-# catalog.live_spec_lookup_cache 캐시 신선도 — 이보다 오래된 행은 다시 검색한다(§4, 0009 마이그레이션
-# 참고). 영구 캐시는 신제품 스펙이 출시 초기에 정정될 위험이 있고, 매번 재검색은 비용이 든다.
-LIVE_SPEC_LOOKUP_TTL_DAYS: int = int(os.getenv("LIVE_SPEC_LOOKUP_TTL_DAYS", "7"))
+# catalog.live_spec_lookup_cache 신선도(설계 §9.3). 찾은 결과는 신제품 스펙이 잘 안 바뀌어 오래(90일),
+# 못 찾은 결과는 출시 후 다시 찾을 수 있게 짧게(7일) 둔다. 사람이 confirmed 한 행은 만료가 없다.
+LIVE_SPEC_LOOKUP_FOUND_TTL_DAYS: int = int(os.getenv("LIVE_SPEC_LOOKUP_FOUND_TTL_DAYS", "90"))
+LIVE_SPEC_LOOKUP_NOTFOUND_TTL_DAYS: int = int(os.getenv(
+    "LIVE_SPEC_LOOKUP_NOTFOUND_TTL_DAYS", os.getenv("LIVE_SPEC_LOOKUP_TTL_DAYS", "7")))
+# 참고가(설계 §9.7) — 검색 결과에서 금액도 읽어 별도 필드에만 보관한다. 정확도 평가를 통과하기 전까지
+# 기본 꺼짐. 켜도 offer_observation·가격 비교·합계·후보 선정에는 연결되지 않는다. 가격은 스펙보다
+# 빨리 변해서 이 일수가 지난 참고가는 화면에 내지 않는다(스펙 캐시는 그대로 쓴다).
+# 서비스 전체(사용자·IP 무관)의 검색 상한 — OpenAI 분당 토큰 한도(계정 200k TPM)가 근본 제약이다. 웹 검색 1회가 평균
+# 약 1만 7천 토큰이고(2026-10-05 실측, search_context_size 를 낮춰도 줄지 않음) 대화·검증 호출도 같은 한도를 쓴다.
+# 한도에 닿아 429 가 나기 전에 우리가 먼저 "검색이 몰려 있어요"로 안내한다. 저장소 적중은 이 한도에 들지 않는다.
+# 인메모리라 서버 프로세스마다 따로 센다(여러 프로세스면 합이 이 값의 배수가 된다).
+LIVE_LOOKUP_GLOBAL_LIMIT_PER_MIN: int = int(os.getenv("LIVE_LOOKUP_GLOBAL_LIMIT_PER_MIN", "6"))
+LIVE_LOOKUP_MAX_CONCURRENCY: int = int(os.getenv("LIVE_LOOKUP_MAX_CONCURRENCY", "2"))
+LIVE_REFERENCE_PRICE: bool = os.getenv("LIVE_REFERENCE_PRICE", "0") == "1"
+LIVE_REFERENCE_PRICE_TTL_DAYS: int = int(os.getenv("LIVE_REFERENCE_PRICE_TTL_DAYS", "2"))
 
 # --------------------------------------------------------------------------
 # DB / 인증

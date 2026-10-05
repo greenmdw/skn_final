@@ -107,7 +107,11 @@ export const checks: Api['checks'] = {
   },
   async liveLookupPart(listId, slot) {
     const result = await request<WireLiveSpecLookup>('POST', `/pc/reviews/${encodeURIComponent(listId)}/parts/${encodeURIComponent(slot)}/live-lookup`)
-    return { slot: result.slot, query: result.query, relevant: result.relevant, supportedFields: result.supported_fields, sourceUrl: result.source_url }
+    return {
+      slot: result.slot, query: result.query, relevant: result.relevant, supportedFields: result.supported_fields,
+      sourceUrl: result.source_url, fetchedAt: result.fetched_at, reviewStatus: result.status,
+      referencePrice: result.reference_price, referencePriceAt: result.reference_price_at,
+    }
   },
   async sendMessage(listId, text) {
     return request<WireQuoteChatOut>('POST', `/pc/reviews/${encodeURIComponent(listId)}/messages`, { text })

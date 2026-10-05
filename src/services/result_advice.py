@@ -77,13 +77,17 @@ def _context(conn, revision_id: UUID) -> _Ctx:
     node_slot = {n["id"]: n["template_key"] for n in full.get("nodes", [])}
     targets = {node_slot[r["node_id"]]: (r.get("match_spec") or {})
                for r in full.get("requirements", []) if r["node_id"] in node_slot}
+    from src.services.live_spec_lookup import cached_for_kept_parts
+
     pool = load_candidates_by_slot_from_db(conn)
     by_variant = {c.variant_id: c for cands in pool.values() for c in cands}
+    owned = owned_for_conditions(cvals, pool, {r["slot"] for r in stored},
+                                 load_category("computer").get("slot_structure", []))
+    cached_for_kept_parts(conn, owned, cvals.get("current_specs"))
     spec = RequirementSpec(
         list_id=str(revision_id), category="computer",
         mode="upgrade" if cvals.get("mode") == "upgrade" else "build",
-        owned=owned_for_conditions(cvals, pool, {r["slot"] for r in stored},
-                                   load_category("computer").get("slot_structure", [])),
+        owned=owned,
     )
     return _Ctx(conn=conn, revision_id=revision_id, stored=stored, cvals=cvals, targets=targets, pool=pool,
                 by_variant=by_variant, spec=spec, rules=load_computer_rules()["verification"])

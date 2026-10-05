@@ -236,6 +236,13 @@ export interface LiveSpecLookupResult {
   relevant: boolean
   supportedFields: Record<string, unknown>
   sourceUrl: string | null
+  /** 이 값을 확인(검색)한 시각 — ISO. 저장소에서 가져온 값이면 그때의 시각이다 */
+  fetchedAt: string | null
+  /** unreviewed 미검토 · confirmed 사람이 확인함 · rejected 틀린 값(서버가 못 찾음으로 돌려준다) */
+  reviewStatus: 'unreviewed' | 'confirmed' | 'rejected'
+  /** 참고가(원). 서버가 켜져 있고 만료 전일 때만 있다 — 합계·가격 비교와 무관한 참고 표시용 */
+  referencePrice: number | null
+  referencePriceAt: string | null
 }
 
 export interface QuoteChatMessage { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: string }

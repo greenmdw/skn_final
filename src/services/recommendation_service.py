@@ -187,12 +187,20 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
             if spec.mode == "upgrade":
                 # 사용자가 그대로 쓰는 부품은 견적에 넣지 않고, 적어 준 것만 호환성 검사에 쓴다.
                 from src.engine.owned_parts import constrain_targets, current_part_tiers, owned_for_conditions
+                from src.services.live_spec_lookup import cached_for_kept_parts
                 spec.owned = owned_for_conditions(values, by_slot, spec.targets, cat_def.get("slot_structure", []))
+                cached_for_kept_parts(conn, spec.owned, values.get("current_specs"))
                 constrain_targets(spec)
                 # 지금 쓰는 CPU·GPU 보다 낮은 등급은 "업그레이드"가 아니다 — 알면 그 등급을 하한으로 건다.
                 current_tiers = current_part_tiers(values.get("current_specs"), by_slot, spec.targets)
                 for slot, info in current_tiers.items():
                     spec.targets[slot]["perf_tier_min"] = max(spec.targets[slot].get("perf_tier_min", 0), info["tier"])
+            elif values.get("wanted_parts"):
+                # 신규 조립에서 사용자가 원했지만 카탈로그에 없는 부품 — 소켓·메모리 규격만 나머지 부품의 호환 조건으로 건다
+                # (그 부품을 견적에 넣지는 않는다. docs/미보유부품_실시간스펙검색_설계.md §11).
+                from src.engine.wanted_parts import apply_wanted_constraints
+                for note in apply_wanted_constraints(spec, values["wanted_parts"], by_slot):
+                    log.info("wanted_parts [%s]: %s", revision_id, note)
             missing_slots = [slot for slot in spec.targets if not by_slot.get(slot)]
             if missing_slots:
                 raise ValidationFailed(
@@ -376,6 +384,7 @@ def _current_set(conn, revision_id: UUID, cvals: dict, stored: list[dict]):
     스왑·수량 변경마다 카탈로그 전체를 읽던 비용을 없앤다)."""
     from src.engine.owned_parts import owned_for_conditions
     from src.repo.catalog_repo import load_candidates_by_slot_from_db, load_candidates_by_variant
+    from src.services.live_spec_lookup import cached_for_kept_parts
 
     picked = [row for row in stored if row.get("selected") is not False]
     if cvals.get("mode") == "upgrade":
@@ -387,11 +396,13 @@ def _current_set(conn, revision_id: UUID, cvals: dict, stored: list[dict]):
             conn, [(row["product_type"], str(row["variant_id"])) for row in picked]
         )
     chosen = {row["slot"]: by_variant[str(row["variant_id"])] for row in picked if str(row["variant_id"]) in by_variant}
+    owned = owned_for_conditions(cvals, pool, {r["slot"] for r in stored},
+                                 load_category("computer").get("slot_structure", []))
+    cached_for_kept_parts(conn, owned, cvals.get("current_specs"))
     spec = RequirementSpec(
         list_id=str(revision_id), category="computer",
         mode="upgrade" if cvals.get("mode") == "upgrade" else "build",
-        owned=owned_for_conditions(cvals, pool, {r["slot"] for r in stored},
-                                   load_category("computer").get("slot_structure", [])),
+        owned=owned,
     )
     return chosen, spec
 
@@ -804,6 +815,7 @@ def _drop_incompatible_alternatives(conn, stored: list[dict], current: dict, var
     from src.engine.stage2_requirement import load_computer_rules
     from src.engine.stage4_optimize import _pc_known_failures
     from src.repo.catalog_repo import load_candidates_by_slot_from_db
+    from src.services.live_spec_lookup import cached_for_kept_parts
 
     pool = load_candidates_by_slot_from_db(conn)
     by_variant = {c.variant_id: c for cands in pool.values() for c in cands}
@@ -813,11 +825,13 @@ def _drop_incompatible_alternatives(conn, stored: list[dict], current: dict, var
         cand = by_variant.get(str(row["variant_id"]))
         if row["slot"] != slot and row.get("selected") is not False and cand is not None:
             chosen[row["slot"]] = cand
+    owned = owned_for_conditions(cvals, pool, {r["slot"] for r in stored},
+                                 load_category("computer").get("slot_structure", []))
+    cached_for_kept_parts(conn, owned, cvals.get("current_specs"))
     spec = RequirementSpec(
         list_id="alternatives", category="computer",
         mode="upgrade" if cvals.get("mode") == "upgrade" else "build",
-        owned=owned_for_conditions(cvals, pool, {r["slot"] for r in stored},
-                                   load_category("computer").get("slot_structure", [])),
+        owned=owned,
     )
     rules = load_computer_rules()["verification"]
     now = by_variant.get(str(current["variant_id"]))

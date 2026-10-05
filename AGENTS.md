@@ -16,7 +16,7 @@ Always set `TRUEFIT_REQUIRE_TEST_DB=1` for completion checks. It turns PostgreSQ
 At the start of a pytest session, the test harness automatically:
 
 1. Creates a unique `truefit_test_<UUID>` database on the running PostgreSQL server.
-2. Runs `db/setup_all.py` to apply the ten baseline migrations and all seeds.
+2. Runs `db/setup_all.py` to apply the eleven baseline migrations and all seeds.
 3. Runs the tests.
 4. Drops the temporary database with `DROP DATABASE ... WITH (FORCE)` when the session ends.
 
@@ -87,7 +87,7 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
 - If the default uv cache is read-only, keep `UV_CACHE_DIR=/tmp/uv-cache` in the command.
 - If Python raises `ModuleNotFoundError: src`, run from the repository root and set `PYTHONPATH=.`.
 - If database tests are skipped, rerun with `TRUEFIT_REQUIRE_TEST_DB=1` so the underlying setup problem is reported as an error.
-- The current database baseline must contain exactly these ten files:
+- The current database baseline must contain exactly these eleven files:
   - `db/migrations/0000_schema.sql`
   - `db/migrations/0001_constraints.sql`
   - `db/migrations/0002_indexes.sql`
@@ -110,3 +110,6 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
   - `db/migrations/0009_live_spec_lookup_cache.sql` (added 2026-10-02: adds
     `catalog.live_spec_lookup_cache` for the DB-miss live part-spec search feature — see
     `docs/미보유부품_실시간스펙검색_설계.md`)
+  - `db/migrations/0010_live_spec_lookup_store.sql` (added 2026-10-04: turns that cache into the
+    temporary part store — `lookup_key` (normalized name, no price/quantity/code), review `status`,
+    and separate `reference_price` columns — see `docs/미보유부품_실시간스펙검색_설계.md` §9)
