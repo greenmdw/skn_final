@@ -214,6 +214,16 @@ def _attach_image_urls(conn, items: list[dict]) -> None:
         item["image_url"] = urls.get(item["matched_product_id"]) if item.get("matched_product_id") else None
 
 
+def _repair_selection(draft: dict) -> None:
+    """항목을 지우거나 부품군을 바꾼 뒤 — 사라졌거나 다른 부품군이 된 항목을 가리키는 기준 선택은 버리고, 기준이 없어진
+    부품군은 그 부품군의 첫 항목으로 채운다(없으면 그 부품군은 선택 없음)."""
+    by_id = {i["id"]: i for i in draft["items"]}
+    kept = {c: iid for c, iid in draft["selected_item_by_category"].items() if iid in by_id and by_id[iid]["category"] == c}
+    for category, item_id in default_selection(draft["items"]).items():
+        kept.setdefault(category, item_id)
+    draft["selected_item_by_category"] = kept
+
+
 def _apply_selection(draft: dict) -> None:
     selected = set(draft["selected_item_by_category"].values())
     for item in draft["items"]:
@@ -308,16 +318,25 @@ def patch_items(conn, list_id: UUID, principal: Principal, expected_version: int
         raise StaleReviewVersion("초안이 다른 곳에서 바뀌었습니다. 새로 불러온 뒤 다시 시도해 주세요.", field="expected_version")
     by_id = {item["id"]: item for item in draft["items"]}
     by_slot = None
+    deleted: set[str] = set()
     for edit in edits:
         item = by_id.get(edit["id"])
         if item is None:
             raise ValidationFailed(f"없는 항목입니다: {edit['id']}", field="items")
+        if edit.get("delete"):                              # 모델이 잘못 읽은(없는 제품을 읽은) 항목을 사용자가 지운다
+            deleted.add(item["id"])
+            continue
         renamed = False
+        if edit.get("category") is not None and edit["category"] != item["category"]:   # 부품군을 잘못 읽었을 때
+            if edit["category"] not in _SLOTS:
+                raise ValidationFailed(f"부품군이 아닙니다: {edit['category']}", field="items")
+            item["category"] = edit["category"]
+            renamed = True                                  # 다른 부품군 카탈로그에서 다시 맞춘다
         if edit.get("normalized_name") is not None:
             name = str(edit["normalized_name"]).strip()
             if not name:
                 raise ValidationFailed("제품명은 비울 수 없습니다.", field="items")
-            renamed = name != item["normalized_name"]
+            renamed = renamed or name != item["normalized_name"]
             item["normalized_name"] = name
         if edit.get("quantity") is not None:
             item["quantity"] = int(edit["quantity"])
@@ -331,12 +350,45 @@ def patch_items(conn, list_id: UUID, principal: Principal, expected_version: int
             by_slot = by_slot or load_pc_catalog(lambda _msg: None)
             item.update(_match(item["category"], spec_text(item), by_slot))
             _attach_image_urls(conn, [item])
+    if deleted:
+        draft["items"] = [i for i in draft["items"] if i["id"] not in deleted]
     if selected is not None:
         for category, item_id in selected.items():
             item = by_id.get(item_id)
-            if category not in _SLOTS or item is None or item["category"] != category:
+            if category not in _SLOTS or item is None or item["category"] != category or item_id in deleted:
                 raise ValidationFailed(f"{category}의 분석 기준으로 고를 수 없는 항목입니다.", field="selected_item_by_category")
         draft["selected_item_by_category"] = {**draft["selected_item_by_category"], **selected}
+    _repair_selection(draft)
+    _apply_selection(draft)
+    draft["version"] += 1
+    _save(repo, revision["id"], draft)
+    return draft
+
+
+def add_item(conn, list_id: UUID, principal: Principal, expected_version: int, category: str, raw_text: str,
+             source_id: str | None = None) -> dict:
+    """모델이 못 읽은 부품을 사용자가 직접 적어 넣는다. `source_id`를 주면 그 견적(이미지)의 항목으로, 아니면 직접 추가 항목으로 —
+    읽은 항목과 같은 방식(이름·코드·수량·가격 분리, 카탈로그 매칭)으로 처리한다."""
+    repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
+    if draft["version"] != expected_version:
+        raise StaleReviewVersion("초안이 다른 곳에서 바뀌었습니다. 새로 불러온 뒤 다시 시도해 주세요.", field="expected_version")
+    if category not in _SLOTS:
+        raise ValidationFailed(f"부품군이 아닙니다: {category}", field="category")
+    raw_text = (raw_text or "").strip()
+    if not raw_text:
+        raise ValidationFailed("제품명을 입력해 주세요.", field="raw_text")
+    if source_id is None:
+        source_id = "manual"
+        if not any(s["id"] == "manual" for s in draft["sources"]):
+            draft["sources"].append({"id": "manual", "type": "manual", "file_name": None, "sort_order": len(draft["sources"]) + 1,
+                                     "status": "completed", "error_code": None})
+    elif not any(s["id"] == source_id for s in draft["sources"]):
+        raise ValidationFailed(f"없는 견적입니다: {source_id}", field="source_id")
+    item = _make_item(category, raw_text, source_id, load_pc_catalog(lambda _msg: None))
+    item["user_edited"] = True
+    _attach_image_urls(conn, [item])
+    draft["items"].append(item)
+    _repair_selection(draft)
     _apply_selection(draft)
     draft["version"] += 1
     _save(repo, revision["id"], draft)

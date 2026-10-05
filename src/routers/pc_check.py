@@ -175,6 +175,16 @@ def patch_quote_draft_items(
     return schemas.QuoteDraftOut(**quote_draft_service.draft_out(str(draft_id), draft))
 
 
+@router.post("/review-drafts/{draft_id}/items", response_model=schemas.QuoteDraftOut, status_code=201)
+def add_quote_draft_item(
+    draft_id: UUID, body: schemas.QuoteDraftItemAddIn, principal: Principal = Depends(optional_principal),
+) -> schemas.QuoteDraftOut:
+    """모델이 못 읽은 부품을 사용자가 직접 추가한다 — 읽은 항목과 같은 방식으로 이름·코드·수량·가격을 나누고 카탈로그와 맞춘다."""
+    with get_conn() as conn:
+        draft = quote_draft_service.add_item(conn, draft_id, principal, body.expected_version, body.category, body.raw_text, body.source_id)
+    return schemas.QuoteDraftOut(**quote_draft_service.draft_out(str(draft_id), draft))
+
+
 @router.post("/review-drafts/{draft_id}/analysis", response_model=schemas.QuoteDraftAnalysisOut)
 def analyze_quote_draft(
     draft_id: UUID, request: Request, body: schemas.QuoteDraftAnalysisIn | None = None,

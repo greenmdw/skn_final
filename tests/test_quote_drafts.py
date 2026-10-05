@@ -369,3 +369,76 @@ def test_two_quotes_can_be_compared_directly_with_each_side_summary(client, monk
     client.post(f"/pc/review-drafts/{body['draft_id']}/analysis", json={"source_ids": ["source-2"]})
     again = client.get(f"/pc/reviews/{body['draft_id']}/saved-comparisons/{comp['comparison_id']}")
     assert again.status_code == 200 and again.json()["labels"]["saved"] == "b"
+
+
+# ── 사용자가 고치는 기능: 부품군 변경 · 삭제 · 직접 추가 ──────────────────────────────
+
+def _patch(client, draft, *, edits=None, selected=None, version=None):
+    body = {"expected_version": version or draft["version"], "items": edits or []}
+    if selected is not None:
+        body["selected_item_by_category"] = selected
+    return client.patch(f"/pc/review-drafts/{draft['draft_id']}/items", json=body)
+
+
+def test_user_can_delete_an_item_the_model_misread(client, monkeypatch):
+    draft = _draft(client, monkeypatch)
+    cpu = _items(draft, "CPU")[0]
+    r = _patch(client, draft, edits=[{"id": cpu["id"], "delete": True}])
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert _items(body, "CPU") == [] and "CPU" not in body["selected_item_by_category"]      # 기준 선택도 함께 사라진다
+    assert {i["id"] for g in body["groups"] for i in [{"id": x} for x in g["item_ids"]]}.isdisjoint({cpu["id"]})
+    assert body["version"] == 2
+
+
+def test_deleting_the_selected_item_falls_back_to_the_next_one_in_that_category(client, monkeypatch):
+    draft = _draft(client, monkeypatch)
+    first, second = _items(draft, "GPU")
+    assert draft["selected_item_by_category"]["GPU"] == first["id"]
+    body = _patch(client, draft, edits=[{"id": first["id"], "delete": True}]).json()
+    assert body["selected_item_by_category"]["GPU"] == second["id"]
+    assert [i["selected_for_analysis"] for i in _items(body, "GPU")] == [True]
+
+
+def test_user_can_move_an_item_to_the_right_category_and_it_is_rematched_there(client, monkeypatch):
+    draft = _draft(client, monkeypatch)
+    cpu = _items(draft, "CPU")[0]
+    body = _patch(client, draft, edits=[{"id": cpu["id"], "category": "GPU"}]).json()
+    moved = next(i for i in body["items"] if i["id"] == cpu["id"])
+    assert moved["category"] == "GPU" and moved["user_edited"] is True
+    assert "CPU" not in body["selected_item_by_category"]                                   # 옛 부품군의 기준 선택은 버린다
+    assert moved["match_status"] in ("unmatched", "inferred")                               # CPU 이름이 GPU 카탈로그에서 확정될 수 없다
+    assert _patch(client, body, edits=[{"id": cpu["id"], "category": "케이스지롱"}]).status_code == 422
+
+
+def test_deleted_item_cannot_be_chosen_as_the_analysis_basis_in_the_same_request(client, monkeypatch):
+    draft = _draft(client, monkeypatch)
+    first, _second = _items(draft, "GPU")
+    r = _patch(client, draft, edits=[{"id": first["id"], "delete": True}], selected={"GPU": first["id"]})
+    assert r.status_code == 422
+
+
+def test_user_can_add_a_part_the_model_missed(client, monkeypatch):
+    draft = _draft(client, monkeypatch)
+    r = client.post(f"/pc/review-drafts/{draft['draft_id']}/items", json={
+        "expected_version": 1, "category": "파워", "raw_text": "Seasonic FOCUS GX-750 -1234567 140,000원"})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    added = _items(body, "파워")[0]
+    assert added["normalized_name"] == "Seasonic FOCUS GX-750" and added["product_code"] == "1234567"
+    assert added["quote_line_total"] == 140000 and added["user_edited"] is True and added["source_ids"] == ["manual"]
+    assert body["selected_item_by_category"]["파워"] == added["id"] and added["selected_for_analysis"] is True
+    assert body["sources"][-1]["type"] == "manual" and body["version"] == 2
+    analysis = client.post(f"/pc/review-drafts/{draft['draft_id']}/analysis").json()
+    assert "파워" in {i["category"] for i in analysis["used_items"]}                        # 추가한 항목도 분석에 들어간다
+
+
+def test_added_item_can_belong_to_one_uploaded_quote_and_bad_input_is_rejected(client, monkeypatch):
+    draft = _two_quotes(client, monkeypatch)
+    url = f"/pc/review-drafts/{draft['draft_id']}/items"
+    ok = client.post(url, json={"expected_version": 1, "category": "케이스", "raw_text": "다크플래쉬 DLM21 RGB Mesh", "source_id": "source-1"})
+    assert ok.status_code == 201
+    assert any(i["category"] == "케이스" and i["source_ids"] == ["source-1"] for i in ok.json()["items"])
+    assert client.post(url, json={"expected_version": 2, "category": "케이스", "raw_text": "x", "source_id": "nope"}).status_code == 422
+    assert client.post(url, json={"expected_version": 2, "category": "모니터", "raw_text": "x"}).status_code == 422
+    assert client.post(url, json={"expected_version": 1, "category": "케이스", "raw_text": "x"}).status_code == 409     # 버전이 지났다

@@ -99,3 +99,23 @@ def test_shop_table_row_trailing_quantity_column_is_a_quantity_not_part_of_the_n
     assert two["quantity"] == 2 and two["normalized_name"] == "[삼성] DDR5 16GB"
     assert two["quote_price_type"] == "line_total" and two["quote_unit_price"] == 320000
     assert split_line("[ABKO] SETTLER 800W -1140804 1개 59,900원")["normalized_name"] == "[ABKO] SETTLER 800W"
+
+
+def test_korean_brand_and_series_words_match_the_english_catalog_name():
+    """카탈로그는 영문이다 — 쇼핑몰이 한글로 적은 표기("어쌔신")가 같은 제품을 찾아야 한다(별칭)."""
+    from src.dto import Candidate
+    from src.engine.owned_parts import _match_catalog
+
+    pool = [Candidate(product_key="k1", slot="쿨러", name="Thermalright Assassin X 120 Refined SE", product_id="p1"),
+            Candidate(product_key="k2", slot="쿨러", name="Thermalright Peerless Assassin 120 SE", product_id="p2")]
+    hits = _match_catalog("써멀라이트 어쌔신 X 120 Refined SE", pool)
+    assert [c.product_id for c in hits] == ["p1"]
+    assert [c.product_id for c in _match_catalog("써멀라이트 피어리스 어쌔신 120 SE", pool)] == ["p2"]
+
+
+def test_shop_title_noise_words_do_not_block_a_match():
+    from src.dto import Candidate
+    from src.engine.owned_parts import _match_nearest
+
+    pool = [Candidate(product_key="k1", slot="저장장치", name="Samsung PM9A1 NVMe 512GB", product_id="p1")]
+    assert _match_nearest("삼성전자 병행수입 PM9A1 벌크 새상품", pool) is not None

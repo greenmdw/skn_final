@@ -393,7 +393,7 @@ class QuoteCapabilitiesOut(BaseModel):
 
 class QuoteDraftSourceOut(BaseModel):
     id: str
-    type: Literal["image", "text", "replacement"]
+    type: Literal["image", "text", "replacement", "manual"]
     file_name: str | None = None
     sort_order: int
     status: Literal["completed", "failed"]
@@ -453,9 +453,18 @@ class QuoteQuoteComparisonIn(BaseModel):
 
 class QuoteDraftItemEdit(BaseModel):
     id: str
+    delete: bool = False                                  # true 면 이 항목을 지운다(다른 필드는 무시)
+    category: str | None = None                           # 부품군을 잘못 읽었을 때 바꾼다(그 부품군 카탈로그에서 다시 맞춘다)
     normalized_name: str | None = Field(default=None, max_length=200)
     quantity: int | None = Field(default=None, ge=1, le=20)
     quote_line_total: int | None = Field(default=None, ge=0, le=100_000_000)
+
+
+class QuoteDraftItemAddIn(BaseModel):
+    expected_version: int
+    category: str
+    raw_text: str = Field(min_length=1, max_length=300)    # "제품명 수량 가격"을 적은 그대로 — 읽은 항목과 같은 방식으로 나눈다
+    source_id: str | None = None                          # 주면 그 견적(이미지)의 항목으로
 
 
 class QuoteDraftPatchIn(BaseModel):
