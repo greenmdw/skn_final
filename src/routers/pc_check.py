@@ -376,7 +376,9 @@ def quote_review_history(list_id: UUID, principal: Principal = Depends(optional_
 
 
 @router.post("/owned-parts/preview", response_model=schemas.OwnedPartsPreviewOut)
-def preview_owned_parts(body: schemas.OwnedPartsPreviewIn) -> schemas.OwnedPartsPreviewOut:
+def preview_owned_parts(body: schemas.OwnedPartsPreviewIn, request: Request) -> schemas.OwnedPartsPreviewOut:
+    # 로그인 없이 부르는데 텍스트·이미지 입력이면 LLM(추출·비전)을 부른다 — 다른 /pc 엔드포인트와 같은 요청 한도(2026-10-05 점검 SEC-1).
+    _check_rate_limit(request)
     current_specs = _resolve_current_specs(body)
     by_slot = load_pc_catalog(lambda _msg: None)
     slot_structure = load_category("computer")["slot_structure"]
