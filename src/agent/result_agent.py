@@ -32,7 +32,7 @@ from uuid import UUID
 from src.agent.conditions_agent import SEARCH_PERMISSION_MARKER as _SEARCH_PERMISSION_MARKER
 from src.agent.conditions_agent import _model, is_search_confirmation
 from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, RESULT_AGENT
-from src.errors import NotFound
+from src.errors import NotFound, ServiceUnavailable
 
 log = logging.getLogger(__name__)
 
@@ -309,7 +309,10 @@ class ResultSession:
         from src.services import live_spec_lookup
         if not live_spec_lookup.available():
             return self._record(call, "지금은 실시간 검색을 쓸 수 없습니다.")
-        result = live_spec_lookup.lookup(self.conn, product_text)
+        try:
+            result = live_spec_lookup.lookup(self.conn, product_text, slot=it["slot"])
+        except ServiceUnavailable as exc:      # 검색이 몰려 있거나 연결 실패 — 대화를 끊지 않고 문장으로 알린다
+            return self._record(call, f"{exc.message} 지금은 이 제품 정보를 가져오지 못했습니다.")
         if not result.relevant or not result.has_any_field():
             return self._record(call, f"'{product_text}'에 대한 정보를 실시간 검색으로도 찾지 못했습니다.")
         fields = ", ".join(f"{k}={v}" for k, v in result.supported_fields.model_dump().items() if v is not None)

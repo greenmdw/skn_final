@@ -195,6 +195,12 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
                 current_tiers = current_part_tiers(values.get("current_specs"), by_slot, spec.targets)
                 for slot, info in current_tiers.items():
                     spec.targets[slot]["perf_tier_min"] = max(spec.targets[slot].get("perf_tier_min", 0), info["tier"])
+            elif values.get("wanted_parts"):
+                # 신규 조립에서 사용자가 원했지만 카탈로그에 없는 부품 — 소켓·메모리 규격만 나머지 부품의 호환 조건으로 건다
+                # (그 부품을 견적에 넣지는 않는다. docs/미보유부품_실시간스펙검색_설계.md §11).
+                from src.engine.wanted_parts import apply_wanted_constraints
+                for note in apply_wanted_constraints(spec, values["wanted_parts"], by_slot):
+                    log.info("wanted_parts [%s]: %s", revision_id, note)
             missing_slots = [slot for slot in spec.targets if not by_slot.get(slot)]
             if missing_slots:
                 raise ValidationFailed(

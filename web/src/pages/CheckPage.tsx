@@ -98,6 +98,14 @@ function CheckSidebar({ listId, messages, busy, onSend }: {
   )
 }
 
+/** 확인한 시각을 "오늘 확인"·"N일 전 확인"으로. 시각이 없거나 읽을 수 없으면 빈 문자열이 아니라 "확인 시각 알 수 없음". */
+function checkedAgo(iso: string | null | undefined): string {
+  const time = iso ? Date.parse(iso) : NaN
+  if (Number.isNaN(time)) return '확인 시각 알 수 없음'
+  const days = Math.floor((Date.now() - time) / 86_400_000)
+  return days <= 0 ? '오늘 확인' : `${days}일 전 확인`
+}
+
 export default function CheckPage() {
   const { showToast } = useToast()
   const fileInput = useRef<HTMLInputElement>(null)
@@ -125,7 +133,7 @@ export default function CheckPage() {
   const [liveLookup, setLiveLookup] = useState<Record<string, { status: 'loading' | 'done'; result?: LiveSpecLookupResult; error?: string }>>({})
 
   const priceByPart = useMemo(() => new Map((review?.prices?.rows ?? []).map(row => [row.part, row])), [review])
-  const unmatchedParts = useMemo(() => (review?.parts ?? []).filter(row => row.matchStatus === 'unmatched'), [review])
+  const unmatchedParts = useMemo(() => (review?.parts ?? []).filter(row => ['unmatched', 'inferred', 'candidate'].includes(row.matchStatus)), [review])
   const comparisonSlots = useMemo(() => (review?.parts ?? previewRows).map(row => row.part), [review, previewRows])
   const comparablePriceRows = useMemo(() => (review?.prices?.rows ?? []).filter(row => row.quoted != null && row.catalog != null && row.diff != null), [review])
   const totalPriceDiff = useMemo(() => comparablePriceRows.reduce((sum, row) => sum + (row.diff ?? 0), 0), [comparablePriceRows])
@@ -474,7 +482,7 @@ export default function CheckPage() {
 
             {unmatchedParts.length > 0 && (
               <article className="ck-summary-card ck-unmatched-card">
-                <div className="ck-summary-title"><h2>카탈로그에 없는 부품</h2><span>신제품이거나 표기가 특이해 대응을 못 찾았어요</span></div>
+                <div className="ck-summary-title"><h2>정확한 정보를 못 찾은 부품</h2><span>카탈로그에 없거나, 비슷한 제품·글에서 짐작한 값으로 점검한 부품이에요</span></div>
                 <div className="ck-unmatched-list">
                   {unmatchedParts.map(part => {
                     const lookup = liveLookup[part.part]
@@ -499,7 +507,13 @@ export default function CheckPage() {
                                   ))}
                                 </dl>
                                 {lookup.result.sourceUrl && <p className="ck-unmatched-source">출처: <a href={lookup.result.sourceUrl} target="_blank" rel="noreferrer">{lookup.result.sourceUrl}</a></p>}
-                                <p className="ck-unmatched-disclaimer">카탈로그 정식 등재 값이 아니라 실시간 검색 결과예요 — 구매 전 공식 사이트에서 다시 확인하세요.</p>
+                                {lookup.result.referencePrice != null && (
+                                  <p className="ck-unmatched-source">참고가 약 {lookup.result.referencePrice.toLocaleString('ko-KR')}원 · 합계·가격 비교에는 넣지 않았어요</p>
+                                )}
+                                <p className="ck-unmatched-disclaimer">
+                                  {lookup.result.reviewStatus === 'confirmed' && <span className="ck-unmatched-badge">확인됨</span>}
+                                  {checkedAgo(lookup.result.fetchedAt)} · 카탈로그 정식 등재 값이 아니라 실시간 검색 결과예요 — 구매 전 공식 사이트에서 다시 확인하세요.
+                                </p>
                               </>
                             ) : (
                               <p className="ck-unmatched-disclaimer">실시간 검색으로도 찾지 못했어요. <button type="button" className="ck-unmatched-retry" onClick={() => runLiveLookup(part.part)}>다시 시도</button></p>

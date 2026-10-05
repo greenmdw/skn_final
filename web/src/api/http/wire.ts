@@ -101,6 +101,12 @@ export interface WireLiveSpecLookup {
   relevant: boolean
   supported_fields: Record<string, unknown>
   source_url: string | null
+  fetched_at: string | null
+  status: 'unreviewed' | 'confirmed' | 'rejected'
+  cached: boolean
+  reference_price: number | null
+  reference_price_source_url: string | null
+  reference_price_at: string | null
 }
 export interface WireQuoteChatOut { reply: string; evidence: string[]; via: 'agent' | 'rules' }
 export interface WireQuoteChatHistory { messages: { id: string; role: 'user' | 'assistant' | 'system'; text: string; created_at: string }[] }

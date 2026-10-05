@@ -154,7 +154,7 @@ def price_review(specs: dict[str, str], owned: dict[str, dict], slot_structure: 
 
 
 def analyze(current_specs: dict, conditions: dict | None = None, *,
-            by_slot: dict[str, list[Candidate]] | None = None) -> dict:
+            by_slot: dict[str, list[Candidate]] | None = None, conn=None) -> dict:
     """견적 하나를 분석한 결과(저장 형태): 매칭 표 · 호환 검사 · 가격 비교 · 용도 대비 균형 · 우리 추천과 비교."""
     specs = _normalise(current_specs)
     if not specs:
@@ -162,6 +162,10 @@ def analyze(current_specs: dict, conditions: dict | None = None, *,
     by_slot = by_slot if by_slot is not None else load_pc_catalog(lambda _msg: None)
     slot_structure = load_category("computer")["slot_structure"]
     owned = resolve_owned_parts(specs, by_slot, slot_structure)
+    if conn is not None:
+        # 사용자가 "실시간으로 찾아볼까요?"로 이미 받아 둔 값만 읽어 쓴다 — 새로 검색하지 않는다(자동 실행 금지).
+        from src.services.live_spec_lookup import cached_for_kept_parts
+        cached_for_kept_parts(conn, owned, specs)
     conditions = normalise_conditions(conditions)
     prices = price_review(specs, owned, slot_structure)
     return {
@@ -183,7 +187,7 @@ def _save(repo: PlanRepo, revision_id: UUID, review: dict) -> None:
 
 def create_review(conn, principal: Principal, current_specs: dict, conditions: dict | None = None) -> tuple[dict, dict]:
     """새 세션을 만들고 그 안에 분석 결과를 저장한다. (세션 정보, 저장된 결과)."""
-    review = analyze(current_specs, conditions)          # 분석이 실패하면 빈 세션을 만들지 않는다
+    review = analyze(current_specs, conditions, conn=conn)          # 분석이 실패하면 빈 세션을 만들지 않는다
     session = session_service.create_session(conn, principal)
     repo = PlanRepo(conn)
     list_id = UUID(session["list_id"])
@@ -204,7 +208,7 @@ def update_review(conn, list_id: UUID, principal: Principal, current_specs: dict
     if conditions is None:
         previous = repo.active_condition(revision["id"], QUOTE_REVIEW_KEY)
         conditions = (((previous or {}).get("value") or {}).get("value") or {}).get("input", {}).get("conditions")
-    review = analyze(current_specs, conditions)
+    review = analyze(current_specs, conditions, conn=conn)
     _save(repo, revision["id"], review)
     return review
 
@@ -216,6 +220,11 @@ def get_review(conn, list_id: UUID, principal: Principal) -> dict:
     if row is None:
         raise NotFound("이 목록에는 견적 점검 결과가 없습니다.")
     return row["value"]["value"]
+
+
+# 카탈로그에서 확실히 찾지 못한 상태 — 대응 없음, 글에서 추정(inferred), 가장 비슷한 제품으로 대신 본 것(candidate).
+# 추정·비슷한 제품은 점검이 그 값으로 이미 판단하고 있어 틀릴 수 있으니, 사용자가 정확한 값을 직접 확인해 볼 수 있게 연다.
+LIVE_LOOKUP_STATUSES = ("unmatched", "inferred", "candidate")
 
 
 def live_lookup_part(conn, list_id: UUID, principal: Principal, slot: str) -> dict:
@@ -230,11 +239,16 @@ def live_lookup_part(conn, list_id: UUID, principal: Principal, slot: str) -> di
     row = next((p for p in review.get("parts", []) if p["part"] == slot), None)
     if row is None:
         raise NotFound(f"그 슬롯을 찾을 수 없습니다: {slot}", field="slot")
-    if row["match_status"] != "unmatched":
+    if row["match_status"] not in LIVE_LOOKUP_STATUSES:
         raise ValidationFailed("카탈로그에 이미 대응된 부품은 실시간 검색 대상이 아닙니다.", field="slot",
                                code="already_matched")
-    result = live_spec_lookup.lookup(conn, row["original"])
-    return {"slot": slot, "query": row["original"], **result.model_dump()}
+    outcome = live_spec_lookup.lookup_with_meta(conn, row["original"], slot=slot)
+    iso = lambda dt: dt.isoformat(timespec="seconds") if dt else None          # noqa: E731
+    return {"slot": slot, "query": row["original"], **outcome.result.model_dump(),
+            "fetched_at": iso(outcome.fetched_at), "status": outcome.status, "cached": outcome.cached,
+            "reference_price": outcome.reference_price,
+            "reference_price_source_url": outcome.reference_price_source_url,
+            "reference_price_at": iso(outcome.reference_price_at)}
 
 
 def compare_part(conn, list_id: UUID, principal: Principal, slot: str, targets: list[str] | None = None,

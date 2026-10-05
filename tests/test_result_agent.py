@@ -253,3 +253,20 @@ def test_prefetch_skips_words_that_point_at_no_part():
 def test_highest_price_word_is_not_evaluative():
     assert ra.evaluative_words("각 슬롯의 최고가 후보로 바꿨습니다") == []
     assert ra.evaluative_words("최고의 선택입니다") == ["최고"]
+
+
+def test_search_unavailable_part_busy_lookup_is_a_sentence_not_an_exception(monkeypatch):
+    from src.errors import ServiceUnavailable
+
+    def busy(conn, text, **kw):
+        raise ServiceUnavailable("지금 검색 요청이 몰려 있어요. 잠시 후 다시 시도해 주세요.", code="live_part_lookup_busy")
+
+    s = _session()
+    s.search_confirmed = True
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": []})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: [])
+    monkeypatch.setattr("src.services.live_spec_lookup.available", lambda: True)
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", busy)
+
+    out = s.search_unavailable_part("GPU", "RTX 6090")
+    assert "몰려 있어요" in out and "가져오지 못했습니다" in out

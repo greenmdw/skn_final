@@ -126,7 +126,23 @@ def live_spec_lookup_system() -> str:
 4. source_url은 입력으로 받은 스니펫의 출처 URL을 그대로 옮깁니다 — 다른 URL을 지어내거나
    추측하지 않습니다. 입력에 URL이 없으면 null로 둡니다.
 5. 이 부품의 성능이 좋은지, 추천할 만한지, 다른 부품과 호환되는지는 판단하지 않습니다 — 스니펫에
-   적힌 사실을 구조화하는 것만 합니다."""
+   적힌 사실을 구조화하는 것만 합니다.
+6. 입력에 "부품 종류"가 있으면 그 부품에 의미 있는 필드만 채웁니다. 다른 종류의 필드는 값이 보여도
+   null 로 둡니다 — 예: 파워의 cooling_type 에 팬 설명을 적지 않고, SSD 의 mem_type 에 NAND 종류를
+   적지 않고, 메인보드의 capacity_gb·speed_mts 에 "지원하는 최대 메모리"를 적지 않습니다.
+7. radiator_mm 은 수랭 쿨러의 라디에이터 **크기**(120·240·280·360·420 등, 길이 기준 mm)입니다.
+   두께(예 27·38mm)·호스 길이·팬 두께가 아닙니다. 크기가 명시되지 않았으면 null 입니다."""
+
+
+def live_reference_price_rules() -> str:
+    """LIVE_REFERENCE_PRICE=1 일 때만 live_spec_lookup_system() 뒤에 붙인다(설계 §9.7) — 참고가 한 칸 규칙."""
+    return """추가 규칙(reference_price):
+6. reference_price 에는 스니펫에 판매처(쇼핑몰·제조사 공식몰 등)와 원화 금액이 같은 문장에 명시된 경우에만
+   그 금액을 정수(원)로 적습니다. 그 외에는 null 입니다.
+7. 질문한 바로 그 제품·옵션의 금액만 적습니다. 가격대·범위("약 10~12만원"), 출시가·정가, 중고가, 해외 가격
+   (달러 등), 다른 제품·번들의 금액은 null 입니다.
+8. 금액을 계산·환산·반올림하거나 여러 금액을 합치지 않습니다. 확신이 없으면 null 입니다.
+9. relevant 가 false 이면 reference_price 도 null 입니다."""
 
 
 # 기존 import 경로를 쓰는 외부 호출자는 계속 한국어 기본 프롬프트를 받는다.
@@ -135,3 +151,4 @@ EXPLAIN_SYSTEM = explain_system()
 SPEC_EXTRACTION_SYSTEM = spec_extraction_system()
 SPEC_EXTRACTION_IMAGE_SYSTEM = spec_extraction_image_system()
 LIVE_SPEC_LOOKUP_SYSTEM = live_spec_lookup_system()
+LIVE_REFERENCE_PRICE_RULES = live_reference_price_rules()

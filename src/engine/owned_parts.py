@@ -411,14 +411,19 @@ def resolve_owned_parts(current_specs: Any, by_slot: dict[str, list[Candidate]],
     return owned
 
 
-def constrain_targets(spec) -> None:
+def constrain_targets(spec, owned_parts: dict[str, dict[str, Any]] | None = None) -> None:
     """유지하는 부품이 정해 주는 플랫폼(소켓·메모리 타입)을 견적 대상 슬롯의 요구로 못 박는다.
 
     용도 프로필의 소켓·DDR 하한은 "새로 조립할 때의 기본"이라, AM4 보드를 그대로 쓰면서 CPU 만
     바꾸려는 사람에게 적용하면 후보가 전멸한다. 그 경우엔 유지 부품의 값이 하한을 대신한다.
-    유지 부품을 모르면(키 없음) 건드리지 않는다."""
+    유지 부품을 모르면(키 없음) 건드리지 않는다.
+
+    `owned_parts`를 주면 spec.owned 대신 그것을 기준으로 삼는다 — 신규 조립에서 사용자가 원한 미보유 부품의
+    플랫폼 값만 제약으로 걸고, 그 부품을 spec.owned(검사에 쓰는 보유 부품)에는 넣지 않으려고 쓴다."""
+    source = spec.owned if owned_parts is None else owned_parts
+
     def owned(slot: str, key: str):
-        return ((spec.owned.get(slot) or {}).get("specs") or {}).get(key)
+        return ((source.get(slot) or {}).get("specs") or {}).get(key)
 
     board_socket, cpu_socket = owned("메인보드", "socket"), owned("CPU", "socket")
     board_mem, ram_mem = owned("메인보드", "mem_type"), owned("RAM", "mem_type")
@@ -437,6 +442,7 @@ _SPEC_LABEL = {
     "socket": "소켓", "mem_type": "메모리 규격", "wattage_w": "용량(W)", "speed_mts": "속도(MT/s)",
     "capacity_gb": "용량(GB)", "module_config": "구성", "form_factor": "크기", "supports_form_factors": "지원 보드 크기",
     "cooling_type": "방식", "radiator_mm": "라디에이터(mm)", "height_mm": "높이(mm)", "interface": "인터페이스",
+    "supported_socket": "지원 소켓",
 }
 _PREVIEW_STATE = {"catalog": "ok", "candidate": "warn", "text": "warn", "inferred": "warn", "unverified": "warn",
                   "live": "warn"}
@@ -536,17 +542,35 @@ def merge_live_lookup(owned: dict[str, dict[str, Any]], current_specs: Any, cach
     if not isinstance(current_specs, dict):
         return
     for slot, info in owned.items():
-        if info.get("source") != "unverified":
-            continue
+        source = info.get("source")
+        if source not in ("unverified", "text", "inferred"):
+            continue                       # 카탈로그 대응(catalog)·가장 비슷한 제품(candidate)의 값은 건드리지 않는다
         row = cached.get(slot)
         if not row or not row.get("relevant"):
             continue
         fields = {k: v for k, v in (row.get("supported_fields") or {}).items() if v is not None}
+        forms = fields.get("supports_form_factors")
+        if isinstance(forms, str):          # 검색 값은 문장이고 호환 검사는 목록을 읽는다(카탈로그·텍스트 파싱과 같은 모양)
+            listed, _ = _case_forms(forms)
+            if listed:
+                fields["supports_form_factors"] = listed
+            else:
+                fields.pop("supports_form_factors")
+        if slot == "쿨러" and "socket" in fields:      # 검색 값의 socket 은 쿨러에선 "지원 소켓 목록" — 검사가 읽는 키 이름으로
+            fields["supported_socket"] = fields.pop("socket")
         if not fields:
             continue
-        info["specs"] = fields
-        info["source"] = "live"
-        info["source_url"] = row.get("source_url")
+        if source == "unverified":
+            info["specs"] = fields
+            info["source"] = "live"
+            info["source_url"] = row.get("source_url")
+            continue
+        # 글에서 일부만 읽은 부품(text·inferred)은 이미 읽은 값을 지키고 비어 있는 키만 채운다.
+        filled = {k: v for k, v in fields.items() if k not in (info.get("specs") or {})}
+        if filled:
+            info["specs"] = {**(info.get("specs") or {}), **filled}
+            info["live_filled"] = sorted(filled)
+            info["source_url"] = row.get("source_url")
 
 
 def _ensure(owned: dict, slot: str, name: str) -> dict:

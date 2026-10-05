@@ -26,6 +26,7 @@ slot_schema:
   # 구간의 하한(W, 보수적으로). 값은 전부 문자열이다 — 숫자와 문자열 키가 섞이면 시드(JSON sort_keys)가 깨진다.
   owned_psu_w:     { type: enum, values: ["450", "500", "700", "900", unknown], nullable: true }
   extra:           { type: list }
+  wanted_parts:    { type: object, nullable: true }   # 카탈로그에 없지만 사용자가 원한 부품(실시간 검색 스냅샷) — 호환성 제약에만 쓴다
 
 defaults:                      # 동적 기본값 실패 시 fallback
   resolution: FHD_144
@@ -50,6 +51,7 @@ fields:
   - {key: priority, label: 우선순위, display: {performance: 성능 우선, value: 가성비, quiet: 저소음}}
   - {key: resolution, label: 해상도·주사율, display: {FHD_144: FHD 144Hz, QHD_165: QHD 165Hz, "4K": 4K}}
   - {key: games, label: 하는 게임}
+  - {key: wanted_parts, label: 원하는 부품, only_when_set: true}   # 카탈로그에 없어 실시간 검색으로 확인한 부품 — 값이 있을 때만 보인다
 
 question_sets:
   - {id: q_mode, select: single, maps_to: mode, label: '새로 만들까요, 업그레이드할까요?', options: [새 컴퓨터 조립, 기존 컴퓨터 업그레이드], values: [build, upgrade]}

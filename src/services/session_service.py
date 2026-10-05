@@ -103,6 +103,25 @@ def _display(
     return str(value)
 
 
+def _wanted_display(wanted, mode) -> str | None:
+    """원하는 부품(카탈로그 밖, 실시간 검색으로 확인) — 이름과, 그것이 추천에 어떻게 반영되는지를 한 줄로.
+    신규 조립에서만 소켓·메모리 규격이 나머지 부품의 호환 조건이 된다(engine/wanted_parts.py)."""
+    from src.engine.wanted_parts import describe_hints, platform_hints
+
+    if not isinstance(wanted, dict) or not wanted:
+        return None
+    lines = []
+    for slot, info in wanted.items():
+        name = (info or {}).get("name") or slot
+        if mode == "upgrade":
+            effect = "기록만 해요"
+        else:
+            conditions = describe_hints(platform_hints({slot: {"fields": (info or {}).get("fields") or {}}}))
+            effect = f"{conditions} 기준으로 맞춰 추천해요" if conditions else "호환 조건은 달라지지 않아요"
+        lines.append(f"{slot} {name} ({effect})")
+    return " · ".join(lines)
+
+
 def _build_fields(cat_def: dict, values: dict) -> list[dict]:
     mode = values.get("mode")
     out = []
@@ -111,6 +130,8 @@ def _build_fields(cat_def: dict, values: dict) -> list[dict]:
             continue
         if meta.get("ask_when") and not _ask_applies(meta, values) and values.get(meta["key"]) is None:
             continue                       # 필요 없는 조건부 필드는 화면 목록에 안 낸다
+        if meta.get("only_when_set") and not values.get(meta["key"]):
+            continue                       # 값이 생겼을 때만 보이는 필드(원하는 부품)
         value = _field_value(meta, values)
         status = "confirmed" if meta["key"] in values and value is not None else "missing"
         # 사용자가 안 정했어도 엔진이 기본값으로 계산하는 필드(해상도 FHD_144 등)는 그 값을 "가정"으로 보여 준다 —
@@ -118,9 +139,11 @@ def _build_fields(cat_def: dict, values: dict) -> list[dict]:
         default = (cat_def.get("defaults") or {}).get(meta["key"])
         if value is None and default is not None:
             value, status = default, "assumed"
+        shown = (_wanted_display(value, mode) if meta["key"] == "wanted_parts"
+                 else _display(meta, value, _option_label_map(cat_def, meta["key"])))
         out.append({
             "key": meta["key"], "label": meta.get("label"), "value": value,
-            "display": _display(meta, value, _option_label_map(cat_def, meta["key"])),
+            "display": shown,
             "status": status, "editable": True,
         })
     return out

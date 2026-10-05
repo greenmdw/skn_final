@@ -243,6 +243,14 @@ class LiveSpecLookupOut(BaseModel):
     relevant: bool
     supported_fields: dict[str, Any]
     source_url: str | None = None
+    # 임시 부품 저장소 메타(설계 §9): 언제 확인한 값인지, 사람이 확인했는지, 저장소에서 가져왔는지.
+    fetched_at: str | None = None
+    status: Literal["unreviewed", "confirmed", "rejected"] = "unreviewed"
+    cached: bool = False
+    # 참고가(LIVE_REFERENCE_PRICE=1 이고 만료 전일 때만) — 합계·가격 비교·후보와 무관한 참고 표시용.
+    reference_price: int | None = None
+    reference_price_source_url: str | None = None
+    reference_price_at: str | None = None
 
 
 class QuoteApplyIn(BaseModel):
