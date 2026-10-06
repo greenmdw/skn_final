@@ -12,12 +12,12 @@ MIN_PRICE, MAX_PRICE = 1_000, 50_000_000           # 이 범위를 벗어나면 
 SIMILAR_PCT = 5.0                                  # 견적 가격과 카탈로그 가격이 ±5% 안이면 "비슷함"
 
 # "250,000원", "₩250,000", "250000원"
-_WON = re.compile(r"(?:₩\s*)?(?<![\d,.])(\d{1,3}(?:,\d{3})+|\d{4,})\s*(?:원|₩)|₩\s*(\d{1,3}(?:,\d{3})+|\d{4,})")
+_WON = re.compile(r"(?:₩\s*)?(?<![\d,.$])(\d{1,3}(?:,\d{3})+|\d{4,})\s*(?:원|₩)|₩\s*(\d{1,3}(?:,\d{3})+|\d{4,})")
 # "25만원", "25.5만원", "25만 5천원", "25만5천"
 _MAN = re.compile(r"(?<![\d.])(\d+(?:\.\d+)?)\s*만\s*(?:(\d{1,2})\s*천)?\s*원?")
 _CHEON = re.compile(r"(?<![\d.만])(\d{1,2})\s*천\s*원")
 # 원·₩ 없이 천 단위 쉼표만 있는 금액("250,000") — 뒤에 W·GB 같은 단위가 붙으면 가격이 아니다("1,000W")
-_COMMA = re.compile(r"(?<![\d,.])(\d{1,3}(?:,\d{3})+)(?![\d,]|\s*[A-Za-z])")
+_COMMA = re.compile(r"(?<![\d,.$])(\d{1,3}(?:,\d{3})+)(?![\d,]|\.\d|\s*[A-Za-z])")      # "$1,299.99"는 원 가격이 아니다
 
 
 def _spans(text: str) -> list[tuple[int, int, int]]:
@@ -66,7 +66,7 @@ def compare_price(quoted: int | None, catalog: int | None) -> dict:
 
 
 _KIT = re.compile(r"\d{1,3}\s*G(?:B)?\)?\s*[x×*]\s*(\d)\b", re.IGNORECASE)      # "16GB x2", "(16GB) x2"
-_COUNT = re.compile(r"(?<![\d.])(\d{1,2})\s*개|수량\s*:?\s*(\d{1,2})")
+_COUNT = re.compile(r"(?<![\d.])(\d{1,2})\s*(?:개|ea\b)|수량\s*:?\s*(\d{1,2})", re.IGNORECASE)      # "2개", "2ea"
 
 
 def line_quantity(text: object) -> int:

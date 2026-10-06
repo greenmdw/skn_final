@@ -14,22 +14,52 @@ class ConversationRepo(Repo):
         row = self._one("INSERT INTO identity.conversation (user_id, guest_session_hash) VALUES (%s, %s) RETURNING id", (user_id, guest_session_hash))
         return row["id"]
 
-    def add_message(self, conversation_id: UUID, role: str, content: str) -> UUID:
+    def add_message(self, conversation_id: UUID, role: str, content: str, *, client_message_id: str | None = None,
+                    metadata: dict | None = None) -> UUID:
+        from psycopg.types.json import Jsonb
+
         row = self._one(
             # created_at 기본값 now() 는 트랜잭션 시작 시각이라, 한 요청에서 저장하는 질문과 답이 같은 시각이 되어
             # 대화 내역에서 답이 질문보다 먼저 나왔다. 저장하는 순간의 시각을 쓴다.
-            "INSERT INTO identity.message (conversation_id, role, content, client_message_id, created_at) "
-            "VALUES (%s, %s, %s, %s, clock_timestamp()) RETURNING id",
-            (conversation_id, role, content, str(uuid.uuid4())),
+            "INSERT INTO identity.message (conversation_id, role, content, client_message_id, created_at, metadata) "
+            "VALUES (%s, %s, %s, %s, clock_timestamp(), %s) RETURNING id",
+            (conversation_id, role, content, client_message_id or str(uuid.uuid4()), Jsonb(metadata or {})),
         )
         return row["id"]
 
     def messages(self, conversation_id: UUID) -> list[dict]:
         return self._all(
             # 이미 같은 시각으로 저장된 질문·답(위 수정 전 기록)은 사용자 말을 먼저 둔다.
-            "SELECT id, role, content, created_at FROM identity.message "
+            "SELECT id, role, content, created_at, client_message_id, metadata FROM identity.message "
             "WHERE conversation_id = %s ORDER BY created_at, (role <> 'user')",
             (conversation_id,),
+        )
+
+    def find_by_client_message_id(self, conversation_id: UUID, client_message_id: str) -> dict | None:
+        """같은 client_message_id 의 사용자 메시지(재전송 판별) — 없으면 None."""
+        return self._one(
+            "SELECT id, created_at FROM identity.message WHERE conversation_id=%s AND client_message_id=%s",
+            (conversation_id, client_message_id),
+        )
+
+    def assistant_after(self, conversation_id: UUID, user_message_id: UUID) -> dict | None:
+        """사용자 메시지 바로 다음에 저장된 답(재전송 때 같은 답을 돌려주려고)."""
+        return self._one(
+            "SELECT m.id, m.content, m.created_at, m.metadata FROM identity.message m "
+            "JOIN identity.message u ON u.id=%s AND u.conversation_id=m.conversation_id "
+            "WHERE m.conversation_id=%s AND m.role='assistant' AND m.created_at >= u.created_at "
+            "ORDER BY m.created_at LIMIT 1",
+            (user_message_id, conversation_id),
+        )
+
+    def answer_for_question(self, conversation_id: UUID, comparison_id: str, normalized_question: str) -> dict | None:
+        """이 비교에서 같은(정규화한) 질문에 이미 한 답 — 가장 먼저 한 답을 돌려준다(BE-12)."""
+        return self._one(
+            "SELECT id, content, created_at, metadata FROM identity.message "
+            "WHERE conversation_id=%s AND role='assistant' AND metadata->>'comparison_id' = %s "
+            "AND metadata->>'normalized_question' = %s AND NOT (metadata ? 'duplicate_of') "
+            "ORDER BY created_at LIMIT 1",
+            (conversation_id, comparison_id, normalized_question),
         )
 
     def attach_user(self, guest_session_hash: str, user_id: UUID) -> None:

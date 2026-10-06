@@ -70,6 +70,10 @@ LIVE_SPEC_LOOKUP_NOTFOUND_TTL_DAYS: int = int(os.getenv(
 # 인메모리라 서버 프로세스마다 따로 센다(여러 프로세스면 합이 이 값의 배수가 된다).
 LIVE_LOOKUP_GLOBAL_LIMIT_PER_MIN: int = int(os.getenv("LIVE_LOOKUP_GLOBAL_LIMIT_PER_MIN", "6"))
 LIVE_LOOKUP_MAX_CONCURRENCY: int = int(os.getenv("LIVE_LOOKUP_MAX_CONCURRENCY", "2"))
+# 받은 견적 점검 — 여러 장 업로드(초안). 이미지 한 장이 비전 호출 한 번(분당 토큰 한도를 같이 쓴다)이라 3장까지만 받는다.
+QUOTE_DRAFT_MAX_FILES: int = int(os.getenv("QUOTE_DRAFT_MAX_FILES", "3"))
+QUOTE_DRAFT_MAX_FILE_BYTES: int = int(os.getenv("QUOTE_DRAFT_MAX_FILE_BYTES", str(10 * 1024 * 1024)))
+QUOTE_DRAFT_MAX_TOTAL_BYTES: int = int(os.getenv("QUOTE_DRAFT_MAX_TOTAL_BYTES", str(30 * 1024 * 1024)))
 LIVE_REFERENCE_PRICE: bool = os.getenv("LIVE_REFERENCE_PRICE", "0") == "1"
 LIVE_REFERENCE_PRICE_TTL_DAYS: int = int(os.getenv("LIVE_REFERENCE_PRICE_TTL_DAYS", "2"))
 

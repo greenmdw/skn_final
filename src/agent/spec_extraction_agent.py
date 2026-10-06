@@ -11,13 +11,17 @@ SPEC_EXTRACTION_AGENT=1까지 필요하다. `available()`이 False이거나 `ext
 """
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from src.clients.llm_client import call_llm, call_llm_vision
 from src.config import (
     LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, SPEC_EXTRACTION_AGENT, SPEC_EXTRACTION_IMAGE_MODEL,
 )
-from src.engine.prompts import SPEC_EXTRACTION_IMAGE_SYSTEM, SPEC_EXTRACTION_SYSTEM
+from src.engine.prompts import (
+    SPEC_EXTRACTION_IMAGE_SYSTEM, SPEC_EXTRACTION_ITEMS_IMAGE_SYSTEM, SPEC_EXTRACTION_ITEMS_TEXT_SYSTEM, SPEC_EXTRACTION_SYSTEM,
+)
 
 # 사용자가 붙여넣을 만한 견적 설명(유튜브 설명란 등)은 길 수 있다 — 토큰·비용 상한.
 _MAX_INPUT_CHARS = 4000
@@ -96,3 +100,44 @@ def extract_from_image(image_data_url: str) -> dict[str, str]:
     draft = _SpecExtractionImage.model_validate(raw)
     return {_IMAGE_SLOT_MAP[slot]: value.strip()
             for slot, value in draft.model_dump().items() if value and value.strip()}
+
+
+# ── 여러 제품 보존(받은 견적 점검 — 여러 장 업로드) ──────────────────────────────────────────────
+class _ImageItem(BaseModel):
+    category: Literal["cpu", "gpu", "ram", "motherboard", "storage", "psu", "case", "cooler"]
+    raw_text: str
+
+
+class _SpecExtractionItems(BaseModel):
+    items: list[_ImageItem] = Field(default_factory=list)
+
+
+_ITEM_SLOT_MAP = {**_IMAGE_SLOT_MAP, "case": "케이스"}
+
+
+# 여러 제품 보존용 텍스트 추출은 슬롯당 하나로 줄이는 extract 보다 긴 입력을 받는다(제품이 여럿이라 줄 수가 많다).
+_MAX_ITEMS_INPUT_CHARS = 12000
+
+
+def extract_items(text: str) -> list[dict[str, str]]:
+    """텍스트에서 적힌 부품을 **전부** [{"category": 슬롯, "raw_text": 원문}]으로 — 같은 부품군의 서로 다른 제품을 그대로 둔다.
+    `extract`와 같은 경계(판단 안 함, 예외는 호출자가 규칙 경로로 처리)."""
+    raw = call_llm(text[:_MAX_ITEMS_INPUT_CHARS], system=SPEC_EXTRACTION_ITEMS_TEXT_SYSTEM,
+                   output_schema=_SpecExtractionItems.model_json_schema())
+    parsed = _SpecExtractionItems.model_validate(raw)
+    return [{"category": _ITEM_SLOT_MAP[i.category], "raw_text": i.raw_text.strip()}
+            for i in parsed.items if i.raw_text and i.raw_text.strip()]
+
+
+def extract_items_from_image(image_data_url: str) -> list[dict[str, str]]:
+    """이미지 1장에서 보이는 부품을 **전부** [{"category": 슬롯, "raw_text": 원문}]으로. 슬롯당 하나로 줄이는
+    extract_from_image 와 달리 같은 부품군의 서로 다른 제품을 그대로 둔다. 판정 경계·실패 계약은 같다 —
+    판단은 안 하고, 예외는 호출자가 처리하며, 이미지 원본은 저장하지 않는다."""
+    raw = call_llm_vision(image_data_url, system=SPEC_EXTRACTION_ITEMS_IMAGE_SYSTEM,
+                          output_schema=_SpecExtractionItems.model_json_schema(),
+                          model=SPEC_EXTRACTION_IMAGE_MODEL, temperature=0)
+    if isinstance(raw, dict) and "items" not in raw and isinstance(raw.get("properties"), dict):
+        raw = raw["properties"]
+    parsed = _SpecExtractionItems.model_validate(raw)
+    return [{"category": _ITEM_SLOT_MAP[i.category], "raw_text": i.raw_text.strip()}
+            for i in parsed.items if i.raw_text and i.raw_text.strip()]

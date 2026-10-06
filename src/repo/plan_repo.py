@@ -10,13 +10,15 @@ from src.db.base import Repo
 # 견적 점검(타사 견적 비교 분석) 결과를 리비전에 붙여 두는 조건 키. 추천 입력(조건 값)이 아니라 결과라서
 # load_full 이 조건 목록에서 빼고, 저장해도 lock_version 을 올리지 않는다(이미 끝난 추천을 stale 로 만들지 않는다).
 QUOTE_REVIEW_KEY = "quote_review"
+QUOTE_SAVED_COMPARISONS_KEY = "quote_saved_comparisons"   # 받은 견적과 저장 견적의 비교 결과들(BE-09)
+QUOTE_DRAFT_KEY = "quote_review_draft"      # 여러 장 업로드 초안 — 분석 전 인식 결과(추천 입력이 아니다)
 # "이어서 하기"로 조건을 가져온 원래 목록 id(A1). 이전 견적과 비교할 때(B1) 대상을 정하는 데만 쓴다 —
 # 추천 입력이 아니므로 QUOTE_REVIEW_KEY 처럼 load_full 에서 빼고 lock_version 도 올리지 않는다.
 RESUMED_FROM_KEY = "resumed_from"
 # "견적 수정하기"로 복사해 온 원본 견적서 번호. 견적 리스트 히스토리가 "견적서 N에서 고쳐 시작"과 비교 대상을
 # 정하는 데만 쓴다 — 추천 입력이 아니므로 위 둘처럼 load_full 에서 빼고 lock_version 도 올리지 않는다.
 REVISED_FROM_KEY = "revised_from"
-_NOT_CONDITIONS = (QUOTE_REVIEW_KEY, RESUMED_FROM_KEY, REVISED_FROM_KEY)
+_NOT_CONDITIONS = (QUOTE_REVIEW_KEY, QUOTE_DRAFT_KEY, QUOTE_SAVED_COMPARISONS_KEY, RESUMED_FROM_KEY, REVISED_FROM_KEY)
 _NOT_CONDITIONS_SQL = ", ".join(["%s"] * len(_NOT_CONDITIONS))
 
 

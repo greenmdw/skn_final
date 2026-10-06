@@ -11,13 +11,15 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
+from datetime import datetime, timezone
 from uuid import UUID
 
 from src.auth.deps import Principal
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.errors import ValidationFailed
 from src.repo.user_repo import ConversationRepo
-from src.services import quote_alternatives, quote_facts, quote_review_service as qrs, session_service
+from src.services import quote_alternatives, quote_comparison_service, quote_facts, quote_review_service as qrs, session_service
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +42,8 @@ _INTENT_WORDS = {
     "compare": ("우리 추천", "비교", "차이", "뭐가 달라", "뭐가 다른", "추천이랑", "추천과"),
 }
 EVIDENCE_LABEL = {"overview": "견적 분석 요약", "compat": "호환 검사", "prices": "가격 비교", "balance": "용도 대비 균형",
-                  "compare": "우리 추천과 비교", "alternatives": "대안 조회", "compare_parts": "부품 비교"}
+                  "compare": "우리 추천과 비교", "alternatives": "대안 조회", "compare_parts": "부품 비교",
+                  "saved_comparison": "저장 견적 비교"}
 _PART_WORDS = ("스펙", "사양", "리뷰", "후기", "부품 비교", "다른 제품이랑", "이랑 비교", "와 비교", "과 비교", "랑 비교")
 
 
@@ -150,10 +153,11 @@ def run_fact(review: dict, name: str, args: dict, by_slot_loader) -> str:
     raise ValueError(f"unknown fact: {name}")
 
 
-def rule_reply(review: dict, text: str, by_slot_loader) -> tuple[str, list[str]]:
-    """에이전트 없이 — 질문에 맞는 사실 문장을 그대로 돌려준다(요약·판정 없음)."""
-    calls = route(text, by_slot_loader, review)
-    body = "\n\n".join(f"[{EVIDENCE_LABEL[n]}]\n{run_fact(review, n, a, by_slot_loader)}" for n, a in calls)
+def rule_reply(review: dict, text: str, by_slot_loader, calls: list | None = None, fact=None) -> tuple[str, list[str]]:
+    """에이전트 없이 — 질문에 맞는 사실 문장을 그대로 돌려준다(요약·판정 없음). `calls`·`fact`를 주면 그 조회를 쓴다."""
+    calls = calls if calls is not None else route(text, by_slot_loader, review)
+    fact = fact or (lambda n, a: run_fact(review, n, a, by_slot_loader))
+    body = "\n\n".join(f"[{EVIDENCE_LABEL[n]}]\n{fact(n, a)}" for n, a in calls)
     if calls[0][0] == "overview":
         body += ("\n\n호환, 가격, 용도 대비 균형, 우리 추천과의 차이를 물어보거나 '그래픽카드 더 저렴한 걸로 뭐가 있어?'처럼 "
                  "부품을 골라 대안을 물어볼 수 있어요.")
@@ -195,7 +199,25 @@ def _pairs(messages: list[dict]) -> list[tuple[str, str]]:
     return pairs[-HISTORY_TURNS:]
 
 
-def chat(conn, list_id: UUID, principal: Principal, text: str) -> dict:
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _payload(message_id: UUID | str, created_at: str, reply: str, meta: dict) -> dict:
+    """저장된(또는 방금 만든) 답 → API 응답. 메타데이터가 없는 예전 답은 빈 시각 자료·가이드로 돌려준다."""
+    return {
+        "message_id": str(message_id), "answer_id": meta.get("answer_id") or str(message_id), "reply": reply,
+        "evidence": list(meta.get("evidence") or []), "guide_refs": list(meta.get("guide_refs") or []),
+        "visuals": list(meta.get("visuals") or []), "via": meta.get("via") or "rules",
+        "display_target": meta.get("display_target") or "chat", "duplicate_of": meta.get("duplicate_of"),
+        "created_at": created_at,
+    }
+
+
+def chat(conn, list_id: UUID, principal: Principal, text: str, *, client_message_id: str | None = None,
+         context: dict | None = None) -> dict:
+    """견적 점검 질문 하나. `context`(저장 견적 비교)가 있으면 그 비교의 사실·시각 자료·가이드로 답하고, 같은 질문은 저장된 답을
+    다시 쓴다(LLM을 부르지 않는다). `client_message_id`가 이미 처리된 것이면(재전송) 저장된 답을 그대로 돌려준다."""
     text = (text or "").strip()
     if not text:
         raise ValidationFailed("질문을 입력해 주세요.", field="text")
@@ -203,29 +225,81 @@ def chat(conn, list_id: UUID, principal: Principal, text: str) -> dict:
         raise ValidationFailed(f"질문이 너무 깁니다({MAX_TEXT_CHARS:,}자 이하).", field="text")
     revision, review = _stored_review(conn, list_id, principal)
     conversations = ConversationRepo(conn)
-    history = _pairs(conversations.messages(revision["conversation_id"]))
+    conversation_id = revision["conversation_id"]
+
+    if client_message_id:                                     # 같은 요청의 재전송 — 새 답을 만들지 않는다
+        sent = conversations.find_by_client_message_id(conversation_id, client_message_id)
+        if sent is not None:
+            answer = conversations.assistant_after(conversation_id, sent["id"])
+            if answer is not None:
+                return _payload(answer["id"], answer["created_at"].isoformat(timespec="seconds"), answer["content"], answer["metadata"] or {})
+
+    comparison = None
+    comparison_id = None
+    if context:
+        comparison_id = str(context["comparison_id"])
+        comparison = quote_comparison_service.get_comparison(conn, list_id, principal, comparison_id)
+    normalized = quote_comparison_service.normalize_question(text)
+    user_meta = {"comparison_id": comparison_id, "normalized_question": normalized} if comparison else {}
+
+    if comparison:
+        earlier = conversations.answer_for_question(conversation_id, comparison_id, normalized)
+        if earlier is not None:                               # 같은 질문 — 기존 답·자료·가이드를 그대로(LLM 호출 없음)
+            original = dict(earlier["metadata"] or {})
+            meta = {**original, "answer_id": str(uuid.uuid4()), "duplicate_of": original.get("answer_id")}
+            conversations.add_message(conversation_id, "user", text, client_message_id=client_message_id, metadata=user_meta)
+            message_id = conversations.add_message(conversation_id, "assistant", earlier["content"], metadata=meta)
+            return _payload(message_id, _now_iso(), earlier["content"], meta)
+
+    history = _pairs(conversations.messages(conversation_id))
     loader = _catalog_loader()
+    calls = route(text, loader, review)
+    fact = lambda n, a: run_fact(review, n, a, loader)       # noqa: E731
+    extras = {"visuals": [], "guide_refs": []}
+    if comparison:
+        extras = quote_comparison_service.answer_extras(comparison, review, text, loader())
+        # 저장 견적 비교에 대한 질문은 그 비교가 근거다 — 받은 견적만의 카탈로그 가격 비교·균형·추천 비교를 미리 싣지 않는다
+        # (싣으면 "저장 견적과 얼마나 다르냐"는 질문에 카탈로그 가격 얘기로 답하는 일이 실측됐다). 호환·대안·부품 비교는 그대로.
+        calls = [("saved_comparison", {"categories": extras["intent"]["slots"]}),
+                 *[c for c in calls if c[0] not in ("overview", "prices", "balance", "compare")]]
+
+        def fact(n, a):                                       # noqa: F811
+            if n == "saved_comparison":
+                return quote_comparison_service.facts_text(comparison, a.get("categories") or [])
+            return run_fact(review, n, a, loader)
 
     from src.agent import quote_review_agent
     reply, evidence, via = None, [], "rules"
     if quote_review_agent.available():
         try:
-            turn = quote_review_agent.run_turn(review, history, text, route(text, loader, review), lambda n, a: run_fact(review, n, a, loader),
-                                           user_text=text)
+            turn = quote_review_agent.run_turn(review, history, text, calls, fact, user_text=text)
             reply, evidence, via = turn.reply, turn.evidence, "agent"
             log.info("quote review agent [%s]: %s", list_id, " | ".join(turn.trace) or "(도구 호출 없음)")
         except Exception as exc:  # noqa: BLE001 — 모델·네트워크 오류는 이번 턴만 규칙 경로로
             log.warning("quote review agent failed, falling back to rules: %s", exc)
     if reply is None:
-        reply, evidence = rule_reply(review, text, loader)
+        reply, evidence = rule_reply(review, text, loader, calls=calls, fact=fact)
 
-    conversations.add_message(revision["conversation_id"], "user", text)
-    conversations.add_message(revision["conversation_id"], "assistant", reply)
-    return {"reply": reply, "evidence": evidence, "via": via}
+    meta = {"answer_id": str(uuid.uuid4()), "evidence": evidence, "guide_refs": extras["guide_refs"], "visuals": extras["visuals"],
+            "via": via, "display_target": "saved_comparison_explanation" if comparison else "chat"}
+    if comparison:
+        meta.update(comparison_id=comparison_id, normalized_question=normalized)
+    conversations.add_message(conversation_id, "user", text, client_message_id=client_message_id, metadata=user_meta)
+    message_id = conversations.add_message(conversation_id, "assistant", reply, metadata=meta)
+    return _payload(message_id, _now_iso(), reply, meta)
 
 
 def history(conn, list_id: UUID, principal: Principal) -> list[dict]:
     """저장한 견적 점검을 다시 열 때 복원할 대화(CHAT-08) — 시간순."""
     revision, _ = _stored_review(conn, list_id, principal)
-    return [{"id": str(m["id"]), "role": m["role"], "text": m["content"], "created_at": m["created_at"].isoformat()}
-            for m in ConversationRepo(conn).messages(revision["conversation_id"])]
+    out = []
+    for m in ConversationRepo(conn).messages(revision["conversation_id"]):
+        meta = m.get("metadata") or {}
+        row = {"id": str(m["id"]), "role": m["role"], "text": m["content"], "created_at": m["created_at"].isoformat(),
+               "comparison_id": meta.get("comparison_id")}
+        if m["role"] == "assistant":
+            row.update(answer_id=meta.get("answer_id"), evidence=list(meta.get("evidence") or []),
+                       guide_refs=list(meta.get("guide_refs") or []), visuals=list(meta.get("visuals") or []),
+                       via=meta.get("via"), display_target=meta.get("display_target"), duplicate_of=meta.get("duplicate_of"))
+        out.append(row)
+    return out

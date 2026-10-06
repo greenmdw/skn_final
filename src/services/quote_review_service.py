@@ -242,9 +242,16 @@ def live_lookup_part(conn, list_id: UUID, principal: Principal, slot: str) -> di
     if row["match_status"] not in LIVE_LOOKUP_STATUSES:
         raise ValidationFailed("카탈로그에 이미 대응된 부품은 실시간 검색 대상이 아닙니다.", field="slot",
                                code="already_matched")
-    outcome = live_spec_lookup.lookup_with_meta(conn, row["original"], slot=slot)
+    return live_lookup_text(conn, row["original"], slot)
+
+
+def live_lookup_text(conn, text: str, slot: str) -> dict:
+    """부품 문구 하나의 실시간 검색 결과(저장소 적중이면 검색 없이) — 견적 점검과 초안(여러 장 업로드)이 같이 쓴다."""
+    from src.services import live_spec_lookup
+
+    outcome = live_spec_lookup.lookup_with_meta(conn, text, slot=slot)
     iso = lambda dt: dt.isoformat(timespec="seconds") if dt else None          # noqa: E731
-    return {"slot": slot, "query": row["original"], **outcome.result.model_dump(),
+    return {"slot": slot, "query": text, **outcome.result.model_dump(),
             "fetched_at": iso(outcome.fetched_at), "status": outcome.status, "cached": outcome.cached,
             "reference_price": outcome.reference_price,
             "reference_price_source_url": outcome.reference_price_source_url,
