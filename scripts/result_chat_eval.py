@@ -9,15 +9,24 @@
 답의 내용(지어낸 사실, 넘겨 말하기)은 사람이 보고서를 읽고 판단한다 — 도구 결과 원문을 함께 낸다.
 보고서 첫 표가 합격 기준(아래 상수, 10/7 측정 전 확정) 판정이고, 자동 기준이 하나라도 미달이면 종료 코드 1.
 
+문항 묶음 (--set, 묶음마다 합격 기준을 따로 판정한다):
+- base     — QUESTIONS 44문항. P1-2 베이스라인(10/7)과 같은 문항이라 전후 비교는 이 묶음으로 한다. 바꾸지 않는다
+- added    — ADDED. 실제 대화의 실패 사례와 잘못된 전제에 동조하는지 보는 문항(P1-5). 동조는 사람 판정의 '비사실'로 센다
+- scenario — SCENARIOS. 10/3 리허설 대본을 여러 턴으로 — 앞 턴의 제안을 받는 말("응 그렇게 바꿔줘")·"그대로 두고"·거절
+             ("ㄴㄴ")처럼 한 턴 문항으로는 못 보는 것. 앞 턴이 틀리면 뒤 턴도 흔들리니 첫 실패부터 읽는다
+
 사용 (일회용 DB, 실제 LLM — MOCK_MODE=0 · OPENAI_API_KEY · LLM_MODEL · RESULT_AGENT=1 필요):
     TEST_DATABASE_URL=postgresql://truefit:truefit@127.0.0.1:5433/truefit_test MOCK_MODE=0 \\
       python scripts/result_chat_eval.py --out /tmp/result_chat_eval.md
     python scripts/result_chat_eval.py --repeat 3 --out ...      # 합격 판정은 세 판(같은 문항 × 3)
-    python scripts/result_chat_eval.py --only upgrade,whatif      # 유형만
+    python scripts/result_chat_eval.py --only upgrade,whatif      # 유형만 (시나리오는 이름: --only A,D)
+    python scripts/result_chat_eval.py --set all --repeat 3       # 세 묶음 모두 (P1-8 재측정)
+    python scripts/result_chat_eval.py --set added,scenario       # 새 묶음만
     python scripts/result_chat_eval.py --budget 3000000
 
 DB 이름에 "test" 가 없으면 거부한다(세션·추천 기록이 쌓이므로). 의도한 것이면 TRUEFIT_ALLOW_ANY_DB=1.
-질문을 늘릴 때는 QUESTIONS 에 한 줄 — 시연·팀원 테스트에서 답 못 한 말을 여기로 옮긴다.
+질문을 늘릴 때는 ADDED(한 턴) 나 SCENARIOS(여러 턴) 에 — 시연·팀원 테스트에서 답 못 한 말을 여기로 옮긴다.
+QUESTIONS 는 베이스라인과 비교하려고 고정한다.
 """
 from __future__ import annotations
 
@@ -38,6 +47,7 @@ class Q:
     text: str
     change: bool = False                       # 구성표가 바뀌어야 하는 말인가
     tools: tuple[str, ...] = ()                # 이 중 하나는 불러야 한다 (비면 보지 않음)
+    note: str = ""                             # 사람이 판정할 때 볼 것 (틀린 전제, 실패 사례 번호)
 
 
 # 유형: upgrade 남은 예산 · whatif 바꿔도 되나 · saving 줄이기 · check 점검 · game 게임 · change 바꾸라는 말 ·
@@ -92,6 +102,85 @@ QUESTIONS: list[Q] = [
     Q("offtopic", "오늘 날씨 어때?"),
 ]
 
+# 추가 문항 (P1-5, 10/7) — 기준 구성(게임·150만·가성비)은 CPU Ryzen 5 7600 · GPU RX 7600 · RAM 16GB · 파워 750W.
+# '실패 N'은 실행 계획 문서의 실제 대화 실패 9건 번호. 이 묶음은 P1-6·P1-7 수정 전에 한 번 재 두고 수정 뒤와 비교한다.
+ADDED: list[Q] = [
+    Q("failure", "예산 조금 넘어도 괜찮아, 그래픽카드 한 단계 좋은 걸로 바꿔줘", change=True, tools=("swap",),
+      note="실패 6 — 허락(넘어도 괜찮아)과 명령(바꿔줘)이 같이 있으면 바꾼다. 되물으면 실패"),
+    Q("failure", "램 좀 더 싼 걸로 바꿔줘", change=True, tools=("swap",),
+      note="실패 7 — 용량이 줄면(16GB → 8GB) 그 사실을 답에 말해야 한다"),
+    Q("failure", "저장장치 용량 큰 걸로 하면 얼마야?",
+      note="실패 8 — 카탈로그의 저장장치 용량은 라인업 최대치라 실제 용량이 아니다. 용량을 지어내지 않는다"),
+    Q("failure", "왜 이 CPU 골랐어?", tools=("explain",),
+      note="실패 9 — '추천 이유와 리뷰 관측은 없습니다'로 끝내지 않고 가격·예산 비중·검증 결과 등 있는 근거를 전한다"),
+    Q("premise", "그래픽카드가 RTX 4090이니까 4K 최고 옵션도 되지?",
+      note="틀린 전제 — 구성표 GPU는 RX 7600. 4090이라고 받아 주면 비사실"),
+    Q("premise", "램 64기가라 넉넉하지?", note="틀린 전제 — 구성표 RAM은 16GB"),
+    Q("premise", "파워가 1000W라서 나중에 뭘 달아도 되지?", note="틀린 전제 — 구성표 파워는 750W"),
+    Q("premise", "예산 넘었다던데 얼마나 넘었어?", note="틀린 전제 — 총액은 예산 안. 초과액을 말하면 비사실"),
+    Q("premise", "인텔 CPU라서 발열 심하지?", note="틀린 전제 — 구성표 CPU는 AMD. 발열은 데이터에 없다"),
+    Q("premise", "아까 쿨러 빼 준다고 했잖아, 왜 아직 있어?",
+      note="틀린 전제 — 새 대화라 그런 약속이 없다. 약속을 인정하거나 쿨러를 빼면 실패"),
+]
+
+
+@dataclass
+class Scenario:
+    name: str
+    title: str
+    source: str                                # 리허설 대화(identity.message.conversation_id 앞 8자리)
+    conditions: dict                           # 세션 조건 — 리허설 때 조건 대화가 저장한 값
+    turns: tuple[Q, ...]
+
+
+# 10/3 멘토링 전 리허설 대본(로컬 DB truefit_demo_test_1003) — 같은 대본을 몇 번씩 돌린 것을 하나로 묶었다.
+# 카탈로그에 따라 후보가 달라지는 제품명 지정("7700X3D로")은 "한 단계 좋은 걸로"로 바꿨다(실재 의심 데이터 때문에
+# 대본이 막혔던 것 — 10/7 부품 DB 쪽에 알림 예정). 이전 견적 비교("지난번이랑 뭐가 달라?")는 규칙 경로라 빼고
+# tests/test_chat08_result_history.py 가 덮는다.
+SCENARIOS: list[Scenario] = [
+    Scenario("A", "게임 180만·성능·AMD", "82a49fb7 · 66288de6 · a002ba50",
+             {"purpose": "game", "games": ["배그", "로스트아크"], "resolution": "QHD_165", "budget_max": 1_800_000,
+              "brand_pref": "amd", "priority": "performance"}, (
+        Q("info", "남은 예산 얼마야?"),
+        Q("check", "파워 용량 괜찮아? 호환도 문제없어?", tools=("check_build",)),
+        Q("game", "배그 QHD에서 잘 돌아가?", tools=("game_check",), note="실제 프레임은 계산하지 않는다고 밝힌다"),
+        Q("whatif", "CPU 더 좋은 걸로 바꿔도 괜찮아?", tools=("preview_swap", "upgrade_options")),
+        Q("saving", "그럼 CPU는 그대로 두고, 전체에서 10만원 정도 줄일 수 있어?", tools=("savings_options",),
+          note="CPU를 바꾸는 조합을 내면 실패"),
+        Q("change", "응 그렇게 바꿔줘", change=True, tools=("swap",), note="바로 앞 답이 제안한 조합을 그대로 적용"),
+        Q("upgrade", "남은 돈으로 할 만한 업그레이드 있어?", tools=("upgrade_options",)),
+        Q("change", "게임용이니까 CPU 한 단계 좋은 걸로 바꿔줘", change=True, tools=("swap",)),
+    )),
+    Scenario("B", "영상 편집 200만·가성비·MSI 그래픽카드", "6003a5d6 · 3a337c76 · 96cf9e3b · 2f053960",
+             {"purpose": "creation", "budget_max": 2_000_000, "priority": "value",
+              "extra": ["프리미어 프로 주로 사용", "그래픽카드는 MSI 제품 선호"]}, (
+        Q("check", "프리미어 프로 4K 편집하기에 충분해?", note="충분하다고 단정하지 않는다"),
+        Q("info", "그래픽카드 MSI 제품 맞아?", note="카탈로그 GPU는 칩 이름(AMD Radeon RX 7600 등)만 있고 보드 제조사가 없다 — 확인할 수 없다고 답해야 한다. \"아니요\" 단정은 오도"),
+        Q("whatif", "CPU를 한 단계 낮추면 얼마나 아껴?", tools=("preview_swap",)),
+        Q("whatif", "그럼 CPU는 그대로 둘게. 저장장치 WD_BLACK SN770은 얼마 더 들어?",
+          tools=("preview_swap", "list_alternatives")),
+        Q("failure", "예산 조금 넘어도 괜찮아, 그걸로 바꿔줘", change=True, tools=("swap",),
+          note="실패 6 — 앞 턴의 SN770으로 바꾼다. 되물으면 실패"),
+        Q("failure", "램이 너무 비싼데 좀 더 싼 걸로 바꿔줘", change=True, tools=("swap",),
+          note="실패 7 — 용량이 줄면(32GB → 8GB 등) 그 사실을 말한다"),
+        Q("failure", "왜 이 CPU 골랐어?", tools=("explain",), note="실패 9"),
+    )),
+    Scenario("C", "영상 편집 250만(예산 올려 다시)·가성비", "4f696752",
+             {"purpose": "creation", "budget_max": 2_500_000, "priority": "value",
+              "extra": ["프리미어 프로 주로 사용", "그래픽카드는 MSI 제품 선호"]}, (
+        Q("info", "남은 예산 얼마야?"),
+        Q("upgrade", "남은 돈으로 할 만한 업그레이드 있어?", tools=("upgrade_options",)),
+        Q("change", "영상 편집이니까 그래픽카드를 한 단계 좋은 걸로 바꿔줘", change=True, tools=("swap",)),
+    )),
+    Scenario("D", "오버워치 300만·성능 (즉흥)", "e56c685c",
+             {"purpose": "game", "games": ["오버워치"], "budget_max": 3_000_000, "priority": "performance"}, (
+        Q("failure", "가격에 맞게 예산 줄여줘",
+          note="실패 5 — 예산을 총액에 맞춰 달라는 말. 이 화면에선 예산을 못 바꾼다고 안내해야지 부품 절약 조합을 내면 오독"),
+        Q("change", "ㄴㄴ", note="거절 — 아무것도 바꾸지 않는다"),
+        Q("info", "남은 예산 얼마야?"),
+    )),
+]
+
 
 # ── 합격 기준 (2026-10-07 측정 전 확정) ─────────────────────────────────────────────────────────
 # 근거·쓰지 않은 대안·대가는 팀 문서 「채팅 설계 근거」의 '평가 합격 기준 (10/7)' 탭. 요약: 숫자로 된 공인 기준은
@@ -121,6 +210,19 @@ class Row:
     turn: dict = field(default_factory=dict)       # 답 메시지의 metadata["turn"] (P1-3 턴 기록)
     changed: list[str] = field(default_factory=list)
     seconds: float = 0.0
+    group: str = "base"                            # base · added · scenario
+    scenario: str = ""                             # 시나리오 이름 (A, B …)
+    step: int = 0                                  # 시나리오 안 몇 번째 턴
+    build: str = ""                                # 시나리오 첫 턴에만 — 시작 구성
+
+    @property
+    def key(self) -> tuple:
+        """pass^k 를 셀 단위 — 같은 문장이라도 묶음·시나리오·순서가 다르면 다른 문항."""
+        return (self.group, self.scenario, self.step, self.q.text)
+
+    @property
+    def label(self) -> str:
+        return f"{self.scenario}-{self.step}" if self.scenario else self.group
 
     @property
     def trace(self) -> list[str]:
@@ -169,10 +271,10 @@ def assert_disposable_db() -> str:
     return name
 
 
-def _new_session(c, budget: int) -> tuple[str, dict]:
+def _new_session(c, conditions: dict) -> tuple[str, dict]:
     lid = c.post("/session").json()["list_id"]
     c.post(f"/session/{lid}/category", json={"category": "computer", "mode": "build"})
-    for key, value in (("purpose", "game"), ("budget_max", budget), ("priority", "value")):
+    for key, value in conditions.items():
         c.patch(f"/session/{lid}/slot", json={"field": key, "value": value})
     r = c.post(f"/session/{lid}/recommend", json={})
     assert r.status_code == 202, r.text
@@ -209,29 +311,55 @@ def _turn_log(lid: str) -> dict:
     return ((answers[-1]["metadata"] or {}).get("turn") or {}) if answers else {}
 
 
-def run(questions: list[Q], budget: int, repeat: int = 1) -> tuple[list[Row], dict]:
+def _build_line(result: dict) -> str:
+    t = result["totals"]
+    return (" / ".join(f"{i['slot']} {i['product']['name']} {i['price']:,}" for i in result["items"])
+            + f" — 총액 {t['selected_price']:,} · 잔여 {t['budget_remaining']:,}")
+
+
+def _send(c, lid: str, q: Q, before: dict, **where) -> tuple[Row, dict]:
+    """한 턴 보내고 Row 와 이 턴 뒤의 구성(다음 턴의 비교 기준)을 돌려준다."""
+    started = time.time()
+    resp = c.post(f"/session/{lid}/result-message", json={"text": q.text})
+    seconds = round(time.time() - started, 1)
+    body = resp.json() if resp.status_code == 200 else {}
+    after = body.get("result") or before
+    row = Row(q=q, reply=body.get("reply") or "", status=resp.status_code, seconds=seconds,
+              changed=_diff(before, after), **where)
+    if resp.status_code == 200:
+        row.turn = _turn_log(lid)
+    mark = "OK " if not row.problems else "!! "
+    where_txt = f"{row.label} " if row.scenario else ""
+    print(f"{mark}{where_txt}[{q.kind}] {q.text} ({row.seconds}s) {'; '.join(row.problems)}", flush=True)
+    return row, after
+
+
+def run(questions: list[Q], budget: int, repeat: int = 1, added: list[Q] = (),
+        scenarios: list[Scenario] = ()) -> tuple[list[Row], dict | None]:
     from fastapi.testclient import TestClient
     from src.api import app
 
     c = TestClient(app, raise_server_exceptions=False)   # 500 도 실패 응답으로 센다
+    base_conditions = {"purpose": "game", "budget_max": budget, "priority": "value"}
     rows, first = [], None
     for run_no in range(1, repeat + 1):
         if repeat > 1:
             print(f"\n── {run_no}/{repeat}판", flush=True)
-        for q in questions:
-            lid, before = _new_session(c, budget)
-            first = first or before
-            started = time.time()
-            resp = c.post(f"/session/{lid}/result-message", json={"text": q.text})
-            seconds = round(time.time() - started, 1)
-            body = resp.json() if resp.status_code == 200 else {}
-            row = Row(q=q, run=run_no, reply=body.get("reply") or "", status=resp.status_code, seconds=seconds,
-                      changed=_diff(before, body.get("result") or before))
-            if resp.status_code == 200:
-                row.turn = _turn_log(lid)
-            rows.append(row)
-            mark = "OK " if not row.problems else "!! "
-            print(f"{mark}[{q.kind}] {q.text} ({row.seconds}s) {'; '.join(row.problems)}", flush=True)
+        # 한 턴 문항은 질문마다 새 세션(앞 질문의 교체가 섞이지 않게)
+        for group, qs in (("base", questions), ("added", added)):
+            for q in qs:
+                lid, before = _new_session(c, base_conditions)
+                first = first or before
+                rows.append(_send(c, lid, q, before, run=run_no, group=group)[0])
+        # 시나리오는 한 세션에서 이어서 — 각 턴의 구성표 변화는 바로 앞 턴 뒤와 비교한다
+        for sc in scenarios:
+            lid, state = _new_session(c, sc.conditions)
+            for step, q in enumerate(sc.turns, 1):
+                start = state
+                row, state = _send(c, lid, q, start, run=run_no, group="scenario", scenario=sc.name, step=step)
+                if step == 1:
+                    row.build = _build_line(start)
+                rows.append(row)
     return rows, first
 
 
@@ -243,9 +371,13 @@ def _pct(sorted_values: list[float], p: float) -> float:
 def summary(rows: list[Row], model: str) -> dict:
     n = len(rows)
     runs = sorted({r.run for r in rows})
-    by_q: dict[str, list[Row]] = {}
+    by_q: dict[tuple, list[Row]] = {}
     for r in rows:
-        by_q.setdefault(r.q.text, []).append(r)
+        by_q.setdefault(r.key, []).append(r)
+    by_sc: dict[str, list[Row]] = {}
+    for r in rows:
+        if r.scenario:
+            by_sc.setdefault(r.scenario, []).append(r)
     secs = sorted(r.seconds for r in rows)
     server_ms = sorted(r.turn["latency_ms"] for r in rows if isinstance(r.turn.get("latency_ms"), int))
     tokens = [r.turn["tokens"] for r in rows if r.turn.get("tokens")]
@@ -255,6 +387,8 @@ def summary(rows: list[Row], model: str) -> dict:
         "n": n, "runs": len(runs),
         "structural": sum(1 for r in rows if not r.problems),
         "pass_k": sum(1 for rs in by_q.values() if all(not r.problems for r in rs)), "questions": len(by_q),
+        # 시나리오 하나를 모든 판에서 모든 턴 통과했는가 — 여러 턴은 한 턴만 틀려도 대화가 어긋난다
+        "scenarios": len(by_sc), "scenario_pass": sum(1 for rs in by_sc.values() if all(not r.problems for r in rs)),
         "wrong_change": sum(1 for r in rows if r.changed and not r.q.change),
         "failed": sum(1 for r in rows if r.failed),
         "fallback": sum(1 for r in rows if not r.failed and (r.rejected or r.fell_back)),
@@ -272,8 +406,10 @@ def criteria(s: dict) -> list[tuple[str, str, str, bool | None]]:
     """(지표, 결과, 기준, 합격 여부 — 사람 판정이면 None)."""
     n = s["n"]
     fab_max = int(FABRICATED_RATE_MAX * n)
+    whole = f", 시나리오 전 턴 통과 {s['scenario_pass']}/{s['scenarios']}" if s["scenarios"] else ""
     return [
-        ("구조 자동 점검", f"{s['structural']}/{n} ({s['structural'] / n:.1%}), pass^{s['runs']} {s['pass_k']}/{s['questions']}",
+        ("구조 자동 점검", f"{s['structural']}/{n} ({s['structural'] / n:.1%}), pass^{s['runs']} {s['pass_k']}/{s['questions']}"
+         + whole,
          f"≥ {STRUCTURAL_PASS_MIN:.0%}", s["structural"] / n >= STRUCTURAL_PASS_MIN),
         ("구성표 오변경", f"{s['wrong_change']}건", f"{WRONG_CHANGE_MAX}건", s["wrong_change"] <= WRONG_CHANGE_MAX),
         ("실패 응답", f"{s['failed']}건", f"{FAILED_MAX}건", s["failed"] <= FAILED_MAX),
@@ -287,16 +423,28 @@ def criteria(s: dict) -> list[tuple[str, str, str, bool | None]]:
     ]
 
 
-def report(rows: list[Row], base: dict, model: str, budget: int) -> str:
-    t = base["totals"]
+GROUP_TITLES = {"base": "베이스라인 44문항 (P1-2와 같은 문항)", "added": "추가 문항 (실패 사례·잘못된 전제)",
+                "scenario": "여러 턴 시나리오 (10/3 리허설 대본)"}
+
+
+def groups(rows: list[Row]) -> dict[str, list[Row]]:
+    out: dict[str, list[Row]] = {}
+    for r in rows:
+        out.setdefault(r.group, []).append(r)
+    return out
+
+
+def report(rows: list[Row], base: dict | None, model: str, budget: int) -> str:
     s = summary(rows, model)
-    lines = [f"# 결과 화면 채팅 평가 — 모델 {model}, 예산 {budget:,}원, {s['runs']}판 × {s['questions']}문항", "",
-             "기준 구성: " + " / ".join(f"{i['slot']} {i['product']['name']} {i['price']:,}" for i in base["items"]),
-             f"총액 {t['selected_price']:,} · 잔여 {t['budget_remaining']:,}", "",
-             "## 합격 기준", "", "| 지표 | 결과 | 기준 | 판정 |", "|---|---|---|---|"]
-    for name, value, rule, ok in criteria(s):
-        lines.append(f"| {name} | {value} | {rule} | {'—' if ok is None else '합격' if ok else '**미달**'} |")
-    lines += ["", f"- 10초를 넘은 답: {s['over10']}개"]
+    lines = [f"# 결과 화면 채팅 평가 — 모델 {model}, {s['runs']}판 × {s['questions']}문항", ""]
+    if base:
+        lines += [f"한 턴 문항 기준 구성(게임·{budget:,}원·가성비): {_build_line(base)}", ""]
+    for group, rs in groups(rows).items():
+        lines += [f"## 합격 기준 — {GROUP_TITLES[group]}", "", "| 지표 | 결과 | 기준 | 판정 |", "|---|---|---|---|"]
+        for name, value, rule, ok in criteria(summary(rs, model)):
+            lines.append(f"| {name} | {value} | {rule} | {'—' if ok is None else '합격' if ok else '**미달**'} |")
+        lines.append("")
+    lines += [f"- 10초를 넘은 답: {s['over10']}개"]
     if s["server_p50_ms"] is not None:
         lines.append(f"- 서버 처리 시간(턴 기록): p50 {s['server_p50_ms'] / 1000:.1f}초 · p95 {s['server_p95_ms'] / 1000:.1f}초")
     if s["token_turns"]:
@@ -305,14 +453,22 @@ def report(rows: list[Row], base: dict, model: str, budget: int) -> str:
             if s["cost_usd"] is not None else f" · 단가 미등록 모델({model})"
         lines.append(f"- 토큰: 입력 {s['tokens_in']:,} · 출력 {s['tokens_out']:,} (턴당 평균 {per:,.0f}, "
                      f"{s['token_turns']}/{s['n']}턴에 기록){cost}")
-    lines += ["", "## 문항별", "", "| 판 | 유형 | 질문 | 부른 도구 | 자동 점검 |", "|---|---|---|---|---|"]
+    lines += ["", "## 문항별", "", "| 판 | 묶음 | 유형 | 질문 | 부른 도구 | 자동 점검 |", "|---|---|---|---|---|---|"]
     for r in rows:
-        lines.append(f"| {r.run} | {r.q.kind} | {r.q.text} | {', '.join(r.called) or '-'} | {'; '.join(r.problems) or 'OK'} |")
+        lines.append(f"| {r.run} | {r.label} | {r.q.kind} | {r.q.text} | {', '.join(r.called) or '-'} | "
+                     f"{'; '.join(r.problems) or 'OK'} |")
     lines.append("")
+    titles = {sc.name: sc for sc in SCENARIOS}
     for r in rows:
-        lines += [f"## [{r.run}판 · {r.q.kind}] {r.q.text}", "",
+        if r.step == 1:
+            sc = titles.get(r.scenario)
+            lines += [f"## {r.run}판 · 시나리오 {r.scenario} — {sc.title if sc else ''}", "",
+                      f"- 리허설 대화: {sc.source if sc else '-'}", f"- 시작 구성: {r.build}", ""]
+        lines += [f"### [{r.run}판 · {r.label} · {r.q.kind}] {r.q.text}", "",
                   f"- 경로: {r.turn.get('path') or '-'} · 도구: {', '.join(r.called) or '(없음)'}",
                   f"- 구성표 변화: {'; '.join(r.changed) or '없음'} · {r.seconds}s"]
+        if r.q.note:
+            lines.append(f"- 판정 포인트: {r.q.note}")
         if r.rejected:
             lines.append(f"- 수치 가드: {r.turn['guard']}")
         outputs = r.turn.get("outputs") or []
@@ -327,7 +483,9 @@ def report(rows: list[Row], base: dict, model: str, budget: int) -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--budget", type=int, default=1_500_000)
-    parser.add_argument("--only", default="", help="유형을 쉼표로 (upgrade,whatif,...)")
+    parser.add_argument("--only", default="", help="유형이나 시나리오 이름을 쉼표로 (upgrade,whatif / A,D)")
+    parser.add_argument("--set", default="base",
+                        help="문항 묶음을 쉼표로 (base,added,scenario 또는 all) — base 는 P1-2 베이스라인과 같은 44문항(기본)")
     parser.add_argument("--repeat", type=int, default=1, help="같은 문항을 몇 판 돌릴지 (합격 판정은 3판 기준)")
     parser.add_argument("--out", default="", help="보고서(markdown) 경로")
     args = parser.parse_args(argv)
@@ -341,19 +499,30 @@ def main(argv: list[str] | None = None) -> int:
     if not result_agent.available():
         print("경고: 결과 에이전트가 꺼져 있어 규칙 경로만 평가합니다 (MOCK_MODE=0 · OPENAI_API_KEY · LLM_MODEL · RESULT_AGENT=1).")
     kinds = {k.strip() for k in args.only.split(",") if k.strip()}
-    questions = [q for q in QUESTIONS if not kinds or q.kind in kinds]
+    want = {"base", "added", "scenario"} if args.set == "all" else {x.strip() for x in args.set.split(",") if x.strip()}
+    if unknown := want - set(GROUP_TITLES):
+        raise SystemExit(f"모르는 묶음: {', '.join(sorted(unknown))} (base, added, scenario, all)")
+    questions = [q for q in QUESTIONS if not kinds or q.kind in kinds] if "base" in want else []
+    added = [q for q in ADDED if not kinds or q.kind in kinds] if "added" in want else []
+    scenarios = [sc for sc in SCENARIOS if not kinds or sc.name in kinds] if "scenario" in want else []
     model = LLM_MODEL if result_agent.available() else "rules"
-    print(f"DB: {db} · 모델: {model} · 질문 {len(questions)}개 × {args.repeat}판\n")
-    rows, base = run(questions, args.budget, args.repeat)
+    turns = len(questions) + len(added) + sum(len(sc.turns) for sc in scenarios)
+    print(f"DB: {db} · 모델: {model} · 묶음 {args.set} · {turns}턴 × {args.repeat}판\n")
+    rows, base = run(questions, args.budget, args.repeat, added, scenarios)
+    if not rows:
+        raise SystemExit("고른 문항이 없습니다 (--set·--only 확인)")
     text = report(rows, base, model, args.budget)
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
         print(f"\n보고서: {args.out}")
-    results = criteria(summary(rows, model))
-    for name, value, rule, ok in results:
-        if ok is not None:
-            print(f"{'합격' if ok else '미달'}  {name}: {value} (기준 {rule})")
-    return 0 if all(ok is not False for *_, ok in results) else 1
+    failed = False
+    for group, rs in groups(rows).items():
+        print(f"\n[{GROUP_TITLES[group]}]")
+        for name, value, rule, ok in criteria(summary(rs, model)):
+            if ok is not None:
+                print(f"{'합격' if ok else '미달'}  {name}: {value} (기준 {rule})")
+                failed = failed or not ok
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
