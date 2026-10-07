@@ -4,7 +4,7 @@ import { api } from '../api'
 import ListHistory from '../components/ListHistory'
 import PlannerShell from '../components/PlannerShell'
 import ProductThumb from '../components/ProductThumb'
-import { planTotal } from '../state/planModel'
+import { peripheralsTotal, planTotal } from '../state/planModel'
 import { usePlan } from '../state/PlanContext'
 import { useSetups } from '../state/SetupsContext'
 import { useRemoveSheet } from '../state/useRemoveSheet'
@@ -70,7 +70,7 @@ export default function ReportPage() {
     )
   }
 
-  const total = planTotal(setup.plan)
+  const total = planTotal(setup.plan) + peripheralsTotal(setup.peripherals)
   const confirmed = setup.savedAt ? confirmedAtText(setup.savedAt) : ''
   return (
     <PlannerShell>
@@ -126,6 +126,29 @@ export default function ReportPage() {
               </div>
             ))}
           </section>
+
+          {(setup.peripherals?.length ?? 0) > 0 && (
+            <section>
+              <div style={{ fontSize: 13, fontWeight: 700, padding: '14px 0 8px' }}>주변기기</div>
+              {setup.peripherals?.map(item => (
+                <div className="pl-report-row" key={`${item.kind}-${item.name}`}>
+                  <ProductThumb imageUrl={item.imageUrl} partKey={item.kind} name={item.name} />
+                  <span className="cat" style={{ color: '#92a4b2' }}>{{ monitor: '모니터', keyboard: '키보드', mouse: '마우스', speaker: '스피커' }[item.kind]}</span>
+                  <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                      <b>{item.name}</b>
+                      {item.qty > 1 && <span className="pl-qty">×{item.qty}</span>}
+                    </div>
+                    <span className="pl-note">확정 당시 참고가예요. 판매처·관측일은 확인되지 않았어요.</span>
+                  </div>
+                  <span className="pl-mono" style={{ textAlign: 'right' }}>{wonFmt(item.price * item.qty)}</span>
+                  {item.productUrl
+                    ? <a href={item.productUrl} target="_blank" rel="noopener noreferrer">판매처 보기 ↗</a>
+                    : <span />}
+                </div>
+              ))}
+            </section>
+          )}
 
           <ListHistory listId={setup.id} revisionNo={setup.revisionNo} />
         </article>
