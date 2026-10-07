@@ -1,8 +1,10 @@
 """RAG 근거 검색 공통 컴포넌트.
 
-지금은 인메모리 검색 두 갈래뿐이다 — PostgreSQL·pgvector 연동은 이 브랜치에 없다
-(`src/repo/`에 `rag_repo.py`가 없다. `src/rag/embedding.py`의 `BedrockEmbedder` 등은 어디서도
-import되지 않는 미사용 코드다).
+이 패키지의 문서 검색은 인메모리 두 갈래뿐이다 — 문서 RAG용 PostgreSQL 저장소는 없다
+(`src/repo/`에 `rag_repo.py`가 없다. `src/rag/embedding.py`의 `BedrockEmbedder`·`LocalHashEmbedder`는
+어디서도 import되지 않는 미사용 코드다). pgvector를 쓰는 곳은 리뷰 검색 하나다 — 같은 파일의
+`OpenAIEmbedder`로 리뷰를 채우고(`src/workers/review_embedding_batch.py`) 질문을 embedding해
+`evidence.review_embedding`에서 찾는다(`src/services/review_search.py`, `GET /reviews/search`).
 
 - `evidence_search.py` — 데모 파이프라인(`src/pipeline.py`)이 시나리오 파일의 `corpus`를
   `load_mini_corpus()`로 주입한 인메모리 리스트에서, [3-C] 세트 검증의 **데모 경로**

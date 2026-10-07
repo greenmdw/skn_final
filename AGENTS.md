@@ -16,7 +16,7 @@ Always set `TRUEFIT_REQUIRE_TEST_DB=1` for completion checks. It turns PostgreSQ
 At the start of a pytest session, the test harness automatically:
 
 1. Creates a unique `truefit_test_<UUID>` database on the running PostgreSQL server.
-2. Runs `db/setup_all.py` to apply the twelve baseline migrations and all seeds.
+2. Runs `db/setup_all.py` to apply the thirteen baseline migrations and all seeds.
 3. Runs the tests.
 4. Drops the temporary database with `DROP DATABASE ... WITH (FORCE)` when the session ends.
 
@@ -87,7 +87,7 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
 - If the default uv cache is read-only, keep `UV_CACHE_DIR=/tmp/uv-cache` in the command.
 - If Python raises `ModuleNotFoundError: src`, run from the repository root and set `PYTHONPATH=.`.
 - If database tests are skipped, rerun with `TRUEFIT_REQUIRE_TEST_DB=1` so the underlying setup problem is reported as an error.
-- The current database baseline must contain exactly these twelve files:
+- The current database baseline must contain exactly these thirteen files:
   - `db/migrations/0000_schema.sql`
   - `db/migrations/0001_constraints.sql`
   - `db/migrations/0002_indexes.sql`
@@ -116,3 +116,6 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
   - `db/migrations/0011_message_metadata.sql` (added 2026-10-05: adds `identity.message.metadata` for the
     received-quote review chat — per-question comparison id, normalized question, visuals, guide refs and
     duplicate-answer reuse; see the multi-image quote review API in `src/services/quote_draft_service.py`)
+  - `db/migrations/0012_review_embedding_invalidate.sql` (added 2026-10-06: trigger deleting
+    `evidence.review_embedding` when `review_document.body` changes so the embedding backfill worker
+    `src/workers/review_embedding_batch.py` re-embeds it)

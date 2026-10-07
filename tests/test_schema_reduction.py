@@ -25,6 +25,7 @@ EXPECTED_CHAIN = [
     "0004_notification_events.sql", "0005_preference_signal.sql", "0006_report_soft_delete.sql",
     "0007_peripheral_line.sql", "0008_review_aspect.sql", "0009_live_spec_lookup_cache.sql",
     "0010_live_spec_lookup_store.sql", "0011_message_metadata.sql",
+    "0012_review_embedding_invalidate.sql",
 ]
 # 현재 baseline의 명시적 계약. 같은 개수의 다른 테이블로 바뀌어도 실패해야 한다.
 EXPECTED_TABLES = {

@@ -182,3 +182,24 @@ REVIEW_SUSPECT_COUNTS: Path = DATA_DIR / "review_suspect_counts.json"
 # 무관한 별도 기능 — 이미 동작 확인된 OpenAI 키를 그대로 쓴다.
 CARE_GUIDES_JSON: Path = DATA_DIR / "pc_care_guides.json"
 CARE_GUIDE_EMBEDDING_MODEL: str = os.getenv("CARE_GUIDE_EMBEDDING_MODEL", "text-embedding-3-small")
+
+# 리뷰 임베딩 백필(evidence.review_embedding, 0008_review_aspect.sql) — 문서·질의 공통 모델/차원은
+# 그 마이그레이션에서 팀이 이미 합의했다(OpenAI text-embedding-3-small, 1536차원). 컬럼이
+# vector(1536)로 고정돼 있어 차원은 상수로 두고 바꾸지 않는다 — 바꾸려면 새 컬럼/마이그레이션이 필요하다.
+REVIEW_EMBEDDING_MODEL: str = os.getenv("REVIEW_EMBEDDING_MODEL", "text-embedding-3-small")
+REVIEW_EMBEDDING_DIMENSIONS: int = 1536
+# 배치 워커(src/workers/review_embedding_batch.py)가 한 번에 임베딩 API를 호출하고 커밋하는 단위.
+REVIEW_EMBEDDING_BATCH_SIZE: int = int(os.getenv("REVIEW_EMBEDDING_BATCH_SIZE", "100"))
+
+# 리뷰 검색(GET /reviews/search, src/services/review_search.py) — 상품별로 질문과 뜻이 가까운 실제 리뷰를
+# 찾는다. 관련도 하한 0.2는 실데이터 평가(docs/리뷰검색_품질평가_20261006.md, scripts/eval_review_search.py)에서
+# F1이 가장 높은 값이다 — 상위 3건에 든 정답의 98.7%를 남기고 확실히 무관한 결과만 자른다. 유사도 분포가 정답과
+# 비정답 사이에서 많이 겹쳐 하한을 올려도 정밀도는 거의 오르지 않고 정답만 버린다(0.3이면 정답 23%를 버림).
+# 코사인 유사도 기준이며 MOCK_MODE의 해시 벡터와는 값의 범위가 다르다.
+REVIEW_SEARCH_MIN_SIMILARITY: float = float(os.getenv("REVIEW_SEARCH_MIN_SIMILARITY", "0.2"))
+REVIEW_SEARCH_MAX_PRODUCTS: int = 5       # 한 번에 검색할 상품 수 — 비교 질문(2~3개)에 여유를 둔 값
+REVIEW_SEARCH_MAX_QUERY_CHARS: int = 200
+REVIEW_SEARCH_DEFAULT_LIMIT: int = 3      # 상품당 돌려줄 리뷰 수(상품당 리뷰 중앙값 8건)
+REVIEW_SEARCH_MAX_LIMIT: int = 10
+# 로그인 없이 부르는 공개 API인데 요청마다 유료 embedding 호출이 하나 생긴다(같은 질문은 캐시) — IP별 분당 한도.
+REVIEW_SEARCH_LIMIT_PER_MIN: int = int(os.getenv("REVIEW_SEARCH_LIMIT_PER_MIN", "20"))
