@@ -88,6 +88,8 @@ export interface PlanState {
   viewOnly: boolean
   /** 주변기기 추천에서 통합 장바구니로 보낸 품목. 본체 견적을 확정할 때 함께 저장된다 */
   peripherals: SetupPeripheral[]
+  /** 본체 견적 없이 주변기기만 담았을 때, 그 추천을 받은 목록(세션) id. 확정은 이 목록으로 한다 */
+  peripheralSessionId?: string | null
 }
 
 export interface ChatMessage {

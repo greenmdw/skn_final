@@ -41,7 +41,7 @@ export interface PlanContextValue {
   /** 확정한 견적의 조건으로 새 견적서를 시작한다(조건 대화로). 성공하면 true */
   reviseSetup: (listId: string, from: EditingSheet) => Promise<'plan' | 'conditions' | null>
   /** 주변기기 추천에서 고른 품목을 통합 장바구니에 담는다(빈 배열이면 비운다) */
-  setPeripherals: (peripherals: SetupPeripheral[]) => void
+  setPeripherals: (peripherals: SetupPeripheral[], sessionId?: string | null) => void
   /** 덮어쓰기·새로 저장을 마친 뒤 "수정 중인 원본" 표시를 지운다 */
   clearEditingSheet: () => void
 }

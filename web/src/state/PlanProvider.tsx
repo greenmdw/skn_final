@@ -402,7 +402,10 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     if (screen) updateState(prev => ({ ...prev, editingSheet: from }))
     return screen
   }, [openConversation, showToast, updateState])
-  const setPeripherals = useCallback((peripherals: SetupPeripheral[]) => updateState(prev => ({ ...prev, peripherals })), [updateState])
+  // sessionId 는 본체 견적 없이 주변기기만 담을 때 넘긴다(그 목록으로 확정). 비우면(빈 배열) 같이 지운다.
+  const setPeripherals = useCallback((peripherals: SetupPeripheral[], sessionId?: string | null) => updateState(prev => ({
+    ...prev, peripherals, peripheralSessionId: peripherals.length ? (sessionId ?? prev.peripheralSessionId ?? null) : null,
+  })), [updateState])
   const clearEditingSheet = useCallback(() => updateState(prev => (prev.editingSheet ? { ...prev, editingSheet: null } : prev)), [updateState])
   const resetPlan = useCallback(() => {
     cancelPending()

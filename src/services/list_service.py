@@ -261,18 +261,22 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
         raise Conflict("목록이 다른 곳에서 변경되었습니다.", code="stale_revision")
 
     stored = recommendation_service.get_stored_result(conn, revision["id"])
-    if stored is None or stored["status"] != "done" or not stored["items"]:
-        raise ValidationFailed("추천 결과가 아직 없습니다. 먼저 추천을 완료해 주세요.", code="no_items_selected")
-    # 결과 항목이 있어도 전부 선택 해제했다면 확정할 것이 없다(빈 리스트·0원 리포트가 만들어지던 결함).
-    if not stored["totals"].get("selected_units"):
-        raise ValidationFailed("선택한 품목이 없습니다. 하나 이상 선택한 뒤 확정해 주세요.", code="no_items_selected")
-    if stored["totals"]["over_budget"]:
-        raise ValidationFailed("선택한 구성이 예산을 초과합니다.", code="over_budget")
-    run = EngineRepo(conn).get_run(UUID(stored["run_id"]))
-    full = prepo.load_full(revision["id"])
-    current_values = {row["condition_key"]: row["value"].get("value") for row in full["conditions"]}
-    if (run or {}).get("input_snapshot", {}).get("values", {}) != current_values:
-        raise Conflict("조건이 바뀌어 추천을 다시 받아야 합니다.", code="stale_recommendation")
+    # 본체 추천이 없고 주변기기만 담았다면 "주변기기만" 확정한다 — 본체 없이 주변기기 추천만 받은 목록.
+    # 본체 추천이 있으면(진행 중·실패 포함) 예전과 똑같이 검증한다: 주변기기만 확정해 본체를 조용히 버리지 않는다.
+    peripheral_only = bool(peripherals) and (stored is None or not stored["items"])
+    if not peripheral_only:
+        if stored is None or stored["status"] != "done" or not stored["items"]:
+            raise ValidationFailed("추천 결과가 아직 없습니다. 먼저 추천을 완료해 주세요.", code="no_items_selected")
+        # 결과 항목이 있어도 전부 선택 해제했다면 확정할 것이 없다(빈 리스트·0원 리포트가 만들어지던 결함).
+        if not stored["totals"].get("selected_units"):
+            raise ValidationFailed("선택한 품목이 없습니다. 하나 이상 선택한 뒤 확정해 주세요.", code="no_items_selected")
+        if stored["totals"]["over_budget"]:
+            raise ValidationFailed("선택한 구성이 예산을 초과합니다.", code="over_budget")
+        run = EngineRepo(conn).get_run(UUID(stored["run_id"]))
+        full = prepo.load_full(revision["id"])
+        current_values = {row["condition_key"]: row["value"].get("value") for row in full["conditions"]}
+        if (run or {}).get("input_snapshot", {}).get("values", {}) != current_values:
+            raise Conflict("조건이 바뀌어 추천을 다시 받아야 합니다.", code="stale_recommendation")
 
     # 개발요청 11번 — 가격은 클라이언트가 보낸 값을 안 믿고 variant_id로 카탈로그에서 다시 조회한다
     # (PC 쪽 stored가 서버에서 다시 읽는 것과 같은 원칙). 확정 전에 다 검증해, 실패하면 아무것도 안 남긴다.
@@ -295,8 +299,9 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
         except ValueError:
             raise ValidationFailed("구매 예정일 형식이 올바르지 않습니다.", field="planned_purchase_at") from None
 
+    body_total = 0 if peripheral_only else stored["totals"]["selected_price"]
     ok = prepo.confirm_revision(
-        revision["id"], confirmed_total=stored["totals"]["selected_price"] + peripheral_total,
+        revision["id"], confirmed_total=body_total + peripheral_total,
         planned_purchase_at=purchase_at, target_amount=target_amount, memo=memo, name=name,
     )
     if not ok:
@@ -305,11 +310,11 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
 
     # stored["items"]가 이미 리뷰 배지를 계산해 뒀다 — 상품키로 다시 찾지 않고 item_id로 재사용해
     # 결과 화면과 확정 스냅샷의 리뷰 표시가 어긋나지 않게 한다.
-    review_by_item_id = {item["item_id"]: item["review"] for item in stored["items"]}
+    review_by_item_id = {} if peripheral_only else {item["item_id"]: item["review"] for item in stored["items"]}
 
     # 확정 성공(state가 draft→confirmed로 바뀐 요청)만 후보를 얼린다 — confirm_revision이
-    # 이미 원자적 UPDATE라 동시 확정 요청 중 단 하나만 여기 도달한다.
-    for row in EngineRepo(conn).get_candidates(UUID(stored["run_id"])):
+    # 이미 원자적 UPDATE라 동시 확정 요청 중 단 하나만 여기 도달한다. 주변기기만 확정하면 얼릴 본체 후보가 없다.
+    for row in ([] if peripheral_only else EngineRepo(conn).get_candidates(UUID(stored["run_id"]))):
         if not row["selected"]:
             continue
         if row["offer_id"] is None or row["offer_observation_id"] is None or row["price"] is None:
@@ -349,10 +354,11 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
 
     # P8 FB03: draft→confirmed 전환에 성공한 요청만 여기 도달한다(위의 Conflict가 이미
     # 중복 확정을 막는다) — 실패한 확정 시도는 아무 것도 남기지 않는다.
-    feedback_service.emit_confirmed(
-        conn, plan_id=revision["plan_id"], revision_id=revision["id"],
-        run_id=UUID(stored["run_id"]), version=revision["lock_version"], user_id=user_id,
-    )
+    if not peripheral_only:   # 추천 실행(run)이 없으면 추천 확정 피드백 이벤트도 없다
+        feedback_service.emit_confirmed(
+            conn, plan_id=revision["plan_id"], revision_id=revision["id"],
+            run_id=UUID(stored["run_id"]), version=revision["lock_version"], user_id=user_id,
+        )
     return get_report(conn, list_id, principal)
 
 

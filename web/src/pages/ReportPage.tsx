@@ -84,7 +84,7 @@ export default function ReportPage() {
           ))}
           {setup.revisionNo != null && (
             <>
-              <button type="button" className="pl-pill mint" onClick={() => void revise()} title="이 견적서의 구성으로 추천 결과 화면을 열어 수정해요. 확정할 때 덮어쓸지 새로 저장할지 고를 수 있어요.">견적 수정하기</button>
+              {setup.plan.items.length > 0 && <button type="button" className="pl-pill mint" onClick={() => void revise()} title="이 견적서의 구성으로 추천 결과 화면을 열어 수정해요. 확정할 때 덮어쓸지 새로 저장할지 고를 수 있어요.">견적 수정하기</button>}
               <button type="button" className="pl-pill danger" onClick={() => void remove()} title="이 견적서만 삭제해요. 대화와 다른 견적서는 그대로예요.">견적서 삭제</button>
             </>
           )}
@@ -106,7 +106,7 @@ export default function ReportPage() {
             </div>
           </div>
 
-          <section>
+          {setup.plan.items.length > 0 && <section>
             <div style={{ fontSize: 13, fontWeight: 700, paddingBottom: 8 }}>본체</div>
             {setup.plan.items.map(item => (
               <div className="pl-report-row" key={item.id}>
@@ -125,7 +125,7 @@ export default function ReportPage() {
                   : <span />}
               </div>
             ))}
-          </section>
+          </section>}
 
           {(setup.peripherals?.length ?? 0) > 0 && (
             <section>

@@ -10,7 +10,7 @@ import { useToast } from '../state/ToastContext'
 import { localDate, multiQtyItems, peripheralsTotal, planTotal } from '../state/planModel'
 import { useSetups } from '../state/SetupsContext'
 import { useAuthUser } from '../state/authStore'
-import type { SavedSetup } from '../state/types'
+import type { CurrentPlan, SavedSetup } from '../state/types'
 import { wonFmt } from '../utils/format'
 
 // 추천 결과를 장바구니에 담아 확인하고, 이름·구매 예정일·목표 금액·메모를 정해 확정한다(서버가 리포트를 만든다).
@@ -21,9 +21,12 @@ export default function CartPage() {
   const { showToast } = useToast()
   const user = useAuthUser()
   const navigate = useNavigate()
-  const plan = state.currentPlan
-
   const peripherals = state.peripherals
+  // 본체 견적 없이 주변기기만 담았으면, 그 추천을 받은 목록(세션)을 본체 없는 견적으로 확정한다.
+  const peripheralOnly = !state.currentPlan && !!state.peripheralSessionId && state.peripherals.length > 0
+  const plan: CurrentPlan | null = state.currentPlan ?? (peripheralOnly && state.peripheralSessionId
+    ? { id: state.peripheralSessionId, mode: 'new', items: [], budget: null, conditions: { intent: '', performance: '', quiet: '' }, checkSnapshot: null }
+    : null)
   const bodyTotal = plan ? planTotal(plan) : 0
   const periphTotal = peripheralsTotal(peripherals)
   const total = bodyTotal + periphTotal
@@ -31,7 +34,7 @@ export default function CartPage() {
   // "견적 수정하기"로 들어왔으면 원본 견적서의 이름·날짜·목표 금액·메모를 처음 값으로 쓰고, 덮어쓸지 새로 저장할지 묻는다.
   const editing = state.editingSheet && state.editingSheet.listId === plan?.id ? state.editingSheet : null
   const [saveMode, setSaveMode] = useState<'overwrite' | 'new' | null>(null)
-  const [name, setName] = useState(editing?.name ?? (defaultName || '내 PC 견적'))
+  const [name, setName] = useState(editing?.name ?? (defaultName || (peripheralOnly ? '주변기기 견적' : '내 PC 견적')))
   const [date, setDate] = useState(editing?.date ?? '')   // ISO(yyyy-mm-dd). 칸이 비면 오늘로 확정한다
   const [dateOk, setDateOk] = useState(true)
   const [target, setTarget] = useState(editing ? String(editing.target) : total ? String(total) : '')
@@ -94,11 +97,17 @@ export default function CartPage() {
         </div>
         <div className="pl-cols">
           <div className="pl-card">
-            <div className="pl-card-head" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontWeight: 700 }}>본체</span>
-              <span className="pl-note">{plan.items.length}개</span>
-              <span className="pl-mono" style={{ marginLeft: 'auto' }}>{wonFmt(bodyTotal)}</span>
-            </div>
+            {peripheralOnly ? (
+              <div className="pl-note" style={{ padding: '12px 16px' }}>
+                본체 견적 없이 주변기기만 확정해요. 본체도 함께 확정하려면 <Link to="/start" style={{ color: 'inherit', fontWeight: 700 }}>본체 추천 받기 →</Link>
+              </div>
+            ) : (
+              <div className="pl-card-head" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontWeight: 700 }}>본체</span>
+                <span className="pl-note">{plan.items.length}개</span>
+                <span className="pl-mono" style={{ marginLeft: 'auto' }}>{wonFmt(bodyTotal)}</span>
+              </div>
+            )}
             {plan.items.map(item => (
               <div className="pl-cart-row" key={item.id}>
                 <ProductThumb imageUrl={item.imageUrl} partKey={item.key} name={item.name} />

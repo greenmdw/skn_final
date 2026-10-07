@@ -134,8 +134,9 @@ export default function PeripheralsPage() {
 
   function toCart() {
     if (!result) return
-    if (!plan) {
-      setNotice('통합 장바구니에는 본체 견적이 필요해요. 먼저 본체 추천을 받은 뒤 다시 담아 주세요.')
+    // 본체 견적이 없어도 담을 수 있다 — 이 추천을 받은 목록(세션)으로 주변기기만 확정한다.
+    if (!plan && !result.sessionId) {
+      setNotice('장바구니에 담을 수 없어요. 주변기기 추천을 다시 받아 주세요.')
       return
     }
     const items = result.items.filter(item => item.variantId).map(item => ({
@@ -143,8 +144,8 @@ export default function PeripheralsPage() {
       variantId: item.variantId, imageUrl: item.imageUrl, productUrl: item.productUrl,
     }))
     if (!items.length) { setNotice('장바구니에 담을 수 있는 품목이 없어요.'); return }
-    setPeripherals(items)
-    showToast(`주변기기 ${items.length}개를 통합 장바구니에 담았어요.`)
+    setPeripherals(items, plan ? undefined : result.sessionId)
+    showToast(`주변기기 ${items.length}개를 ${plan ? '통합 ' : ''}장바구니에 담았어요.`)
     navigate('/cart')
   }
 
@@ -213,9 +214,9 @@ export default function PeripheralsPage() {
           <div className="pf-results-grid">{result.items.map(recommendationCard)}</div>
           <div className="pf-results-actions">
             <button type="button" className="pf-secondary" onClick={() => setResult(null)}>조건 다시 보기</button>
-            <button type="button" className="pl-btn" onClick={toCart} disabled={result.items.length === 0}>통합 장바구니로</button>
+            <button type="button" className="pl-btn" onClick={toCart} disabled={result.items.length === 0}>{plan ? '통합 장바구니로' : '주변기기만 장바구니로'}</button>
           </div>
-          {!plan && <div className="pl-alert warn" role="status">본체 견적이 없어서 통합 장바구니에 담을 수 없어요. <Link to="/start" style={{ color: 'inherit', fontWeight: 700 }}>본체 추천 받으러 가기 →</Link></div>}
+          {!plan && <div className="pl-alert warn" role="status">본체 견적 없이 주변기기만 담아 확정할 수 있어요. 본체와 함께 확정하려면 <Link to="/start" style={{ color: 'inherit', fontWeight: 700 }}>본체 추천 받으러 가기 →</Link></div>}
           {notice && <div className="pl-alert warn" role="status">{notice}</div>}
         </> : <>
         <div className="pf-heading">
