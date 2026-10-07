@@ -192,7 +192,7 @@ REVIEW_EMBEDDING_DIMENSIONS: int = 1536
 REVIEW_EMBEDDING_BATCH_SIZE: int = int(os.getenv("REVIEW_EMBEDDING_BATCH_SIZE", "100"))
 
 # 리뷰 검색(GET /reviews/search, src/services/review_search.py) — 상품별로 질문과 뜻이 가까운 실제 리뷰를
-# 찾는다. 관련도 하한 0.2는 실데이터 평가(docs/리뷰검색_품질평가_20261006.md, scripts/eval_review_search.py)에서
+# 찾는다. 관련도 하한 0.2는 실데이터 평가(scripts/eval_review_search.py)에서
 # F1이 가장 높은 값이다 — 상위 3건에 든 정답의 98.7%를 남기고 확실히 무관한 결과만 자른다. 유사도 분포가 정답과
 # 비정답 사이에서 많이 겹쳐 하한을 올려도 정밀도는 거의 오르지 않고 정답만 버린다(0.3이면 정답 23%를 버림).
 # 코사인 유사도 기준이며 MOCK_MODE의 해시 벡터와는 값의 범위가 다르다.
