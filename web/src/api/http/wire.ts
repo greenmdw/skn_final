@@ -64,8 +64,9 @@ export interface WireOwnedPartsPreviewRow {
   state: 'ok' | 'warn'
   match_status: 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'
   candidate_count: number | null
+  /** 'live' 면 이 행의 값(전부 또는 일부)이 실시간 검색 결과다 — 카탈로그 정식 값이 아니다 */
+  value_source?: 'live' | null
 }
-export interface WireOwnedPartsPreviewOut { rows: WireOwnedPartsPreviewRow[] }
 
 export interface WireQuoteCompat {
   checks: { axis: string; label: string; state: 'ok' | 'fail' | 'unknown' | 'skipped'; detail: string }[]
@@ -88,13 +89,6 @@ export interface WireQuoteReview {
   compare: { available: boolean; reason: string | null; rows: { part: string; quote: Record<string, unknown> | null; ours: Record<string, unknown>; same_product: boolean; price_diff: number | null; price_diff_pct: number | null; price_state: 'cheaper' | 'similar' | 'pricier' | null; tier_diff: number | null; detail: string }[]; summary: Record<string, unknown>; notes: string[] } | null
   computed_at: string
 }
-export interface WireQuotePartCompare {
-  slot: string
-  baseline: Record<string, unknown>
-  candidates: { name: string; price: number; price_delta: number | null; perf_tier: number | null; specs: { key: string; label: string; unit: string; baseline: unknown; candidate: unknown; diff: number | null }[]; incompatible: string[]; compat_changes: { axis: string; label: string; from: string; to: string; detail: string }[]; review: Record<string, unknown> | null }[]
-  unmatched_targets: string[]
-  note: string | null
-}
 export interface WireLiveSpecLookup {
   slot: string
   query: string
@@ -108,9 +102,99 @@ export interface WireLiveSpecLookup {
   reference_price_source_url: string | null
   reference_price_at: string | null
 }
-export interface WireQuoteChatOut { reply: string; evidence: string[]; via: 'agent' | 'rules' }
-export interface WireQuoteChatHistory { messages: { id: string; role: 'user' | 'assistant' | 'system'; text: string; created_at: string }[] }
 export interface WireQuoteApply { list_id: string; slots: string[]; missing: string[]; run_id: string | null }
+
+// ── 받은 견적 점검: 여러 장 업로드 초안(src.schemas.QuoteDraft*) ──
+export interface WireQuoteCapabilities {
+  image_extraction: boolean; supported_types: string[]; max_files: number
+  max_file_bytes: number; max_total_bytes: number; text_max_chars: number
+}
+export interface WireQuoteDraftItem {
+  id: string; category: string; raw_text: string; normalized_name: string; product_code: string | null
+  quantity: number; quote_unit_price: number | null; quote_line_total: number | null
+  quote_price_type: 'unit' | 'line_total' | 'unknown'
+  matched_product_id: string | null; matched_product_key: string | null; matched_name: string | null
+  image_url: string | null
+  match_status: 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'
+  candidate_count: number | null; source_ids: string[]; selected_for_analysis: boolean; user_edited: boolean
+  /** 실시간 검색 값이 임시 저장소에 있다(저장되지 않는 표시) */
+  live_value?: boolean
+}
+export interface WireQuoteDraft {
+  draft_id: string; version: number
+  sources: { id: string; type: 'image' | 'text' | 'replacement' | 'manual'; file_name: string | null; sort_order: number; status: 'completed' | 'failed'; error_code: string | null }[]
+  items: WireQuoteDraftItem[]
+  selected_item_by_category: Record<string, string>
+  conditions: Record<string, unknown>
+  question: string | null
+  partial_success: boolean
+  groups: { id: string; name: string; source_ids: string[]; item_ids: string[] }[]
+  created_at: string
+}
+export interface WireQuoteDraftAnalysis extends WireQuoteReview {
+  used_items: WireQuoteDraftItem[]
+  question: string | null
+  draft_version: number
+  price_excluded: { category: string; item_id: string; reason: string }[]
+  price_rows: {
+    category: string; item_id: string; quantity: number; quote_unit_price: number | null; quote_line_total: number | null
+    quote_price_type: 'unit' | 'line_total' | 'unknown'; catalog_unit_price: number | null; catalog_line_total: number | null
+    catalog_checked_at: string | null; catalog_status: 'available' | 'out_of_stock' | 'no_price' | 'unmatched'; diff_line_total: number | null
+  }[]
+}
+export interface WireQuoteCompareSpec { key: string; label: string; unit: string; baseline: unknown; candidate: unknown; diff: number | null }
+export interface WireQuoteDraftComparison {
+  category: string; baseline_item_id: string
+  recognized: {
+    item_id: string; product_id: string | null; name: string; image_url: string | null; quantity: number
+    quote_line_total: number | null; match_status: WireQuoteDraftItem['match_status']; specs: WireQuoteCompareSpec[]
+  }[]
+  recommended: {
+    product_id: string | null; name: string; image_url: string | null; price: number | null; price_delta: number | null
+    specs: WireQuoteCompareSpec[]
+    compat_changes: { axis: string; label: string; from: string; to: string; detail: string }[]
+    incompatible: string[]
+    additional_replacements: { category: string; axis: string; reason: string }[]
+    reason: string
+  }[]
+  notes: string[]
+}
+export interface WireQuoteReplacementPreview {
+  before_total: number; after_total: number; total_diff: number
+  new_issues: { axis: string; label: string; detail: string }[]
+  resolved_issues: { axis: string; label: string; detail: string }[]
+  additional_replacements: { category: string; axis: string; reason: string }[]
+  price_excluded: { category: string; item_id: string; reason: string }[]
+}
+export interface WireComparisonProduct {
+  product_id: string | null; product_key: string | null; name: string | null; image_url: string | null
+  quantity: number; line_total: number | null
+}
+export interface WireQuoteSavedComparison {
+  comparison_id: string; received_total: number; saved_total: number; total_diff: number
+  comparable_categories: string[]; excluded_received_categories: string[]
+  rows: { category: string; same_product: boolean; received: WireComparisonProduct | null; saved: WireComparisonProduct | null; price_diff: number | null }[]
+  brief_summary: { changed_count: number; largest_price_difference_category: string | null; text: string }
+  saved: Record<string, unknown>
+  labels: Record<string, string>
+  computed_at: string
+}
+export interface WireQuoteGuideRef { id: string; slot: string; kind: 'care' | 'install'; text: string; score: number | null }
+export interface WireQuoteChatReply {
+  reply: string; evidence: string[]; via: 'agent' | 'rules'
+  message_id: string | null; answer_id: string | null
+  guide_refs: WireQuoteGuideRef[]; visuals: Record<string, unknown>[]
+  display_target: 'saved_comparison_explanation' | 'chat'
+  duplicate_of: string | null; created_at: string | null
+}
+export interface WireQuoteChatHistoryRich {
+  messages: {
+    id: string; role: 'user' | 'assistant' | 'system'; text: string; created_at: string
+    comparison_id: string | null; answer_id: string | null; evidence: string[]
+    guide_refs: WireQuoteGuideRef[]; visuals: Record<string, unknown>[]
+    via: 'agent' | 'rules' | null; display_target: 'saved_comparison_explanation' | 'chat' | null; duplicate_of: string | null
+  }[]
+}
 
 // ── 조건 대화 세션(src.schemas.ConditionState) ──────────────────────────────
 export interface WireMessage { id: string; role: string; text: string; created_at: string }
@@ -130,6 +214,7 @@ export interface WireNextQuestion {
   options: { value: unknown; label?: string }[]
 }
 export interface WirePreviousLookup {
+  preference_hint?: { id: string; dimension: string; slot: string; value: string; direction: string; actionable: boolean; summary: string } | null
   previous: { list_id: string; name: string; confirmed: boolean; last_active_at: string; summary: string;
     fields: { key: string; label: string | null; display: string }[] } | null
 }
@@ -165,6 +250,8 @@ export interface WireReport {
   total: number
   confirmed_at: string
   items: WireReportItem[]
+  /** 확정할 때 같이 얼린 주변기기(없으면 빈 배열) */
+  peripherals?: { kind: 'monitor' | 'keyboard' | 'mouse' | 'speaker'; product: { product_key: string; name: string; image_url: string | null; purchase_url: string | null }; price: number; qty: number }[]
 }
 
 export interface WireReportSummary {
@@ -205,7 +292,7 @@ export interface WireListHistory {
   events: { at: string; kind: string; text: string; quote?: string | null }[]
 }
 
-export interface WireUser { user: { email: string; display_name: string } }
+export interface WireUser { user: { email: string; display_name: string; marketing_agreed?: boolean; created_at?: string } }
 
 // ── 부품 교체(src.schemas.AlternativesOut) ──
 export interface WireAlternative {
@@ -218,8 +305,15 @@ export interface WireAlternative {
   review: WireReview | null
 }
 
-// ---- 주변기기 추천 (POST /session/{id}/peripherals/recommend) ----
-export interface WirePeripheralText { status: string; text: string | null }
+// ── 주변기기 추천(src.schemas.PeripheralsOut) ──────────────────────────────
+export interface WirePeripheralReviewContribution {
+  aspect_code: string
+  evidence_state: string
+  p: number
+  n: number
+  mixed: number
+  members: { direction: string; observation_text: string }[]
+}
 export interface WirePeripheralItem {
   kind: 'monitor' | 'keyboard' | 'mouse' | 'speaker'
   kind_label: string
@@ -229,9 +323,12 @@ export interface WirePeripheralItem {
   price_note: string
   requirement: { key: string; label: string; value: string }[]
   checks: { axis: string; label: string; state: string; detail: string }[]
-  reason: WirePeripheralText
+  reason: { status: string; text: string | null }
   alternatives: { name: string; price: number; diff: number }[]
-  guide: WirePeripheralText
+  guide: { status: string; text: string | null }
+  review: { contributions: WirePeripheralReviewContribution[] } | null
+  review_weight: number
+  review_note: string
 }
 export interface WirePeripherals {
   status: 'ready' | 'empty' | 'skipped'

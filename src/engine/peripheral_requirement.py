@@ -31,7 +31,10 @@ from typing import Any
 
 from src.dto import PeripheralRequirement
 from src.engine.peripheral_rules import load_peripheral_rules
-from src.engine.stage2_requirement import load_computer_rules
+
+# 해상도를 말하지 않은 주변기기(모니터) 요청의 기본값. PC 규칙의 기본(FHD_144)과 일부러 다르다 —
+# FHD 144Hz 이상 모니터가 카탈로그에 없어 기본 요청이 항상 비었기 때문이다. 아래 build_requirements 참고.
+PERIPHERAL_DEFAULT_RESOLUTION = "QHD_165"
 
 _RESOLUTION_LABELS = {"FHD_144": "FHD 144Hz", "QHD_165": "QHD 165Hz", "4K": "4K 60Hz"}
 
@@ -90,14 +93,16 @@ def build_requirements(
     """요청된 종류(kinds)만 담아 PeripheralRequirement 를 낸다. 요청하지 않은 종류는 결과에
     아예 없다(존재하지 않는 조건을 만들지 않는다).
 
-    resolution 조건이 없으면 PC 규칙의 기본 해상도(`load_computer_rules()["requirements"]
-    ["default_resolution"]`, 지금은 FHD_144)를 쓰고, `assumed`에 `"resolution"`을,
-    `notes`에 화면 안내 문장을 남긴다 — 이 표시는 monitor 요청에만 붙는다(다른 종류는
-    해상도 조건을 쓰지 않는다).
+    resolution 조건이 없으면 주변기기 기본 해상도(`PERIPHERAL_DEFAULT_RESOLUTION`, QHD_165)를
+    쓰고, `assumed`에 `"resolution"`을, `notes`에 화면 안내 문장을 남긴다 — 이 표시는 monitor
+    요청에만 붙는다(다른 종류는 해상도 조건을 쓰지 않는다).
+
+    PC 규칙의 기본 해상도(FHD_144)를 쓰지 않는 이유: 카탈로그에 FHD·144Hz 이상 모니터가 없어
+    해상도를 말하지 않은 첫 요청에서 모니터가 항상 비었다(조건을 완화하지 않는 설계라 비는 것
+    자체는 맞다). PC 쪽 기본값(추천 엔진의 GPU 등급 가정)은 그대로 FHD_144다.
     """
     rules = rules or load_peripheral_rules()
-    computer_rules = computer_rules or load_computer_rules()
-    default_resolution = computer_rules["requirements"]["default_resolution"]
+    default_resolution = PERIPHERAL_DEFAULT_RESOLUTION
 
     raw_resolution = values.get("resolution")
     resolution = raw_resolution or default_resolution

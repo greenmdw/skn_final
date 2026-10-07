@@ -124,6 +124,8 @@ class OwnedPartsPreviewRow(BaseModel):
     # unmatched=대응 자체를 못 찾음.
     match_status: Literal["confirmed", "ambiguous", "candidate", "inferred", "unmatched"] = "confirmed"
     candidate_count: int | None = None   # match_status가 ambiguous일 때만(동점 후보 개수)
+    # "live" 면 이 행의 값(전부 또는 일부)이 실시간 검색 결과다 — 카탈로그 정식 값이 아니다. 상태(ok/warn)는 그대로다.
+    value_source: Literal["live"] | None = None
 
 
 class OwnedPartsPreviewOut(BaseModel):
@@ -419,6 +421,8 @@ class QuoteDraftItemOut(BaseModel):
     source_ids: list[str] = Field(default_factory=list)
     selected_for_analysis: bool = False
     user_edited: bool = False
+    # 이 항목의 실시간 검색 값이 임시 저장소에 있다(저장되지 않는 표시 — 응답을 만들 때마다 저장소를 읽어 채운다).
+    live_value: bool = False
 
 
 class QuoteDraftGroupOut(BaseModel):
@@ -1230,3 +1234,32 @@ class ReviewSummaryOut(BaseModel):
     product_name: Optional[str] = None
     product_manipulation_risk: ProductRiskOut
     synthetic_demo: Optional[SyntheticDemoOut] = None
+
+
+# ── 리뷰 검색 (GET /reviews/search) ──
+class ReviewSearchHitOut(BaseModel):
+    review_id: str
+    body: str                                  # 리뷰 원문 전체 — 실제 리뷰는 중앙값 50자라 발췌하지 않는다
+    posted_at: Optional[datetime] = None
+    similarity: float                          # 질문과의 코사인 유사도. 정렬·하한에만 쓰고 추천 점수가 아니다
+
+
+class ReviewSearchCoverageOut(BaseModel):
+    reviews: int                               # 이 상품의 실제 리뷰 수(합성 제외)
+    embedded: int                              # 그중 검색 준비(embedding)가 된 수 — reviews보다 작으면 일부만 검색했다
+
+
+class ReviewSearchProductOut(BaseModel):
+    product_id: str
+    # ok: 관련 리뷰 있음 · no_match: 리뷰는 있으나 관련 리뷰 없음(평가가 나쁘다는 뜻이 아니다)
+    # no_reviews: 실제 리뷰 없음 · not_indexed: 리뷰는 있으나 아직 embedding 전
+    status: Literal["ok", "no_match", "no_reviews", "not_indexed"]
+    coverage: ReviewSearchCoverageOut
+    hits: list[ReviewSearchHitOut] = Field(default_factory=list)
+
+
+class ReviewSearchOut(BaseModel):
+    """상품별로 질문과 뜻이 가까운 실제 리뷰(src/services/review_search.py). products는 요청한 순서를 따른다."""
+    query: str                                 # 정규화한 질문(NFKC·공백 정리)
+    min_similarity: float                      # 이번 검색에 적용한 관련도 하한
+    products: list[ReviewSearchProductOut]

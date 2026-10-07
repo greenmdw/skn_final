@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AlternativesDialog from '../components/AlternativesDialog'
 import BudgetDonut from '../components/BudgetDonut'
@@ -126,7 +126,7 @@ function PartRow({ item, open, busy, excluded, readOnly, confirming, lastOne, on
 }
 
 export default function PlanPage() {
-  const { state, retryWithPerformance, refreshPlan, checkSession, selectPart, updateItem, reviseSetup } = usePlan()
+  const { state, retryWithPerformance, refreshPlan, checkSession, selectPart, updateItem, reviseSetup, reopenConditions, showResults } = usePlan()
   const { showToast } = useToast()
   const { savedSetups } = useSetups()
   const navigate = useNavigate()
@@ -137,10 +137,14 @@ export default function PlanPage() {
   const [busyId, setBusyId] = useState<string | null>(null)
   // 꼭 필요한 부품(또는 마지막 하나)을 빼려 해서 확인 문구를 보이는 부품
   const [removeFor, setRemoveFor] = useState<string | null>(null)
+  // "조건 바꾸기"를 눌러 이 화면을 떠나는 중에는 단계를 되돌리지 않는다(누른 직후 단계가 2가 되는 순간을 결과 복귀로 오해하지 않게)
+  const leavingForConditions = useRef(false)
 
   // 수량 정보가 없는 옛 구성(예전에 저장된 것)이면 서버의 최신 결과로 한 번 다시 읽는다.
   const stale = !!plan && plan.items.some(item => item.qty == null)
   useEffect(() => { checkSession() }, [checkSession])
+  // "조건 바꾸기"로 단계를 2로 돌려 둔 채 결과 화면으로 돌아왔으면 결과(4)로 되돌린다 — 안 그러면 여기서 한 부품 교체 질문이 조건 대화로 간다.
+  useEffect(() => { if (plan && state.stage === 2 && !leavingForConditions.current) showResults() }, [plan, state.stage, showResults])
   useEffect(() => { if (stale) refreshPlan() }, [stale, refreshPlan])
   // 추천 직후 대기(EXPLANATION_GRACE_MS)를 넘겨도 설명 문장(LLM)이 아직 안 끝났으면 화면이
   // "정리하고 있습니다"에서 멈춘다 — 그 뒤로는 아무도 다시 묻지 않았었다. 끝날 때까지 몇 초마다
@@ -273,7 +277,7 @@ export default function PlanPage() {
           ) : (
             <>
               <Link className="pl-btn" style={{ textDecoration: 'none' }} to="/cart">장바구니에 담기</Link>
-              <Link className="pl-btn ghost" style={{ textDecoration: 'none' }} to="/start">조건 바꾸기</Link>
+              <Link className="pl-btn ghost" style={{ textDecoration: 'none' }} to="/start" onClick={() => { leavingForConditions.current = true; reopenConditions() }}>조건 바꾸기</Link>
             </>
           )}
         </div>

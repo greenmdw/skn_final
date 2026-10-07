@@ -39,13 +39,15 @@ def test_qhd165_monitor_hard_conditions_and_no_assumed():
     assert req.notes == []
 
 
-def test_missing_resolution_defaults_to_fhd_with_assumed_and_note():
+def test_missing_resolution_defaults_to_qhd_with_assumed_and_note():
+    """해상도를 말하지 않으면 주변기기 기본값(QHD_165)을 쓴다. PC 규칙의 기본(FHD_144)은 카탈로그에
+    맞는 모니터가 없어 첫 요청이 항상 비었기 때문에 쓰지 않는다."""
     reqs = build_requirements({}, ["monitor"])
     req = reqs["monitor"]
-    assert req.hard == {"resolution_class": ["FHD"], "refresh_min_hz": 144}
+    assert req.hard == {"resolution_class": ["QHD"], "refresh_min_hz": 165}
     assert req.assumed == ["resolution"]
     assert len(req.notes) == 1
-    assert "해상도" in req.notes[0] and "기본값" in req.notes[0]
+    assert "해상도" in req.notes[0] and "기본값" in req.notes[0] and "QHD" in req.notes[0]
 
 
 def test_4k_refresh_min_hz_depends_on_purpose():

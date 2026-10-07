@@ -43,14 +43,28 @@ _INTENT_WORDS = {
 }
 EVIDENCE_LABEL = {"overview": "견적 분석 요약", "compat": "호환 검사", "prices": "가격 비교", "balance": "용도 대비 균형",
                   "compare": "우리 추천과 비교", "alternatives": "대안 조회", "compare_parts": "부품 비교",
-                  "saved_comparison": "저장 견적 비교"}
+                  "saved_comparison": "저장 견적 비교", "series_hint": "제품 후보", "search_consent": "실시간 검색 동의",
+                  "live_search": "실시간 검색"}
 _PART_WORDS = ("스펙", "사양", "리뷰", "후기", "부품 비교", "다른 제품이랑", "이랑 비교", "와 비교", "과 비교", "랑 비교")
+
+
+# 부품군 이름이 없어도 브랜드·시리즈·칩셋 이름이면 부품군을 안다 — "라이젠 9000이랑 비교해줘"·"RTX 4070 대신"은 이게 없으면 부품군을 못 찾아
+# 일반 비교("우리 추천과 비교")로 빠졌고 말한 제품은 무시됐다(2026-10-07).
+_SLOT_PATTERNS = {
+    "CPU": re.compile(r"라이젠|ryzen|코어\s*(?:울트라|i\d)|core\s*(?:ultra|i\d)|(?<![a-z0-9])i[3579](?![a-z0-9])|셀러론|펜티엄"),
+    "GPU": re.compile(r"지포스|geforce|(?<![a-z])rtx|(?<![a-z])gtx|라데온|radeon|엔비디아|nvidia|(?<![a-z])rx\s*\d{3,4}"),
+    "RAM": re.compile(r"ddr[345]"),
+    "메인보드": re.compile(r"(?<![a-z0-9])[abhxz]\d{3}e?m?(?![a-z0-9])"),
+}
 
 
 def match_slot(text: str) -> str | None:
     low = text.lower()
     for slot, words in _SLOT_WORDS.items():
         if any(w in low for w in words):
+            return slot
+    for slot, pattern in _SLOT_PATTERNS.items():
+        if pattern.search(low):
             return slot
     return None
 
@@ -84,6 +98,56 @@ def extract_targets(text: str, slot: str, pool: list, exclude_name: str | None =
     return [n for n in found if n != exclude_name]
 
 
+_PARTICLE_TAIL = re.compile(r"(?<=[0-9A-Za-z가-힣])(?:이랑|랑|하고|과|와|으로|로|보다)$")
+_CLAUSE_BREAK = frozenset({"대신", "말고", "vs", "VS", "그리고", "또는"})
+
+
+def product_phrase(text: str, model_tokens: list[str] | None = None) -> str:
+    """질문에서 **물어본 제품 이름만** — "RTX 6090이랑 비교해줘" → "RTX 6090", "CPU 5600X 대신 9999X 쓰면 뭐가 달라져?" → "9999X".
+
+    제품 이름은 모델 번호 낱말(model_tokens)을 끝으로 하고, 거기서 앞으로 영문·숫자 낱말이나 브랜드 한글 낱말(라이젠·엔비디아)이 이어지는
+    만큼이다. "대신/말고" 같은 절 경계나 앞 낱말의 조사(…랑·…과)를 만나면 거기서 멈춘다 — 비교하려는 견적 속 부품의 이름이 섞여
+    검색어가 나빠지지 않게."""
+    from src.engine.owned_parts import _ALIASES
+
+    words = text.replace("?", " ").replace("!", " ").split()
+    stripped = [_PARTICLE_TAIL.sub("", w) for w in words]
+    wanted = [t.lower() for t in (model_tokens or [])]
+    last = next((i for i in range(len(stripped) - 1, -1, -1)
+                 if any(ch.isdigit() for ch in stripped[i]) and (not wanted or any(t in stripped[i].lower() for t in wanted))), None)
+    if last is None:
+        return text[:60].strip()
+    phrase = [stripped[last]]
+    i = last - 1
+    while i >= 0 and len(phrase) < 4:
+        previous_had_particle = stripped[i] != words[i]
+        if words[i] in _CLAUSE_BREAK or previous_had_particle:
+            break
+        if not (re.fullmatch(r"[A-Za-z0-9\-.+/]+", stripped[i]) or stripped[i] in _ALIASES):      # "PC에"처럼 한글이 섞인 낱말은 이름이 아니다
+            break
+        phrase.insert(0, stripped[i])
+        i -= 1
+    return " ".join(phrase)[:60].strip()
+
+
+_SERIES_THOUSAND = re.compile(r"^(\d)0{3}$")        # 9000 → 9xxx 모델들(라이젠 9000·RTX 5000)
+
+
+def series_options(tokens: list[str], pool: list, limit: int = 6) -> list[str]:
+    """"9000"처럼 모델이 아니라 시리즈를 가리키는 낱말이면, 카탈로그에서 그 시리즈에 속한 제품 이름들(없으면 빈 목록)."""
+    from src.engine.owned_parts import _significant, _tokens
+
+    for token in tokens:
+        match = _SERIES_THOUSAND.match(token)
+        if not match:
+            continue
+        prefix = re.compile(rf"^{match.group(1)}\d{{3}}[a-z0-9]*$")
+        names = [c.name for c in pool if any(prefix.match(t) for t in _significant(_tokens(c.name)))]
+        if names:
+            return sorted(dict.fromkeys(names))[:limit]
+    return []
+
+
 def route(text: str, by_slot_loader=None, review: dict | None = None) -> list[tuple[str, dict]]:
     """질문에서 어떤 사실을 읽을지 — [(도구 이름, 인자)]. 규칙 경로의 답이면서 에이전트에는 미리 조회한 근거가 된다.
 
@@ -100,13 +164,22 @@ def route(text: str, by_slot_loader=None, review: dict | None = None) -> list[tu
         pool = by_slot_loader().get(slot, [])
         targets = extract_targets(text, slot, pool, baseline)
         if not targets:
-            # 질문에 모델명이 있는데 카탈로그에서 못 찾았다 — 다른 제품으로 슬쩍 바꿔 답하지 않도록, 적힌 이름 그대로 넘겨
-            # "찾지 못했습니다"로 알리게 한다(견적 속 부품 자신의 이름 낱말은 뺀다).
-            from src.engine.owned_parts import _is_model_token, _significant, _tokens
+            # 질문에 모델명이 있는데 카탈로그에서 정확히 못 찾았다 — 다른 제품으로 슬쩍 바꿔 답하지 않는다(견적 속 부품 자신의 이름 낱말은 뺀다).
+            #  ① 시리즈 낱말이 빠졌을 뿐 카탈로그에 있는 제품("엔비디아 5070")이면 그 제품들과 비교한다
+            #  ② "라이젠 9000"처럼 시리즈 이름이면 어느 모델인지 되묻는다
+            #  ③ 카탈로그에 없으면 "DB에 없다"고 알리고 검색 동의를 구한다(동의하면 실시간 검색 — 자동 실행 금지)
+            from src.engine.owned_parts import _is_model_token, _significant, _tokens, catalog_family_matches
             own = set(_tokens(baseline or ""))
             leftover = [t for t in _significant(_tokens(text)) if _is_model_token(t) and len(t) >= 3 and t not in own]
             if leftover and any(w in low for w in ("비교", "대신", "말고", "바꾸면", "쓰면", "vs")):
-                return [("compare_parts", {"slot": slot, "direction": None, "targets": leftover})]
+                rest = " ".join(t for t in _tokens(text) if t not in own)
+                family = catalog_family_matches(rest, pool)
+                if family:
+                    return [("compare_parts", {"slot": slot, "direction": None, "targets": [c.name for c in family[:4]]})]
+                options = series_options(leftover, pool)
+                if options:
+                    return [("series_hint", {"slot": slot, "product": product_phrase(text, leftover), "options": options})]
+                return [("search_consent", {"slot": slot, "product": product_phrase(text, leftover)})]
         if targets:
             return [("compare_parts", {"slot": slot, "direction": None, "targets": targets})]
     hits = {name for name, words in _INTENT_WORDS.items() if any(w in low for w in words)}
@@ -150,6 +223,13 @@ def run_fact(review: dict, name: str, args: dict, by_slot_loader) -> str:
         result = quote_alternatives.compare_parts(review, args["slot"], by_slot_loader(), args.get("targets") or None,
                                                   args.get("direction"))
         return quote_facts.compare_parts(result)
+    if name == "series_hint":
+        names = ", ".join(args.get("options") or [])
+        return (f"'{args.get('product')}'은(는) 특정 제품이 아니라 시리즈 이름이에요. 카탈로그에는 이 시리즈로 {names} 등이 있어요. "
+                "어느 모델과 비교할까요?")
+    if name == "search_consent":
+        from src.agent.conditions_agent import SEARCH_PERMISSION_MARKER
+        return f"'{args.get('product')}'는 저희 DB에 없는 상품으로 확인됩니다. {SEARCH_PERMISSION_MARKER}"
     raise ValueError(f"unknown fact: {name}")
 
 
@@ -214,6 +294,36 @@ def _payload(message_id: UUID | str, created_at: str, reply: str, meta: dict) ->
     }
 
 
+def _answer_search_consent(conn, stored_messages: list[dict], text: str) -> tuple[str, dict] | None:
+    """직전 답이 "외부 검색을 진행해도 될까요?"였고 이번 메시지가 동의이면, 그 제품을 실시간 검색해 답한다. 아니면 None.
+    동의 판정은 모델이 아니라 코드(is_search_confirmation)가 한다 — 두 대화 에이전트와 같은 규칙."""
+    from src.agent.conditions_agent import is_search_confirmation
+    from src.errors import ServiceUnavailable
+    from src.services import live_spec_lookup
+
+    last = next((m for m in reversed(stored_messages) if m["role"] == "assistant"), None)
+    pending = ((last or {}).get("metadata") or {}).get("pending_search")
+    if not pending or not is_search_confirmation(last["content"], text):
+        return None
+    product, slot = pending["product"], pending["slot"]
+    label = EVIDENCE_LABEL["live_search"]
+    meta = {"answer_id": str(uuid.uuid4()), "evidence": [label], "guide_refs": [], "visuals": [], "via": "rules",
+            "display_target": "chat"}
+    if not live_spec_lookup.available():
+        return "지금은 실시간 검색을 쓸 수 없어요.", meta
+    try:
+        result = live_spec_lookup.lookup(conn, product, slot=slot)
+    except ServiceUnavailable as exc:                        # 검색이 몰려 있거나 연결 실패 — 대화를 끊지 않고 문장으로 알린다
+        return f"{exc.message} 지금은 '{product}' 정보를 가져오지 못했어요.", meta
+    if not result.relevant or not result.has_any_field():
+        return f"'{product}'에 대한 정보를 실시간 검색으로도 찾지 못했어요. 제품 이름을 다시 확인해 주세요.", meta
+    found = {k: v for k, v in result.supported_fields.model_dump().items() if v is not None}
+    fields = ", ".join(f"{k}={v}" for k, v in found.items())
+    source = f" · 출처: {result.source_url}" if result.source_url else ""
+    return (f"'{product}' 실시간 검색 결과 — {fields}{source} · 카탈로그 정식 등재 값이 아니니 참고만 하세요. "
+            f"견적 속 {slot}과 직접 비교하려면 카탈로그에 있는 제품 이름으로 물어봐 주세요."), meta
+
+
 def chat(conn, list_id: UUID, principal: Principal, text: str, *, client_message_id: str | None = None,
          context: dict | None = None) -> dict:
     """견적 점검 질문 하나. `context`(저장 견적 비교)가 있으면 그 비교의 사실·시각 자료·가이드로 답하고, 같은 질문은 저장된 답을
@@ -251,8 +361,17 @@ def chat(conn, list_id: UUID, principal: Principal, text: str, *, client_message
             message_id = conversations.add_message(conversation_id, "assistant", earlier["content"], metadata=meta)
             return _payload(message_id, _now_iso(), earlier["content"], meta)
 
-    history = _pairs(conversations.messages(conversation_id))
+    stored_messages = conversations.messages(conversation_id)
+    history = _pairs(stored_messages)
     loader = _catalog_loader()
+
+    searched = None if comparison else _answer_search_consent(conn, stored_messages, text)
+    if searched is not None:                                   # 직전에 검색 동의를 구했고 이번이 동의 — 이 턴에만 실시간 검색
+        reply, meta = searched
+        conversations.add_message(conversation_id, "user", text, client_message_id=client_message_id, metadata=user_meta)
+        message_id = conversations.add_message(conversation_id, "assistant", reply, metadata=meta)
+        return _payload(message_id, _now_iso(), reply, meta)
+
     calls = route(text, loader, review)
     fact = lambda n, a: run_fact(review, n, a, loader)       # noqa: E731
     extras = {"visuals": [], "guide_refs": []}
@@ -270,7 +389,13 @@ def chat(conn, list_id: UUID, principal: Principal, text: str, *, client_message
 
     from src.agent import quote_review_agent
     reply, evidence, via = None, [], "rules"
-    if quote_review_agent.available():
+    pending_search = None
+    if not comparison and calls and calls[0][0] in ("search_consent", "series_hint"):
+        # 동의를 묻는 문장은 고정 문구(마커)가 있어야 다음 턴에 동의로 읽힌다 — 모델이 고쳐 쓰지 못하게 규칙 문장 그대로 답한다.
+        reply, evidence = fact(*calls[0]), [EVIDENCE_LABEL[calls[0][0]]]
+        if calls[0][0] == "search_consent":
+            pending_search = {"slot": calls[0][1]["slot"], "product": calls[0][1]["product"]}
+    elif quote_review_agent.available():
         try:
             turn = quote_review_agent.run_turn(review, history, text, calls, fact, user_text=text)
             reply, evidence, via = turn.reply, turn.evidence, "agent"
@@ -282,6 +407,8 @@ def chat(conn, list_id: UUID, principal: Principal, text: str, *, client_message
 
     meta = {"answer_id": str(uuid.uuid4()), "evidence": evidence, "guide_refs": extras["guide_refs"], "visuals": extras["visuals"],
             "via": via, "display_target": "saved_comparison_explanation" if comparison else "chat"}
+    if pending_search:
+        meta["pending_search"] = pending_search
     if comparison:
         meta.update(comparison_id=comparison_id, normalized_question=normalized)
     conversations.add_message(conversation_id, "user", text, client_message_id=client_message_id, metadata=user_meta)

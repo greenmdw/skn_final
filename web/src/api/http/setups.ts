@@ -88,6 +88,7 @@ export const setups: Api['setups'] = {
     try {
       report = await request<WireReport>('POST', '/lists/' + setup.id + '/confirm', {
         name: setup.title, planned_purchase_at: setup.date, target_amount: setup.target, memo: setup.memo,
+        peripherals: (setup.peripherals ?? []).flatMap(item => item.variantId ? [{ kind: item.kind, variant_id: item.variantId, qty: item.qty }] : []),
       })
     } catch (error) { throw toConfirmError(error) }
     writeExtras({ ...readExtras(), [setup.id]: {
@@ -96,7 +97,7 @@ export const setups: Api['setups'] = {
     } })
     // 사용자가 본 부품·추천 이유는 그대로 두고, 서버가 확정한 값(이름·날짜·목표 금액·메모·시각)을 반영한다.
     const saved = setupFromReport(report, undefined)
-    return { ...structuredClone(setup), revisionNo: saved.revisionNo, title: saved.title, date: saved.date, target: saved.target, memo: saved.memo, savedAt: saved.savedAt }
+    return { ...structuredClone(setup), revisionNo: saved.revisionNo, title: saved.title, date: saved.date, target: saved.target, memo: saved.memo, savedAt: saved.savedAt, peripherals: saved.peripherals }
   },
 
   async remove(id) {

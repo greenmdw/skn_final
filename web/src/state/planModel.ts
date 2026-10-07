@@ -7,6 +7,11 @@ export function planTotal(plan: CurrentPlan): number {
   return plan.items.reduce((sum, part) => sum + part.price, 0)
 }
 
+/** 주변기기 합계(단가 × 수량) */
+export function peripheralsTotal(peripherals: readonly { price: number; qty: number }[] | undefined): number {
+  return (peripherals ?? []).reduce((sum, item) => sum + item.price * item.qty, 0)
+}
+
 /** 한 대에 하나만 쓰는 부품 — 수량을 2개 이상으로 올리면 "여러 대를 구매하시나요?" 안내를 보인다 */
 const SINGLE_PER_PC: PartKey[] = ['cpu', 'board', 'psu', 'case']
 export function multiQtyItems(plan: CurrentPlan): PlanItem[] {

@@ -4,6 +4,11 @@
   font-family: Arial, sans-serif;
 }
 
+:root[data-theme='light'] {
+  color-scheme: light;
+  background: #e8ede9;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -37,4 +42,142 @@ body {
   background: #05090c;
   color: #f4f7f7;
   font-family: 'Pretendard', 'IBM Plex Sans KR', 'Malgun Gothic', sans-serif;
+}
+
+/* 모든 React 헤더에서 쓰는 테마 전환 버튼 */
+.theme-toggle {
+  height: 32px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 11px;
+  border: 1px solid #37695f;
+  border-radius: 8px;
+  background: #0d1a23;
+  color: #d6e0e4;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.theme-toggle:hover { border-color: #60edc0; color: #60edc0; }
+.theme-toggle span { font-size: 15px; line-height: 1; }
+.theme-toggle b { font-size: 12px; font-weight: 700; }
+.auth-top-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; }
+
+/* 알림(ToastProvider). 화면 위에 떠 있어야 하며 문서 높이를 늘리면 안 된다. */
+.toast {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 120;
+  max-width: min(420px, calc(100vw - 44px));
+  padding: 13px 16px;
+  border: 1px solid #3f7469;
+  border-radius: 11px;
+  background: #102821;
+  color: #e9fff8;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .4);
+  font-size: 13px;
+  line-height: 1.5;
+  transform: translateY(20px);
+  opacity: 0;
+  pointer-events: none;
+  transition: .25s;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+[data-theme='light'] .toast { border-color: #7fa79d; background: #f5f6f2; color: #11191b; box-shadow: 0 12px 34px rgba(34, 53, 48, .22); }
+
+/* 라이트 테마: 플래너 공통 팔레트 */
+[data-theme='light'] body { background: #e8ede9; }
+[data-theme='light'] .mk-scroll { background: #e8ede9; color: #11191b; }
+[data-theme='light'] .pl-root {
+  --bg: #e8ede9;
+  --panel: #f5f6f2;
+  --panel2: #e2e9e5;
+  --ink: #d7e1dc;
+  --line: #bdcbc5;
+  --line2: #7fa79d;
+  --text: #11191b;
+  --muted: #1d292c;
+  --mint: #169b74;
+  --on-mint: #ffffff;
+  --ok: #128663;
+  --info: #197aa3;
+  --warn: #8056b6;
+  background: var(--bg);
+}
+[data-theme='light'] .theme-toggle {
+  border-color: #b4c6c0;
+  background: #edf1ee;
+  color: #243940;
+  box-shadow: none;
+}
+[data-theme='light'] .theme-toggle:hover { border-color: #18af82; color: #087554; }
+[data-theme='light'] .pl-brand,
+[data-theme='light'] .tf-home-brand {
+  background: transparent;
+  box-shadow: none;
+}
+[data-theme='light'] .pl-brand img,
+[data-theme='light'] .tf-home-brand img {
+  filter: none;
+}
+[data-theme='light'] .pl-msg-user { background: #18af82; color: #fff; }
+[data-theme='light'] .pl-choice { border-color: rgba(25,122,163,.28); background: rgba(25,122,163,.08); color: #176d90; }
+[data-theme='light'] .pl-choice:hover { background: rgba(25,122,163,.14); }
+[data-theme='light'] .pl-alert { background: #e6f4f9; color: #176680; }
+[data-theme='light'] .pl-alert.warn { background: #fff4d5; color: #765713; }
+[data-theme='light'] .pl-alert.bad { background: #fff0ed; color: #a53f34; }
+[data-theme='light'] .pl-running { background: rgba(244,247,246,.82); }
+[data-theme='light'] .pl-modal-back { background: rgba(30,44,48,.42); }
+[data-theme='light'] .pl-compare-bar { background: #f8faf9; }
+[data-theme='light'] .pl-bridge { background: #bdf1df; color: #12352b; }
+[data-theme='light'] .pl-bridge a { background: #173139; color: #fff; }
+[data-theme='light'] .pl-part-row:hover { background: rgba(24,175,130,.045); }
+[data-theme='light'] .pl-thumb.icon { background: #eef3f1; }
+[data-theme='light'] .pl-remove { color: #b33f3f; border-color: #d9a8a8; }
+[data-theme='light'] .pl-confirm { border-color: #d9a8a8; background: #fff5f5; }
+[data-theme='light'] .sp-pop,
+[data-theme='light'] .sp-ctxmenu { box-shadow: 0 12px 32px rgba(32,55,49,.16); }
+[data-theme='light'] .sp-root.collapsed .sp-row[data-tip]:hover::after {
+  border-color: #476068;
+  background: #10191c;
+  color: #ffffff;
+}
+[data-theme='light'] .sp-row.new { background: #40d1a7; }
+[data-theme='light'] .sp-sheet.on { background: rgba(24,175,130,.08); }
+
+/* 라이트 테마: 받은 견적 및 주변기기 세부 화면 */
+[data-theme='light'] .pf-product-image { border-color: #d3dfdb; background: repeating-linear-gradient(135deg, #f4f7f6 0 9px, #e8efed 9px 18px); }
+[data-theme='light'] .pf-review-track { background: #dde7e3; }
+[data-theme='light'] .pf-review blockquote { color: #172124; }
+[data-theme='light'] .pf-weak-note { border-color: #ddc77f; background: #fff8df; color: #735818; }
+
+/* 라이트 테마: 로그인·회원가입 */
+[data-theme='light'] .flow.auth-route {
+  --tf-primary: #159f76;
+  --tf-primary-hover: #11825f;
+  --tf-secondary: #8db8ad;
+  --tf-bg: #e8ede9;
+  --tf-surface: #f5f6f2;
+  --tf-soft: #e2e9e5;
+  --tf-soft-sage: #e7ece8;
+  --tf-border: #bdcbc5;
+  --tf-text: #11191b;
+  --tf-muted: #1d292c;
+  --tf-warning: #a97915;
+  --tf-danger: #b34337;
+  --tf-on-primary: #ffffff;
+  --tf-warning-soft: #fff5dc;
+  --tf-danger-soft: #fff0ed;
+  --tf-shadow-soft: rgba(30,61,52,.12);
+}
+
+@media (max-width: 640px) {
+  .theme-toggle { width: 32px; padding: 0; }
+  .theme-toggle b { display: none; }
+  .auth-top-actions { gap: 8px; }
 }

@@ -93,6 +93,21 @@ def test_monitor_without_pc_context_uses_default_resolution_and_may_be_empty():
                for i in data["items"])   # pc_context 없이는 교차검사 자체가 안 돈다
 
 
+def test_monitor_without_resolution_defaults_to_qhd_and_is_not_empty():
+    """해상도를 말하지 않아도 모니터가 빈 채로 나오지 않는다 — 기본값이 QHD_165라 카탈로그에 후보가 있다
+    (FHD_144 기본값일 때는 맞는 모니터가 없어 첫 요청이 항상 비었다)."""
+    c = _signed_up()
+    lid = _new_session(c)
+    r = c.post(f"/session/{lid}/peripherals/recommend", json={"kinds": ["monitor"]})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["status"] == "ready", data
+    item = next(i for i in data["items"] if i["kind"] == "monitor")
+    rows = {row["key"]: row["value"] for row in item["requirement"]}
+    assert rows.get("resolution_class") == "QHD"
+    assert "QHD" in rows.get("resolution_assumed", "")
+
+
 def test_pc_context_adds_monitor_cross_check_and_reuses_its_resolution():
     """pc_list_id 를 주면: 1) 요청에 resolution 을 안 줘도 그 PC 견적의 해상도를 이어받고,
     2) monitor_resolution 교차검사가 추가된다(개발요청 6번 — C안 + 선택적 PC 맥락 결합)."""

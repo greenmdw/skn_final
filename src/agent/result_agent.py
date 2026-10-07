@@ -293,7 +293,7 @@ class ResultSession:
         LLM이 정하는 게 아니라 run_turn이 "직전 턴에 동의를 구했고 이번 메시지가 동의"인지를
         코드로 판정해 미리 정해 둔다(§2 자동 실행 금지, 2턴 확인을 LLM 재량이 아니라 코드로 강제)."""
         from src.repo.catalog_repo import load_candidates_by_slot_from_db
-        from src.engine.owned_parts import _match_catalog
+        from src.engine.owned_parts import _match_catalog, catalog_family_matches
         call = f"search_unavailable_part({slot!r}, {product_text!r})"
         it = self.item(slot)
         if it is None:
@@ -304,6 +304,12 @@ class ResultSession:
             names = ", ".join(c.name for c in matches[:3])
             return self._record(call, f"'{product_text}'는 실제로 카탈로그에 있습니다: {names}. "
                                       "list_alternatives로 candidate_id를 확인해 안내하세요.")
+        family = catalog_family_matches(product_text, pool)
+        if family:       # "엔비디아 5070"처럼 시리즈 낱말이 빠졌을 뿐 카탈로그에 있는 제품 — 없다고 하면 안 된다
+            names = ", ".join(c.name for c in family[:4])
+            return self._record(call, f"'{product_text}'는 카탈로그에 있는 제품입니다: {names}. DB에 없는 상품이 아니니 외부 검색을 "
+                                      "묻지 마세요. list_alternatives로 candidate_id를 확인해 안내하고, 어느 제품인지 정해지지 않았으면 "
+                                      "그것만 되물으세요.")
         if not self.search_confirmed:
             return self._record(call, f"'{product_text}'는 저희 DB에 없는 상품으로 확인됩니다. {_SEARCH_PERMISSION_MARKER}")
         from src.services import live_spec_lookup
