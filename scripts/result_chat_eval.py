@@ -5,11 +5,14 @@
 - 구성표가 바뀌어야 하는 말(바꿔줘)만 바뀌었는가 — 묻는 말에 바뀌면 실패
 - 기대한 도구 중 하나를 불렀는가 (기대가 없는 질문 — 일반 지식·범위 밖 — 은 보지 않는다)
 - 수치 가드가 답을 버렸는가 / 에이전트가 실패해 규칙 경로로 갔는가
-답의 내용(지어낸 사실, 넘겨 말하기)은 사람이 보고서를 읽고 판단한다 — 오류 분석용 표를 함께 낸다.
+도구·경로·가드·토큰은 서버 로그가 아니라 답 메시지에 저장된 턴 기록(metadata["turn"])에서 읽는다.
+답의 내용(지어낸 사실, 넘겨 말하기)은 사람이 보고서를 읽고 판단한다 — 도구 결과 원문을 함께 낸다.
+보고서 첫 표가 합격 기준(아래 상수, 10/7 측정 전 확정) 판정이고, 자동 기준이 하나라도 미달이면 종료 코드 1.
 
 사용 (일회용 DB, 실제 LLM — MOCK_MODE=0 · OPENAI_API_KEY · LLM_MODEL · RESULT_AGENT=1 필요):
     TEST_DATABASE_URL=postgresql://truefit:truefit@127.0.0.1:5433/truefit_test MOCK_MODE=0 \\
       python scripts/result_chat_eval.py --out /tmp/result_chat_eval.md
+    python scripts/result_chat_eval.py --repeat 3 --out ...      # 합격 판정은 세 판(같은 문항 × 3)
     python scripts/result_chat_eval.py --only upgrade,whatif      # 유형만
     python scripts/result_chat_eval.py --budget 3000000
 
@@ -19,8 +22,8 @@ DB 이름에 "test" 가 없으면 거부한다(세션·추천 기록이 쌓이�
 from __future__ import annotations
 
 import argparse
-import logging
 import os
+import statistics
 import sys
 import time
 from dataclasses import dataclass, field
@@ -90,22 +93,60 @@ QUESTIONS: list[Q] = [
 ]
 
 
+# ── 합격 기준 (2026-10-07 측정 전 확정) ─────────────────────────────────────────────────────────
+# 근거·쓰지 않은 대안·대가는 팀 문서 「채팅 설계 근거」의 '평가 합격 기준 (10/7)' 탭. 요약: 숫자로 된 공인 기준은
+# 없어(ISO/IEC 25059·TTA 단체표준은 정성 항목) 직접 정했다. 기준을 낮추지 않는다 — 못 넘으면 미달로 기록한다.
+# 비율 기준은 표본보다 촘촘할 수 있다: 132답에서 0건이어도 실제 비율의 95% 상한은 약 3/132 = 2.3%다.
+STRUCTURAL_PASS_MIN = 0.95      # 자동 점검에 문제 없는 답의 비율
+WRONG_CHANGE_MAX = 0            # 바꾸라는 말이 아닌데 구성표가 바뀐 답 (안전 기준)
+FAILED_MAX = 0                  # 빈 답·HTTP 오류 — 사용자에게 보이는 실패
+FALLBACK_RATE_MAX = 0.05        # 규칙 경로 전환 + 수치 가드 거절 — 조용한 품질 저하
+P95_SECONDS_MAX = 10.0          # 왕복 시간 p95 (Nielsen 10초 주의 한계)
+# 사람이 판정하는 기준(보고서를 읽고 라벨) — 스크립트는 자리만 낸다
+FABRICATED_RATE_MAX = 0.01      # 비사실: 화면·도구 결과와 다르거나 지어낸 사실이 있는 답
+GROUNDED_RATE_MIN = 0.95        # 근거 정확도: 가격·부품명·수치가 나온 답 중 모두 맞는 답
+# 오도(확인 안 한 것을 단정·질문을 비켜 답함)는 기준 없이 건수만 보고한다.
+
+# 토큰 단가(USD / 100만 토큰, 입력·출력) — src/config.py 의 2026-10-01 비교 메모. 캐시 할인은 반영하지 않아
+# 상한 추정이다. 단가는 바뀌므로 턴 기록에는 토큰만 남기고 비용은 여기서 곱한다.
+PRICE_PER_MTOK: dict[str, tuple[float, float]] = {"gpt-6-luna": (0.10, 0.50)}
+
+
 @dataclass
 class Row:
     q: Q
+    run: int = 1
     reply: str = ""
-    trace: str = ""
+    status: int = 200
+    turn: dict = field(default_factory=dict)       # 답 메시지의 metadata["turn"] (P1-3 턴 기록)
     changed: list[str] = field(default_factory=list)
-    rejected: str = ""
-    fell_back: bool = False
     seconds: float = 0.0
 
     @property
+    def trace(self) -> list[str]:
+        return list(self.turn.get("trace") or [])
+
+    @property
     def called(self) -> list[str]:
-        return [part.strip().split("(", 1)[0] for part in self.trace.split(" | ") if "(" in part]
+        return list(self.turn.get("tools") or [])
+
+    @property
+    def failed(self) -> bool:
+        return self.status != 200 or not self.reply.strip()
+
+    @property
+    def rejected(self) -> bool:
+        return bool(self.turn.get("guard"))
+
+    @property
+    def fell_back(self) -> bool:
+        # 모델이 실패해 규칙 경로로 갔거나, 도구가 바꾼 뒤 실패해 코드 문장으로 답한 경우 — 둘 다 LLM 답이 아니다
+        return self.turn.get("path") == "rules_after_agent_error" or bool(self.turn.get("error"))
 
     @property
     def problems(self) -> list[str]:
+        if self.failed:
+            return [f"실패 응답(HTTP {self.status})" if self.status != 200 else "빈 답"]
         out = []
         if bool(self.changed) != self.q.change:
             out.append("구성표가 바뀜" if self.changed else "바꾸지 않음")
@@ -116,17 +157,6 @@ class Row:
         if self.fell_back:
             out.append("규칙 경로로 넘어감")
         return out
-
-
-class _Capture(logging.Handler):
-    """result agent 의 trace·가드 거절·규칙 경로 전환 로그를 한 턴 동안 모은다."""
-
-    def __init__(self):
-        super().__init__(logging.INFO)
-        self.records: list[str] = []
-
-    def emit(self, record):
-        self.records.append(record.getMessage())
 
 
 def assert_disposable_db() -> str:
@@ -165,53 +195,131 @@ def _diff(before: dict, after: dict) -> list[str]:
     return out
 
 
-def run(questions: list[Q], budget: int) -> tuple[list[Row], dict]:
+def _turn_log(lid: str) -> dict:
+    """이 세션의 마지막 답 메시지에 남은 턴 기록 — 평가가 서버 로그 대신 실제 저장된 기록을 읽는다(기록도 같이 시험)."""
+    import psycopg
+    from psycopg.rows import dict_row
+    from uuid import UUID
+    from src.config import DATABASE_URL
+    from src.repo.plan_repo import PlanRepo
+    from src.repo.user_repo import ConversationRepo
+    with psycopg.connect(DATABASE_URL, row_factory=dict_row, autocommit=True) as conn:
+        conversation_id = PlanRepo(conn).get_current_revision(UUID(lid))["conversation_id"]
+        answers = [m for m in ConversationRepo(conn).messages(conversation_id) if m["role"] == "assistant"]
+    return ((answers[-1]["metadata"] or {}).get("turn") or {}) if answers else {}
+
+
+def run(questions: list[Q], budget: int, repeat: int = 1) -> tuple[list[Row], dict]:
     from fastapi.testclient import TestClient
     from src.api import app
 
-    cap = _Capture()
-    for name in ("src.services.recommendation_service", "src.agent.result_agent"):
-        logging.getLogger(name).addHandler(cap)
-        logging.getLogger(name).setLevel(logging.INFO)
-    c = TestClient(app)
+    c = TestClient(app, raise_server_exceptions=False)   # 500 도 실패 응답으로 센다
     rows, first = [], None
-    for q in questions:
-        lid, before = _new_session(c, budget)
-        first = first or before
-        cap.records.clear()
-        started = time.time()
-        body = c.post(f"/session/{lid}/result-message", json={"text": q.text}).json()
-        row = Row(q=q, reply=body.get("reply") or "", seconds=round(time.time() - started, 1),
-                  changed=_diff(before, body.get("result") or before))
-        for msg in cap.records:
-            if msg.startswith("result agent ["):
-                row.trace = msg.split("]: ", 1)[1]
-            elif msg.startswith("result agent reply rejected"):
-                row.rejected = msg
-            elif msg.startswith("result agent failed"):
-                row.fell_back = True
-        rows.append(row)
-        mark = "OK " if not row.problems else "!! "
-        print(f"{mark}[{q.kind}] {q.text} ({row.seconds}s) {'; '.join(row.problems)}", flush=True)
+    for run_no in range(1, repeat + 1):
+        if repeat > 1:
+            print(f"\n── {run_no}/{repeat}판", flush=True)
+        for q in questions:
+            lid, before = _new_session(c, budget)
+            first = first or before
+            started = time.time()
+            resp = c.post(f"/session/{lid}/result-message", json={"text": q.text})
+            seconds = round(time.time() - started, 1)
+            body = resp.json() if resp.status_code == 200 else {}
+            row = Row(q=q, run=run_no, reply=body.get("reply") or "", status=resp.status_code, seconds=seconds,
+                      changed=_diff(before, body.get("result") or before))
+            if resp.status_code == 200:
+                row.turn = _turn_log(lid)
+            rows.append(row)
+            mark = "OK " if not row.problems else "!! "
+            print(f"{mark}[{q.kind}] {q.text} ({row.seconds}s) {'; '.join(row.problems)}", flush=True)
     return rows, first
+
+
+def _pct(sorted_values: list[float], p: float) -> float:
+    """기준선(10/7) 집계와 같은 방식 — 정렬한 값의 round(p·(n-1)) 번째."""
+    return sorted_values[min(len(sorted_values) - 1, int(round(p * (len(sorted_values) - 1))))]
+
+
+def summary(rows: list[Row], model: str) -> dict:
+    n = len(rows)
+    runs = sorted({r.run for r in rows})
+    by_q: dict[str, list[Row]] = {}
+    for r in rows:
+        by_q.setdefault(r.q.text, []).append(r)
+    secs = sorted(r.seconds for r in rows)
+    server_ms = sorted(r.turn["latency_ms"] for r in rows if isinstance(r.turn.get("latency_ms"), int))
+    tokens = [r.turn["tokens"] for r in rows if r.turn.get("tokens")]
+    tin, tout = sum(t["input"] for t in tokens), sum(t["output"] for t in tokens)
+    price = PRICE_PER_MTOK.get(model)
+    return {
+        "n": n, "runs": len(runs),
+        "structural": sum(1 for r in rows if not r.problems),
+        "pass_k": sum(1 for rs in by_q.values() if all(not r.problems for r in rs)), "questions": len(by_q),
+        "wrong_change": sum(1 for r in rows if r.changed and not r.q.change),
+        "failed": sum(1 for r in rows if r.failed),
+        "fallback": sum(1 for r in rows if not r.failed and (r.rejected or r.fell_back)),
+        "p50": statistics.median(secs) if secs else 0.0, "p90": _pct(secs, .9) if secs else 0.0,
+        "p95": _pct(secs, .95) if secs else 0.0, "max": secs[-1] if secs else 0.0,
+        "over10": sum(1 for x in secs if x > P95_SECONDS_MAX),
+        "server_p50_ms": statistics.median(server_ms) if server_ms else None,
+        "server_p95_ms": _pct(server_ms, .95) if server_ms else None,
+        "token_turns": len(tokens), "tokens_in": tin, "tokens_out": tout,
+        "cost_usd": (tin * price[0] + tout * price[1]) / 1_000_000 if price and tokens else None,
+    }
+
+
+def criteria(s: dict) -> list[tuple[str, str, str, bool | None]]:
+    """(지표, 결과, 기준, 합격 여부 — 사람 판정이면 None)."""
+    n = s["n"]
+    fab_max = int(FABRICATED_RATE_MAX * n)
+    return [
+        ("구조 자동 점검", f"{s['structural']}/{n} ({s['structural'] / n:.1%}), pass^{s['runs']} {s['pass_k']}/{s['questions']}",
+         f"≥ {STRUCTURAL_PASS_MIN:.0%}", s["structural"] / n >= STRUCTURAL_PASS_MIN),
+        ("구성표 오변경", f"{s['wrong_change']}건", f"{WRONG_CHANGE_MAX}건", s["wrong_change"] <= WRONG_CHANGE_MAX),
+        ("실패 응답", f"{s['failed']}건", f"{FAILED_MAX}건", s["failed"] <= FAILED_MAX),
+        ("대체 응답", f"{s['fallback']}/{n} ({s['fallback'] / n:.1%})", f"≤ {FALLBACK_RATE_MAX:.0%}",
+         s["fallback"] / n <= FALLBACK_RATE_MAX),
+        ("응답 시간", f"p95 {s['p95']:.1f}초 (p50 {s['p50']:.1f}, p90 {s['p90']:.1f}, 최대 {s['max']:.1f})",
+         f"p95 ≤ {P95_SECONDS_MAX:.0f}초", s["p95"] <= P95_SECONDS_MAX),
+        ("비사실", "사람 판정", f"≤ {FABRICATED_RATE_MAX:.0%} ({n}답 중 {fab_max}건 이하)", None),
+        ("근거 정확도", "사람 판정", f"≥ {GROUNDED_RATE_MIN:.0%}", None),
+        ("오도", "사람 판정", "건수만 보고", None),
+    ]
 
 
 def report(rows: list[Row], base: dict, model: str, budget: int) -> str:
     t = base["totals"]
-    lines = [f"# 결과 화면 채팅 평가 — 모델 {model}, 예산 {budget:,}원", "",
+    s = summary(rows, model)
+    lines = [f"# 결과 화면 채팅 평가 — 모델 {model}, 예산 {budget:,}원, {s['runs']}판 × {s['questions']}문항", "",
              "기준 구성: " + " / ".join(f"{i['slot']} {i['product']['name']} {i['price']:,}" for i in base["items"]),
-             f"총액 {t['selected_price']:,} · 잔여 {t['budget_remaining']:,}", ""]
-    bad = [r for r in rows if r.problems]
-    lines += [f"자동 점검: {len(rows) - len(bad)}/{len(rows)} 통과 (구조만 — 답의 내용은 아래를 읽고 판단)", "",
-              "| 유형 | 질문 | 부른 도구 | 자동 점검 |", "|---|---|---|---|"]
+             f"총액 {t['selected_price']:,} · 잔여 {t['budget_remaining']:,}", "",
+             "## 합격 기준", "", "| 지표 | 결과 | 기준 | 판정 |", "|---|---|---|---|"]
+    for name, value, rule, ok in criteria(s):
+        lines.append(f"| {name} | {value} | {rule} | {'—' if ok is None else '합격' if ok else '**미달**'} |")
+    lines += ["", f"- 10초를 넘은 답: {s['over10']}개"]
+    if s["server_p50_ms"] is not None:
+        lines.append(f"- 서버 처리 시간(턴 기록): p50 {s['server_p50_ms'] / 1000:.1f}초 · p95 {s['server_p95_ms'] / 1000:.1f}초")
+    if s["token_turns"]:
+        per = (s["tokens_in"] + s["tokens_out"]) / s["token_turns"]
+        cost = f" · 추정 비용 ${s['cost_usd']:.4f} (턴당 ${s['cost_usd'] / s['token_turns']:.5f}, 캐시 할인 미반영)" \
+            if s["cost_usd"] is not None else f" · 단가 미등록 모델({model})"
+        lines.append(f"- 토큰: 입력 {s['tokens_in']:,} · 출력 {s['tokens_out']:,} (턴당 평균 {per:,.0f}, "
+                     f"{s['token_turns']}/{s['n']}턴에 기록){cost}")
+    lines += ["", "## 문항별", "", "| 판 | 유형 | 질문 | 부른 도구 | 자동 점검 |", "|---|---|---|---|---|"]
     for r in rows:
-        lines.append(f"| {r.q.kind} | {r.q.text} | {', '.join(r.called) or '-'} | {'; '.join(r.problems) or 'OK'} |")
+        lines.append(f"| {r.run} | {r.q.kind} | {r.q.text} | {', '.join(r.called) or '-'} | {'; '.join(r.problems) or 'OK'} |")
     lines.append("")
     for r in rows:
-        lines += [f"## [{r.q.kind}] {r.q.text}", "", f"- 도구: {r.trace or '(없음 — 규칙 경로이거나 도구 없이 답함)'}",
+        lines += [f"## [{r.run}판 · {r.q.kind}] {r.q.text}", "",
+                  f"- 경로: {r.turn.get('path') or '-'} · 도구: {', '.join(r.called) or '(없음)'}",
                   f"- 구성표 변화: {'; '.join(r.changed) or '없음'} · {r.seconds}s"]
         if r.rejected:
-            lines.append(f"- 수치 가드: {r.rejected}")
+            lines.append(f"- 수치 가드: {r.turn['guard']}")
+        outputs = r.turn.get("outputs") or []
+        if outputs:
+            # 사람이 답을 판정하려면 도구 결과 원문이 있어야 한다(trace 는 160자로 잘린다 — 10/7 판정 때 DB 를 다시 봤다)
+            lines += ["- 도구 결과 원문:", "", "```", *("\n".join(f"[{c.split(' → ', 1)[0]}]\n{o}"
+                      for c, o in zip(r.trace, outputs)).splitlines()), "```"]
         lines += ["", "> " + r.reply.replace("\n", "\n> "), ""]
     return "\n".join(lines)
 
@@ -220,6 +328,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--budget", type=int, default=1_500_000)
     parser.add_argument("--only", default="", help="유형을 쉼표로 (upgrade,whatif,...)")
+    parser.add_argument("--repeat", type=int, default=1, help="같은 문항을 몇 판 돌릴지 (합격 판정은 3판 기준)")
     parser.add_argument("--out", default="", help="보고서(markdown) 경로")
     args = parser.parse_args(argv)
 
@@ -233,15 +342,18 @@ def main(argv: list[str] | None = None) -> int:
         print("경고: 결과 에이전트가 꺼져 있어 규칙 경로만 평가합니다 (MOCK_MODE=0 · OPENAI_API_KEY · LLM_MODEL · RESULT_AGENT=1).")
     kinds = {k.strip() for k in args.only.split(",") if k.strip()}
     questions = [q for q in QUESTIONS if not kinds or q.kind in kinds]
-    print(f"DB: {db} · 모델: {LLM_MODEL if result_agent.available() else '규칙 경로'} · 질문 {len(questions)}개\n")
-    rows, base = run(questions, args.budget)
-    text = report(rows, base, LLM_MODEL if result_agent.available() else "rules", args.budget)
+    model = LLM_MODEL if result_agent.available() else "rules"
+    print(f"DB: {db} · 모델: {model} · 질문 {len(questions)}개 × {args.repeat}판\n")
+    rows, base = run(questions, args.budget, args.repeat)
+    text = report(rows, base, model, args.budget)
     if args.out:
         Path(args.out).write_text(text, encoding="utf-8")
         print(f"\n보고서: {args.out}")
-    bad = sum(1 for r in rows if r.problems)
-    print(f"자동 점검 {len(rows) - bad}/{len(rows)} 통과")
-    return 0 if not bad else 1
+    results = criteria(summary(rows, model))
+    for name, value, rule, ok in results:
+        if ok is not None:
+            print(f"{'합격' if ok else '미달'}  {name}: {value} (기준 {rule})")
+    return 0 if all(ok is not False for *_, ok in results) else 1
 
 
 if __name__ == "__main__":
