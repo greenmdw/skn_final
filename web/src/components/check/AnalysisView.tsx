@@ -8,7 +8,7 @@ const STATE_LABEL = { ok: '통과', fail: '문제', unknown: '확인 못 함', s
 const STATE_CLASS = { ok: 'ok', fail: 'miss', unknown: 'warn', skipped: 'warn' } as const
 
 export default function AnalysisView({
-  analysis, conditions, sectionRef, onBack, onOpenSaved, savedOpen, onCart, cartBusy, onUpgrade, savedPanel, liveLookup, onLiveLookup,
+  analysis, conditions, sectionRef, onBack, onOpenSaved, savedOpen, onCart, cartBusy, savedPanel, liveLookup, onLiveLookup,
 }: {
   analysis: QuoteDraftAnalysis
   conditions: Record<string, unknown>
@@ -18,7 +18,6 @@ export default function AnalysisView({
   savedOpen: boolean
   onCart: () => void
   cartBusy: boolean
-  onUpgrade: () => void
   savedPanel: ReactNode
   liveLookup: Record<string, LiveLookupState>
   onLiveLookup: (item: QuoteDraftItem) => void
@@ -209,7 +208,6 @@ export default function AnalysisView({
 
       <div className="ck-analysis-actions">
         <button type="button" className="ck-outline" onClick={onBack}>인식 결과 고치기</button>
-        <button type="button" className="ck-outline" onClick={onUpgrade} title="이 견적의 부품을 유지하고, 예산 안에서 바꾸면 좋은 부품을 추천받아요">업그레이드 추천 받기</button>
         <button type="button" className="ck-primary" disabled={cartBusy} onClick={onCart}>{cartBusy ? '반영 중…' : '이 견적으로 장바구니 담기'}</button>
       </div>
     </section>

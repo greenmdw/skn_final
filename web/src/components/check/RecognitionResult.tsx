@@ -1,13 +1,13 @@
 import { useMemo } from 'react'
 import type { QuoteDraft, QuoteRecommendedOption, QuoteReplacementPreview } from '../../api'
 import {
-  groupItems, itemStatus, matchedLine, selectedTotal, signedWon, sourceBadge, withPending, wonText, type PendingEdit,
+  MAX_QUANTITY, groupItems, itemStatus, matchedLine, selectedTotal, signedWon, sourceBadge, withPending, wonText, type PendingEdit,
 } from '../../utils/checkReview'
 
 export type ResultFilter = 'all' | 'review' | 'checked'
 
 export default function RecognitionResult({
-  draft, selection, pending, filter, onFilter, onSelect, onEdit, onCompare, cart, cartPreview, cartPreviewBusy, onClearCart, onApplyCart,
+  draft, selection, pending, filter, onFilter, onSelect, onEdit, onQuantity, onCompare, cart, cartPreview, cartPreviewBusy, onClearCart, onApplyCart,
   onCancelEdits, onReanalyze, onAnalyze, onReviewOnly, busy,
 }: {
   draft: QuoteDraft
@@ -17,6 +17,7 @@ export default function RecognitionResult({
   onFilter: (filter: ResultFilter) => void
   onSelect: (category: string, itemId: string) => void
   onEdit: (itemId: string) => void
+  onQuantity: (itemId: string, quantity: number) => void
   onCompare: (category: string) => void
   cart: Record<string, QuoteRecommendedOption>
   cartPreview: QuoteReplacementPreview | null
@@ -92,7 +93,7 @@ export default function RecognitionResult({
           <tbody>
             {shownGroups.map(group => (
               <GroupRows key={group.category} group={group} all={groups.find(entry => entry.category === group.category)?.items ?? []}
-                draft={draft} selection={selection} pending={pending} statuses={statuses} onSelect={onSelect} onEdit={onEdit} onCompare={onCompare} />
+                draft={draft} selection={selection} pending={pending} statuses={statuses} busy={busy} onSelect={onSelect} onEdit={onEdit} onQuantity={onQuantity} onCompare={onCompare} />
             ))}
             {shownGroups.length === 0 && <tr><td colSpan={4} className="ck-table-empty">해당하는 부품이 없어요.</td></tr>}
           </tbody>
@@ -146,7 +147,7 @@ export default function RecognitionResult({
   )
 }
 
-function GroupRows({ group, all, draft, selection, pending, statuses, onSelect, onEdit, onCompare }: {
+function GroupRows({ group, all, draft, selection, pending, statuses, busy, onSelect, onEdit, onQuantity, onCompare }: {
   group: { category: string; shown: QuoteDraft['items'] }
   all: QuoteDraft['items']
   draft: QuoteDraft
@@ -154,7 +155,9 @@ function GroupRows({ group, all, draft, selection, pending, statuses, onSelect, 
   pending: Record<string, PendingEdit>
   statuses: Map<string, ReturnType<typeof itemStatus>>
   onSelect: (category: string, itemId: string) => void
+  busy: boolean
   onEdit: (itemId: string) => void
+  onQuantity: (itemId: string, quantity: number) => void
   onCompare: (category: string) => void
 }) {
   return (
@@ -187,7 +190,11 @@ function GroupRows({ group, all, draft, selection, pending, statuses, onSelect, 
                 </div>
                 <span className="ck-product-meta">
                   <span className="ck-variant-badge">제품 {variantNo}</span>
-                  {shownItem.quantity > 1 && <span className="ck-qty-badge" title="수량이 반영된 품목 금액이에요">수량 ×{shownItem.quantity}</span>}
+                  <span className="ck-qty-step" role="group" aria-label={`${group.category} 수량`} title="수량을 바꾸면 품목 금액도 같은 비율로 바뀌어요">
+                    <button type="button" disabled={busy || shownItem.quantity <= 1} onClick={() => onQuantity(item.id, shownItem.quantity - 1)} aria-label="수량 줄이기">−</button>
+                    <span aria-live="polite">수량 {shownItem.quantity}</span>
+                    <button type="button" disabled={busy || shownItem.quantity >= MAX_QUANTITY} onClick={() => onQuantity(item.id, shownItem.quantity + 1)} aria-label="수량 늘리기">+</button>
+                  </span>
                   <span className="ck-source-badge">▧ {sourceBadge(item, draft)}</span>
                   {item.productCode && <span className="ck-code-badge" title="견적 원문에서 분리한 상품코드">코드 {item.productCode}</span>}
                   {pending[item.id] && <span className="ck-dirty-badge">수정 대기</span>}

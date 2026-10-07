@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { Linkified } from '../../utils/linkify'
+import UpgradeCard from './UpgradeCard'
 
 export type ChatEntry =
   | { id: string; kind: 'bot' | 'user'; text: string }
@@ -6,7 +8,7 @@ export type ChatEntry =
   | { id: string; kind: 'notice'; text: string }
   | { id: string; kind: 'reply'; answerId: string; summary: string; reused: boolean }
 
-export default function CheckChat({ entries, busy, analyzed, comparing, hasAnswer, onSend, onShowAnswer }: {
+export default function CheckChat({ entries, busy, analyzed, comparing, hasAnswer, onSend, onShowAnswer, upgrade, onOpenUpgrade }: {
   entries: ChatEntry[]
   busy: boolean
   analyzed: boolean
@@ -14,6 +16,10 @@ export default function CheckChat({ entries, busy, analyzed, comparing, hasAnswe
   hasAnswer: (answerId: string) => boolean
   onSend: (text: string) => void
   onShowAnswer: (answerId: string) => void
+  /** 분석이 끝난 뒤 입력칸 위에 "업그레이드 추천 받기" 버튼을 보여 준다 */
+  onOpenUpgrade?: () => void
+  /** 있으면 대화 맨 아래에 업그레이드 추천 입력 카드를 보여 준다 */
+  upgrade?: { initialBudget: number | null; initialQuestion: string; busy: boolean; onSubmit: (budget: number, question: string) => void; onCancel: () => void } | null
 }) {
   const [draft, setDraft] = useState('')
   const logRef = useRef<HTMLDivElement>(null)
@@ -21,7 +27,7 @@ export default function CheckChat({ entries, busy, analyzed, comparing, hasAnswe
   useEffect(() => {
     const log = logRef.current
     if (log) log.scrollTop = log.scrollHeight
-  }, [entries, busy])
+  }, [entries, busy, upgrade])
 
   function submit(event?: FormEvent) {
     event?.preventDefault()
@@ -56,7 +62,7 @@ export default function CheckChat({ entries, busy, analyzed, comparing, hasAnswe
               </div>
             )
           }
-          if (entry.kind === 'notice') return <div className="ck-bubble notice" key={entry.id}>{entry.text}</div>
+          if (entry.kind === 'notice') return <div className="ck-bubble notice" key={entry.id}><Linkified text={entry.text} /></div>
           if (entry.kind === 'reply') {
             return (
               <div className="ck-bubble reply" key={entry.id}>
@@ -66,12 +72,18 @@ export default function CheckChat({ entries, busy, analyzed, comparing, hasAnswe
               </div>
             )
           }
-          return <div className={`ck-bubble${entry.kind === 'user' ? ' user' : ''}`} key={entry.id}>{entry.text}</div>
+          return <div className={`ck-bubble${entry.kind === 'user' ? ' user' : ''}`} key={entry.id}><Linkified text={entry.text} /></div>
         })}
+        {upgrade && <UpgradeCard initialBudget={upgrade.initialBudget} initialQuestion={upgrade.initialQuestion} busy={upgrade.busy} onSubmit={upgrade.onSubmit} onCancel={upgrade.onCancel} />}
         {busy && <div className="pl-typing pl-mono">···</div>}
       </div>
       <div className="pl-chat-foot ck-chat-foot">
-        <p className="ck-chat-hint">{hint}</p>
+        <div className="ck-chat-hint-row">
+          <p className="ck-chat-hint">{hint}</p>
+          {analyzed && onOpenUpgrade && (
+            <button type="button" className="ck-chat-upgrade" onClick={onOpenUpgrade} disabled={Boolean(upgrade)} title="이 견적의 부품을 유지하고, 예산 안에서 바꾸면 좋은 부품을 추천받아요">업그레이드 추천 받기</button>
+          )}
+        </div>
         <form className="ck-chat-input" onSubmit={submit}>
           <textarea value={draft} onChange={event => setDraft(event.target.value)} onKeyDown={onKeyDown} aria-label="추가 질문" placeholder="예: 파워 용량이 충분한지도 봐줘" />
           <button type="submit" disabled={busy || !draft.trim()}>보내기</button>

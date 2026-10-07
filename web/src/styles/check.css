@@ -128,6 +128,11 @@
 .ck-product-title { min-width: 0; display: flex; align-items: center; gap: 7px; }
 .ck-product-name { min-width: 0; color: var(--text); line-height: 1.45; overflow-wrap: anywhere; }
 .ck-qty-badge { padding: 3px 6px; border-radius: 5px; background: color-mix(in srgb, var(--mint) 12%, transparent); color: var(--mint); font-size: 9px; font-weight: 700; white-space: nowrap; }
+.ck-qty-step { display: inline-flex; align-items: center; gap: 2px; padding: 1px; border: 1px solid var(--line2); border-radius: 7px; }
+.ck-qty-step > span { min-width: 44px; padding: 0 4px; text-align: center; color: var(--text); font-size: 10px; font-weight: 700; white-space: nowrap; }
+.ck-qty-step button { width: 20px; height: 20px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--mint); font-size: 14px; line-height: 1; cursor: pointer; }
+.ck-qty-step button:hover:not(:disabled) { background: color-mix(in srgb, var(--mint) 12%, transparent); }
+.ck-qty-step button:disabled { opacity: .35; cursor: not-allowed; }
 .ck-product-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 5px; }
 .ck-code-badge { padding: 3px 6px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font: 9px ui-monospace, monospace; cursor: help; }
 .ck-dirty-badge { padding: 3px 6px; border-radius: 5px; background: color-mix(in srgb, var(--ck-warn) 14%, transparent); color: var(--ck-warn); font-size: 9px; }
@@ -458,3 +463,24 @@
   .ck-saved-option strong { justify-self: start; }
   .ck-edit-row { grid-template-columns: 1fr; }
 }
+
+/* 대화창 안의 업그레이드 추천 입력 카드 */
+.ck-upgrade-card { align-self: stretch; display: flex; flex-direction: column; gap: 10px; padding: 14px 15px; border: 1px solid var(--line2); border-radius: 14px; background: var(--panel2); }
+.ck-upgrade-card > b { font-size: 14px; }
+.ck-upgrade-card > p { margin: -4px 0 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.ck-upgrade-card label { display: flex; flex-direction: column; gap: 5px; color: var(--muted); font-size: 11px; }
+.ck-upgrade-card input { height: 36px; padding: 0 10px; border: 1px solid var(--line2); border-radius: 9px; background: var(--ink); color: var(--text); font: inherit; font-size: 13px; }
+.ck-upgrade-card input:disabled { opacity: .6; }
+.ck-upgrade-card small { color: var(--muted); font-size: 10px; line-height: 1.5; }
+.ck-upgrade-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: -4px; }
+.ck-upgrade-chips button { padding: 5px 9px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; }
+.ck-upgrade-chips button:hover:not(:disabled), .ck-upgrade-chips button.on { border-color: var(--line2); color: var(--mint); background: color-mix(in srgb, var(--mint) 8%, transparent); }
+.ck-upgrade-actions { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.ck-upgrade-actions .ck-primary { padding: 9px 16px; font-size: 13px; }
+
+/* 입력칸 위 안내 줄: 안내 문구 왼쪽, 업그레이드 추천 버튼 오른쪽 */
+.ck-chat-hint-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 2px 9px; }
+.ck-chat-hint-row .ck-chat-hint { margin: 0; flex: 1 1 0; min-width: 0; }
+.ck-chat-upgrade { flex: none; padding: 6px 10px; border: 1px solid var(--line2); border-radius: 8px; background: transparent; color: var(--mint); font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.ck-chat-upgrade:hover:not(:disabled) { background: color-mix(in srgb, var(--mint) 9%, transparent); }
+.ck-chat-upgrade:disabled { opacity: .45; cursor: default; }

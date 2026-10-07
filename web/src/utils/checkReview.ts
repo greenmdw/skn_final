@@ -116,6 +116,21 @@ export function withPending(item: QuoteDraftItem, pending?: PendingEdit): QuoteD
   }
 }
 
+export const MAX_QUANTITY = 20
+
+/**
+ * 수량을 바꾼 수정 대기 값. 품목 금액은 수량이 반영된 값이라, 금액을 읽은 항목은 1개 값은 그대로 두고 비례해서 다시 계산한다.
+ * 원래 값으로 돌아오면(이름·수량·금액이 모두 같으면) null — 수정 대기에서 뺀다.
+ */
+export function withQuantity(item: QuoteDraftItem, pending: PendingEdit | undefined, next: number): PendingEdit | null {
+  const shown = withPending(item, pending)
+  const lineTotal = shown.lineTotal == null ? undefined : Math.round(shown.lineTotal / Math.max(shown.quantity, 1) * next)
+  const merged: PendingEdit = { ...pending, quantity: next, ...(lineTotal === undefined ? {} : { lineTotal }) }
+  const same = (merged.name === undefined || merged.name === item.name) && merged.quantity === item.quantity
+    && (merged.lineTotal === undefined || merged.lineTotal === item.lineTotal)
+  return same ? null : merged
+}
+
 export function pendingToEdits(pending: Record<string, PendingEdit>): QuoteDraftItemEdit[] {
   return Object.entries(pending).map(([id, edit]) => (edit.delete ? { id, delete: true } : { id, name: edit.name, quantity: edit.quantity, lineTotal: edit.lineTotal }))
 }

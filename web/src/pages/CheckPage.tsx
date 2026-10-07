@@ -4,7 +4,6 @@ import PlannerShell from '../components/PlannerShell'
 import AnalysisView, { type LiveLookupState } from '../components/check/AnalysisView'
 import CheckChat, { type ChatEntry } from '../components/check/CheckChat'
 import ItemEditDialog from '../components/check/ItemEditDialog'
-import UpgradeDialog from '../components/check/UpgradeDialog'
 import PartCompareDialog, { type CompareChoice } from '../components/check/PartCompareDialog'
 import QuoteUploader, { type UploadFile } from '../components/check/QuoteUploader'
 import RecognitionResult, { type ResultFilter } from '../components/check/RecognitionResult'
@@ -20,7 +19,7 @@ import { useSetups } from '../state/SetupsContext'
 import { useToast } from '../state/ToastContext'
 import type { CheckDraft, CurrentPlan, SavedSetup } from '../state/types'
 import {
-  REVIEW_PART_KEYS, effectiveSelection, newClientId, pendingToEdits, questionTags, readAsText, scrollMainTo, type PendingEdit,
+  REVIEW_PART_KEYS, effectiveSelection, newClientId, withQuantity, pendingToEdits, questionTags, readAsText, scrollMainTo, type PendingEdit,
 } from '../utils/checkReview'
 import { checkSessionInfo, registerCheckSession, rememberCheckComparison } from '../utils/checkSessions'
 import '../styles/check.css'
@@ -325,6 +324,19 @@ export default function CheckPage() {
     showToast(edit.delete ? '이 항목을 삭제 목록에 담았어요. 다시 분석할 때 반영돼요.' : '수정을 목록에 담았어요. 여러 항목을 마친 뒤 한 번에 분석해요.')
   }
 
+  // 목록의 +/- 버튼. 대화상자를 열지 않고 수량만 바꿔 수정 대기에 담는다(다시 분석할 때 한 번에 반영).
+  function changeQuantity(itemId: string, next: number) {
+    const item = draft?.items.find(entry => entry.id === itemId)
+    if (!item) return
+    const edit = withQuantity(item, pending[itemId], next)
+    setPending(previous => {
+      const rest = { ...previous }
+      if (edit) rest[itemId] = edit
+      else delete rest[itemId]
+      return rest
+    })
+  }
+
   async function reanalyzeEdits() {
     if (!draft) return
     const count = Object.keys(pending).length
@@ -543,10 +555,15 @@ export default function CheckPage() {
   async function startUpgrade(budgetWon: number, upgradeQuestion: string) {
     if (!analysis) return
     setUpgradeBusy(true)
+    setChatEntries(previous => [...previous,
+      { id: nextId('u'), kind: 'user', text: `업그레이드 예산 ${budgetWon.toLocaleString('ko-KR')}원 · ${upgradeQuestion}` },
+      { id: nextId('b'), kind: 'bot', text: '지금 견적을 유지하고 업그레이드할 부품을 찾고 있어요. 잠시만 기다려 주세요.' },
+    ])
     const checkDraft: CheckDraft = { question: upgradeQuestion, budget: String(budgetWon), rows: analysis.parts }
     const started = await startUpgradeMode(checkDraft)
     setUpgradeBusy(false)
-    if (started) { setUpgradeOpen(false); navigate('/plan') }
+    if (started) { setUpgradeOpen(false); navigate('/plan'); return }
+    setChatEntries(previous => [...previous, { id: nextId('b'), kind: 'bot', text: '업그레이드 추천을 받지 못했어요. 예산이나 질문을 확인하고 다시 시도해 주세요.' }])
   }
 
   // ── 장바구니 ─────────────────────────────────────────────────────────────
@@ -617,6 +634,14 @@ export default function CheckPage() {
       <CheckChat
         entries={chatEntries} busy={chatBusy} analyzed={Boolean(analysis)} comparing={Boolean(comparison && savedVisible)}
         hasAnswer={id => answers.some(answer => answer.id === id)} onSend={text => void sendChat(text)} onShowAnswer={showAnswer}
+        onOpenUpgrade={() => setUpgradeOpen(true)}
+        upgrade={upgradeOpen && analysis ? {
+          initialBudget: typeof draft?.conditions.budget_max === 'number' ? draft.conditions.budget_max : null,
+          initialQuestion: analysis.question?.trim() || '업그레이드 우선순위를 알려줘',
+          busy: upgradeBusy,
+          onSubmit: (budgetWon, upgradeQuestion) => void startUpgrade(budgetWon, upgradeQuestion),
+          onCancel: () => setUpgradeOpen(false),
+        } : null}
       />
     }>
       <div className="ck-page">
@@ -651,7 +676,7 @@ export default function CheckPage() {
               <RecognitionResult
                 draft={draft} selection={selection} pending={pending} filter={filter} onFilter={setFilter}
                 onSelect={(category, itemId) => setSelection(previous => ({ ...previous, [category]: itemId }))}
-                onEdit={setEditingId} onCompare={category => void openCompare(category)}
+                onEdit={setEditingId} onQuantity={changeQuantity} onCompare={category => void openCompare(category)}
                 cart={cart} cartPreview={cartPreview} cartPreviewBusy={cartPreviewBusy}
                 onClearCart={() => { setCart({}); showToast('교체 목록을 비웠어요.') }} onApplyCart={() => void applyCart()}
                 onCancelEdits={() => { setPending({}); setSelection(effectiveSelection(draft, selection)); showToast('아직 분석하지 않은 수정을 모두 취소했어요.') }}
@@ -669,20 +694,12 @@ export default function CheckPage() {
             <AnalysisView
               analysis={analysis} conditions={draft.conditions} sectionRef={analysisRef}
               onBack={backToResults} onOpenSaved={() => { setPickerError(''); setPickedSetupId(comparison ? pickedSetupId : null); setPickerOpen(true) }}
-              savedOpen={Boolean(comparison && savedVisible)} onCart={() => void applyWholeQuote()} cartBusy={busy === 'apply'} onUpgrade={() => setUpgradeOpen(true)}
+              savedOpen={Boolean(comparison && savedVisible)} onCart={() => void applyWholeQuote()} cartBusy={busy === 'apply'}
               savedPanel={savedPanel} liveLookup={liveLookup} onLiveLookup={item => void runLiveLookup(item)}
             />
           </div>
         )}
       </div>
-
-      {upgradeOpen && analysis && (
-        <UpgradeDialog
-          initialBudget={typeof draft?.conditions.budget_max === 'number' ? draft.conditions.budget_max : null}
-          initialQuestion={analysis.question?.trim() || '업그레이드 우선순위를 알려줘'}
-          busy={upgradeBusy} onConfirm={(budgetWon, upgradeQuestion) => void startUpgrade(budgetWon, upgradeQuestion)} onClose={() => setUpgradeOpen(false)}
-        />
-      )}
 
       {editingItem && (
         <ItemEditDialog item={editingItem} pending={pending[editingItem.id]} onSave={saveEdit} onClose={() => setEditingId(null)} />
