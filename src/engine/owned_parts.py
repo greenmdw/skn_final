@@ -190,8 +190,14 @@ _BOARD_CHIPSET_M = re.compile(r"(?<![A-Z0-9])[ABHXZ]\d{3}M(?![A-Z0-9])")
 _RADIATORS = (120, 140, 240, 280, 360, 420, 480)
 
 
+_RAM_BUNDLE_LABEL = re.compile(r"\[\s*(?:DDR[345]\s*)?\d{1,3}\s*(?:GB|G|TB)\s*\]", re.IGNORECASE)
+
+
 def _ram_specs(text: str) -> dict[str, Any]:
     out: dict[str, Any] = {}
+    quantity = line_quantity(text)
+    # 쇼핑몰이 이름 앞에 붙이는 "[DDR5 32G]"는 묶음 합계 표기다 — 낱개 용량으로 읽지 않는다(낱개 용량 × 수량이 총용량).
+    text = _RAM_BUNDLE_LABEL.sub(" ", text)
     speed = _RAM_SPEED.search(text)
     if speed:
         out["speed_mts"] = int(speed.group(1) or speed.group(2))
@@ -202,7 +208,11 @@ def _ram_specs(text: str) -> dict[str, Any]:
     else:
         size = _RAM_SIZE.search(text)
         if size:
-            out["capacity_gb"] = int(size.group(1))
+            each = int(size.group(1))
+            if quantity > 1:          # "16GB … 2개" — 낱개 16GB 두 장. 총용량·모듈 수는 장수만큼(카탈로그 RAM 과 같은 규칙)
+                out["capacity_gb"], out["module_config"] = each * quantity, f"{each}GB × {quantity}"
+            else:
+                out["capacity_gb"] = each
     return out
 
 
@@ -490,11 +500,16 @@ def _preview_note(info: dict[str, Any]) -> str:
         return f"실시간 검색 결과 — {detail}{src} · 카탈로그 정식 등재 값 아님"
     parts = [f"{_SPEC_LABEL.get(k, k)}: {'/'.join(map(str, v)) if isinstance(v, list) else v}" for k, v in specs.items()]
     prefix = "모델명·칩셋 규칙으로 추정 — " if info.get("inferred") else "글에서 읽음 — "
-    return prefix + (", ".join(parts) if parts else "세부 스펙 없음")
+    note = prefix + (", ".join(parts) if parts else "세부 스펙 없음")
+    if info.get("live_filled"):       # 글에서 못 읽은 값을 실시간 검색으로 채웠다 — 어떤 값인지 밝힌다
+        labels = ", ".join(_SPEC_LABEL.get(k, k) for k in info["live_filled"])
+        note += f" · 실시간 검색으로 보충: {labels}"
+    return note
 
 
 def preview_current_specs(current_specs: Any, by_slot: dict[str, list[Candidate]],
-                          slot_structure: Iterable[str]) -> list[dict[str, Any]]:
+                          slot_structure: Iterable[str],
+                          owned: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
     """사용자가 적은 사양 텍스트(current_specs)를 견적 점검 화면의 "확인된 PC 구성" 표로 바꾼다.
 
     판정은 resolve_owned_parts — 실제 추천 실행(owned_for_conditions)과 **같은 함수**를 쓴다.
@@ -508,7 +523,8 @@ def preview_current_specs(current_specs: Any, by_slot: dict[str, list[Candidate]
     if not isinstance(current_specs, dict):
         return []
     given = {(normalize_pc_slot(k) or str(k).strip()): v for k, v in current_specs.items()}
-    owned = resolve_owned_parts(current_specs, by_slot, slot_structure)
+    # owned 를 주면(점검 분석이 실시간 검색 값까지 합쳐 둔 것) 그 판정을 그대로 쓴다 — 표와 호환 검사가 같은 값을 보게.
+    owned = owned if owned is not None else resolve_owned_parts(current_specs, by_slot, slot_structure)
     rows: list[dict[str, Any]] = []
     for slot in slot_structure:
         text = given.get(slot)
@@ -518,10 +534,13 @@ def preview_current_specs(current_specs: Any, by_slot: dict[str, list[Candidate]
         info = owned[slot]                    # resolve_owned_parts는 text가 있으면 반드시 항목을 만든다
         matched = info["name"]                # 카탈로그 대응이면 카탈로그 이름, 아니면 가격 표기를 뺀 사용자 문구
         status = _match_status(info)
-        rows.append({"part": slot, "original": original, "matched": matched,
-                    "matched_note": _preview_note(info), "state": _PREVIEW_STATE[info["source"]],
-                    "match_status": status,
-                    "candidate_count": info.get("candidate_count") if status == "ambiguous" else None})
+        row = {"part": slot, "original": original, "matched": matched,
+               "matched_note": _preview_note(info), "state": _PREVIEW_STATE[info["source"]],
+               "match_status": status,
+               "candidate_count": info.get("candidate_count") if status == "ambiguous" else None}
+        if info["source"] == "live" or info.get("live_filled"):
+            row["value_source"] = "live"          # 실시간 검색 값을 썼을 때만 붙인다 — 다른 행의 모양은 그대로
+        rows.append(row)
     return rows
 
 
@@ -548,6 +567,7 @@ def merge_live_lookup(owned: dict[str, dict[str, Any]], current_specs: Any, cach
     면 그대로 unverified로 둔다 — 여기서 새로 검색하지 않는다(자동 실행 금지 원칙, §8)."""
     if not isinstance(current_specs, dict):
         return
+    given = {(normalize_pc_slot(k) or str(k).strip()): v for k, v in current_specs.items()}
     for slot, info in owned.items():
         source = info.get("source")
         if source not in ("unverified", "text", "inferred"):
@@ -568,7 +588,8 @@ def merge_live_lookup(owned: dict[str, dict[str, Any]], current_specs: Any, cach
         if not fields:
             continue
         if source == "unverified":
-            info["specs"] = fields
+            # 검색 값은 "제품 하나" 기준이다(몇 개 사는지는 모른다) — 개수는 견적에 적힌 수량으로 곱한다(카탈로그 RAM 과 같은 규칙).
+            info["specs"] = _scale_ram_to_quote(fields, str(given.get(slot) or "")) if slot == "RAM" else fields
             info["source"] = "live"
             info["source_url"] = row.get("source_url")
             continue

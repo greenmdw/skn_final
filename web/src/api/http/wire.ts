@@ -64,6 +64,8 @@ export interface WireOwnedPartsPreviewRow {
   state: 'ok' | 'warn'
   match_status: 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'
   candidate_count: number | null
+  /** 'live' 면 이 행의 값(전부 또는 일부)이 실시간 검색 결과다 — 카탈로그 정식 값이 아니다 */
+  value_source?: 'live' | null
 }
 
 export interface WireQuoteCompat {
@@ -115,6 +117,8 @@ export interface WireQuoteDraftItem {
   image_url: string | null
   match_status: 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'
   candidate_count: number | null; source_ids: string[]; selected_for_analysis: boolean; user_edited: boolean
+  /** 실시간 검색 값이 임시 저장소에 있다(저장되지 않는 표시) */
+  live_value?: boolean
 }
 export interface WireQuoteDraft {
   draft_id: string; version: number

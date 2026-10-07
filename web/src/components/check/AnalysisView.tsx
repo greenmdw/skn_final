@@ -1,6 +1,6 @@
 import type { ReactNode, RefObject } from 'react'
 import type { LiveSpecLookupResult, QuoteDraftAnalysis, QuoteDraftItem } from '../../api'
-import { checkedAgo, conditionTags, signedWon, wonText } from '../../utils/checkReview'
+import { checkedAgo, conditionTags, searchedAgo, signedWon, wonText } from '../../utils/checkReview'
 
 export type LiveLookupState = { status: 'loading' | 'done'; result?: LiveSpecLookupResult; error?: string }
 
@@ -192,7 +192,7 @@ export default function AnalysisView({
                             {lookup.result.referencePrice != null && <p className="ck-unmatched-source">참고가 약 {lookup.result.referencePrice.toLocaleString('ko-KR')}원 · 합계·가격 비교에는 넣지 않았어요</p>}
                             <p className="ck-unmatched-disclaimer">
                               {lookup.result.reviewStatus === 'confirmed' && <span className="ck-unmatched-badge">확인됨</span>}
-                              {checkedAgo(lookup.result.fetchedAt)} · 카탈로그 정식 등재 값이 아니라 실시간 검색 결과예요 — 구매 전 공식 사이트에서 다시 확인하세요.
+                              {searchedAgo(lookup.result.fetchedAt)} · 카탈로그 정식 등재 값이 아니라 실시간 검색 결과예요 — 구매 전 공식 사이트에서 다시 확인하세요.
                             </p>
                           </>
                         ) : (

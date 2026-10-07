@@ -24,7 +24,7 @@ from src.agent import spec_extraction_agent
 from src.auth.deps import Principal
 from src.config import QUOTE_DRAFT_MAX_FILES, QUOTE_DRAFT_MAX_FILE_BYTES, QUOTE_DRAFT_MAX_TOTAL_BYTES
 from src.engine.owned_parts import preview_current_specs, resolve_owned_parts
-from src.engine.quote_items import default_selection, merge_same_products, spec_text, split_line
+from src.engine.quote_items import default_selection, is_placeholder_line, merge_same_products, spec_text, split_line
 from src.engine.spec_text import parse_spec_lines
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.errors import Conflict, NotFound, ServiceUnavailable, TruefitError, ValidationFailed
@@ -195,11 +195,15 @@ def recognize(files: list[tuple[str, str | None, bytes]], text: str | None, by_s
     items: list[dict] = []
     for index, found in raw_by_source.items():
         for entry in found:
+            if is_placeholder_line(entry["raw_text"]):      # "별도구매"·"기본 쿨러 장착" 같은 선택 안내 줄은 부품이 아니다
+                continue
             items.append(_make_item(entry["category"], entry["raw_text"], sources[index]["id"], by_slot))
     if text and text.strip():
         sources.append({"id": "source-text", "type": "text", "file_name": None, "sort_order": len(sources) + 1,
                         "status": "completed", "error_code": None})
         for entry in _text_items(text):
+            if is_placeholder_line(entry["raw_text"]):
+                continue
             items.append(_make_item(entry["category"], entry["raw_text"], "source-text", by_slot))
     if jobs and all(s["status"] == "failed" for s in sources if s["type"] == "image") and not items:
         raise ServiceUnavailable("이미지 인식에 실패했습니다. 잠시 후 다시 시도해 주세요.", code="IMAGE_EXTRACTION_FAILED")
@@ -288,6 +292,17 @@ def groups(draft: dict) -> list[dict]:
         out.append({"id": source["id"], "name": name, "source_ids": [source["id"]],
                     "item_ids": [i["id"] for i in draft["items"] if source["id"] in i["source_ids"]]})
     return out
+
+
+def mark_live_values(conn, draft: dict) -> dict:
+    """항목마다 "실시간 검색 값이 저장소에 있다"를 표시한다 — 응답을 만들 때만 읽어 채우고 저장하지 않는다.
+    카탈로그와 확정 대응된 항목은 검색 값을 쓰지 않으므로 표시하지 않는다."""
+    from src.services import live_spec_lookup
+
+    for item in draft["items"]:
+        item["live_value"] = item["match_status"] != "confirmed" and live_spec_lookup.has_stored_value(
+            conn, item["normalized_name"], item["category"])
+    return draft
 
 
 def draft_out(list_id: str, draft: dict) -> dict:

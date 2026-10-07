@@ -16,6 +16,20 @@ _DOLLAR_PRICE = re.compile(r"\$\s*\d[\d,]*(?:\.\d+)?")      # "$368.99" — 원 
 _COUNT_TOKEN = re.compile(r"(?<![\d.])\d{1,2}\s*(?:개|ea\b)|수량\s*:?\s*\d{1,2}", re.IGNORECASE)
 
 
+# 견적 표의 "고르지 않음" 칸 — 부품이 아니라 선택 안내 문구다. 이걸 부품으로 읽으면 대응 실패로 표시되고 실시간 검색까지 돈다.
+_PLACEHOLDER_ALWAYS = re.compile(r"별도\s*구매|선택\s*안\s*함|선택\s*없음|미\s*선택|기본\s*쿨러\s*장착|쿨러\s*미\s*포함")
+_PLACEHOLDER_IF_NO_MODEL = re.compile(r"추가\s*선택\s*가능")
+
+
+def is_placeholder_line(raw_text: str) -> bool:
+    """부품이 아닌 선택 안내 줄인가("별도구매 (추가선택가능)", "CPU 기본 쿨러 장착 (추가선택가능)").
+    "추가선택가능"만 있는 줄은 숫자(모델 번호)가 있으면 제품으로 본다 — 제품 이름 뒤에 붙은 옵션 안내일 수 있다."""
+    text = str(raw_text or "")
+    if _PLACEHOLDER_ALWAYS.search(text):
+        return True
+    return bool(_PLACEHOLDER_IF_NO_MODEL.search(text)) and not re.search(r"\d", text)
+
+
 def split_line(raw_text: str) -> dict[str, Any]:
     """견적 한 줄 → {normalized_name, product_code, quantity, quote_unit_price, quote_line_total, quote_price_type}."""
     raw = str(raw_text or "").strip()

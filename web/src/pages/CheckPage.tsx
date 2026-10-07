@@ -383,6 +383,9 @@ export default function CheckPage() {
     try {
       const result = await api.quoteDrafts.liveLookupItem(draft.draftId, item.id)
       setLiveLookup(previous => ({ ...previous, [item.id]: { status: 'done', result } }))
+      if (result.relevant && Object.values(result.supportedFields).some(value => value != null)) {
+        setDraft(previous => previous ? { ...previous, items: previous.items.map(entry => entry.id === item.id ? { ...entry, liveValue: true } : entry) } : previous)
+      }
     } catch (caught) {
       setLiveLookup(previous => ({ ...previous, [item.id]: { status: 'done', error: errorMessage(caught, '실시간 검색에 실패했습니다.') } }))
     }

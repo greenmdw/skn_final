@@ -17,6 +17,7 @@ function itemFromWire(item: WireQuoteDraftItem): QuoteDraftItem {
     matchedProductId: item.matched_product_id, matchedProductKey: item.matched_product_key, matchedName: item.matched_name,
     imageUrl: item.image_url, matchStatus: item.match_status, candidateCount: item.candidate_count,
     sourceIds: item.source_ids, selectedForAnalysis: item.selected_for_analysis, userEdited: item.user_edited,
+    liveValue: item.live_value === true,
   }
 }
 

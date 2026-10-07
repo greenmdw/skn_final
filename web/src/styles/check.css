@@ -140,6 +140,7 @@
 .ck-status { display: inline-flex; padding: 4px 8px; border-radius: 6px; font-size: 11px; white-space: nowrap; }
 .ck-status.ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, transparent); }
 .ck-status.warn { color: var(--ck-warn); background: color-mix(in srgb, var(--ck-warn) 15%, transparent); }
+.ck-status.live { color: var(--muted); background: color-mix(in srgb, var(--muted) 14%, transparent); margin-left: 4px; }
 .ck-status.miss { color: var(--ck-bad); background: color-mix(in srgb, var(--ck-bad) 14%, transparent); }
 .ck-recognition-cell { min-width: 0; }
 .ck-matched-name { display: block; overflow: hidden; margin-top: 6px; color: var(--muted); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }

@@ -121,6 +121,29 @@ def filter_fields_for_slot(slot: str | None, fields: dict) -> dict:
     return dict(fields) if allowed is None else {k: v for k, v in fields.items() if k in allowed}
 
 
+_RAM_KIT_A = re.compile(r"(\d{1,3})\s*GB?\s*[x×*]\s*(\d{1,2})\b", re.IGNORECASE)      # 16GB x 2
+_RAM_KIT_B = re.compile(r"\b(\d{1,2})\s*[x×*]\s*(\d{1,3})\s*GB?\b", re.IGNORECASE)     # 2 x 16GB
+_RAM_SINGLE = re.compile(r"단품|낱개|싱글|single|\b1\s*(?:개|pcs?|stick|module|x)\b", re.IGNORECASE)
+
+
+def _ram_module_config(capacity, module_config) -> tuple[Any, str | None]:
+    """검색이 준 RAM 구성 문장 → (총용량, "낱개GB × 개수"). 카탈로그와 같은 표기라 견적 수량 곱셈이 그대로 먹는다.
+    키트("2 x 16GB")면 총용량도 낱개 × 개수로 맞추고, 단품이면 용량 × 1, 읽을 수 없는 문장은 구성만 버린다."""
+    text = str(module_config or "")
+    kit = _RAM_KIT_A.search(text)
+    if kit:
+        each, count = int(kit.group(1)), int(kit.group(2))
+    else:
+        kit = _RAM_KIT_B.search(text)
+        each, count = (int(kit.group(2)), int(kit.group(1))) if kit else (None, None)
+    if each:
+        return each * count, f"{each}GB × {count}"
+    if (_RAM_SINGLE.search(text) or not text.strip()) and isinstance(capacity, (int, float)) and capacity > 0:
+        each = int(capacity) if float(capacity).is_integer() else capacity
+        return capacity, f"{each}GB × 1"
+    return capacity, None
+
+
 def normalize_fields(slot: str | None, fields: dict) -> dict:
     """문장·제각각 표기인 값을 엔진이 읽는 표기로 맞추고, 하나로 정해지지 않는 값은 버린다(engine/part_values.py).
 
@@ -135,6 +158,11 @@ def normalize_fields(slot: str | None, fields: dict) -> dict:
         else:
             out.pop(key, None)
 
+    if canonical == "RAM" and out.get("module_config") is not None:
+        capacity, config = _ram_module_config(out.get("capacity_gb"), out["module_config"])
+        put("module_config", config)
+        if config and capacity is not None:
+            out["capacity_gb"] = capacity
     if "mem_type" in out:
         put("mem_type", canonical_ddr(out["mem_type"]))
     if "cooling_type" in out:
@@ -162,13 +190,14 @@ def clean_fields(slot: str | None, fields: dict) -> dict:
 # ── 이름 확인(코드) ──────────────────────────────────────────────────────────────────────────
 _UNIT_NUMBER = re.compile(r"^(\d+)(?:w|gb|tb|mm|hz|mhz|mts)$")
 _MIN_IDENTITY_LEN = 3
+_CAPACITY_SHORTHAND = re.compile(r"^\d{1,3}g$")      # "32G" — 쇼핑몰이 붙인 용량 표기. 제품 모델 번호가 아니다(5600G 같은 네 자리는 모델이다)
 
 
 def _identity_tokens(name: str) -> set[str]:
     """질문한 제품을 가려내는 낱말 — 숫자가 든 모델 번호(RM1999x, 19900k, 9999). 짧은 것(i9·z1)과 DDR 세대·용량은 뺀다."""
     out: set[str] = set()
     for token in _significant(_tokens(name)):
-        if not _is_model_token(token) or re.fullmatch(r"ddr[345]", token):
+        if not _is_model_token(token) or re.fullmatch(r"ddr[345]", token) or _CAPACITY_SHORTHAND.match(token):
             continue
         match = _UNIT_NUMBER.match(token)
         token = match.group(1) if match else token          # 850W → 850
@@ -198,7 +227,15 @@ def available() -> bool:
 # ── 조회 키 정규화 (설계 §9.3-1) ─────────────────────────────────────────────────────────────
 _BRACKETS = re.compile(r"[\[\](){}（）]")
 # "x2" "× 2" "*2" "2개" "수량 2" — 5800X3D 같은 모델명 속 X3 는 뒤에 D 가 붙어 \b 에서 걸러진다.
-_QUANTITY = re.compile(r"(?<![\d.])(?:[x×*]\s*\d{1,2}\b|\d{1,2}\s*개\b|수량\s*:?\s*\d{1,2}\b)", re.IGNORECASE)
+_QUANTITY = re.compile(r"(?<![\d.])(?:[x×*]\s*\d{1,2}(?:\s*ea)?\b|\d{1,2}\s*(?:개|ea)\b|수량\s*:?\s*\d{1,2}\b)", re.IGNORECASE)
+# 쇼핑몰이 이름 앞에 붙이는 묶음 용량 표기("[DDR5 32G]" = 16GB 두 개의 합) — 제품 이름이 아니라 검색을 흐리고 모델 번호로 오인된다.
+_BUNDLE_LABEL = re.compile(r"\[\s*(?:DDR[345]\s*)?\d{1,3}\s*(?:GB|G|TB)\s*\]", re.IGNORECASE)
+_CHANNEL = re.compile(r"(?:듀얼|싱글|쿼드|트리플)\s*채널|(?:dual|single|quad)\s*channel", re.IGNORECASE)
+_TRAILING_TIMES = re.compile(r"(?:^|\s)[x×*]\s*$", re.IGNORECASE)
+# 추출 결과에 따라 이름 앞에 "메모리:" 같은 부품군 이름표가 붙기도 하고 안 붙기도 한다 — 같은 제품이 다른 키가 되지 않게 뗀다.
+_LEADING_LABEL = re.compile(
+    r"^\s*(?:cpu|프로세서|쿨러|cooler|메인보드|mainboard|메모리|ram|그래픽카드|그래픽|gpu|vga|ssd|저장장치|hdd|파워|psu|케이스|case)\s*[:：]\s*",
+    re.IGNORECASE)
 _PRODUCT_CODE = re.compile(r"(?<![\w-])\d{6,}(?![\w-])")          # 다나와 상품코드 등 6자리 이상 숫자만의 낱말
 _SEPARATORS = re.compile(r"[\s\-–—:/|,·]+")
 
@@ -207,10 +244,13 @@ def _clean_name(part_text: str) -> str:
     """견적 원문에서 가격·수량·상품코드·괄호를 걷어 낸 부품 이름(대소문자는 그대로 — 검색 질의에 쓴다).
 
     용량(16GB)과 모델 토큰(5600 vs 5600X)은 남긴다 — 이걸 지우면 다른 제품이 같은 키로 합쳐진다."""
-    text = strip_price(part_text)
+    text = _LEADING_LABEL.sub("", strip_price(part_text))
+    text = _BUNDLE_LABEL.sub(" ", text)
     text = _BRACKETS.sub(" ", text)
+    text = _CHANNEL.sub(" ", text)
     text = _QUANTITY.sub(" ", text)
     text = _PRODUCT_CODE.sub(" ", text)
+    text = _TRAILING_TIMES.sub(" ", _SEPARATORS.sub(" ", text).strip())      # "…(16GB) x" 처럼 수량이 걷힌 뒤 남은 곱하기 기호
     return _SEPARATORS.sub(" ", text).strip()
 
 
@@ -338,6 +378,18 @@ def lookup(conn, part_text: str, *, slot: str | None = None, brand: str | None =
            model: str | None = None) -> LiveSpecLookupResult:
     """`lookup_with_meta`의 결과만 — 신선도·참고가가 필요 없는 호출자(대화 에이전트)가 쓴다."""
     return lookup_with_meta(conn, part_text, slot=slot, brand=brand, model=model).result
+
+
+def has_stored_value(conn, part_text: str, slot: str | None) -> bool:
+    """이 부품의 실시간 검색 값이 저장소에 있고 쓸 만한가(만료 안, 사람이 거부하지 않음, 값이 하나라도 있음). 읽기만 한다."""
+    key = normalize_lookup_key(part_text)
+    if conn is None or not key:
+        return False
+    row = LiveSpecLookupRepo(conn).get_fresh(key, found_ttl_days=LIVE_SPEC_LOOKUP_FOUND_TTL_DAYS,
+                                             notfound_ttl_days=LIVE_SPEC_LOOKUP_NOTFOUND_TTL_DAYS)
+    if not row or not row["relevant"] or row["status"] == "rejected":
+        return False
+    return any(v is not None for v in clean_fields(slot, row["supported_fields"] or {}).values())
 
 
 def cached_for_kept_parts(conn, owned: dict, current_specs: Any) -> None:

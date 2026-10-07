@@ -114,7 +114,7 @@ export function reviewRowsFromWire(rows: WireOwnedPartsPreviewRow[]): ReviewRow[
     part: r.part, original: r.original, originalNote: '',
     matched: r.matched, matchedNote: r.matched_note,
     state: r.state, stateLabel: PREVIEW_STATE_LABEL[r.state],
-    matchStatus: r.match_status,
+    matchStatus: r.match_status, valueSource: r.value_source ?? null,
   }))
 }
 
