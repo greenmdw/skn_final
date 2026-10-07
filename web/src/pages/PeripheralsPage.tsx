@@ -5,6 +5,7 @@ import { api, errorMessage, type PeripheralItem, type PeripheralKind, type Perip
 import { usePlan } from '../state/PlanContext'
 import { useToast } from '../state/ToastContext'
 import { wonFmt } from '../utils/format'
+import { Linkified } from '../utils/linkify'
 import { CHECK_STATE_LABEL, PERIPHERAL_KINDS as KINDS, aspectLabel, parsePeripheralCondition, reviewEvidence, type ParsedPeripheralConditions } from '../utils/peripherals'
 import '../styles/peripherals.css'
 
@@ -48,7 +49,7 @@ function PeripheralChat({ selected, spec, feel, showingResults, onMessage }: {
     <aside className="pl-chat pf-chat" aria-label="주변기기 조건 대화">
       <div className="pl-chat-head"><span className="pl-dot" />주변기기 조건 대화</div>
       <div className="pl-chat-log">
-        {messages.map(message => <div key={message.id} className={message.role === 'user' ? 'pl-msg-user' : 'pl-msg-bot'}>{message.text}</div>)}
+        {messages.map(message => <div key={message.id} className={message.role === 'user' ? 'pl-msg-user' : 'pl-msg-bot'}><Linkified text={message.text} /></div>)}
         {selectedLabels.length > 0 && <div className="pf-reflected">✓ 선택 품목: {selectedLabels.join(' · ')}{spec.length || feel.length ? ` · 조건 ${spec.length + feel.length}개` : ''}</div>}
         {showingResults && <div className="pl-msg-bot">품목마다 하나씩 골랐어요. 스펙 조건과 리뷰 근거를 함께 확인해 주세요.</div>}
       </div>

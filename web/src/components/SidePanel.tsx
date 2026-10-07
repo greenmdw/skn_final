@@ -104,6 +104,16 @@ function readCollapsed() {
   try { return localStorage.getItem(KEY) === '1' } catch { return false }
 }
 
+// 날짜 묶음("오늘"·"지난 7일" …)을 접어 둔 상태는 새로고침해도 남긴다. 값이 true 인 묶음만 접힌다.
+const GROUPS_KEY = 'truefit.sidepanel.collapsed-groups.v1'
+function readCollapsedGroups(): Record<string, boolean> {
+  try {
+    const data: unknown = JSON.parse(localStorage.getItem(GROUPS_KEY) || '{}')
+    if (typeof data !== 'object' || data === null || Array.isArray(data)) return {}
+    return Object.fromEntries(Object.entries(data).filter(([, value]) => value === true))
+  } catch { return {} }
+}
+
 const LONG_PRESS_MS = 500
 
 export default function SidePanel() {
@@ -121,6 +131,7 @@ export default function SidePanel() {
   const [sortKey, setSortKey] = useState<SortKey>('date')
   const [sortDir, setSortDir] = useState<Record<SortKey, 1 | -1>>({ date: -1, price: 1 })   // 날짜는 최신순, 가격은 낮은순이 처음
   const [kinds, setKinds] = useState({ body: true, periph: true })
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(readCollapsedGroups)
   // 견적서를 펼치고 접은 견적(목록 id → 펼침 여부). 사용자가 직접 누른 것만 담고, 안 누른 견적은 지금 보고 있는 리포트의 견적만 펼쳐 둔다.
   const [toggled, setToggled] = useState<Record<string, boolean>>({})
   // 대화·견적서 행의 우클릭/길게 누르기 메뉴(대상과 열린 위치)와 이름 바꾸기(입력 중인 줄)
@@ -134,6 +145,15 @@ export default function SidePanel() {
   const viewingId = pathname.startsWith('/report/') ? pathname.slice('/report/'.length) : null
   const isOpen = (id: string) => toggled[id] ?? id === viewingId
   const toggle = (id: string) => setToggled(prev => ({ ...prev, [id]: !(prev[id] ?? id === viewingId) }))
+  function toggleGroup(label: string) {
+    setCollapsedGroups(prev => {
+      const next = { ...prev }
+      if (next[label]) delete next[label]
+      else next[label] = true
+      try { localStorage.setItem(GROUPS_KEY, JSON.stringify(next)) } catch { /* 보관 실패는 무시 */ }
+      return next
+    })
+  }
   const viewingVersion = Number(new URLSearchParams(search).get('v')) || null
   // 지금 보고 있는 리포트인가 — 주소에 ?v= 가 없으면 그 견적의 가장 최근 견적서다.
   const isViewing = (listId: string, revisionNo: number, latestRevisionNo: number) => viewingId === listId && (viewingVersion ?? latestRevisionNo) === revisionNo
@@ -344,8 +364,14 @@ export default function SidePanel() {
             {conversations?.length === 0 && <div className="sp-note">아직 나눈 대화가 없어요. 새 견적으로 시작해 보세요.</div>}
             {conversations && groupConversations(conversations).map(group => (
               <div key={group.label}>
-                <div className="sp-group">{group.label}</div>
-                {group.items.map(item => {
+                <button type="button" className="sp-group sp-group-toggle" aria-expanded={!collapsedGroups[group.label]}
+                  title={collapsedGroups[group.label] ? `${group.label} 대화 ${group.items.length}개 펼치기` : `${group.label} 대화 접기`}
+                  onClick={() => toggleGroup(group.label)}>
+                  <span className={'sp-group-chev' + (collapsedGroups[group.label] ? '' : ' open')} aria-hidden="true">▶</span>
+                  <span className="sp-group-label">{group.label}</span>
+                  <span className="sp-group-count">{group.items.length}</span>
+                </button>
+                {!collapsedGroups[group.label] && group.items.map(item => {
                   const sheetsOpen = item.reports.length > 0 && isOpen(item.listId)
                   const latestRevisionNo = item.reports[item.reports.length - 1]?.revisionNo ?? 0
                   return (
@@ -430,7 +456,10 @@ export default function SidePanel() {
           {menuOpen && (
             <div className="sp-pop" onClick={event => event.stopPropagation()}>
               {user
-                ? <button type="button" className="out" onClick={() => { setMenuOpen(false); void logout() }}>로그아웃</button>
+                ? <>
+                    <Link to="/mypage" onClick={() => setMenuOpen(false)}>마이페이지</Link>
+                    <button type="button" className="out" onClick={() => { setMenuOpen(false); void logout() }}>로그아웃</button>
+                  </>
                 : <Link to={`/login?next=${encodeURIComponent(pathname)}`}>로그인</Link>}
             </div>
           )}

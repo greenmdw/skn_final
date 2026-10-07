@@ -1,5 +1,6 @@
 import type { QuoteGuideRef, QuoteSavedComparison, QuoteVisual } from '../../api'
 import { signedWon, wonText } from '../../utils/checkReview'
+import { Linkified } from '../../utils/linkify'
 import AnswerVisual, { GuideRefs } from './AnswerVisual'
 
 export interface ComparisonAnswer {
@@ -89,7 +90,7 @@ export default function SavedComparisonPanel({ comparison, differenceOnly, onDif
                     onToggle={event => onToggle(answer.id, (event.currentTarget as HTMLDetailsElement).open)}>
                     <summary><span>{answer.question}</span><small>{answer.loading ? '답변 작성 중' : '답변 보기'}</small></summary>
                     <div className="ck-llm-answer-body">
-                      <p>{answer.reply}</p>
+                      <p><Linkified text={answer.reply} /></p>
                       {!answer.loading && answer.visuals.map((visual, index) => <AnswerVisual key={`${visual.type}-${index}`} visual={visual} />)}
                       {!answer.loading && <GuideRefs refs={answer.guideRefs} />}
                     </div>
