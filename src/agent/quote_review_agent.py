@@ -25,7 +25,8 @@ from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, QUOTE
 log = logging.getLogger(__name__)
 
 FactFn = Callable[[str, dict], str]          # (도구 이름, 인자) -> 근거 문장
-EVIDENCE_LABEL = {"overview": "견적 분석 요약", "compat": "호환 검사", "prices": "가격 비교", "balance": "용도 대비 균형",
+EVIDENCE_LABEL = {"series_hint": "제품 후보", "search_consent": "실시간 검색 동의", "live_search": "실시간 검색",
+                  "overview": "견적 분석 요약", "compat": "호환 검사", "prices": "가격 비교", "balance": "용도 대비 균형",
                   "compare": "우리 추천과 비교", "alternatives": "대안 조회", "compare_parts": "부품 비교",
                   "saved_comparison": "저장 견적 비교"}
 
