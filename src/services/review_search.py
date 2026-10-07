@@ -14,11 +14,11 @@
 embedding을 만들 수 없으면(API 실패) 키워드 검색 등으로 몰래 바꾸지 않고 503을 낸다 — 품질이 다른 결과가
 같은 모양으로 섞이기 때문이다(src/rag/embedding.py의 "실패한 호출을 다른 벡터로 대신하지 않는다"와 같은 원칙).
 
-저장된 벡터가 지금 embedder와 같은 방식으로 만들어졌는지도 embedder마다(프로세스에서 처음 검색할 때) 한 번
+저장된 벡터가 지금 embedder와 같은 방식으로 만들어졌는지도 요청마다 상품별 표본으로
 확인한다. review_embedding에는 모델 컬럼이 없어서(0008 합의) MOCK_MODE의 해시 벡터로 채운 DB를 실제
 embedding으로 검색하거나 그 반대일 때, 데이터만 보고는 알 수 없고 오류 없이 엉뚱한 결과가 나온다. 그래서
-검색할 리뷰 몇 건을 지금 embedder로 다시 만들어 저장된 벡터와 비교하고, 거의 같지 않으면
-503(review_index_mismatch)으로 멈춘다.
+상품마다 리뷰 몇 건을 지금 embedder로 다시 만들어 저장된 벡터와 비교하고, 거의 같지 않으면
+503(review_index_mismatch)으로 멈춘다. 표본의 텍스트 벡터는 캐시해도 DB 검증 결과는 캐시하지 않는다.
 
 DB 커넥션은 embedding 호출(네트워크) 동안 쥐고 있지 않는다 — 건수·점검 표본을 읽고 놓은 뒤 embedding을
 만들고, 다시 커넥션을 받아 점검·검색한다(커넥션 풀을 외부 API 지연만큼 붙잡지 않게).
@@ -28,7 +28,6 @@ from __future__ import annotations
 import logging
 import threading
 import unicodedata
-import weakref
 from collections import OrderedDict
 from contextlib import contextmanager
 from typing import Iterator, Sequence
@@ -55,8 +54,6 @@ INDEX_CHECK_SAMPLE = 3
 
 _UNAVAILABLE_MESSAGE = "리뷰 검색을 지금 할 수 없습니다. 잠시 후 다시 시도해주세요."
 
-_verified = weakref.WeakSet()       # 저장된 벡터와 같은 방식이라고 확인한 embedder
-_verified_lock = threading.Lock()
 _default_embedder = None
 
 
@@ -141,7 +138,7 @@ def _embed(embedder, texts: list[str]) -> list[list[float]]:
         raise ServiceUnavailable(_UNAVAILABLE_MESSAGE, code="review_search_unavailable") from exc
 
 
-def _check_index(repo, embedder, sample: list[dict], vectors: list[list[float]]) -> None:
+def _check_index(repo, sample: list[dict], vectors: list[list[float]]) -> None:
     """점검 표본을 지금 embedder로 다시 만든 벡터가 저장된 벡터와 거의 같은지 확인한다(모듈 docstring)."""
     similarities = repo.stored_similarity([(row["id"], vector) for row, vector in zip(sample, vectors)])
     if not similarities:        # 그 사이 표본의 embedding이 지워졌다 — 확인하지 못했으니 다음 검색에서 다시 본다
@@ -154,8 +151,6 @@ def _check_index(repo, embedder, sample: list[dict], vectors: list[list[float]])
             worst, INDEX_CHECK_MIN_SIMILARITY,
         )
         raise ServiceUnavailable(_UNAVAILABLE_MESSAGE, code="review_index_mismatch")
-    with _verified_lock:
-        _verified.add(embedder)
 
 
 def search_with(open_repo, embedder, *, product_ids: Sequence[UUID | str], query: str,
@@ -176,17 +171,17 @@ def search_with(open_repo, embedder, *, product_ids: Sequence[UUID | str], query
             raise NotFound(f"카탈로그에 없는 상품입니다: {', '.join(unknown)}", field="product_id")
         searchable = [pid for pid in ids if coverage[pid]["embedded"]]
         sample = []
-        if searchable and embedder not in _verified:
-            sample = repo.embedded_sample(searchable, INDEX_CHECK_SAMPLE)
+        for pid in searchable:
+            sample.extend(repo.embedded_sample([pid], INDEX_CHECK_SAMPLE))
 
     hits: dict[UUID, list[dict]] = {pid: [] for pid in ids}
     if searchable:      # 검색할 벡터가 하나도 없으면 질문 embedding(유료 호출)을 만들지 않는다
-        # 점검 표본과 질문을 한 번의 호출로 만든다(처음 검색할 때 왕복을 한 번 줄인다).
+        # 점검 표본과 질문을 한 번에 만든다. CachedEmbedder가 변하지 않은 본문은 재사용한다.
         vectors = _embed(embedder, [row["body"] for row in sample] + [q])
         query_vector = vectors[-1]
         with open_repo() as repo:
             if sample:
-                _check_index(repo, embedder, sample, vectors[:-1])
+                _check_index(repo, sample, vectors[:-1])
             for row in repo.search_nearest(query_vector, searchable, per_product=per_product):
                 if row["similarity"] >= threshold:
                     hits[row["product_id"]].append(row)

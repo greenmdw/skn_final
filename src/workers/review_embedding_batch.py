@@ -8,9 +8,9 @@
 실제로 채워진다.
 
 배치(batch_size)마다 커밋한다: 수천 건을 한 트랜잭션에 묶으면 중간에 죽었을 때(네트워크 타임아웃,
-요금 한도 등) 이미 임베딩한 몫까지 롤백된다. 한 배치가 실패하면 그 배치의 id들만 "실패"로 기록해
-이번 실행에서 건너뛰고 계속한다 — list_missing()은 임베딩이 없는 한 항상 같은 행을 돌려주므로,
-실패한 id를 빼지 않으면 같은 배치가 계속 다시 뽑혀 똑같이 실패하는 무한 루프가 된다.
+요금 한도 등) 이미 임베딩한 몫까지 롤백된다. 입력 오류가 난 배치는 분할해 문제 문서만 제외한다.
+통신·서비스 오류는 배치 실패로 남겨 다음 실행에서 재시도한다. 이번 실행에서 시도한 id는 다시
+고르지 않는다 — 실패하거나 저장 직전 본문이 바뀐 문서를 계속 고르는 무한 루프를 피한다.
 
 **"배치마다 커밋"이 실제로 디스크에 남으려면 커넥션이 다음 둘 중 하나여야 한다**(psycopg 3의
 `conn.transaction()`은 "이미 열려 있는 트랜잭션 블록 안"에서 불리면 진짜 커밋이 아니라
@@ -43,13 +43,48 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import sys
+from uuid import UUID
 
 import psycopg
 
-from src.rag.contracts import EmbeddingError
+from src.rag.contracts import EmbeddingError, EmbeddingInputError
 from src.repo.review_embedding_repo import ReviewEmbeddingRepo
+
+log = logging.getLogger(__name__)
+
+
+def _validated_options(limit: int | None, batch_size: int | None) -> int:
+    from src.config import REVIEW_EMBEDDING_BATCH_SIZE
+
+    if limit is not None and (type(limit) is not int or limit < 0):
+        raise ValueError("limit은 0 이상의 정수여야 한다")
+    size = REVIEW_EMBEDDING_BATCH_SIZE if batch_size is None else batch_size
+    if type(size) is not int or size < 1:
+        raise ValueError("batch_size는 1 이상의 정수여야 한다")
+    return size
+
+
+def _embed_batch(embedder, rows: list[dict]) -> tuple[list[tuple[UUID, str, list[float]]], list[UUID]]:
+    """입력 오류는 분할해 격리한다. 서비스 오류에서 문서별 유료 재호출은 하지 않는다."""
+    try:
+        vectors = embedder.embed([row["body"] for row in rows])
+        if len(vectors) != len(rows):
+            raise EmbeddingError("embedding_result_count_mismatch")
+    except EmbeddingInputError as exc:
+        if len(rows) > 1:
+            middle = len(rows) // 2
+            left, left_failed = _embed_batch(embedder, rows[:middle])
+            right, right_failed = _embed_batch(embedder, rows[middle:])
+            return left + right, left_failed + right_failed
+        log.warning("review embedding: invalid document %s (%s)", rows[0]["id"], exc)
+    except EmbeddingError as exc:
+        log.warning("review embedding: batch unavailable (%s)", exc)
+    else:
+        return [(row["id"], row["body"], vector) for row, vector in zip(rows, vectors)], []
+    return [], [row["id"] for row in rows]
 
 
 def _require_commit_safe_conn(conn) -> None:
@@ -102,20 +137,20 @@ def run(
 
     conn: autocommit=True 커넥션이거나, 호출자가 이미 열어 둔 트랜잭션 안에서 넘긴 커넥션이어야
         한다 — 그 외(평범한 autocommit=False·트랜잭션 미시작 커넥션)는 ValueError.
-    limit: 이번 실행에서 시도할 최대 리뷰 수(기본 None = 남은 전부).
-    batch_size: 배치(=임베딩 API 호출 1번 + 커밋 1번) 크기(기본 config.REVIEW_EMBEDDING_BATCH_SIZE).
+    limit: 이번 실행에서 시도할 최대 리뷰 수(0 이상, 기본 None = 남은 전부).
+    batch_size: 한 번에 가져와 커밋할 리뷰 수(1 이상, 기본 config.REVIEW_EMBEDDING_BATCH_SIZE).
+        batches는 가져온 배치 수이며 입력 오류 격리를 위한 추가 API 호출은 포함하지 않는다.
     dry_run: DB에 쓰지 않고 count_missing()만 보고한다 — embedder를 아예 부르지 않는다(API 비용 없음).
         쓰지 않으므로 conn의 커밋 방식을 따지지 않는다.
     rebuild: 시작 전 기존 임베딩을 전부 지우고 처음부터 다시 채운다(모델을 바꿨을 때 등).
         dry_run과 함께 줄 수 없다(지울지 말지가 모순이라 호출자 실수로 본다).
     allow_mock: embedder가 가짜(MOCK) 벡터를 만들 때도 테스트용이 아닌 DB에 쓰게 한다(기본 거절).
+    저장 전 본문이 바뀐 문서는 다음 실행으로 미루며 embedded에는 실제 저장한 수만 센다.
     """
     if dry_run and rebuild:
         raise ValueError("dry_run과 rebuild는 함께 쓸 수 없다")
 
-    from src.config import REVIEW_EMBEDDING_BATCH_SIZE
-
-    batch_size = batch_size or REVIEW_EMBEDDING_BATCH_SIZE
+    batch_size = _validated_options(limit, batch_size)
     repo = ReviewEmbeddingRepo(conn)
 
     if dry_run:
@@ -131,31 +166,20 @@ def run(
     embedded = 0
     failed = 0
     batches = 0
-    failed_ids: list = []
+    attempted_ids: list[UUID] = []
     remaining_budget = limit
 
     while remaining_budget is None or remaining_budget > 0:
         fetch_n = batch_size if remaining_budget is None else min(batch_size, remaining_budget)
-        rows = repo.list_missing(fetch_n, exclude_ids=failed_ids)
+        rows = repo.list_missing(fetch_n, exclude_ids=attempted_ids)
         if not rows:
             break
         batches += 1
-        ids = [row["id"] for row in rows]
-        bodies = [row["body"] for row in rows]
-        try:
-            # 임베딩 호출(네트워크)은 트랜잭션 밖에서 한다 — DB 커넥션을 쥔 채 외부 호출을
-            # 기다리면 그 시간만큼 DB 쪽 락·커넥션을 붙잡아 두게 된다. 쓰기(upsert_many)만
-            # 트랜잭션으로 묶는다.
-            vectors = embedder.embed(bodies)
-        except EmbeddingError:
-            # 이 배치는 아직 아무것도 쓰지 않았다 — id만 "실패"로 적어 다음 list_missing() 호출에서
-            # 빼고, 나머지 배치는 계속 진행한다.
-            failed += len(rows)
-            failed_ids.extend(ids)
-        else:
-            with conn.transaction():
-                repo.upsert_many(list(zip(ids, vectors)))
-            embedded += len(rows)
+        # 네트워크 호출이 끝난 뒤에만 본문 확인·저장 트랜잭션을 연다.
+        ready, failed_ids = _embed_batch(embedder, rows)
+        failed += len(failed_ids)
+        embedded += repo.upsert_current_many(ready)
+        attempted_ids.extend(row["id"] for row in rows)
         if remaining_budget is not None:
             remaining_budget -= len(rows)
 
@@ -189,6 +213,10 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.dry_run and args.rebuild:
         parser.error("--dry-run과 --rebuild는 함께 줄 수 없습니다")
+    try:
+        _validated_options(args.limit, args.batch_size)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     from src.config import DATABASE_URL
     from src.rag.embedding import OpenAIEmbedder

@@ -154,3 +154,46 @@ def test_cascade_delete_document_removes_embedding(review_db):
     assert conn.execute(
         "SELECT count(*) FROM evidence.review_embedding WHERE review_id=%s", (doc_id,)
     ).fetchone()[0] == 0
+
+
+def test_current_upsert_skips_changed_and_deleted_documents(review_db):
+    conn, ids = review_db
+    product = _add_product(conn, ids)
+    same = _add_document(conn, ids, product, body="same body")
+    changed = _add_document(conn, ids, product, body="new body")
+    deleted = _add_document(conn, ids, product)
+    conn.execute("DELETE FROM evidence.review_document WHERE id=%s", (deleted,))
+    repo = ReviewEmbeddingRepo(conn)
+
+    written = repo.upsert_current_many([
+        (same, "same body", _unit_vector()),
+        (changed, "old body", _unit_vector()),
+        (deleted, "deleted body", _unit_vector()),
+    ])
+    assert written == 1
+    assert conn.execute(
+        "SELECT review_id FROM evidence.review_embedding WHERE review_id=ANY(%s::uuid[])",
+        ([same, changed, deleted],),
+    ).fetchall() == [(same,)]
+
+
+def test_current_upsert_locks_body_through_storage_and_later_updates_invalidate(review_db, monkeypatch):
+    conn, ids = review_db
+    product = _add_product(conn, ids)
+    doc = _add_document(conn, ids, product, body="original body")
+    repo = ReviewEmbeddingRepo(conn)
+    original_upsert = repo.upsert_many
+
+    def write_while_locked(rows):
+        with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as writer:
+            writer.execute("SET lock_timeout='100ms'")
+            with pytest.raises(psycopg.errors.LockNotAvailable):
+                writer.execute("UPDATE evidence.review_document SET body='changed body' WHERE id=%s", (doc,))
+        return original_upsert(rows)
+
+    monkeypatch.setattr(repo, "upsert_many", write_while_locked)
+    assert repo.upsert_current_many([(doc, "original body", _unit_vector())]) == 1
+    conn.execute("UPDATE evidence.review_document SET body='changed body' WHERE id=%s", (doc,))
+    assert conn.execute(
+        "SELECT review_id FROM evidence.review_embedding WHERE review_id=%s", (doc,),
+    ).fetchone() is None

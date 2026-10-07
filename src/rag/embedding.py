@@ -6,7 +6,7 @@ import json
 import math
 import os
 from collections import Counter
-from src.rag.contracts import EmbeddingError
+from src.rag.contracts import EmbeddingError, EmbeddingInputError
 from src.rag.text import VERSION, normalize, tokens
 
 
@@ -155,13 +155,23 @@ class OpenAIEmbedder:
             return []
         for text in texts:
             if not isinstance(text, str) or not text.strip():
-                raise EmbeddingError("embedding_input_invalid")
+                raise EmbeddingInputError("embedding_input_invalid")
 
         if self.mock:
-            return [validate_vector(_hash_vector(text, self.dimensions), self.dimensions) for text in texts]
+            try:
+                return [validate_vector(_hash_vector(text, self.dimensions), self.dimensions) for text in texts]
+            except EmbeddingError as exc:
+                # MOCK 토큰이 없는 본문도 문서별 실패다(예: 이모지만 있는 리뷰).
+                raise EmbeddingInputError(str(exc)) from exc
+
+        from openai import BadRequestError
 
         try:
             response = self._get_client().embeddings.create(model=self.model, input=texts)
+        except BadRequestError as exc:
+            if exc.param is None or exc.param == "input" or exc.param.startswith("input["):
+                raise EmbeddingInputError("embedding_input_invalid") from exc
+            raise EmbeddingError("embedding_unavailable") from exc
         except EmbeddingError:
             raise
         except Exception as exc:

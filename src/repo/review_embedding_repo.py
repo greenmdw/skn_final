@@ -34,9 +34,8 @@ class ReviewEmbeddingRepo:
     def list_missing(self, limit: int, *, exclude_ids: Sequence[UUID] | None = None) -> list[dict]:
         """임베딩 행이 없는 리뷰를 id 순으로 최대 limit개(body 포함, 바로 임베딩할 수 있게).
 
-        exclude_ids: 이번 실행에서 이미 실패로 처리한 id들. list_missing은 임베딩이 없는 한
-        계속 같은 행을 돌려주므로, 배치 워커가 실패한 배치를 건너뛰려면 다음 호출에서 그 id들을
-        빼야 한다 — 그러지 않으면 같은 실패가 무한히 반복된다."""
+        exclude_ids: 이번 실행에서 이미 시도한 id들. 실패하거나 저장 직전 본문이 바뀐 문서를
+        다음 실행으로 미뤄야 같은 행을 계속 고르는 무한 루프를 피할 수 있다."""
         exclude = list(exclude_ids or [])
         with self.conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -58,9 +57,8 @@ class ReviewEmbeddingRepo:
             return cur.fetchone()[0]
 
     def upsert_many(self, rows: list[tuple[UUID, list[float]]]) -> int:
-        """(review_id, embedding 벡터) 목록을 upsert한다. body가 바뀌면 트리거(0012)가 먼저 기존
-        행을 지우므로, 여기서는 "없으면 넣고 있으면 덮어쓰기"만 하면 된다 — 호출자가 이미 지워진
-        상태인지 아닌지 구분할 필요가 없다."""
+        """이미 본문 일치를 보장한 (review_id, 벡터) 목록을 upsert한다.
+        외부 임베딩 호출 후의 배치 저장은 upsert_current_many()로 본문을 다시 확인해야 한다."""
         if not rows:
             return 0
         with self.conn.cursor() as cur:
@@ -72,6 +70,26 @@ class ReviewEmbeddingRepo:
                     (review_id, _vector_literal(vector)),
                 )
         return len(rows)
+
+    def upsert_current_many(self, rows: list[tuple[UUID, str, list[float]]]) -> int:
+        """(review_id, 임베딩에 사용한 본문, 벡터)를 현재 본문이 같을 때만 저장한다.
+
+        API 호출이 끝난 뒤 짧은 트랜잭션에서 문서를 잠근다. 본문 확인과 저장 사이의 UPDATE도
+        막으므로, 저장 후의 수정은 0012 트리거가 벡터를 삭제한다. 삭제·수정된 문서는 건너뛴다.
+        """
+        if not rows:
+            return 0
+        with self.conn.transaction():
+            with self.conn.cursor(row_factory=dict_row) as cur:
+                cur.execute(
+                    "SELECT id, body FROM evidence.review_document "
+                    "WHERE id = ANY(%s::uuid[]) ORDER BY id FOR UPDATE",
+                    ([review_id for review_id, _, _ in rows],),
+                )
+                current = {row["id"]: row["body"] for row in cur.fetchall()}
+            return self.upsert_many([
+                (review_id, vector) for review_id, body, vector in rows if current.get(review_id) == body
+            ])
 
     def delete_all(self) -> int:
         """전체 재구축(rebuild) 전용 — 모든 임베딩을 지운다."""

@@ -137,3 +137,45 @@ def test_embeddings_made_another_way_are_503_instead_of_wrong_results(seed, clie
     response = _search(client, [product])
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "review_index_mismatch"
+
+
+def _change_embedding(seed, doc, body):
+    seed.repo.upsert_many([(doc, _OtherWayEmbedder().embed([body])[0])])
+
+
+def test_checking_one_product_does_not_skip_mismatch_on_another(seed, client):
+    good, bad = seed.product(), seed.product()
+    seed.review(good, "팬이 조용해요")
+    body = "팬 소음이 심해서 아쉬워요"
+    doc = seed.review(bad, body)
+    _change_embedding(seed, doc, body)
+
+    assert _search(client, [good]).status_code == 200
+    response = _search(client, [bad])
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "review_index_mismatch"
+
+
+def test_verified_product_is_checked_again_after_its_index_changes(seed, client):
+    product = seed.product()
+    body = "팬이 조용하고 냉각도 잘 됩니다"
+    doc = seed.review(product, body)
+    assert _search(client, [product]).status_code == 200
+
+    _change_embedding(seed, doc, body)
+    response = _search(client, [product])
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "review_index_mismatch"
+
+
+def test_comparison_checks_each_product_even_when_the_first_has_shorter_reviews(seed, client):
+    good, bad = seed.product(), seed.product()
+    for body in ["후기 하나", "후기 둘", "후기 셋"]:
+        seed.review(good, body)
+    body = "팬 소음이 너무 심해서 쓰기 불편합니다"
+    doc = seed.review(bad, body)
+    _change_embedding(seed, doc, body)
+
+    response = _search(client, [good, bad])
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "review_index_mismatch"
