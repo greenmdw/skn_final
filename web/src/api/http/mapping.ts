@@ -1,7 +1,7 @@
 // 화면 모델(CurrentPlan · SavedSetup)과 백엔드 모델 사이의 순수 변환 함수 모음.
 // 프레임워크·네트워크에 기대지 않아 Node 로 바로 테스트한다(web/tests/mapping.test.mjs) — 그래서 타입만 import 한다.
 import type { BudgetNotice, BudgetWarning, ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, ContributionShare, CurrentPlan, DeskState, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
-import type { AlternativeOption, UpgradeSuggestion } from '../types'
+import type { AlternativeOption } from '../types'
 import type { WireAlternative, WireCompatCheck, WireConditionState, WireField, WireItem, WireNextQuestion, WireOwnedPartsPreviewRow, WireReport, WireReportItem, WireResult, WireReview, WireText } from './wire'
 
 // ── 슬롯 ────────────────────────────────────────────────────────────────────
@@ -114,7 +114,7 @@ export function reviewRowsFromWire(rows: WireOwnedPartsPreviewRow[]): ReviewRow[
     part: r.part, original: r.original, originalNote: '',
     matched: r.matched, matchedNote: r.matched_note,
     state: r.state, stateLabel: PREVIEW_STATE_LABEL[r.state],
-    matchStatus: r.match_status,
+    matchStatus: r.match_status, valueSource: r.value_source ?? null,
   }))
 }
 
@@ -236,28 +236,6 @@ export function budgetWarningFromWire(warning: WireConditionState['budget_warnin
   return warning?.message ? { level: warning.level, message: warning.message } : null
 }
 
-/** 서버의 업그레이드 추천 결과 → 점검 화면의 제안 카드. 서버가 계산하지 않는 값(성능 변화 폭·소비전력)은 비워 둔다(화면이 안 보인다). */
-export function suggestionFromPlan(plan: CurrentPlan, draft: CheckDraft): UpgradeSuggestion | null {
-  const item = plan.items[0]
-  if (!item) return null
-  const row = draft.rows.find(r => r.part.toLowerCase() === item.key)
-  const compat = plan.compat
-  const conditions = !compat ? '구매 전 호환성을 확인해주세요'
-    : compat.problems.length ? compat.problems.join(' / ')
-    : compat.unchecked.length ? `스펙을 몰라 확인하지 못한 항목 ${compat.unchecked.length}개 — 구매 전 확인`
-    : '확인한 범위에서 부품 간 충돌 없음'
-  return {
-    part: item.type,
-    currentNote: row ? '현재 입력: ' + row.original : '현재 부품 정보를 입력하지 않았습니다',
-    productName: item.name, productNote: item.meta,
-    performance: '', power: '',
-    extraCost: item.price,
-    effectSummary: item.fit || '추천 이유를 준비하지 못했습니다',
-    checkConditions: conditions,
-    disclaimer: '가격은 수집 데이터 기준입니다. 성능 향상 폭과 소비전력 변화는 계산하지 않았습니다.',
-  }
-}
-
 /** 서버의 호환 검사 상세 → 화면 목록. 모르는 state 는 unknown 으로 본다(단정하지 않는다). */
 export function compatChecksFromWire(checks: WireCompatCheck[] | null | undefined): CompatCheck[] | undefined {
   if (!checks || !checks.length) return undefined
@@ -335,5 +313,9 @@ export function setupFromReport(report: WireReport, extras: SetupExtras | undefi
     savedAt: report.confirmed_at, plan,
     desk: extras?.desk ?? { ...DEFAULT_DESK },
     checkDraft: extras?.checkDraft ?? { question: '', budget: '', rows: [] },
+    peripherals: (report.peripherals ?? []).map(item => ({
+      kind: item.kind, name: item.product.name, price: item.price, qty: item.qty,
+      imageUrl: item.product.image_url, productUrl: item.product.purchase_url,
+    })),
   }
 }

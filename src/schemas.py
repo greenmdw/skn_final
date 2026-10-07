@@ -124,6 +124,8 @@ class OwnedPartsPreviewRow(BaseModel):
     # unmatched=대응 자체를 못 찾음.
     match_status: Literal["confirmed", "ambiguous", "candidate", "inferred", "unmatched"] = "confirmed"
     candidate_count: int | None = None   # match_status가 ambiguous일 때만(동점 후보 개수)
+    # "live" 면 이 행의 값(전부 또는 일부)이 실시간 검색 결과다 — 카탈로그 정식 값이 아니다. 상태(ok/warn)는 그대로다.
+    value_source: Literal["live"] | None = None
 
 
 class OwnedPartsPreviewOut(BaseModel):
@@ -419,6 +421,8 @@ class QuoteDraftItemOut(BaseModel):
     source_ids: list[str] = Field(default_factory=list)
     selected_for_analysis: bool = False
     user_edited: bool = False
+    # 이 항목의 실시간 검색 값이 임시 저장소에 있다(저장되지 않는 표시 — 응답을 만들 때마다 저장소를 읽어 채운다).
+    live_value: bool = False
 
 
 class QuoteDraftGroupOut(BaseModel):

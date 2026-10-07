@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import type { ChatChoice, ChatMessage, CheckDraft, CurrentPlan, EditingSheet, PartKey, PlanState, SavedSetup } from './types'
+import type { ChatChoice, ChatMessage, CheckDraft, CurrentPlan, EditingSheet, PartKey, PlanState, SavedSetup, SetupPeripheral } from './types'
 import { createCheckDraft } from '../data/checkDraftSeed'
 import { parseBudget, planTotal } from './planModel'
 import { api, ApiError, errorMessage, SESSION_GONE, type ChatTopic } from '../api'
@@ -17,15 +17,15 @@ const initialState: PlanState = {
   stage: 0, mode: 'new', intent: '', performance: '', quiet: '', budget: 2500000,
   currentPlan: null, checkSnapshot: null, selectedPart: 'cpu',
   sessionId: null, fields: [], canRecommend: false, budgetWarning: null,
-  deskUnlocked: false, deskWidth: 1400, deskDepth: 700, deskHeight: 740, editingSheet: null, viewOnly: false,
+  deskUnlocked: false, deskWidth: 1400, deskDepth: 700, deskHeight: 740, editingSheet: null, viewOnly: false, peripherals: [],
 }
 // 서버의 해상도 필드 → 화면 문구. 사용자가 안 정해서 서버가 기본값으로 가정한 값이면 "(기본값)"을 붙인다.
 function resolutionText(field: { display: string | null; status: string } | undefined): string | null {
   if (!field?.display) return null
   return field.status === 'assumed' ? field.display + ' (기본값)' : field.display
 }
-function makeMessage(role: ChatMessage['role'], text: string, choices?: ChatChoice[]): ChatMessage {
-  return { id: newId(), role, text, choices }
+function makeMessage(role: ChatMessage['role'], text: string, choices?: ChatChoice[], tag?: ChatMessage['tag']): ChatMessage {
+  return { id: newId(), role, text, choices, tag }
 }
 // 조건 세션 한 턴(또는 서버에서 읽은 대화)의 값을 화면 상태에 반영한다. GoalPanel의 세 카드(주요 용도·성능 목표·소음 선호)는
 // 그대로 두고, 값만 서버가 뽑은 필드로 채운다.
@@ -160,14 +160,22 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     const mine = epoch.current
     const seq = ++offerSeq.current
     api.conditions.previous()
-      .then(previous => {
+      .then(({ previous, preferenceHint: hint }) => {
         if (seq !== offerSeq.current || mine !== epoch.current || stateRef.current.stage !== 0) return
         setMessages(prev => {
-          const kept = prev.filter(m => !m.choices?.some(c => c.resumeFrom))
-          return previous ? [...kept, makeMessage('bot', previous.summary, [
+          const kept = prev.filter(m => m.tag !== 'offer' && !m.choices?.some(c => c.resumeFrom || c.preferenceHint))
+          const offers: ChatMessage[] = []
+          if (previous) offers.push(makeMessage('bot', previous.summary, [
             { label: '이어서 하기', value: 'resume', resumeFrom: previous.listId },
             { label: '새로 시작', value: 'fresh', startFresh: true },
-          ])] : kept
+          ], 'offer'))
+          // 선호 되묻기(B4): 반복 행동에서 추론한 것이라 자동으로 적용하지 않고, "예"를 눌러야 이번 견적에 담긴다.
+          // 담기지 않는 신호(actionable=false)는 묻지 않고 알려 주기만 한다.
+          if (hint) offers.push(makeMessage('bot', hint.summary, hint.actionable ? [
+            { label: '예, 반영해 주세요', value: 'hint-yes', preferenceHint: { signalId: hint.id, accepted: true } },
+            { label: '아니요', value: 'hint-no', preferenceHint: { signalId: hint.id, accepted: false } },
+          ] : undefined, 'offer'))
+          return [...kept, ...offers]
         })
       })
       .catch(() => {})
@@ -218,6 +226,19 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       runConditionTurn(() => api.conditions.resume(stateRef.current.sessionId, from))
       return
     }
+    if (choice.preferenceHint) {
+      addMessage('user', choice.label)
+      const { signalId, accepted } = choice.preferenceHint
+      // 답한 뒤에는 칩을 지워 같은 질문에 두 번 답하지 않게 한다.
+      setMessages(prev => prev.map(m => (m.choices?.some(c => c.preferenceHint) ? { ...m, choices: undefined } : m)))
+      api.conditions.respondPreferenceHint(stateRef.current.sessionId, signalId, accepted)
+        .then(({ sessionId: id }) => {
+          updateState(prev => ({ ...prev, sessionId: prev.sessionId ?? id }))
+          addMessage('bot', accepted ? '알겠어요. 이번 견적에 반영할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.' : '알겠어요. 이번에는 반영하지 않을게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.')
+        })
+        .catch(error => addMessage('bot', errorMessage(error, '응답을 저장하지 못했어요. 잠시 후 다시 시도해주세요.')))
+      return
+    }
     if (choice.startFresh) {
       addMessage('user', choice.label)
       addMessage('bot', '좋아요, 새로 시작할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.')
@@ -229,7 +250,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       return
     }
     handleInput(choice.value)
-  }, [addMessage, sendConditionAnswer, handleInput, runConditionTurn])
+  }, [addMessage, sendConditionAnswer, handleInput, runConditionTurn, updateState])
   // 현재 조건(예산 포함)으로 서버 추천을 새로 받는다. 처음 시작할 때와, 구성이 나온 뒤 예산을 바꿨을 때 같이 쓴다.
   const runAnalysis = useCallback((intro: string) => {
     const current = stateRef.current
@@ -381,6 +402,10 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     if (screen) updateState(prev => ({ ...prev, editingSheet: from }))
     return screen
   }, [openConversation, showToast, updateState])
+  // sessionId 는 본체 견적 없이 주변기기만 담을 때 넘긴다(그 목록으로 확정). 비우면(빈 배열) 같이 지운다.
+  const setPeripherals = useCallback((peripherals: SetupPeripheral[], sessionId?: string | null) => updateState(prev => ({
+    ...prev, peripherals, peripheralSessionId: peripherals.length ? (sessionId ?? prev.peripheralSessionId ?? null) : null,
+  })), [updateState])
   const clearEditingSheet = useCallback(() => updateState(prev => (prev.editingSheet ? { ...prev, editingSheet: null } : prev)), [updateState])
   const resetPlan = useCallback(() => {
     cancelPending()
@@ -403,12 +428,25 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     setCustomHeading({ title: setup.title, desc: '확정한 구성' })
     showToast('저장한 구성을 불러왔습니다.')
   }, [cancelPending, updateState, showToast])
-  const startUpgradeMode = useCallback(async () => {
-    const budget = parseBudget(checkDraft.budget)
+  const loadCheckedQuote = useCallback((plan: CurrentPlan, draft: CheckDraft) => {
+    cancelPending()
+    const nextPlan = structuredClone(plan)
+    const nextDraft = structuredClone(draft)
+    updateState(prev => ({ ...prev, currentPlan: nextPlan, mode: nextPlan.mode, budget: nextPlan.budget,
+      intent: nextPlan.conditions.intent, performance: nextPlan.conditions.performance, quiet: nextPlan.conditions.quiet,
+      checkSnapshot: nextDraft, selectedPart: nextPlan.items.find(item => item.key)?.key ?? 'cpu', stage: 4 }))
+    setCheckDraft(nextDraft)
+    setMessages([makeMessage('bot', `받은 견적 점검 결과를 장바구니에 담았습니다.\n총 ${wonFmt(planTotal(nextPlan))}`)])
+    setCustomHeading({ title: '받은 견적 점검', desc: '확인한 구성' })
+  }, [cancelPending, updateState])
+  // draft 를 주면 그 점검 초안으로 시작한다(받은 견적 점검 화면에서 바로 넘어올 때 — 상태 반영을 기다리지 않는다).
+  const startUpgradeMode = useCallback(async (draft?: CheckDraft) => {
+    const source = draft ?? checkDraft
+    const budget = parseBudget(source.budget)
     if (budget === undefined) { showToast('예산을 원 단위 숫자로 입력해주세요. 예: 800,000원'); return false }
     cancelPending()
     const mine = epoch.current
-    const snapshot = structuredClone(checkDraft)
+    const snapshot = structuredClone(source)
     try {
       const plan = await api.plans.recommend({
         mode: 'upgrade', budget, checkSnapshot: snapshot,
@@ -427,10 +465,10 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   }, [checkDraft, cancelPending, updateState, showToast])
   const value = useMemo<PlanContextValue>(() => ({
     state, checkDraft, updateCheckDraft, messages, busy, starterHidden: state.stage > 0, analyzingIndex, customHeading,
-    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
+    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, loadCheckedQuote, startUpgradeMode, setPeripherals,
     openConversation, reviseSetup, clearEditingSheet,
   }), [state, checkDraft, updateCheckDraft, messages, busy, analyzingIndex, customHeading,
-    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, startUpgradeMode,
+    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, loadCheckedQuote, startUpgradeMode, setPeripherals,
     openConversation, reviseSetup, clearEditingSheet])
   return <PlanContext.Provider value={value}>{children}</PlanContext.Provider>
 }

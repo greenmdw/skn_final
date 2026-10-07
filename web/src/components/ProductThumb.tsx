@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { PeripheralKind } from '../api/types'
 import type { PartKey } from '../state/types'
 
 // 카테고리 아이콘(24x24, 선). 제품 이미지가 없거나 불러오지 못하면 이걸 보여 준다.
@@ -12,9 +13,12 @@ const ICONS: Record<string, string[]> = {
   case: ['M7 3h10v18H7z', 'M10 7h4M10 11h4', 'M12 17h.01'],
   cooler: ['M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0', 'M12 10c0-4 3-5 4-3M14 12c4 0 5 3 3 4M12 14c0 4-3 5-4 3M10 12c-4 0-5-3-3-4'],
   monitor: ['M3 5h18v11H3z', 'M9 20h6M12 16v4'],
+  keyboard: ['M3 7h18v10H3z', 'M6 10h.01M9 10h.01M12 10h.01M15 10h.01M18 10h.01M7 14h10'],
+  mouse: ['M8 3h8a3 3 0 0 1 3 3v8a7 7 0 0 1-14 0V6a3 3 0 0 1 3-3z', 'M12 3v6'],
+  speaker: ['M7 3h10v18H7z', 'M12 8h.01', 'M12 16a3 3 0 1 0 0.01 0'],
 }
 
-export default function ProductThumb({ imageUrl, partKey, name }: { imageUrl?: string | null; partKey: PartKey | null; name: string }) {
+export default function ProductThumb({ imageUrl, partKey, name }: { imageUrl?: string | null; partKey: PartKey | PeripheralKind | null; name: string }) {
   const [failed, setFailed] = useState(false)
   if (imageUrl && !failed) {
     return (

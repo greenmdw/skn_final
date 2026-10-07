@@ -1,40 +1,24 @@
 import { useMemo, useRef, useState, type FormEvent } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import PlannerShell from '../components/PlannerShell'
+import { api, errorMessage, type PeripheralItem, type PeripheralKind, type PeripheralRecommendRequest, type PeripheralsResult } from '../api'
+import { usePlan } from '../state/PlanContext'
+import { useToast } from '../state/ToastContext'
+import { wonFmt } from '../utils/format'
+import { Linkified } from '../utils/linkify'
+import { CHECK_STATE_LABEL, PERIPHERAL_KINDS as KINDS, aspectLabel, parsePeripheralCondition, reviewEvidence, type ParsedPeripheralConditions } from '../utils/peripherals'
 import '../styles/peripherals.css'
 
-type PeripheralKind = 'monitor' | 'keyboard' | 'mouse' | 'speaker'
 type ChatMessage = { id: number; role: 'user' | 'assistant'; text: string }
-
-const KINDS: { id: PeripheralKind; label: string; description: string }[] = [
-  { id: 'monitor', label: '모니터', description: '해상도·주사율·화면 크기' },
-  { id: 'keyboard', label: '키보드', description: '타건감·소음·배열' },
-  { id: 'mouse', label: '마우스', description: '크기·무게·연결 방식' },
-  { id: 'speaker', label: '스피커', description: '크기·출력·연결 방식' },
-]
 
 const QUICK = ['FHD 144Hz', 'QHD 165Hz', '4K', '잘 모르겠어요']
 
-function parseCondition(text: string): { spec: string[]; feel: string[] } {
-  const spec: string[] = []
-  const feel: string[] = []
-  const budget = text.match(/(\d+(?:[.,]\d+)?)\s*만\s*원/)
-  if (budget) spec.push(`예산 ${budget[1]}만 원`)
-  if (/QHD|1440/i.test(text)) spec.push(/165\s*Hz/i.test(text) ? 'QHD 165Hz' : 'QHD')
-  else if (/FHD|1080/i.test(text)) spec.push(/144\s*Hz/i.test(text) ? 'FHD 144Hz' : 'FHD')
-  else if (/4K|UHD|2160/i.test(text)) spec.push('4K')
-  if (/조용|저소음|소음/.test(text)) feel.push('조용한 사용감')
-  if (/쫀득|타건/.test(text)) feel.push('쫀득한 타건감')
-  if (/가벼|경량/.test(text)) feel.push('가벼운 무게')
-  if (/손이?\s*작|작은\s*손/.test(text)) feel.push('작은 손')
-  if (/눈.*편|눈부심|피로/.test(text)) feel.push('눈이 편한 화면')
-  return { spec, feel }
-}
-
-function PeripheralChat({ selected, spec, feel, onMessage }: {
+function PeripheralChat({ selected, spec, feel, showingResults, onMessage }: {
   selected: Set<PeripheralKind>
   spec: string[]
   feel: string[]
-  onMessage: (text: string, parsed: { spec: string[]; feel: string[] }) => void
+  showingResults: boolean
+  onMessage: (text: string, parsed: ParsedPeripheralConditions) => void
 }) {
   const [draft, setDraft] = useState('')
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -45,7 +29,7 @@ function PeripheralChat({ selected, spec, feel, onMessage }: {
   function send(text: string) {
     const clean = text.trim()
     if (!clean) return
-    const parsed = parseCondition(clean)
+    const parsed = parsePeripheralCondition(clean)
     const reflected = [...parsed.spec, ...parsed.feel]
     setMessages(previous => [...previous,
       { id: nextId.current++, role: 'user', text: clean },
@@ -65,8 +49,9 @@ function PeripheralChat({ selected, spec, feel, onMessage }: {
     <aside className="pl-chat pf-chat" aria-label="주변기기 조건 대화">
       <div className="pl-chat-head"><span className="pl-dot" />주변기기 조건 대화</div>
       <div className="pl-chat-log">
-        {messages.map(message => <div key={message.id} className={message.role === 'user' ? 'pl-msg-user' : 'pl-msg-bot'}>{message.text}</div>)}
+        {messages.map(message => <div key={message.id} className={message.role === 'user' ? 'pl-msg-user' : 'pl-msg-bot'}><Linkified text={message.text} /></div>)}
         {selectedLabels.length > 0 && <div className="pf-reflected">✓ 선택 품목: {selectedLabels.join(' · ')}{spec.length || feel.length ? ` · 조건 ${spec.length + feel.length}개` : ''}</div>}
+        {showingResults && <div className="pl-msg-bot">품목마다 하나씩 골랐어요. 스펙 조건과 리뷰 근거를 함께 확인해 주세요.</div>}
       </div>
       <div className="pl-chat-foot">
         <div className="pl-choices pf-quick">
@@ -82,15 +67,27 @@ function PeripheralChat({ selected, spec, feel, onMessage }: {
 }
 
 export default function PeripheralsPage() {
-  const [selected, setSelected] = useState<Set<PeripheralKind>>(
-    () => new Set(KINDS.map(kind => kind.id)),
-  )
+  const { state, setPeripherals } = usePlan()
+  const { showToast } = useToast()
+  const navigate = useNavigate()
+  const [selected, setSelected] = useState<Set<PeripheralKind>>(() => new Set(KINDS.map(kind => kind.id)))
   const [specConditions, setSpecConditions] = useState<string[]>([])
   const [feelConditions, setFeelConditions] = useState<string[]>([])
   const [extraConditions, setExtraConditions] = useState<string[]>([])
+  // 서버 추천 요청에 실리는 값. 대화에서 뽑힌 마지막 값이 이긴다.
+  const [params, setParams] = useState<Pick<PeripheralRecommendRequest, 'budgetMax' | 'resolution' | 'noiseSensitive'>>({})
   const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<PeripheralsResult | null>(null)
+  const sessionId = useRef<string | null>(null)
 
+  const showResults = result !== null
   const selectedLabels = useMemo(() => KINDS.filter(kind => selected.has(kind.id)).map(kind => kind.label), [selected])
+  const total = useMemo(() => (result?.items ?? []).reduce((sum, item) => sum + item.price, 0), [result])
+  const budget = params.budgetMax ?? null
+  const plan = state.currentPlan
+  const hasUnreflectedFeel = feelConditions.some(condition => condition !== '조용한 사용감')
 
   function toggle(kind: PeripheralKind) {
     setSelected(previous => {
@@ -99,26 +96,130 @@ export default function PeripheralsPage() {
       return next
     })
     setNotice('')
+    setResult(null)
   }
 
-  function addConditions(text: string, parsed: { spec: string[]; feel: string[] }) {
+  function addConditions(text: string, parsed: ParsedPeripheralConditions) {
     setSpecConditions(previous => [...new Set([...previous, ...parsed.spec])])
     setFeelConditions(previous => [...new Set([...previous, ...parsed.feel])])
     if (!parsed.spec.length && !parsed.feel.length) setExtraConditions(previous => [...new Set([...previous, text])])
+    setParams(previous => ({
+      budgetMax: parsed.budgetMax ?? previous.budgetMax,
+      resolution: parsed.resolution ?? previous.resolution,
+      noiseSensitive: parsed.noiseSensitive ?? previous.noiseSensitive,
+    }))
     setNotice('')
+    setResult(null)
   }
 
-  function requestRecommendation() {
+  async function requestRecommendation() {
     if (!selected.size) {
       setNotice('추천받을 주변기기를 한 개 이상 선택해주세요.')
       return
     }
-    setNotice('주변기기 추천 화면은 준비됐지만, 실제 제품 추천을 받으려면 전용 백엔드 API 연결이 필요합니다.')
+    setNotice(''); setError(''); setLoading(true)
+    try {
+      const next = await api.peripherals.recommend({
+        kinds: KINDS.filter(kind => selected.has(kind.id)).map(kind => kind.id),
+        budgetMax: params.budgetMax,
+        resolution: params.resolution,
+        noiseSensitive: params.noiseSensitive,
+        pcListId: plan?.id,
+      }, sessionId.current)
+      sessionId.current = next.sessionId
+      setResult(next)
+    } catch (caught) {
+      setError(errorMessage(caught, '주변기기를 추천받지 못했습니다. 잠시 후 다시 시도해주세요.'))
+    } finally { setLoading(false) }
+  }
+
+  function toCart() {
+    if (!result) return
+    // 본체 견적이 없어도 담을 수 있다 — 이 추천을 받은 목록(세션)으로 주변기기만 확정한다.
+    if (!plan && !result.sessionId) {
+      setNotice('장바구니에 담을 수 없어요. 주변기기 추천을 다시 받아 주세요.')
+      return
+    }
+    const items = result.items.filter(item => item.variantId).map(item => ({
+      kind: item.kind, name: item.name, brand: item.brand, price: item.price, qty: 1,
+      variantId: item.variantId, imageUrl: item.imageUrl, productUrl: item.productUrl,
+    }))
+    if (!items.length) { setNotice('장바구니에 담을 수 있는 품목이 없어요.'); return }
+    setPeripherals(items, plan ? undefined : result.sessionId)
+    showToast(`주변기기 ${items.length}개를 ${plan ? '통합 ' : ''}장바구니에 담았어요.`)
+    navigate('/cart')
+  }
+
+  function recommendationCard(item: PeripheralItem) {
+    const evidence = reviewEvidence(item.reviewAspects)
+    const specLine = item.requirement.length ? item.requirement.map(row => `${row.label} ${row.value}`).join(' · ') : item.brand
+    return <article className="pf-result-card" key={item.kind}>
+      <div className="pf-product-head">
+        <div className="pf-product-image" aria-hidden="true">{item.imageUrl ? <img src={item.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onError={event => { event.currentTarget.style.display = 'none' }} /> : <span>사진</span>}</div>
+        <div className="pf-product-title">
+          <span>{item.kindLabel}</span>
+          <h2>{item.name}</h2>
+          <p>{specLine}</p>
+        </div>
+        <strong className="pf-product-price pl-mono">{wonFmt(item.price)}</strong>
+      </div>
+      {item.priceNote && <p className="pf-price-note">ⓘ {item.priceNote}</p>}
+
+      {item.reason.text && <section className="pf-evidence">
+        <h3>추천 근거</h3>
+        <p>{item.reason.text}</p>
+      </section>}
+
+      <section className="pf-evidence">
+        <h3>리뷰 근거</h3>
+        {evidence.length === 0 && <div className="pf-weak-note">아직 모인 리뷰 근거가 없어요. 스펙 근거만 참고해 주세요.</div>}
+        {evidence.map(review => {
+          const ratio = review.total ? Math.round(review.positive / review.total * 100) : 0
+          const weak = review.total < 3
+          return <div className={'pf-review' + (weak ? ' weak' : '')} key={review.aspectCode}>
+            <p><b>{aspectLabel(review.aspectCode)}</b> · 후기 언급 {review.total}건 중 긍정 <b>{review.positive}건</b> · 부정 {review.negative}건{review.mixed > 0 ? ` · 엇갈림 ${review.mixed}건` : ''}</p>
+            <div className="pf-review-track"><i style={{ width: `${ratio}%` }} /></div>
+            {review.quote && <blockquote>“{review.quote}”</blockquote>}
+            {weak && <div className="pf-weak-note">리뷰가 적어 판단 근거가 약해요. 비율보다 건수를 먼저 봐 주세요.</div>}
+          </div>
+        })}
+        {item.reviewNote && <p className="pf-review-note">{item.reviewNote}</p>}
+      </section>
+
+      {item.checks.length > 0 && <section className="pf-device-checks">
+        <h3>스펙·본체 검사</h3>
+        {item.checks.map(check => <div key={check.axis}><span className={check.state}>{CHECK_STATE_LABEL[check.state]}</span><b>{check.label}</b><p>{check.detail}</p></div>)}
+      </section>}
+      {item.guide.status === 'ready' && item.guide.text && <p className="pf-buying-note"><b>구매 전 확인</b> · {item.guide.text}</p>}
+
+      {item.alternatives.length > 0 && <details className="pf-alternatives">
+        <summary>다른 후보 {item.alternatives.length}개 보기</summary>
+        <ul>{item.alternatives.map(alternative => <li key={alternative.name}><span>{alternative.name}</span><b className="pl-mono">{wonFmt(alternative.price)}</b><em className={alternative.diff > 0 ? 'up' : 'down'}>{alternative.diff > 0 ? '+' : ''}{wonFmt(alternative.diff)}</em></li>)}</ul>
+      </details>}
+    </article>
   }
 
   return (
-    <PlannerShell sidebar={<PeripheralChat selected={selected} spec={specConditions} feel={feelConditions} onMessage={addConditions} />}>
-      <div className="pf-page">
+    <PlannerShell sidebar={<PeripheralChat selected={selected} spec={specConditions} feel={feelConditions} showingResults={showResults} onMessage={addConditions} />}>
+      <div className={'pf-page' + (showResults ? ' results' : '')}>
+        {showResults ? <>
+          <div className="pf-results-heading">
+            <div><span className="pl-eyebrow pl-mono">주변기기 견적 · 추천 결과</span><h1>원하는 느낌에 맞춘 주변기기</h1></div>
+            <div className="pf-total">
+              <strong className="pl-mono">{wonFmt(total)}</strong>
+              <span>{budget != null ? `주변기기 예산 ${wonFmt(budget)} · ${total <= budget ? `잔액 ${wonFmt(budget - total)}` : `${wonFmt(total - budget)} 초과`}` : '예산을 알려 주면 잔액도 보여 드려요'}</span>
+            </div>
+          </div>
+          {result.status === 'skipped' && <div className="pl-alert warn" role="status">서버가 이번 요청은 추천하지 않았어요. 조건을 바꿔 다시 시도해 주세요.</div>}
+          {result.empty.length > 0 && <div className="pl-alert warn" role="status">{result.empty.map(row => `${KINDS.find(kind => kind.id === row.kind)?.label ?? row.kind}: ${row.reason}`).join(' · ')}</div>}
+          <div className="pf-results-grid">{result.items.map(recommendationCard)}</div>
+          <div className="pf-results-actions">
+            <button type="button" className="pf-secondary" onClick={() => setResult(null)}>조건 다시 보기</button>
+            <button type="button" className="pl-btn" onClick={toCart} disabled={result.items.length === 0}>{plan ? '통합 장바구니로' : '주변기기만 장바구니로'}</button>
+          </div>
+          {!plan && <div className="pl-alert warn" role="status">본체 견적 없이 주변기기만 담아 확정할 수 있어요. 본체와 함께 확정하려면 <Link to="/start" style={{ color: 'inherit', fontWeight: 700 }}>본체 추천 받으러 가기 →</Link></div>}
+          {notice && <div className="pl-alert warn" role="status">{notice}</div>}
+        </> : <>
         <div className="pf-heading">
           <h1>필요한 품목과 원하는 느낌</h1>
           <p>필요한 주변기기를 고르고, 왼쪽 대화에서 예산과 사용감을 알려주세요.</p>
@@ -148,6 +249,7 @@ export default function PeripheralsPage() {
               {feelConditions.map(condition => <span key={condition}>{condition}</span>)}
               {feelConditions.length === 0 && <p>아직 입력한 체감 조건이 없어요.</p>}
             </div>
+            {hasUnreflectedFeel && <p className="pf-feel-note">지금은 ‘조용한 사용감’만 추천에 반영돼요. 나머지 체감 조건은 기록만 해 두고, 추천 결과의 리뷰 근거에서 직접 확인해 주세요.</p>}
           </section>
         </div>
 
@@ -157,10 +259,13 @@ export default function PeripheralsPage() {
         </section>
 
         <div className="pf-action">
-          <div><b>{selectedLabels.length ? `${selectedLabels.join(' · ')} 선택됨` : '품목을 선택해주세요'}</b><span>실제 상품 데이터는 서버 추천 응답이 연결된 뒤 표시합니다.</span></div>
-          <button type="button" className="pl-btn" onClick={requestRecommendation}>추천 받기</button>
+          <div><b>{selectedLabels.length ? `${selectedLabels.join(' · ')} 선택됨` : '품목을 선택해주세요'}</b><span>{plan ? '지금 작성한 본체 견적의 해상도로 모니터를 함께 검사해요.' : '본체 견적이 없어도 추천받을 수 있어요.'}</span></div>
+          <button type="button" className="pl-btn" onClick={() => void requestRecommendation()} disabled={loading}>{loading ? '추천 찾는 중…' : '추천 받기'}</button>
         </div>
+        {loading && <div className="pl-note" role="status">주변기기 후보를 고르고 있어요. 품목이 많으면 조금 걸릴 수 있어요.</div>}
+        {error && <div className="pl-alert bad" role="alert">{error}</div>}
         {notice && <div className="pl-alert warn" role="status">{notice}</div>}
+        </>}
       </div>
     </PlannerShell>
   )

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { usePlan } from '../state/PlanContext'
+import { Linkified } from '../utils/linkify'
 import ResizeHandle, { usePanelWidth } from './ResizeHandle'
 
 // 채팅 폭: 끌어서 조절한다(기본 380px, 280~520px).
@@ -31,7 +32,7 @@ export default function ChatPanel({ title, placeholder }: { title: string; place
       <div className="pl-chat-head"><span className="pl-dot" />{title}</div>
       <div className="pl-chat-log" ref={log}>
         {messages.map(message => (
-          <div key={message.id} className={message.role === 'user' ? 'pl-msg-user' : 'pl-msg-bot'}>{message.text}</div>
+          <div key={message.id} className={message.role === 'user' ? 'pl-msg-user' : 'pl-msg-bot'}><Linkified text={message.text} /></div>
         ))}
         {busy && <div className="pl-typing pl-mono" aria-label="답변 준비 중">···</div>}
       </div>

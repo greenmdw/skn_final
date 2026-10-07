@@ -91,3 +91,71 @@ def test_confirm_rejects_an_unknown_peripheral_variant_and_persists_nothing():
     r2 = c.post(f"/lists/{lid}/confirm", json={"name": "재시도"})
     assert r2.status_code == 200, r2.text
     assert r2.json()["peripherals"] == []
+
+
+# ── 본체 추천 없이 주변기기만 확정 ───────────────────────────────────────────
+def _new_session(c) -> str:
+    r = c.post("/session")
+    assert r.status_code == 200, r.text
+    return r.json()["list_id"]
+
+
+def _pick(c, lid: str, *kinds: str) -> list[dict]:
+    r = c.post(f"/session/{lid}/peripherals/recommend", json={"kinds": list(kinds)})
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["status"] == "ready", data
+    return data["items"]
+
+
+def test_confirm_peripherals_only_without_a_pc_recommendation():
+    """본체 추천을 받지 않은 목록에서 주변기기만 담아 확정한다 — 총액은 주변기기 합계, 본체 항목은 없다."""
+    c = _signed_up()
+    lid = _new_session(c)
+    picks = _pick(c, lid, "monitor", "keyboard", "mouse", "speaker")
+    assert {p["kind"] for p in picks} == {"monitor", "keyboard", "mouse", "speaker"}   # 모니터도 비지 않는다(기본 QHD)
+
+    r = c.post(f"/lists/{lid}/confirm", json={
+        "name": "주변기기만",
+        "peripherals": [{"kind": p["kind"], "variant_id": p["product"]["variant_id"], "qty": 1} for p in picks],
+    })
+    assert r.status_code == 200, r.text
+    report = r.json()
+    assert report["items"] == []
+    assert report["total"] == sum(p["price"] for p in picks)
+    assert {p["kind"] for p in report["peripherals"]} == {"monitor", "keyboard", "mouse", "speaker"}
+
+    item = _list_item(c, lid)
+    assert item["reports"][0]["item_count"] == 0
+    assert item["reports"][0]["peripheral_count"] == 4
+    assert c.get(f"/lists/{lid}/report").json()["total"] == report["total"]
+
+    # 히스토리·새 견적서(수정하기)도 본체 추천이 없다고 깨지지 않는다
+    assert c.get(f"/lists/{lid}/history").status_code == 200
+    assert c.post(f"/lists/{lid}/revisions").status_code == 200
+
+
+def test_confirm_without_pc_and_without_peripherals_is_still_rejected():
+    c = _signed_up()
+    lid = _new_session(c)
+    r = c.post(f"/lists/{lid}/confirm", json={"name": "빈 견적"})
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["code"] == "no_items_selected"
+
+
+def test_peripherals_do_not_bypass_the_pc_checks_when_a_recommendation_exists():
+    """본체 추천이 있는 목록은 주변기기를 붙여도 본체 검증(예산 초과 등)을 그대로 받는다 — 본체를 조용히 버리지 않는다."""
+    c = _signed_up()
+    lid, _revision_id, _data = _recommended_list(c)
+    picks = _pick(c, lid, "keyboard")
+    # 본체 선택을 전부 해제하면 본체 확정 불가(no_items_selected) — 주변기기가 있어도 우회되지 않는다
+    items = c.get(f"/session/{lid}/result").json()["items"]
+    for it in items:
+        if it["selected"]:
+            c.patch(f"/session/{lid}/items/{it['item_id']}", json={"selected": False})
+    r = c.post(f"/lists/{lid}/confirm", json={
+        "name": "우회 시도",
+        "peripherals": [{"kind": "keyboard", "variant_id": picks[0]["product"]["variant_id"], "qty": 1}],
+    })
+    assert r.status_code == 422, r.text
+    assert r.json()["error"]["code"] == "no_items_selected"

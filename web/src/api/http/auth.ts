@@ -3,7 +3,7 @@ import { request } from './client'
 import type { WireUser } from './wire'
 
 function toUser(wire: WireUser): AuthUser {
-  return { name: wire.user.display_name, email: wire.user.email }
+  return { name: wire.user.display_name, email: wire.user.email, marketingConsent: wire.user.marketing_agreed, createdAt: wire.user.created_at }
 }
 
 // 서버가 httpOnly 쿠키(truefit_session)로 세션을 만든다. 로그인·가입 때 게스트로 만든 추천 목록이 계정으로 합쳐진다.
@@ -28,6 +28,18 @@ export const auth: Api['auth'] = {
   },
   async logout() {
     await request<void>('POST', '/auth/logout')
+  },
+  async updateProfile({ name, marketingConsent }) {
+    const body: Record<string, unknown> = {}
+    if (name !== undefined) body.display_name = name
+    if (marketingConsent !== undefined) body.marketing_agreed = marketingConsent
+    return toUser(await request<WireUser>('PATCH', '/auth/me', body))
+  },
+  async changePassword({ currentPassword, newPassword }) {
+    await request<void>('POST', '/auth/password', { current_password: currentPassword, new_password: newPassword })
+  },
+  async withdraw(password) {
+    await request<void>('POST', '/auth/withdraw', { password })
   },
   async checkEmail(email) {
     const data = await request<{ available: boolean }>('GET', '/auth/email-availability?email=' + encodeURIComponent(email))
