@@ -140,7 +140,7 @@ class ConditionDraft:
         (docs/미보유부품_실시간스펙검색_설계.md 확장). 이 에이전트는 부품을 직접 고르지
         않으므로(그건 추천 엔진 몫), 찾은 스펙은 extra 조건으로만 남긴다 — 판정 없이 기록."""
         from src.repo.catalog_repo import load_candidates_by_slot_from_db
-        from src.engine.owned_parts import _match_catalog
+        from src.engine.owned_parts import _match_catalog, catalog_family_matches
         call = f"search_unavailable_part({slot!r}, {product_text!r})"
         if self.conn is None:
             return self._record(call, "오류: 지금은 이 기능을 쓸 수 없습니다.")
@@ -150,6 +150,11 @@ class ConditionDraft:
         if matches:
             names = ", ".join(c.name for c in matches[:3])
             return self._record(call, f"'{product_text}'는 실제로 카탈로그에 있습니다: {names}.")
+        family = catalog_family_matches(product_text, pool)
+        if family:       # "엔비디아 5070"처럼 시리즈 낱말이 빠졌을 뿐 카탈로그에 있는 제품 — 없다고 하면 안 된다
+            names = ", ".join(c.name for c in family[:4])
+            return self._record(call, f"'{product_text}'는 카탈로그에 있는 제품입니다: {names}. DB에 없는 상품이 아니니 외부 검색을 "
+                                      "묻지 마세요. 어느 제품인지(예: Ti 여부)가 정해지지 않았으면 그것만 되물으세요.")
         if not self.search_confirmed:
             return self._record(call, f"'{product_text}'는 저희 DB에 없는 상품으로 확인됩니다. {SEARCH_PERMISSION_MARKER}")
         from src.services import live_spec_lookup
@@ -215,12 +220,26 @@ _SEARCH_CONFIRM_RE = re.compile(
     r"(?:\s|[.!~,?]|$)", re.IGNORECASE)
 
 
+# 위 정규식은 "응/네/해줘…"로 시작하고 바로 끝나야 해서 "진행해줘"·"진행해 주세요"·"외부 검색 진행해줘"를 놓쳤다
+# ("진행해" 뒤에 "줘"가 붙으면 경계 조건에 걸린다). 공백·문장부호를 걷어 낸 짧은 문장 전체가 "동의 어구"일 때만 동의로 본다.
+# 새 요청이 섞인 문장("다른 부품으로 비교해줘")과 부정("진행하지마")은 전체가 이 모양이 아니라서 동의가 아니다.
+_SEARCH_CONFIRM_LOOSE = re.compile(
+    r"^(?:응|ㅇㅇ|ㅇㅋ|네|넵|예|그래|좋아|오케이|ok|okay)?"
+    r"(?:외부)?(?:검색)?(?:진행|검색|찾아|해)(?:해)?"
+    r"(?:줘|주세요|주세용|봐|봐요|보세요|하세요|할게|할게요|도돼|도돼요|도됩니다|부탁해|부탁해요|부탁드립니다)?(?:요|용)?$",
+    re.IGNORECASE)
+_PUNCT_AND_SPACE = re.compile(r"[\s.!~,?…]+")
+
+
 def is_search_confirmation(last_reply: str | None, text: str) -> bool:
     """직전 턴의 에이전트 답변이 검색 동의를 구했고(SEARCH_PERMISSION_MARKER 포함) 이번
     사용자 메시지가 동의인지."""
-    if not last_reply:
+    if not last_reply or SEARCH_PERMISSION_MARKER not in last_reply:
         return False
-    return SEARCH_PERMISSION_MARKER in last_reply and bool(_SEARCH_CONFIRM_RE.search(text.strip()))
+    clean = text.strip()
+    if _SEARCH_CONFIRM_RE.search(clean):
+        return True
+    return bool(_SEARCH_CONFIRM_LOOSE.match(_PUNCT_AND_SPACE.sub("", clean.lower())))
 
 
 def _parse_amount(text: str) -> int | None:
