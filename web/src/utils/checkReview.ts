@@ -201,6 +201,14 @@ export function checkedAgo(iso: string | null | undefined): string {
   return days <= 0 ? '오늘 확인' : `${days}일 전 확인`
 }
 
+/** 실시간 검색 값이 언제 가져온 것인지 — 사람이 검증했다는 뜻이 아니다(검증은 "확인됨" 배지) */
+export function searchedAgo(iso: string | null | undefined): string {
+  const time = iso ? Date.parse(iso) : NaN
+  if (Number.isNaN(time)) return '검색 시각 알 수 없음'
+  const days = Math.floor((Date.now() - time) / 86_400_000)
+  return days <= 0 ? '오늘 검색한 값' : `${days}일 전 검색한 값`
+}
+
 /** 제품명 입력에 "238,000원" 같은 금액이 섞여 있으면 떼어 낸다 */
 export function splitNameAndPrice(value: string): { name: string; price: number | null } {
   let price: number | null = null

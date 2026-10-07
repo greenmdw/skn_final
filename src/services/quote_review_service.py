@@ -171,7 +171,7 @@ def analyze(current_specs: dict, conditions: dict | None = None, *,
     return {
         "version": SCHEMA_VERSION,
         "input": {"current_specs": specs, "conditions": conditions, "input_hash": _input_hash(specs, conditions)},
-        "parts": preview_current_specs(specs, by_slot, slot_structure),
+        "parts": preview_current_specs(specs, by_slot, slot_structure, owned=owned),
         "compat": compat_for_quote(specs, by_slot, slot_structure, owned),
         "prices": prices,
         "balance": quote_balance.assess(conditions, owned, prices),

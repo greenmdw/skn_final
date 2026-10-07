@@ -36,6 +36,7 @@ from src.categories import load_category
 from src.config import LIVE_PART_LOOKUP_LIMIT_PER_MIN, PC_CHECK_LIMIT_PER_MIN
 from src.db import get_conn
 from src.engine.owned_parts import preview_current_specs
+from src.engine.quote_items import is_placeholder_line
 from src.engine.spec_text import parse_spec_text
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.errors import RateLimited, ServiceUnavailable, ValidationFailed
@@ -103,10 +104,12 @@ def _resolve_current_specs(body: schemas.OwnedPartsPreviewIn) -> dict[str, str]:
     current_specs = dict(body.current_specs)
     if body.image_data_url:
         for slot, value in _extract_current_specs_from_image(body.image_data_url).items():
-            current_specs.setdefault(slot, value)
+            if not is_placeholder_line(value):
+                current_specs.setdefault(slot, value)
     elif body.text and body.text.strip():
         for slot, value in _extract_current_specs_from_text(body.text).items():
-            current_specs.setdefault(slot, value)   # 명시적으로 넘긴 슬롯이 추출값보다 우선한다
+            if not is_placeholder_line(value):          # "별도구매"·"기본 쿨러 장착" 같은 선택 안내 줄은 부품이 아니다
+                current_specs.setdefault(slot, value)   # 명시적으로 넘긴 슬롯이 추출값보다 우선한다
     return current_specs
 
 
@@ -122,6 +125,13 @@ def _review_out(list_id: str, review: dict) -> schemas.QuoteReviewOut:
 def quote_capabilities() -> schemas.QuoteCapabilitiesOut:
     """이미지 인식을 쓸 수 있는지와 서버 제한값(BE-01). 반드시 `/reviews/{list_id}` 보다 먼저 선언한다."""
     return schemas.QuoteCapabilitiesOut(**quote_draft_service.capabilities())
+
+
+def _draft_response(list_id, draft: dict) -> schemas.QuoteDraftOut:
+    """초안 응답 — 저장소에 실시간 검색 값이 있는 항목을 표시해서 돌려준다(짧은 읽기 전용 연결)."""
+    with get_conn() as conn:
+        quote_draft_service.mark_live_values(conn, draft)
+    return schemas.QuoteDraftOut(**quote_draft_service.draft_out(str(list_id), draft))
 
 
 def _read_upload(upload: UploadFile) -> tuple[str, str | None, bytes]:
@@ -153,14 +163,14 @@ def create_quote_draft(
     if session["browser_token"]:
         response.set_cookie("truefit_guest", session["browser_token"],
                             httponly=True, samesite="lax", max_age=60 * 60 * 24 * 180)
-    return schemas.QuoteDraftOut(**quote_draft_service.draft_out(session["list_id"], draft))
+    return _draft_response(session["list_id"], draft)
 
 
 @router.get("/review-drafts/{draft_id}", response_model=schemas.QuoteDraftOut)
 def get_quote_draft(draft_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.QuoteDraftOut:
     with get_conn() as conn:
         draft = quote_draft_service.get_draft(conn, draft_id, principal)
-    return schemas.QuoteDraftOut(**quote_draft_service.draft_out(str(draft_id), draft))
+    return _draft_response(draft_id, draft)
 
 
 @router.patch("/review-drafts/{draft_id}/items", response_model=schemas.QuoteDraftOut)
@@ -172,7 +182,7 @@ def patch_quote_draft_items(
         draft = quote_draft_service.patch_items(
             conn, draft_id, principal, body.expected_version, [e.model_dump(exclude_unset=True) for e in body.items],
             body.selected_item_by_category)
-    return schemas.QuoteDraftOut(**quote_draft_service.draft_out(str(draft_id), draft))
+    return _draft_response(draft_id, draft)
 
 
 @router.post("/review-drafts/{draft_id}/items", response_model=schemas.QuoteDraftOut, status_code=201)
@@ -182,7 +192,7 @@ def add_quote_draft_item(
     """모델이 못 읽은 부품을 사용자가 직접 추가한다 — 읽은 항목과 같은 방식으로 이름·코드·수량·가격을 나누고 카탈로그와 맞춘다."""
     with get_conn() as conn:
         draft = quote_draft_service.add_item(conn, draft_id, principal, body.expected_version, body.category, body.raw_text, body.source_id)
-    return schemas.QuoteDraftOut(**quote_draft_service.draft_out(str(draft_id), draft))
+    return _draft_response(draft_id, draft)
 
 
 @router.post("/review-drafts/{draft_id}/analysis", response_model=schemas.QuoteDraftAnalysisOut)
@@ -239,7 +249,7 @@ def apply_quote_draft_replacements(
     with get_conn() as conn:
         draft = quote_draft_service.replacement_apply(
             conn, draft_id, principal, body.expected_version, [r.model_dump() for r in body.replacements])
-    return schemas.QuoteDraftOut(**quote_draft_service.draft_out(str(draft_id), draft))
+    return _draft_response(draft_id, draft)
 
 
 @router.post("/review-drafts/{draft_id}/items/{item_id}/live-lookup", response_model=schemas.LiveSpecLookupOut)

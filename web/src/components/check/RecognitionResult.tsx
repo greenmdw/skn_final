@@ -55,7 +55,7 @@ export default function RecognitionResult({
             <b>인식 결과</b>
             {reviewCount > 0 && <span className="ck-status warn">{reviewCount}개 확인 필요</span>}
             <span className="ck-status-legend">상태 안내
-              <button type="button" className="ck-legend-help" title="대응됨: 카탈로그 제품을 찾음 · 확인 필요: 제품이 모호하거나 정보가 부족함 · 사용자 확인: 직접 수정한 항목" aria-label="상태 안내">?</button>
+              <button type="button" className="ck-legend-help" title="대응됨: 카탈로그 제품을 찾음 · 확인 필요: 제품이 모호하거나 정보가 부족함 · 검색 값 있음: 실시간 검색으로 찾은 값이 있어 글에서 못 읽은 값을 보충함(제품 확정은 아님) · 사용자 확인: 직접 수정한 항목" aria-label="상태 안내">?</button>
             </span>
           </div>
           <span>부품 종류별로 인식된 모든 제품을 정리했습니다. 같은 종류가 여러 개면 비교한 뒤 분석 기준을 하나 골라주세요.</span>
@@ -205,6 +205,7 @@ function GroupRows({ group, all, draft, selection, pending, statuses, busy, onSe
             <td>
               <div className="ck-recognition-cell">
                 <span className={`ck-status ${status.tone}`}>{status.label}</span>
+                {item.liveValue && <span className="ck-status live" title="실시간 검색으로 찾은 값이 있어요. 글에서 읽지 못한 값을 이 값으로 보충해 점검합니다. 카탈로그 정식 값이 아니라 제품이 확정된 것은 아니에요.">검색 값 있음</span>}
                 <span className="ck-matched-name" title={matched}>{matched}</span>
               </div>
             </td>

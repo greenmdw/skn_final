@@ -266,6 +266,8 @@ export interface QuoteDraftItem {
   sourceIds: string[]
   selectedForAnalysis: boolean
   userEdited: boolean
+  /** 실시간 검색 값이 저장소에 있어 점검에 쓰인다. 제품 확정이 아니다 */
+  liveValue?: boolean
 }
 
 export interface QuoteDraft {

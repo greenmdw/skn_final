@@ -200,6 +200,8 @@ export interface ReviewRow {
   stateLabel: string
   /** state(ok/warn)보다 세분화된 값 — unmatched일 때만 실시간 검색 버튼을 보여준다. */
   matchStatus: 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'
+  /** 'live' 면 값 일부 또는 전부가 실시간 검색 결과다(상태는 그대로 확인 필요) */
+  valueSource?: 'live' | null
 }
 
 export interface CheckDraft {
