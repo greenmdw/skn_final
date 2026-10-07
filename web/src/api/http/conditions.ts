@@ -76,8 +76,24 @@ export const conditions: Api['conditions'] = {
     }
   },
   async previous() {
-    const { previous } = await request<WirePreviousLookup>('GET', '/session/previous?category=computer&mode=build')
-    return previous ? { listId: previous.list_id, summary: previous.summary } : null
+    const { previous, preference_hint: hint } = await request<WirePreviousLookup>('GET', '/session/previous?category=computer&mode=build')
+    return {
+      previous: previous ? { listId: previous.list_id, summary: previous.summary } : null,
+      preferenceHint: hint ? { id: hint.id, dimension: hint.dimension, slot: hint.slot, value: hint.value, direction: hint.direction, actionable: hint.actionable, summary: hint.summary } : null,
+    }
+  },
+  async respondPreferenceHint(sessionId, signalId, accepted) {
+    const respondIn = async (id: string) => {
+      await request('POST', '/session/' + id + '/preference-hint/' + signalId + '/respond', { accepted })
+      return { sessionId: id }
+    }
+    if (!sessionId) return respondIn(await createSession())
+    try {
+      return await respondIn(sessionId)
+    } catch (error) {
+      if (!isNotFound(error)) throw error
+      return respondIn(await createSession())
+    }
   },
   async resume(sessionId, fromListId) {
     const resumeIn = async (id: string) =>

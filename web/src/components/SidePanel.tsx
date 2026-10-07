@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { usePlan } from '../state/PlanContext'
 import { useSetups } from '../state/SetupsContext'
 import { useToast } from '../state/ToastContext'
+import { isCheckSession } from '../utils/checkSessions'
 import { useRemoveSheet } from '../state/useRemoveSheet'
 import { logout, useAuthUser } from '../state/authStore'
 import { compactWon, dateGroup, fullDate, shortDate } from '../utils/format'
@@ -155,6 +156,8 @@ export default function SidePanel() {
   // 대화를 누르면 그 대화의 채팅과 함께 "2 추천 결과" 화면이 열린다. 확정된 대화는 구성을 보기만 하고(고치려면 견적 수정하기),
   // 구성을 못 읽으면 리포트로 간다. 견적서를 누르면 리포트가 열린다(견적서 행).
   async function openHistory(item: ConversationSummary) {
+    // 받은 견적 점검으로 만든 대화는 점검 화면에서 이어 본다(이 브라우저에서 만든 것만 구분할 수 있다).
+    if (isCheckSession(item.listId)) { navigate('/check?draft=' + item.listId); return }
     const confirmed = item.stage === 'report'
     const opened = await openConversation(item.listId, item.stage === 'results' || confirmed, confirmed)
     if (opened === 'plan') navigate('/plan')

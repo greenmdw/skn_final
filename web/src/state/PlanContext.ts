@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 import type { AlternativeOption, ItemPatch } from '../api/types'
-import type { ChatChoice, ChatMessage, CheckDraft, EditingSheet, PartKey, PlanState, SavedSetup } from './types'
+import type { ChatChoice, ChatMessage, CheckDraft, CurrentPlan, EditingSheet, PartKey, PlanState, SavedSetup, SetupPeripheral } from './types'
 
 export interface PlanContextValue {
   state: PlanState
@@ -32,11 +32,16 @@ export interface PlanContextValue {
   setDesk: (width: number, depth: number, height: number) => boolean
   resetPlan: () => void
   loadFromSavedSetup: (setup: SavedSetup) => void
-  startUpgradeMode: () => Promise<boolean>
+  /** 받은 견적 점검 결과를 현재 장바구니 구성으로 올린다. */
+  loadCheckedQuote: (plan: CurrentPlan, draft: CheckDraft) => void
+  /** 유지할 부품을 입력한 점검 초안으로 업그레이드 추천을 시작한다. draft 가 없으면 보관 중인 점검 초안을 쓴다. 성공하면 true */
+  startUpgradeMode: (draft?: CheckDraft) => Promise<boolean>
   /** 지난 대화를 서버에서 읽어 연다. hasResult 면 추천 결과까지. 열린 화면('plan'|'conditions'), 실패하면 null */
   openConversation: (listId: string, hasResult: boolean, viewOnly?: boolean) => Promise<'plan' | 'conditions' | null>
   /** 확정한 견적의 조건으로 새 견적서를 시작한다(조건 대화로). 성공하면 true */
   reviseSetup: (listId: string, from: EditingSheet) => Promise<'plan' | 'conditions' | null>
+  /** 주변기기 추천에서 고른 품목을 통합 장바구니에 담는다(빈 배열이면 비운다) */
+  setPeripherals: (peripherals: SetupPeripheral[]) => void
   /** 덮어쓰기·새로 저장을 마친 뒤 "수정 중인 원본" 표시를 지운다 */
   clearEditingSheet: () => void
 }

@@ -50,6 +50,23 @@ export interface PreviousConditions {
   summary: string
 }
 
+/** 반복 행동에서 추론한 선호 신호(GET /session/previous). 사용자가 응답해야 이번 견적에 반영된다. */
+export interface PreferenceHint {
+  id: string
+  dimension: string
+  slot: string
+  value: string
+  direction: string
+  /** true 면 "예"가 이번 견적 조건에 실제로 담긴다. false 면 묻지 않고 알려 주기만 한다 */
+  actionable: boolean
+  summary: string
+}
+
+export interface PreviousLookup {
+  previous: PreviousConditions | null
+  preferenceHint: PreferenceHint | null
+}
+
 export interface ConditionTurnResult {
   /** 세션이 없어서 새로 만들었으면 그 id. 이후 대화는 이 id로 이어간다. */
   sessionId: string
@@ -127,34 +144,13 @@ export interface AlternativeOption {
 /** qty 수량 · selected false 부품 빼기 / true 다시 넣기 */
 export interface ItemPatch { qty?: number; selected?: boolean }
 
-// ---- 내 PC·견적 점검 ----
-export interface UpgradeSuggestion {
-  /** 교체를 제안하는 부품 종류. 예: 'GPU' */
-  part: string
-  currentNote: string
-  productName: string
-  productNote: string
-  performance: string
-  extraCost: number
-  power: string
-  effectSummary: string
-  checkConditions: string
-  disclaimer: string
-}
-
+// ---- 받은 견적 점검 ----
 export interface QuoteConditions {
   purpose?: 'game' | 'creation' | 'office' | 'study' | 'other'
   resolution?: 'FHD_144' | 'QHD_165' | '4K'
   priority?: 'performance' | 'value' | 'quiet'
   games?: string[]
   budgetMax?: number
-}
-
-export interface QuoteReviewRequest {
-  currentSpecs?: Record<string, string>
-  text?: string
-  imageDataUrl?: string
-  conditions?: QuoteConditions
 }
 
 export interface QuoteCompatCheck {
@@ -209,25 +205,6 @@ export interface QuoteReviewResult {
   computedAt: string
 }
 
-export interface QuotePartCandidate {
-  name: string
-  price: number
-  priceDelta: number | null
-  perfTier: number | null
-  specs: { key: string; label: string; unit: string; baseline: unknown; candidate: unknown; diff: number | null }[]
-  incompatible: string[]
-  compatChanges: { axis: string; label: string; from: string; to: string; detail: string }[]
-  review: Record<string, unknown> | null
-}
-
-export interface QuotePartComparison {
-  slot: string
-  baseline: Record<string, unknown>
-  candidates: QuotePartCandidate[]
-  unmatchedTargets: string[]
-  note: string | null
-}
-
 /** DB 미보유 부품 실시간 검색 결과(docs/미보유부품_실시간스펙검색_설계.md). relevant가 false거나
  * supportedFields가 전부 비어 있으면 "찾지 못했다"로 보여준다. */
 export interface LiveSpecLookupResult {
@@ -245,8 +222,264 @@ export interface LiveSpecLookupResult {
   referencePriceAt: string | null
 }
 
-export interface QuoteChatMessage { id: string; role: 'user' | 'assistant' | 'system'; text: string; createdAt: string }
 export interface QuoteApplyResult { listId: string; slots: string[]; missing: string[]; runId: string | null }
+
+// ---- 받은 견적 점검: 여러 장 업로드 초안(백엔드 /pc/review-drafts) ----
+export interface QuoteCapabilities {
+  imageExtraction: boolean
+  supportedTypes: string[]
+  maxFiles: number
+  maxFileBytes: number
+  maxTotalBytes: number
+  textMaxChars: number
+}
+
+export interface QuoteDraftSource {
+  id: string
+  type: 'image' | 'text' | 'replacement' | 'manual'
+  fileName: string | null
+  sortOrder: number
+  status: 'completed' | 'failed'
+  errorCode: string | null
+}
+
+export type QuoteMatchStatus = 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'
+
+export interface QuoteDraftItem {
+  id: string
+  category: string
+  rawText: string
+  /** 상품코드·가격이 빠진 제품명 */
+  name: string
+  productCode: string | null
+  quantity: number
+  unitPrice: number | null
+  /** 수량이 반영된 품목 합계. 견적에 금액이 없으면 null */
+  lineTotal: number | null
+  priceType: 'unit' | 'line_total' | 'unknown'
+  matchedProductId: string | null
+  matchedProductKey: string | null
+  matchedName: string | null
+  imageUrl: string | null
+  matchStatus: QuoteMatchStatus
+  candidateCount: number | null
+  sourceIds: string[]
+  selectedForAnalysis: boolean
+  userEdited: boolean
+}
+
+export interface QuoteDraft {
+  draftId: string
+  version: number
+  sources: QuoteDraftSource[]
+  items: QuoteDraftItem[]
+  selectedItemByCategory: Record<string, string>
+  conditions: Record<string, unknown>
+  question: string | null
+  partialSuccess: boolean
+  groups: { id: string; name: string; sourceIds: string[]; itemIds: string[] }[]
+  createdAt: string
+}
+
+export interface QuoteDraftCreateRequest {
+  images: File[]
+  text?: string
+  question?: string
+  conditions?: QuoteConditions
+}
+
+export interface QuoteDraftItemEdit {
+  id: string
+  delete?: boolean
+  name?: string
+  quantity?: number
+  /** null 이면 금액을 지운다 */
+  lineTotal?: number | null
+}
+
+export interface QuoteDraftPriceRow {
+  category: string
+  itemId: string
+  quantity: number
+  quoteUnitPrice: number | null
+  quoteLineTotal: number | null
+  quotePriceType: 'unit' | 'line_total' | 'unknown'
+  catalogUnitPrice: number | null
+  catalogLineTotal: number | null
+  catalogCheckedAt: string | null
+  catalogStatus: 'available' | 'out_of_stock' | 'no_price' | 'unmatched'
+  diffLineTotal: number | null
+}
+
+export interface QuoteBalanceRequirement {
+  label: string
+  purpose: string | null
+  resolution: string | null
+}
+
+export interface QuoteDraftAnalysis extends QuoteReviewResult {
+  usedItems: QuoteDraftItem[]
+  question: string | null
+  draftVersion: number
+  priceExcluded: { category: string; itemId: string; reason: string }[]
+  priceRows: QuoteDraftPriceRow[]
+  /** 용도 대비 균형 기준 라벨(예: "게임 · QHD 165Hz"). 용도를 입력하지 않았으면 null */
+  requirementLabel: string | null
+}
+
+export interface QuoteRecognizedOption {
+  itemId: string
+  productId: string | null
+  name: string
+  imageUrl: string | null
+  quantity: number
+  quoteLineTotal: number | null
+  matchStatus: QuoteMatchStatus
+  specs: { key: string; label: string; unit: string; candidate: unknown }[]
+}
+
+export interface QuoteRecommendedOption {
+  productId: string
+  name: string
+  imageUrl: string | null
+  price: number | null
+  priceDelta: number | null
+  specs: { key: string; label: string; unit: string; baseline: unknown; candidate: unknown; diff: number | null }[]
+  compatChanges: { axis: string; label: string; from: string; to: string; detail: string }[]
+  incompatible: string[]
+  additionalReplacements: { category: string; axis: string; reason: string }[]
+  reason: string
+}
+
+export interface QuoteDraftComparison {
+  category: string
+  baselineItemId: string
+  recognized: QuoteRecognizedOption[]
+  recommended: QuoteRecommendedOption[]
+  notes: string[]
+}
+
+export interface QuoteReplacementPreview {
+  beforeTotal: number
+  afterTotal: number
+  totalDiff: number
+  newIssues: { axis: string; label: string; detail: string }[]
+  resolvedIssues: { axis: string; label: string; detail: string }[]
+  additionalReplacements: { category: string; axis: string; reason: string }[]
+  priceExcluded: { category: string; itemId: string; reason: string }[]
+}
+
+export interface QuoteComparisonProduct {
+  productId: string | null
+  productKey: string | null
+  name: string | null
+  imageUrl: string | null
+  quantity: number
+  lineTotal: number | null
+}
+
+export interface QuoteSavedComparison {
+  comparisonId: string
+  receivedTotal: number
+  savedTotal: number
+  totalDiff: number
+  comparableCategories: string[]
+  excludedReceivedCategories: string[]
+  rows: { category: string; sameProduct: boolean; received: QuoteComparisonProduct | null; saved: QuoteComparisonProduct | null; priceDiff: number | null }[]
+  briefSummary: { changedCount: number; largestPriceDifferenceCategory: string | null; text: string }
+  savedName: string
+  computedAt: string
+}
+
+/** 서버가 조립한 질문 답변 자료. 알 수 없는 형식은 화면에서 버린다(서버 값만 그대로 그린다). */
+export type QuoteVisual =
+  | { type: 'product_comparison'; category: string | null; title: string; items: { side: string; productId: string | null; name: string; imageUrl: string | null; price: number | null }[] }
+  | { type: 'table'; category: string | null; title: string; columns: string[]; rows: unknown[][] }
+  | { type: 'compatibility_check'; title: string; items: { side: string; axis: string; label: string; state: string; detail: string }[] }
+
+export interface QuoteGuideRef { id: string; slot: string; kind: 'care' | 'install'; text: string; score: number | null }
+
+export interface QuoteDraftChatMessage {
+  id: string
+  role: 'user' | 'assistant' | 'system'
+  text: string
+  createdAt: string
+  comparisonId: string | null
+  answerId: string | null
+  guideRefs: QuoteGuideRef[]
+  visuals: QuoteVisual[]
+  displayTarget: 'saved_comparison_explanation' | 'chat' | null
+  duplicateOf: string | null
+  via: 'agent' | 'rules' | null
+}
+
+export interface QuoteDraftChatReply {
+  messageId: string | null
+  answerId: string | null
+  reply: string
+  guideRefs: QuoteGuideRef[]
+  visuals: QuoteVisual[]
+  displayTarget: 'saved_comparison_explanation' | 'chat'
+  duplicateOf: string | null
+  via: 'agent' | 'rules'
+  createdAt: string | null
+}
+
+// ---- 주변기기 추천(백엔드 POST /session/{id}/peripherals/recommend) ----
+export type PeripheralKind = 'monitor' | 'keyboard' | 'mouse' | 'speaker'
+
+export interface PeripheralRecommendRequest {
+  kinds: PeripheralKind[]
+  budgetMax?: number
+  resolution?: 'FHD_144' | 'QHD_165' | '4K'
+  priority?: 'performance' | 'value' | 'quiet'
+  noiseSensitive?: boolean
+  /** 주면 그 PC 견적의 해상도로 모니터 교차검사를 켠다(내 것이 아니면 서버가 조용히 무시) */
+  pcListId?: string
+}
+
+/** 한 평가 기준(타건감·연결 안정성 등)에 모인 후기 관측 집계 */
+export interface PeripheralReviewAspect {
+  aspectCode: string
+  /** observed 관측 있음 · balanced 긍정·부정 비슷 · no_observations 관측 없음 등 서버 판정 */
+  state: string
+  positive: number
+  negative: number
+  mixed: number
+  /** 대표 관측 문장(서버가 후기에서 뽑은 것) */
+  quote: string | null
+}
+
+export interface PeripheralItem {
+  kind: PeripheralKind
+  kindLabel: string
+  name: string
+  brand: string
+  /** 확정할 때 서버에 보내는 제품 식별자 */
+  variantId: string | null
+  productUrl: string | null
+  imageUrl: string | null
+  price: number
+  /** 가격 출처 문구(예: 판매처·관측일 미확인 참고가) */
+  priceNote: string
+  requirement: { key: string; label: string; value: string }[]
+  checks: { axis: string; label: string; state: 'ok' | 'unknown' | 'fail'; detail: string }[]
+  reason: { status: string; text: string | null }
+  guide: { status: string; text: string | null }
+  reviewAspects: PeripheralReviewAspect[]
+  reviewWeight: number
+  reviewNote: string
+  alternatives: { name: string; price: number; diff: number }[]
+}
+
+export interface PeripheralsResult {
+  sessionId: string
+  status: 'ready' | 'empty' | 'skipped'
+  items: PeripheralItem[]
+  empty: { kind: string; reason: string }[]
+  referencePrice: number
+  priceNote: string
+}
 
 // ---- 저장한 구성 ----
 export interface SetupsListResult {
@@ -280,7 +513,9 @@ export interface Api {
     /** 저장돼 있던 조건 세션이 서버에 아직 있고 내 것인지. 없거나 내 것이 아니면 false (알 수 없으면 true) */
     exists(sessionId: string): Promise<boolean>
     /** 같은 사용자(계정·게스트 쿠키)의 지난 목록에서 이어 쓸 조건. 없으면 null — 값은 resume 전까지 복사되지 않는다. */
-    previous(): Promise<PreviousConditions | null>
+    previous(): Promise<PreviousLookup>
+    /** 선호 되묻기에 답한다. 세션이 없으면 새 조건 세션을 만들어 거기에 반영하고 그 id 를 돌려준다. */
+    respondPreferenceHint(sessionId: string | null, signalId: string, accepted: boolean): Promise<{ sessionId: string }>
     /** 지난 목록의 조건을 이 세션에 복사한다. sessionId가 없으면 새 조건 세션을 만든다. */
     resume(sessionId: string | null, fromListId: string): Promise<ConditionTurnResult>
   }
@@ -298,26 +533,35 @@ export interface Api {
     updateItem(plan: CurrentPlan, itemId: string, patch: ItemPatch): Promise<CurrentPlan>
   }
   checks: {
-    suggestUpgrade(draft: CheckDraft): Promise<UpgradeSuggestion>
-    /** 사양을 실제 카탈로그와 대조해 "확인된 PC 구성" 표 행으로 바꾼다. 세션·로그인 없이 부른다.
-     * - currentSpecs: 슬롯 -> 이미 알고 있는 자유 문장(행 수정 등, 형식이 정해져 있을 때).
-     * - text: 자유 형식 원문(업로드 파일 전체·붙여넣은 견적 설명). 서버가 슬롯별로 먼저 추출한다
-     *   (LLM 추출 에이전트가 켜져 있으면 그걸로, 아니면 규칙 기반 파서로 — 형식이 안 맞으면 못 뽑을 수 있다).
-     * - imageDataUrl: 견적·부품 목록이 찍힌 화면 캡처("data:image/png;base64,..." 등). text와 함께
-     *   오면 이걸 우선한다. 서버에 이미지 인식(LLM)이 꺼져 있으면 에러로 알린다 — 규칙 기반 대안이
-     *   없어서 조용히 빈 결과로 넘기지 않는다.
-     * currentSpecs에 같은 슬롯이 있으면 그 값이 텍스트·이미지 추출값보다 우선한다. */
-    previewOwnedParts(request: { currentSpecs?: Record<string, string>; text?: string; imageDataUrl?: string }): Promise<ReviewRow[]>
-    createReview(request: QuoteReviewRequest): Promise<QuoteReviewResult>
-    updateReview(listId: string, request: QuoteReviewRequest): Promise<QuoteReviewResult>
+    /** 저장된 받은 견적 점검 결과(분석)를 읽는다. 분석 전이면 오류 */
     getReview(listId: string): Promise<QuoteReviewResult>
-    comparePart(listId: string, slot: string, direction?: 'cheaper' | 'better'): Promise<QuotePartComparison>
-    /** "대응 안 됨" 부품 하나를 실시간 검색+검증한다 — 사용자가 버튼을 눌렀을 때만 부른다(자동 금지).
-     * 캐시 히트면 비용 없이 바로 응답. 429면 너무 자주 눌렀다는 뜻. */
-    liveLookupPart(listId: string, slot: string): Promise<LiveSpecLookupResult>
-    sendMessage(listId: string, text: string): Promise<{ reply: string; evidence: string[]; via: 'agent' | 'rules' }>
-    getMessages(listId: string): Promise<QuoteChatMessage[]>
+    /** 점검한 부품으로 새 추천 세션을 만든다(장바구니로 넘기기 전 단계). */
     apply(listId: string, slots: string[]): Promise<QuoteApplyResult>
+  }
+  peripherals: {
+    /** 주변기기(모니터·키보드·마우스·스피커)를 추천받는다. sessionId 가 없으면 서버에 빈 세션을 만들어 쓴다. */
+    recommend(request: PeripheralRecommendRequest, sessionId?: string | null): Promise<PeripheralsResult>
+  }
+  quoteDrafts: {
+    /** 서버가 받을 수 있는 업로드 한도·이미지 인식 가능 여부. 화면 진입 때 확인한다 */
+    capabilities(): Promise<QuoteCapabilities>
+    /** 이미지(여러 장)·텍스트로 초안을 만든다. 같은 제품만 합쳐지고 서로 다른 제품은 모두 남는다 */
+    create(request: QuoteDraftCreateRequest): Promise<QuoteDraft>
+    get(draftId: string): Promise<QuoteDraft>
+    /** 여러 항목 수정·분석 기준 선택을 한 번에 저장한다. 버전이 다르면 STALE_REVIEW_VERSION */
+    patchItems(draftId: string, expectedVersion: number, items: QuoteDraftItemEdit[], selectedItemByCategory?: Record<string, string>): Promise<QuoteDraft>
+    /** 분석 기준으로 고른 항목만 분석한다(저장된 점검 결과가 만들어진다) */
+    analyze(draftId: string): Promise<QuoteDraftAnalysis>
+    compareCategory(draftId: string, category: string, baselineItemId?: string): Promise<QuoteDraftComparison>
+    previewReplacements(draftId: string, replacements: { category: string; candidateProductId: string }[]): Promise<QuoteReplacementPreview>
+    applyReplacements(draftId: string, expectedVersion: number, replacements: { category: string; candidateProductId: string }[]): Promise<QuoteDraft>
+    /** 카탈로그에 없는 항목을 실시간 검색한다(사용자가 눌렀을 때만) */
+    liveLookupItem(draftId: string, itemId: string): Promise<LiveSpecLookupResult>
+    /** 분석 결과와 저장 견적을 비교한다(로그인 필요) */
+    compareSaved(listId: string, savedListId: string, savedRevisionNo?: number): Promise<QuoteSavedComparison>
+    getSavedComparison(listId: string, comparisonId: string): Promise<QuoteSavedComparison>
+    sendChat(listId: string, text: string, options?: { clientMessageId?: string; comparisonId?: string }): Promise<QuoteDraftChatReply>
+    chatHistory(listId: string): Promise<QuoteDraftChatMessage[]>
   }
   lists: {
     /** 이 사용자(계정 또는 게스트)의 목록 전체 — 최근 활동순 */

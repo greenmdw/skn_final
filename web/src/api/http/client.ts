@@ -39,4 +39,21 @@ export async function request<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DEL
   return parsed as T
 }
 
-export const sleep = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms))
+/** 파일을 함께 보내는 multipart 요청. Content-Type 은 브라우저가 경계값과 함께 정한다. */
+export async function requestForm<T>(path: string, form: FormData): Promise<T> {
+  let response: Response
+  try {
+    response = await fetch(path, { method: 'POST', credentials: 'include', headers: { Accept: 'application/json' }, body: form })
+  } catch {
+    throw new ApiError(NETWORK_MESSAGE, 'NETWORK')
+  }
+  const text = await response.text()
+  let parsed: unknown = null
+  if (text) {
+    try { parsed = JSON.parse(text) } catch { parsed = null }
+  }
+  if (!response.ok) throw toApiError(response.status, parsed)
+  return parsed as T
+}
+
+export const sleep =(ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms))

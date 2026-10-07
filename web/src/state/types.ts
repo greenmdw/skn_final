@@ -1,4 +1,4 @@
-import type { ReportSummary } from '../api/types'
+import type { PeripheralKind, ReportSummary } from '../api/types'
 // 백엔드 추천이 내는 8개 슬롯(cpu·gpu·ram·board·ssd·psu·case·cooler)과 목업에만 있던 monitor.
 export type PartKey = 'cpu' | 'gpu' | 'ram' | 'ssd' | 'monitor' | 'board' | 'psu' | 'case' | 'cooler'
 
@@ -47,6 +47,19 @@ export interface EditingSheet {
   memo: string
 }
 
+/** 장바구니·확정 리포트에 함께 담는 주변기기 한 줄. variantId 가 있어야 확정에 보낼 수 있다(리포트에서 읽은 값에는 없다) */
+export interface SetupPeripheral {
+  kind: PeripheralKind
+  name: string
+  brand?: string
+  /** 단가(참고가). 줄 금액은 price × qty */
+  price: number
+  qty: number
+  variantId?: string | null
+  imageUrl?: string | null
+  productUrl?: string | null
+}
+
 export interface PlanState {
   currentPlan: CurrentPlan | null
   budget: number | null
@@ -73,6 +86,8 @@ export interface PlanState {
   editingSheet: EditingSheet | null
   /** 확정한 견적서의 구성을 보기만 한다(대화 내역에서 확정된 대화를 열었을 때) — 부품·수량·대화를 바꿀 수 없다 */
   viewOnly: boolean
+  /** 주변기기 추천에서 통합 장바구니로 보낸 품목. 본체 견적을 확정할 때 함께 저장된다 */
+  peripherals: SetupPeripheral[]
 }
 
 export interface ChatMessage {
@@ -80,6 +95,8 @@ export interface ChatMessage {
   role: 'bot' | 'user'
   text: string
   choices?: ChatChoice[]
+  /** 'offer' 는 처음 화면에 띄우는 제안(지난 조건·선호 되묻기). 다시 제안할 때 앞서 붙인 것을 지우는 데 쓴다 */
+  tag?: 'offer'
 }
 
 export interface SavedSetup {
@@ -97,6 +114,8 @@ export interface SavedSetup {
   plan: CurrentPlan
   desk: DeskState
   checkDraft: CheckDraft
+  /** 확정할 때 같이 저장한 주변기기. 없으면 본체만 확정한 견적서다 */
+  peripherals?: SetupPeripheral[]
 }
 
 export interface DeskState {
@@ -167,7 +186,7 @@ export interface CurrentPlan {
 
 /** 채팅 선택지. questionId 가 있으면 서버 조건 질문의 선택지 — value 는 서버 내부 값이라 화면에는 label 만 보인다. */
 // resumeFrom: 지난 목록 id — 누르면 그 목록의 조건을 이어 쓴다(A1). startFresh: 이어 쓰지 않고 새로 시작.
-export interface ChatChoice { label: string; value: string; questionId?: string; resumeFrom?: string; startFresh?: boolean }
+export interface ChatChoice { label: string; value: string; questionId?: string; resumeFrom?: string; startFresh?: boolean; preferenceHint?: { signalId: string; accepted: boolean } }
 
 export interface ReviewRow {
   part: string
