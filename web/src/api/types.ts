@@ -21,7 +21,7 @@ export function errorMessage(error: unknown, fallback: string): string {
 // ---- 인증 ----
 export interface LoginRequest { email: string; password: string; remember?: boolean }
 export interface SignupRequest { name: string; email: string; password: string; marketingConsent: boolean }
-export interface AuthUser { name: string; email: string }
+export interface AuthUser { name: string; email: string; /** 마케팅 수신 동의 */ marketingConsent?: boolean; /** 가입 시각(ISO) */ createdAt?: string }
 
 // ---- 채팅 ----
 /** 사용자의 메시지가 무엇에 대한 답변인지: 사용 목적 / 성능 목표 / 구성이 나온 뒤의 추가 질문 */
@@ -495,6 +495,12 @@ export interface Api {
     /** 지금 로그인한 사용자. 로그인하지 않았으면 null */
     me(): Promise<AuthUser | null>
     logout(): Promise<void>
+    /** 이름·마케팅 수신 동의를 바꾼다(주면 그 값만). 바뀐 사용자 정보를 돌려준다 */
+    updateProfile(request: { name?: string; marketingConsent?: boolean }): Promise<AuthUser>
+    /** 비밀번호를 바꾼다. 현재 비밀번호가 틀리면 invalid_password */
+    changePassword(request: { currentPassword: string; newPassword: string }): Promise<void>
+    /** 회원 탈퇴. 비밀번호가 맞아야 하고, 되돌릴 수 없다 */
+    withdraw(password: string): Promise<void>
     /** 가입 화면의 이메일 중복 확인. 사용할 수 있으면 true */
     checkEmail(email: string): Promise<boolean>
   }

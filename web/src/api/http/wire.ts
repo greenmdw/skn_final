@@ -288,7 +288,7 @@ export interface WireListHistory {
   events: { at: string; kind: string; text: string; quote?: string | null }[]
 }
 
-export interface WireUser { user: { email: string; display_name: string } }
+export interface WireUser { user: { email: string; display_name: string; marketing_agreed?: boolean; created_at?: string } }
 
 // ── 부품 교체(src.schemas.AlternativesOut) ──
 export interface WireAlternative {
