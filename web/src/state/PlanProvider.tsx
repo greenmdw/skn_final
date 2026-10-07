@@ -406,6 +406,18 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const setPeripherals = useCallback((peripherals: SetupPeripheral[], sessionId?: string | null) => updateState(prev => ({
     ...prev, peripherals, peripheralSessionId: peripherals.length ? (sessionId ?? prev.peripheralSessionId ?? null) : null,
   })), [updateState])
+  // 결과가 나온 뒤(stage 4)에는 채팅 입력이 "부품 교체" 후속 질문으로 간다 — "조건 바꾸기"로 /start 에 들어와도 단계가 그대로라
+  // "우선순위 성능으로 바꿔줘"가 조건을 못 바꿨다. 단계를 조건 입력(2)으로 되돌려 채팅이 조건 대화로 가게 한다.
+  // 이미 나온 구성은 지우지 않는다(추천 받기를 다시 누르면 새 조건으로 계산해 바뀐다).
+  const reopenConditions = useCallback(() => {
+    const current = stateRef.current
+    if (current.viewOnly || current.stage !== 4 || !current.sessionId) return
+    updateState(prev => ({ ...prev, stage: 2 }))
+    addMessage('bot', '바꾸고 싶은 조건을 말씀해 주세요. 예: "우선순위를 성능으로 바꿔줘", "예산 200만원으로". 다 바꿨으면 오른쪽의 \'추천 받기\'를 눌러 주세요.')
+  }, [addMessage, updateState])
+  const showResults = useCallback(() => {
+    updateState(prev => (prev.stage === 2 && prev.currentPlan && !prev.viewOnly ? { ...prev, stage: 4 } : prev))
+  }, [updateState])
   const clearEditingSheet = useCallback(() => updateState(prev => (prev.editingSheet ? { ...prev, editingSheet: null } : prev)), [updateState])
   const resetPlan = useCallback(() => {
     cancelPending()
@@ -466,9 +478,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const value = useMemo<PlanContextValue>(() => ({
     state, checkDraft, updateCheckDraft, messages, busy, starterHidden: state.stage > 0, analyzingIndex, customHeading,
     handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, loadCheckedQuote, startUpgradeMode, setPeripherals,
-    openConversation, reviseSetup, clearEditingSheet,
+    openConversation, reviseSetup, clearEditingSheet, reopenConditions, showResults,
   }), [state, checkDraft, updateCheckDraft, messages, busy, analyzingIndex, customHeading,
     handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, loadCheckedQuote, startUpgradeMode, setPeripherals,
-    openConversation, reviseSetup, clearEditingSheet])
+    openConversation, reviseSetup, clearEditingSheet, reopenConditions, showResults])
   return <PlanContext.Provider value={value}>{children}</PlanContext.Provider>
 }

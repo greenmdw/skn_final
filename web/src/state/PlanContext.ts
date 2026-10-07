@@ -44,6 +44,10 @@ export interface PlanContextValue {
   setPeripherals: (peripherals: SetupPeripheral[], sessionId?: string | null) => void
   /** 덮어쓰기·새로 저장을 마친 뒤 "수정 중인 원본" 표시를 지운다 */
   clearEditingSheet: () => void
+  /** 결과 화면의 "조건 바꾸기" — 채팅을 다시 조건 대화로 돌린다(결과를 본 뒤에는 채팅이 부품 교체용 후속 질문으로 간다) */
+  reopenConditions: () => void
+  /** 결과 화면을 다시 열 때 — 조건 바꾸기로 돌려 둔 단계(2)를 결과(4)로 되돌려 채팅이 부품 교체 후속 질문으로 가게 한다 */
+  showResults: () => void
 }
 export const PlanContext = createContext<PlanContextValue | null>(null)
 
