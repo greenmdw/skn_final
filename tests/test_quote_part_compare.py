@@ -218,7 +218,9 @@ def test_a_target_the_model_made_up_is_dropped_before_the_tool_runs():
 
 
 def test_a_model_name_missing_from_the_catalog_is_reported_instead_of_swapped_for_another_product(review):
+    # 카탈로그에 없는 모델은 다른 제품으로 바꿔 비교하지 않고, "DB에 없다"고 알린 뒤 검색 동의를 묻는다(2026-10-07). 검색어에는
+    # 비교하려는 견적 속 부품("5600X")이 섞이지 않고 물어본 제품("9999X")만 들어간다.
     routed = chat.route("CPU 5600X 대신 9999X 쓰면 뭐가 달라져?", lambda: POOL, review)
-    assert routed == [("compare_parts", {"slot": "CPU", "direction": None, "targets": ["9999x"]})]
-    text = chat.run_fact(review, "compare_parts", routed[0][1], lambda: POOL)
-    assert "'9999x'은(는) 카탈로그에서 찾지 못했습니다" in text
+    assert routed == [("search_consent", {"slot": "CPU", "product": "9999X"})]
+    text = chat.run_fact(review, *routed[0], lambda: POOL)
+    assert "'9999X'는 저희 DB에 없는 상품" in text and "외부 검색을 진행해도 될까요?" in text

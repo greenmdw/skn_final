@@ -89,8 +89,9 @@ def _match_catalog(text: str, pool: list[Candidate]) -> list[Candidate]:
     후보 중 후보 이름 토큰이 가장 많이 채워진(=가장 구체적인) 것만 남긴다(RTX 3060 과 RTX 3060 Ti
     는 애초에 "ti"가 글에 없으면 Ti 쪽이 방향성 검사에서 제외된다). 글에 용량이 있으면 그 용량 변형만 남긴다."""
     wanted = _significant(_tokens(text))
-    if not wanted or not any(_is_model_token(t) for t in wanted):
+    if not wanted:
         return []
+    has_model = any(_is_model_token(t) for t in wanted)
     wanted_set = set(wanted)
     scored: list[tuple[int, Candidate]] = []
     for cand in pool:
@@ -99,8 +100,43 @@ def _match_catalog(text: str, pool: list[Candidate]) -> list[Candidate]:
             scored.append((len(set(have)), cand))
     if not scored:
         return []
+    if not has_model:
+        # 모델 번호가 없는 글은 원래 대응을 시도하지 않는다(브랜드만 적은 글이 제품으로 확정되면 안 된다). 다만 이름에 숫자가 없는 제품
+        # ("Kingston FURY Renegade"·"프랙탈 디자인 North"·"JONSBO TK-2")은 제 이름을 그대로 써도 못 찾았다(2026-10-07). 이름이 충분히 구체적이고
+        # (낱말 3개 이상, 또는 2개면 모두 5자 이상) 글에 그 낱말이 전부 있으면서 후보가 딱 하나로 정해질 때만 인정한다.
+        scored = [(size, cand) for size, cand in scored
+                  if size >= 3 or (size == 2 and all(len(t) >= 5 for t in set(_significant(_tokens(cand.name)))))]
+        if not scored:
+            return []
+        top = max(size for size, _ in scored)
+        best_matches = [cand for size, cand in scored if size == top]
+        return best_matches if len(best_matches) == 1 else []
     best = max(size for size, _ in scored)
     return _narrow_by_capacity(text, [cand for size, cand in scored if size == best])
+
+
+_MODEL_QUALIFIERS = frozenset({"ti", "super", "xt", "xtx", "gre", "x3d"})
+_MODEL_SUFFIX = re.compile(r"^(\d{3,5})(ti|super|xt|xtx|gre|x3d)$")      # "5070ti" → 5070 + ti (카탈로그는 "5070 Ti")
+
+
+def catalog_family_matches(text: str, pool: list[Candidate]) -> list[Candidate]:
+    """글에 적힌 모델 번호가 카탈로그 이름에 있는 후보들 — "엔비디아 5070"·"5070"·"지포스 5070 Ti"처럼 시리즈 낱말(RTX)이 빠진
+    표기도 같은 제품군으로 찾는다. 정확한 대응(_match_catalog: 후보의 낱말이 글에 전부 있어야 함)은 "RTX"가 없으면 놓치는데, 챗봇이
+    그걸 보고 "DB에 없는 상품"이라 말하면 카탈로그에 있는 제품을 외부 검색하자고 묻게 된다(2026-10-07 RTX 5070).
+
+    확정이 아니다 — 후보가 여러 개일 수 있다(5070·5070 Ti). 호출하는 쪽이 "있다"고만 알리고 어느 제품인지 되묻게 한다.
+    모델 번호(숫자가 든 세 글자 이상, 용량·단위 제외)가 하나도 없으면 아무것도 돌려주지 않는다."""
+    wanted: set[str] = set()
+    for token in _significant(_tokens(text)):
+        match = _MODEL_SUFFIX.match(token)
+        wanted.update(match.groups() if match else (token,))
+    models = {t for t in wanted if _is_model_token(t) and len(t) >= 3 and not t.isalpha()}
+    if not models:
+        return []
+    qualifiers = {t for t in wanted if t in _MODEL_QUALIFIERS}          # "5070 Ti"의 ti — 적었으면 그 변형만 남긴다
+    tokens_of = {id(c): set(_significant(_tokens(c.name))) for c in pool}
+    exact = [c for c in pool if (models | qualifiers) <= tokens_of[id(c)]]
+    return exact or [c for c in pool if models <= tokens_of[id(c)]]
 
 
 def _match_nearest(text: str, pool: list[Candidate]) -> Candidate | None:

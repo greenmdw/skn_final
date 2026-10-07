@@ -285,3 +285,104 @@ def test_guard_accepts_the_same_value_written_as_a_percentage_but_not_a_new_numb
     assert not bad and "95" in outside
     ok_back, _, _ = reply_is_grounded("여유율은 0.9입니다.", ["여유율 90% 기준 675W"])
     assert ok_back
+
+
+# ── 비교 질문: 브랜드 이름으로 부품군 찾기·시리즈 되묻기·없는 제품은 동의 후 검색 (2026-10-07) ─────────────────
+
+@pytest.mark.parametrize("text,slot", [
+    ("라이젠 9000이랑 비교해줘", "CPU"), ("i5 14400F랑 비교해줘", "CPU"), ("인텔 코어 울트라 7 대신 쓰면 어때", "CPU"),
+    ("엔비디아 5070이랑 비교해줘", "GPU"), ("RTX 4070 대신 쓰면 어때", "GPU"), ("라데온 RX 7800 XT랑 비교", "GPU"),
+    ("DDR5 말고 다른 건?", "RAM"), ("B650 보드랑 비교해줘", "메인보드"),
+])
+def test_brand_and_series_words_identify_the_part_group(text, slot):
+    assert chat.match_slot(text.lower()) == slot
+
+
+def test_a_series_name_asks_which_model_instead_of_comparing_with_nothing(review):
+    calls = chat.route("라이젠 9000이랑 비교해줘", loader(), review)
+    assert [c[0] for c in calls] == ["series_hint"]
+    assert calls[0][1]["slot"] == "CPU" and calls[0][1]["product"] == "라이젠 9000"
+    assert set(calls[0][1]["options"]) == {"AMD Ryzen 7 9800X3D", "AMD Ryzen 9 9950X"}
+    text = chat.run_fact(review, *calls[0], loader())
+    assert "시리즈 이름" in text and "9800X3D" in text and "어느 모델과 비교할까요" in text
+
+
+def test_a_product_missing_the_series_word_is_compared_with_the_catalog_product(review):
+    assert chat.route("엔비디아 5070이랑 비교해줘", loader(), review) == [
+        ("compare_parts", {"slot": "GPU", "direction": None, "targets": ["NVIDIA GeForce RTX 5070 Ti"]})]
+    assert chat.route("라이젠 9800X3D랑 비교해줘", loader(), review)[0][0] == "compare_parts"
+
+
+def test_a_product_that_is_not_in_the_catalog_asks_for_search_consent(review):
+    from src.agent.conditions_agent import SEARCH_PERMISSION_MARKER
+
+    calls = chat.route("RTX 6090이랑 비교해줘", loader(), review)
+    assert calls == [("search_consent", {"slot": "GPU", "product": "RTX 6090"})]
+    text = chat.run_fact(review, *calls[0], loader())
+    assert "RTX 6090" in text and "저희 DB에 없는 상품" in text and SEARCH_PERMISSION_MARKER in text
+
+
+def test_product_phrase_keeps_only_the_product_that_was_asked_about():
+    assert chat.product_phrase("RTX 6090이랑 비교해줘", ["6090"]) == "RTX 6090"
+    assert chat.product_phrase("라이젠 9000과 비교해줘?", ["9000"]) == "라이젠 9000"
+    # 비교하려는 견적 속 부품(5600X)·절 경계(대신)·어조 낱말이 검색어에 섞이지 않는다
+    assert chat.product_phrase("CPU 5600X 대신 9999X 쓰면 뭐가 달라져?", ["9999x"]) == "9999X"
+    assert chat.product_phrase("내 PC에 엔비디아 RTX 6090 쓰면 어때?", ["6090"]) == "엔비디아 RTX 6090"
+    assert chat.product_phrase("5600X랑 AMD Ryzen 9 9999X 비교해줘", ["9999x"]) == "AMD Ryzen 9 9999X"
+
+
+@db_only
+def test_the_search_is_asked_first_and_runs_only_after_the_user_agrees(client, monkeypatch):
+    from src.services import live_spec_lookup
+    from src.services.live_spec_lookup import LiveSpecLookupResult
+
+    calls = []
+
+    def fake_lookup(conn, text, **kw):
+        calls.append((text, kw))
+        return LiveSpecLookupResult.model_validate(
+            {"relevant": True, "supported_fields": {"interface": "PCIe 5.0"}, "source_url": "https://example.com/rtx6090"})
+
+    monkeypatch.setattr(quote_review_agent, "available", lambda: False)
+    monkeypatch.setattr(live_spec_lookup, "available", lambda: True)
+    monkeypatch.setattr(live_spec_lookup, "lookup", fake_lookup)
+    list_id = _created(client)
+
+    ask = client.post(f"/pc/reviews/{list_id}/messages", json={"text": "RTX 6090이랑 비교해줘"}).json()
+    assert "외부 검색을 진행해도 될까요?" in ask["reply"] and "RTX 6090" in ask["reply"]
+    assert ask["via"] == "rules" and ask["evidence"] == ["실시간 검색 동의"]
+    assert calls == []                                                   # 동의 전에는 검색하지 않는다
+
+    done = client.post(f"/pc/reviews/{list_id}/messages", json={"text": "진행해줘"}).json()
+    assert calls == [("RTX 6090", {"slot": "GPU"})]
+    assert "실시간 검색 결과" in done["reply"] and "PCIe 5.0" in done["reply"] and "카탈로그 정식 등재 값이 아니" in done["reply"]
+    assert done["evidence"] == ["실시간 검색"]
+
+    again = client.post(f"/pc/reviews/{list_id}/messages", json={"text": "진행해줘"}).json()
+    assert len(calls) == 1 and "실시간 검색 결과" not in again["reply"]     # 한 번 동의로 계속 검색하지 않는다
+
+
+@db_only
+def test_a_different_message_after_the_consent_question_does_not_search(client, monkeypatch):
+    from src.services import live_spec_lookup
+
+    def boom(*a, **k):
+        raise AssertionError("동의하지 않았는데 검색이 호출됨")
+
+    monkeypatch.setattr(quote_review_agent, "available", lambda: False)
+    monkeypatch.setattr(live_spec_lookup, "available", lambda: True)
+    monkeypatch.setattr(live_spec_lookup, "lookup", boom)
+    list_id = _created(client)
+    client.post(f"/pc/reviews/{list_id}/messages", json={"text": "RTX 6090이랑 비교해줘"})
+    for answer in ("아니 됐어", "호환은 문제없어?", "진행하지마"):
+        reply = client.post(f"/pc/reviews/{list_id}/messages", json={"text": answer}).json()["reply"]
+        assert "실시간 검색 결과" not in reply
+
+
+@db_only
+def test_a_series_question_is_answered_with_the_model_options_without_the_agent(client, monkeypatch):
+    monkeypatch.setattr(quote_review_agent, "available", lambda: True)
+    monkeypatch.setattr(quote_review_agent, "run_turn", lambda *a, **k: (_ for _ in ()).throw(AssertionError("에이전트가 불림")))
+    list_id = _created(client)
+    res = client.post(f"/pc/reviews/{list_id}/messages", json={"text": "라이젠 9000이랑 비교해줘"}).json()
+    assert res["via"] == "rules" and "시리즈 이름" in res["reply"] and res["evidence"] == ["제품 후보"]

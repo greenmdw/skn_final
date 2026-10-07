@@ -78,8 +78,22 @@ def _parse_korean_number(text: str) -> int | None:
     return None
 
 
+# "2천만원 아니고 200만원"·"300만원 말고 250만원"처럼 앞서 말한 금액을 정정하는 표현 — 정정한 쪽(뒤)이 사용자가 원하는 금액이다.
+# 예전엔 문장에서 처음 나온 금액을 써서 정정 전의 금액(20,000,000원)이 예산이 됐다(2026-10-07).
+_CORRECTION = re.compile(r"아니고|아니라고|아니라|아니야|아냐|말고")
+
+
 def _parse_won(text: str) -> int | None:
-    """'150만원', '₩1,500,000', '1.5 million won', '삼백만원' 같은 표현 → 정수 원."""
+    """'150만원', '₩1,500,000', '1.5 million won', '삼백만원' 같은 표현 → 정수 원. 정정 표현이 있으면 그 뒤의 금액을 우선한다."""
+    parts = _CORRECTION.split(text)
+    if len(parts) > 1:
+        corrected = _parse_won_plain(parts[-1])
+        if corrected:
+            return corrected
+    return _parse_won_plain(text)
+
+
+def _parse_won_plain(text: str) -> int | None:
     text = text.replace(",", "").lower()
     m = re.search(r"(\d+(?:\.\d+)?)\s*억", text)
     if m:

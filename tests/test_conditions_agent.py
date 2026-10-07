@@ -183,6 +183,24 @@ def test_unavailable_under_mock_mode(monkeypatch):
 
 
 # ── DB 미보유 부품 실시간 검색 (docs/미보유부품_실시간스펙검색_설계.md 확장) ──────────────
+@pytest.mark.parametrize("answer", [
+    "진행해줘", "진행해 주세요", "진행해주세요", "응 진행해줘", "네, 진행해 주세요.", "외부 검색 진행해줘", "검색 진행해줘",
+    "외부 검색해줘", "진행", "찾아봐", "찾아 주세요", "해주세요", "해줘", "진행해도 돼요", "예", "넵", "ㅇㅇ", "ok", "좋아요 진행해요".replace("좋아요 ", ""),
+])
+def test_search_confirmation_accepts_natural_korean_answers(answer):
+    reply = f"'RTX 6090'는 저희 DB에 없는 상품으로 확인됩니다. {ca.SEARCH_PERMISSION_MARKER}"
+    assert ca.is_search_confirmation(reply, answer) is True, answer
+
+
+@pytest.mark.parametrize("answer", [
+    "아니", "아니요", "진행하지마", "진행하지 마세요", "하지 마", "됐어", "다른 부품으로 비교해줘", "RTX 5090으로 바꿔줘",
+    "검색 말고 추천해줘", "싫어", "나중에 할게", "가격이 얼마야", "",
+])
+def test_search_confirmation_rejects_denials_and_new_requests(answer):
+    reply = f"'RTX 6090'는 저희 DB에 없는 상품으로 확인됩니다. {ca.SEARCH_PERMISSION_MARKER}"
+    assert ca.is_search_confirmation(reply, answer) is False, answer
+
+
 def test_is_search_confirmation_requires_both_marker_and_affirmation():
     marker_reply = f"RTX 6090은 저희 DB에 없는 상품으로 확인됩니다. {ca.SEARCH_PERMISSION_MARKER}"
     assert ca.is_search_confirmation(marker_reply, "응") is True
@@ -359,3 +377,53 @@ def test_unknown_mode_does_not_filter_fields():
 def test_build_prompt_tells_the_agent_upgrade_is_out_of_scope():
     assert "새 컴퓨터 조립만" in ca.system_prompt(_draft("computer", {"mode": "build"}))
     assert "새 컴퓨터 조립만" not in ca.system_prompt(_draft("computer", {"mode": "upgrade"}))
+
+
+# ── "엔비디아 5070"처럼 시리즈 낱말(RTX)이 빠진 표기는 카탈로그에 있는 제품군이다 ────────────────────────────
+def _gpu_pool():
+    from src.dto import Candidate
+
+    return [Candidate(product_key=n, slot="GPU", name=n) for n in (
+        "NVIDIA GeForce RTX 5060", "NVIDIA GeForce RTX 5070", "NVIDIA GeForce RTX 5070 Ti", "NVIDIA GeForce RTX 5080")]
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("엔비디아 5070", {"NVIDIA GeForce RTX 5070", "NVIDIA GeForce RTX 5070 Ti"}),    # 5070·5070 Ti 둘 다 — 어느 것인지는 되묻는다
+    ("5070", {"NVIDIA GeForce RTX 5070", "NVIDIA GeForce RTX 5070 Ti"}),
+    ("지포스 5070 Ti", {"NVIDIA GeForce RTX 5070 Ti"}),
+    ("엔비디아 5070Ti", {"NVIDIA GeForce RTX 5070 Ti"}),
+    ("RTX5080", {"NVIDIA GeForce RTX 5080"}),
+])
+def test_catalog_family_matches_finds_products_missing_the_series_word(text, expected):
+    from src.engine.owned_parts import catalog_family_matches
+
+    assert {c.name for c in catalog_family_matches(text, _gpu_pool())} == expected
+
+
+@pytest.mark.parametrize("text", ["RTX 6090", "엔비디아 6090", "엔비디아 그래픽카드", "16GB 그래픽카드", ""])
+def test_catalog_family_matches_does_not_invent_products_that_are_not_there(text):
+    from src.engine.owned_parts import catalog_family_matches
+
+    assert catalog_family_matches(text, _gpu_pool()) == []
+
+
+@pytest.mark.parametrize("agent", ["conditions", "result"])
+def test_search_unavailable_part_says_5070_is_in_the_catalog_instead_of_asking_to_search(monkeypatch, agent):
+    def boom(*_a, **_kw):
+        raise AssertionError("카탈로그에 있는 제품인데 외부 검색이 호출됨")
+
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": _gpu_pool()})
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", boom)
+    if agent == "conditions":
+        d = _draft("computer")
+        d.conn = object()
+    else:
+        from src.agent import result_agent as ra
+
+        d = ra.ResultSession.__new__(ra.ResultSession)
+        d.conn, d.search_confirmed, d.trace = object(), False, []
+        d.item = lambda slot: {"slot": "GPU"}
+        d._record = lambda call, out: out
+    out = d.search_unavailable_part("GPU", "엔비디아 5070")
+    assert ca.SEARCH_PERMISSION_MARKER not in out
+    assert "카탈로그에 있는 제품" in out and "RTX 5070" in out and "외부 검색을 묻지 마세요" in out
