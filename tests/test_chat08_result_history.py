@@ -160,3 +160,86 @@ def test_db_history_keeps_only_the_most_recent_n_turns(ctx):
     pairs = result_agent._db_history(ctx.conn, revision_id, run_id)
     assert len(pairs) == result_agent._HISTORY_TURNS
     assert pairs[-1][0] == f"질문 {result_agent._HISTORY_TURNS + 2}"   # 가장 최근 것이 마지막
+
+
+# ── 턴 기록(P1-3): 답 메시지의 metadata["turn"] ────────────────────────────────────────────
+
+def _last_turn_log(conn, list_id: str) -> dict:
+    rows = ConversationRepo(conn).messages(_conversation_id(conn, list_id))
+    assistant = [r for r in rows if r["role"] == "assistant"]
+    return (assistant[-1]["metadata"] or {}).get("turn")
+
+
+def test_rule_path_turn_is_logged_with_path_and_latency(ctx):
+    principal = ctx.signup(_unique_email())
+    list_id = ctx.recommended_list(principal)
+    revision_id = PlanRepo(ctx.conn).get_current_revision(uuid.UUID(list_id))["id"]
+
+    recommendation_service.handle_result_message(ctx.conn, revision_id, "그래픽카드 더 저렴한 걸로")
+
+    log = _last_turn_log(ctx.conn, list_id)
+    assert log["path"] == "rules"
+    assert isinstance(log["latency_ms"], int) and log["latency_ms"] >= 0
+
+
+def test_agent_turn_logs_tools_guard_tokens_and_full_outputs_but_not_to_the_screen(ctx, monkeypatch):
+    from src.agent import result_agent
+
+    principal = ctx.signup(_unique_email())
+    list_id = ctx.recommended_list(principal)
+    revision_id = PlanRepo(ctx.conn).get_current_revision(uuid.UUID(list_id))["id"]
+    long_output = "추가 금액 안에서 올릴 수 있는 부품: " + "가" * 400   # trace(160자)보다 길다
+
+    def fake_run_turn(conn, rev, result, text, user_id=None):
+        return result_agent.TurnResult(
+            reply="가드가 바꾼 코드 문장", result=result, changed=False, intent="ask",
+            trace=[f"upgrade_options(extra='') → {long_output[:160]}", "check_build() → 문제 없음"],
+            outputs=[long_output, "문제 없음"], guard={"numbers": ["999"], "words": []},
+            usage={"input": 1200, "output": 80, "total": 1280, "calls": 2})
+
+    monkeypatch.setattr(result_agent, "available", lambda: True)
+    monkeypatch.setattr(result_agent, "run_turn", fake_run_turn)
+    turn = recommendation_service.handle_result_message(ctx.conn, revision_id, "남는 돈으로 뭐 올려?")
+
+    log = _last_turn_log(ctx.conn, list_id)
+    assert log["path"] == "agent" and log["intent"] == "ask"
+    assert log["tools"] == ["upgrade_options", "check_build"]
+    assert log["outputs"][0] == long_output                       # 잘리지 않은 원문
+    assert log["guard"] == {"numbers": ["999"], "words": []}
+    assert log["tokens"] == {"input": 1200, "output": 80, "total": 1280, "calls": 2}
+    assert "turn" not in turn and set(turn) == {"reply", "result"}   # API 응답에는 섞이지 않는다
+    state = session_service.get_session_state(ctx.conn, uuid.UUID(list_id), principal)
+    assert all("metadata" not in m and "turn" not in m for m in state["messages"])   # 복원 화면에도
+
+
+def test_agent_failure_logs_the_rule_fallback_and_the_error_name(ctx, monkeypatch):
+    from src.agent import result_agent
+
+    principal = ctx.signup(_unique_email())
+    list_id = ctx.recommended_list(principal)
+    revision_id = PlanRepo(ctx.conn).get_current_revision(uuid.UUID(list_id))["id"]
+
+    def broken_run_turn(*args, **kwargs):
+        raise TimeoutError("모델 응답 없음")
+
+    monkeypatch.setattr(result_agent, "available", lambda: True)
+    monkeypatch.setattr(result_agent, "run_turn", broken_run_turn)
+    turn = recommendation_service.handle_result_message(ctx.conn, revision_id, "그래픽카드 더 저렴한 걸로")
+
+    assert turn["reply"]                                          # 규칙 경로가 답했다
+    log = _last_turn_log(ctx.conn, list_id)
+    assert log["path"] == "rules_after_agent_error" and log["error"] == "TimeoutError"
+
+
+def test_usage_of_reads_strands_accumulated_usage():
+    from types import SimpleNamespace
+
+    from src.agent.result_agent import usage_of
+
+    metrics = SimpleNamespace(cycle_count=3, accumulated_usage={
+        "inputTokens": 2100, "outputTokens": 150, "totalTokens": 2250, "cacheReadInputTokens": 1024})
+    assert usage_of(SimpleNamespace(event_loop_metrics=metrics)) == {
+        "input": 2100, "output": 150, "total": 2250, "calls": 3, "cache_read": 1024}
+    empty = SimpleNamespace(cycle_count=0, accumulated_usage={"inputTokens": 0, "outputTokens": 0, "totalTokens": 0})
+    assert usage_of(SimpleNamespace(event_loop_metrics=empty)) is None    # 사용량을 안 주는 모델
+    assert usage_of(object()) is None

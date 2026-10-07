@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -1080,8 +1081,11 @@ def handle_result_message(conn, revision_id: UUID, text: str, user_id: UUID | No
     # 맥락(result_agent._db_history)은 질문·답 쌍만 읽으므로 아직 답이 없는 이 말은 섞이지 않는다.
     # 처리하다 실패하면 트랜잭션째 롤백되어 이 말도 남지 않는다(예전과 같다).
     convo.add_message(conversation_id, "user", text)
-    turn = _handle_result_message_inner(conn, revision_id, text, user_id=user_id)
-    convo.add_message(conversation_id, "assistant", turn["reply"])
+    turn_log: dict = {"path": "rules"}
+    started = time.perf_counter()
+    turn = _handle_result_message_inner(conn, revision_id, text, user_id=user_id, turn_log=turn_log)
+    turn_log["latency_ms"] = round((time.perf_counter() - started) * 1000)
+    convo.add_message(conversation_id, "assistant", turn["reply"], metadata={"turn": turn_log})
     return turn
 
 
@@ -1090,24 +1094,37 @@ def _handle_result_message_inner(
     revision_id: UUID,
     text: str,
     user_id: UUID | None = None,
+    turn_log: dict | None = None,
 ) -> dict:
     """결과 화면 채팅의 실제 처리. 에이전트(RESULT_AGENT=1)가 있으면 도구 호출로 후보 조회·교체·담기/빼기·
     근거 설명을 처리하고, 없거나 실패하면 아래 규칙 경로 — "그래픽카드를 더 저렴한 걸로" 같은 요청만
     해석하고 슬롯·방향을 못 찾으면 아무것도 바꾸지 않고 이해하지 못했다는 답만 돌려준다."""
+    # turn_log — 이 턴의 기록(P1-3). 호출자가 답 메시지의 metadata["turn"]에 남긴다. 화면 응답에는 나가지 않는다
+    # (session_service._messages_out 은 metadata 를 내보내지 않는다). 키: path(agent | rules | rules_after_agent_error
+    # | previous_compare), intent, tools, trace, outputs(도구 결과 원문), changed, guard, error, model, tokens,
+    # latency_ms.
+    turn_log = {} if turn_log is None else turn_log
     # 이전 견적 비교는 규칙으로 답한다(B1) — 에이전트는 이전 견적을 모르므로 먼저 가로챈다.
     if _is_previous_comparison_request(text):
+        turn_log["path"] = "previous_compare"
         from src.services.previous_compare import compare_with_previous
         return {"reply": compare_with_previous(conn, revision_id)["text"], "result": get_stored_result(conn, revision_id)}
     from src.agent import result_agent
+    from src.config import LLM_MODEL
     if result_agent.available():
         _require_done_run(conn, revision_id)
         try:
             turn = result_agent.run_turn(conn, revision_id, get_stored_result(conn, revision_id), text,
                                          user_id=user_id)
             log.info("result agent [%s]: %s", revision_id, " | ".join(turn.trace) or "(도구 호출 없음)")
+            turn_log.update(path="agent", intent=turn.intent, tools=[c.split("(", 1)[0] for c in turn.trace],
+                            trace=turn.trace, outputs=turn.outputs, changed=turn.changed, guard=turn.guard, error=turn.error,
+                            model=LLM_MODEL, tokens=turn.usage)
             return {"reply": turn.reply, "result": turn.result}
         except Exception as exc:  # noqa: BLE001 — 모델·네트워크 오류는 이번 턴만 규칙으로
             log.warning("result agent failed, falling back to rules: %s", exc)
+            # 실패한 호출의 토큰은 모른다(예외가 에이전트를 감춘다) — 경로와 예외 이름만 남긴다
+            turn_log.update(path="rules_after_agent_error", error=type(exc).__name__, model=LLM_MODEL)
             import psycopg
             if isinstance(exc, psycopg.Error):
                 conn.rollback()        # 실패한 트랜잭션 위에서는 규칙 경로의 SQL 도 전부 거부된다
