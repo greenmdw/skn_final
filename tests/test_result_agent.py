@@ -173,6 +173,38 @@ def test_reply_within_accepts_input_numbers_and_rejects_invented():
     assert ok
 
 
+@pytest.mark.parametrize("reply", [
+    "예산 700만 원은 상한입니다.", "예산 700만원 중 3,085,120원을 썼습니다.", "잔여 391만 4,880원입니다.",
+    "총 1억 2,000만 원입니다.", "RTX 5070만 남기고 바꿀게요.",            # 마지막: 모델명 + 조사 '만' — 원래 숫자로도 허용
+])
+def test_reply_within_accepts_won_written_with_man_and_eok(reply):
+    """"700만 원"이 근거의 "7,000,000원"과 다른 숫자(700)로 보여 답이 통째로 버려지던 것(10/8 실측 48턴 중 3턴)."""
+    prompt = "예산 상한: 7,000,000원 · 총액: 3,085,120원 · 잔여: 3,914,880원 · 비교 120,000,000원 · GPU RTX 5070"
+    ok, out = ra._reply_within(reply, [prompt])
+    assert ok and not out, out
+
+
+def test_prompt_carries_rounded_amounts_so_the_guard_keeps_them():
+    """모델이 '약 391만 원'·'44.1%'를 스스로 계산하면 가드가 버린다 — 어림값을 입력에 둔다."""
+    result = {"category": "computer", "budget_max": 7_000_000, "items": [],
+              "totals": {"selected_price": 3_085_120, "budget_remaining": 3_914_880}}
+    prompt = ra.system_prompt(result, "예산 대비 몇 퍼센트 썼어?", [])
+    assert "총액 약 309만 원" in prompt and "잔여 약 391만 원" in prompt and "예산의 44.1%(약 44%) 사용" in prompt
+    ok, out = ra._reply_within("총액은 약 309만 원으로 예산의 44.1%를 썼고, 약 391만 원이 남았습니다.", [prompt])
+    assert ok and not out, out
+
+
+@pytest.mark.parametrize("reply, invented", [
+    ("예산 800만 원은 상한입니다.", {"800"}),
+    ("잔여 약 391만 원입니다.", {"391"}),                                     # 반올림한 금액은 근거에 없는 숫자
+    ("잔여 391만 5,000원입니다.", {"391", "5000"}),
+])
+def test_reply_within_still_rejects_invented_man_amounts(reply, invented):
+    prompt = "예산 상한: 7,000,000원 · 총액: 3,085,120원 · 잔여: 3,914,880원"
+    ok, out = ra._reply_within(reply, [prompt])
+    assert not ok and out == invented, out
+
+
 def test_guarded_reply_prefers_changes_then_prefetched_then_template():
     s = _session()
     s.changed = True

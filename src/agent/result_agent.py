@@ -552,6 +552,24 @@ def _prefetch_explanations(session: ResultSession, text: str) -> str:
     return out
 
 
+def _man(n: int) -> str:
+    return f"약 {round(n / 10_000):,}만 원"
+
+
+def _budget_rounded(budget: int | None, t: dict) -> str:
+    """" (어림: 총액 약 309만 원 · 잔여 약 391만 원 · 예산의 44.1% 사용)" — 모델이 "약 391만 원"·"44.1%"를 스스로 계산해
+    수치 가드에 버려지던 것(10/8 실측 48턴 중 8턴). 어림값을 입력에 두면 옮긴 숫자가 되어 가드는 그대로 엄격하다."""
+    total, left = t.get("selected_price"), t.get("budget_remaining")
+    if not budget or total is None:
+        return ""
+    parts = [f"예산 {_man(budget)}", f"총액 {_man(total)}"]
+    if left is not None and left > 0:
+        parts.append(f"잔여 {_man(left)}")
+    pct = total / budget * 100
+    parts.append(f"예산의 {pct:.1f}%(약 {round(pct)}%) 사용")
+    return " (어림: " + " · ".join(parts) + ")"
+
+
 def system_prompt(result: dict, user_text: str, history: list[dict], prefetched: str = "") -> str:
     t = result.get("totals") or {}
     v = result.get("verification") or {}
@@ -561,7 +579,7 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "",
         f"카테고리: {result.get('category')} · 조건: {result.get('conditions_summary') or '-'}",
         f"예산 상한: {_won(result.get('budget_max'))} · 총액: {_won(t.get('selected_price'))} · 잔여: {_won(t.get('budget_remaining'))}"
-        + (" · ⚠ 예산 초과" if t.get("over_budget") else ""),
+        + (" · ⚠ 예산 초과" if t.get("over_budget") else "") + _budget_rounded(result.get("budget_max"), t),
         f"세트 검증 쟁점: {issues}",
         "구성표:",
         _build_table(result),
@@ -650,6 +668,22 @@ def _numbers(text: str) -> set[str]:
     return {m.group(0).replace(",", "").rstrip(".") for m in _NUM_RE.finditer(text or "")}
 
 
+# "700만 원", "391만 4,880원", "1억 2,000만 원" — 만·억 단위로 쓴 금액. 끝의 낱 단위는 '원' 앞일 때만 묶는다
+_WON_UNIT_RE = re.compile(r"(?:(\d[\d,]*)\s*억\s*)?(?:(\d[\d,]*)\s*만\s*)?(?:(\d[\d,]*)\s*(?=원))?")
+
+
+def _won_unit_amounts(text: str) -> list[tuple[set[str], str]]:
+    """만·억 단위 금액마다 (그 금액을 이루는 숫자 조각들, 원 단위 값). 단위가 없는 숫자는 넣지 않는다."""
+    out = []
+    for m in _WON_UNIT_RE.finditer(text or ""):
+        eok, man, rest = (g.replace(",", "") if g else None for g in m.groups())
+        if not (eok or man):
+            continue
+        value = int(eok or 0) * 100_000_000 + int(man or 0) * 10_000 + int(rest or 0)
+        out.append(({p for p in (eok, man, rest) if p}, str(value)))
+    return out
+
+
 # 평가어 — "뛰어난 1순위 선택" 처럼 부품 우열을 말하면 규칙 4 위반. [5] 의 금지어 중 평가 표현만.
 _EVALUATIVE = ("강력", "뛰어나", "최고", "압도적", "완벽", "훌륭", "우수", "극대화")
 
@@ -667,6 +701,11 @@ def _reply_within(reply: str, allowed_sources: list[str]) -> tuple[bool, set[str
     # "750W × 0.9" 를 "750W의 90%"로 옮기는 건 같은 값이다 — 1 미만 소수는 백분율 표기도 허용
     allowed |= {f"{float(n) * 100:g}" for n in allowed if n.startswith("0.")}
     outside = _numbers(reply) - allowed
+    # "700만 원"은 근거의 "7,000,000원"과 같은 값 — 원 단위로 바꿔 맞으면 그 조각들은 밖의 숫자가 아니다.
+    # 원래 숫자로 이미 허용된 것("RTX 5070만")은 그대로 허용이라 이 단계는 허용을 넓히기만 한다
+    for parts, value in _won_unit_amounts(reply):
+        if value in allowed:
+            outside -= parts
     return (not outside), outside
 
 
