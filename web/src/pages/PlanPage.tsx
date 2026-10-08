@@ -207,7 +207,9 @@ export default function PlanPage() {
         {plan.budgetNotice && (
           <div className="pl-alert" role="status">
             {plan.budgetNotice.message}
-            <div style={{ marginTop: 8 }}><button type="button" className="pl-btn ghost" style={{ padding: '8px 14px', fontSize: 13 }} onClick={retryWithPerformance}>성능 우선으로 다시 추천받기</button></div>
+            {plan.budgetNotice.suggestPriority === 'performance' && (
+              <div style={{ marginTop: 8 }}><button type="button" className="pl-btn ghost" style={{ padding: '8px 14px', fontSize: 13 }} onClick={retryWithPerformance}>성능 우선으로 다시 추천받기</button></div>
+            )}
           </div>
         )}
         {plan.compat && plan.compat.problems.length > 0 && (

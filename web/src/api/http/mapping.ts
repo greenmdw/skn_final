@@ -228,7 +228,9 @@ export function contributionFromWire(explanation: WireResult['explanation'] | un
 
 /** 서버가 만든 "예산을 남긴 이유" 안내 → 화면용. 없으면 undefined. */
 export function budgetNoticeFromWire(notice: WireResult['budget_notice']): BudgetNotice | undefined {
-  return notice?.message ? { message: notice.message, remaining: notice.remaining } : undefined
+  return notice?.message
+    ? { message: notice.message, remaining: notice.remaining, suggestPriority: notice.suggest_priority ?? undefined }
+    : undefined
 }
 
 /** 조건 세션의 예산 사전 경고 → 화면용. 보여 줄 문장이 없으면 경고가 아니다. */

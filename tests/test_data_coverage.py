@@ -165,9 +165,6 @@ def test_the_budget_flag_matches_the_arithmetic(recommendation_grid):
         assert totals["over_budget"] == (totals["selected_price"] > key[1]), (key, totals)
 
 
-@pytest.mark.xfail(reason="관찰된 이상(2026-10-07): 게임·성능 우선·예산 500만원은 총액이 41%(2,032,610원)만 쓰이는데 안내(budget_notice)가 없다. "
-                          "budget_notice 는 '성능 우선은 이미 예산을 채우는 쪽'이라는 가정으로 성능 우선을 제외하지만, 요구 성능을 채운 뒤에는 "
-                          "성능 우선에서도 예산이 크게 남는다. 안내를 낼지, 남는 예산을 쓰게 할지는 제품 판단이 필요하다.", strict=False)
 def test_a_large_unused_budget_is_explained_to_the_user(recommendation_grid):
     """예산의 절반 넘게 남는데 아무 안내가 없으면 사용자는 왜 이 구성인지 알 수 없다 — 안내(budget_notice)가 있어야 한다."""
     silent = {k: round(v["totals"]["selected_price"] / k[1], 2) for k, v in recommendation_grid.items()

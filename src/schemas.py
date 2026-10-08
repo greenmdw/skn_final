@@ -944,13 +944,14 @@ class CompatCheckOut(BaseModel):
 
 
 class BudgetNoticeOut(BaseModel):
-    """예산을 많이 남긴 이유 안내 — 우선순위(가성비·저소음)가 싼 쪽을 골라서 남은 경우에만 채운다."""
+    """예산을 많이 남긴 이유 안내 — 우선순위(가성비·저소음·성능)와 상관없이 예산을 많이 남긴 새 구성에 채운다."""
 
     message: str
     budget: int
     spent: int
     remaining: int
-    suggest_priority: Literal["performance"] = "performance"   # 남은 예산으로 성능을 올리려면 다시 추천받을 우선순위
+    # 남은 예산으로 성능을 올리려면 다시 추천받을 우선순위. 이미 성능 우선이면 null(다시 추천받을 우선순위가 없다)
+    suggest_priority: Literal["performance"] | None = "performance"
 
 
 class RecommendResultOut(BaseModel):

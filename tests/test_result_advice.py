@@ -32,12 +32,12 @@ def conn():
         connection.close()
 
 
-def _build(conn, budget: int = 1_500_000, purpose: str = "game") -> uuid.UUID:
+def _build(conn, budget: int = 1_500_000, purpose: str = "game", priority: str = "value") -> uuid.UUID:
     created = session_service.create_session(conn, Principal(user_id=None, browser_token=None))
     principal = Principal(user_id=None, browser_token=created["browser_token"])
     list_uuid = uuid.UUID(created["list_id"])
     session_service.choose_category(conn, list_uuid, "computer", "build", principal)
-    for field, value in (("purpose", purpose), ("budget_max", budget), ("priority", "value")):
+    for field, value in (("purpose", purpose), ("budget_max", budget), ("priority", priority)):
         session_service.patch_slot(conn, list_uuid, field, value, principal)
     revision_id = PlanRepo(conn).get_current_revision(list_uuid)["id"]
     accepted = recommendation_service.start_recommendation(conn, revision_id, strategy="default")
@@ -150,6 +150,50 @@ def test_rule_path_answers_questions_without_changing_the_build(conn):
     # 바꾸라는 말은 예전처럼 바꾼다
     done = recommendation_service.handle_result_message(conn, revision_id, "그래픽카드를 더 저렴한 걸로 바꿔줘")
     assert "바꿨어요" in done["reply"] and _snapshot(conn, revision_id) != before
+
+
+@pytest.mark.parametrize("text", [
+    "왜 700만원 예산에 맞춰서 견적 짜달라 했는데 300만원에 짰어?", "예산 많이 남았는데 왜 다 안 썼어?",
+    "예산을 왜 이것밖에 안 썼어?", "왜 예산을 덜 썼어", "예산 다 안 쓰고 남긴 이유가 뭐야?",
+])
+def test_budget_left_questions_are_recognized(text):
+    assert result_advice.is_budget_left_question(text)
+
+
+@pytest.mark.parametrize("text", [
+    "남은 예산으로 뭘 올릴까?", "돈 남았는데 바꿀 거 추천해 줄 수 있나?", "왜 이 CPU 골랐어?", "그래픽카드 왜 이거야?",
+    "10만원 더 쓰면 뭐가 좋아져?",
+])
+def test_other_questions_are_not_budget_left_questions(text):
+    assert not result_advice.is_budget_left_question(text)
+
+
+def test_budget_reason_explains_how_the_set_was_chosen_without_changing_it(conn):
+    """700만원 예산에 300만원 구성이 나왔을 때 "근거를 확인할 수 없다"고만 답하던 것(2026-10-08) — 고르는 방식·이번
+    점수 비중·용도 기준 등급과 지금 등급을 코드가 옮긴다."""
+    revision_id = _build(conn, budget=7_000_000, purpose="office", priority="performance")
+    before = _snapshot(conn, revision_id)
+    ctx = result_advice._context(conn, revision_id)
+    out = result_advice.budget_reason(conn, revision_id)
+    assert f"잔여 {ctx.budget_max - ctx.total():,}원" in out, out
+    assert "점수 합이 가장 높은 것" in out and "예산은 넘으면 안 되는 상한" in out
+    assert "(성능 우선): 성능 55%" in out                       # 우선순위별 가중치 표 그대로
+    assert "사무 용도 기준 등급" in out and "- CPU:" in out and "- GPU:" in out
+    assert "\n→ " in out                                         # 결론 줄은 코드가 고른다
+    assert _snapshot(conn, revision_id) == before
+
+
+def test_budget_reason_for_value_priority_points_at_the_price_weight(conn):
+    revision_id = _build(conn, budget=3_000_000)
+    out = result_advice.budget_reason(conn, revision_id)
+    assert "(가성비 우선): 가격 50%" in out and "→ 가성비 우선이라 가격 비중이 커서" in out, out
+
+
+def test_rule_path_answers_why_the_budget_was_left(conn):
+    revision_id = _build(conn, budget=7_000_000, purpose="office", priority="performance")
+    reply = recommendation_service.handle_result_message(
+        conn, revision_id, "왜 700만원 예산에 맞춰서 견적 짜달라 했는데 300만원에 짰어?")["reply"]
+    assert "예산을 채우는 방식이 아니라" in reply, reply
 
 
 def test_step_down_prefers_parts_that_still_meet_the_requirement(conn):

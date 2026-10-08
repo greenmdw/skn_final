@@ -35,7 +35,7 @@ def run_from_scenario(scenario_name: str) -> PipelineResult:
 
 # 예산의 이 비율 이상을 남겼을 때만 안내한다 — 조금 남는 건 흔해서 알릴 일이 아니다.
 UNDERSPENT_RATIO = 0.15
-# 우선순위가 "싼 쪽"을 고르게 하는 것들의 설명. 성능 우선은 예산을 채우는 쪽이라 여기 없다.
+# 우선순위가 "싼 쪽"을 고르게 하는 것들의 설명.
 _UNDERSPENT_REASON = {
     "value": "가성비 우선이라 요구 성능을 만족하는 구성 중 가격 부담이 적은 쪽을 골랐어요.",
     "quiet": "저소음 우선이라 소음과 가격을 함께 보고 골랐어요.",
@@ -43,23 +43,36 @@ _UNDERSPENT_REASON = {
 
 
 def budget_notice(totals: dict | None, values: dict) -> dict | None:
-    """예산을 많이 남긴 새 구성에, 왜 남았는지와 성능 우선으로 다시 받는 길을 안내하는 문장.
+    """예산을 많이 남긴 새 구성에, 왜 남았는지와 남은 예산을 쓰는 길을 안내하는 문장.
 
     점수 규칙은 건드리지 않는다 — 결과는 그대로고 설명만 붙인다. 업그레이드는 예산이 바꿀 부품에 쓸 돈이라
-    남는 게 자연스러워 제외하고, 예산 초과·조금 남은 경우·성능 우선(이미 채우는 쪽)도 안내하지 않는다."""
+    남는 게 자연스러워 제외하고, 예산 초과·조금 남은 경우도 안내하지 않는다.
+    성능 우선은 "이미 채우는 쪽"이라 빼 두었는데, 실제로는 용도 기준 등급을 넘는 부품이 점수에서 이기지 못해
+    700만원 예산에 300만원 구성이 나왔다(2026-10-08 팀 시연·회의). 그때는 다시 추천받을 우선순위가 없으니
+    suggest_priority 를 비우고 결과 채팅으로 안내한다."""
+    from src.services.result_advice import PURPOSE_LABEL
     budget = values.get("budget_max")
-    reason = _UNDERSPENT_REASON.get(values.get("priority"))
-    if not totals or not budget or reason is None or values.get("mode") != "build" or totals.get("over_budget"):
+    priority = values.get("priority")
+    if not totals or not budget or values.get("mode") != "build" or totals.get("over_budget"):
         return None
     spent = int(totals.get("selected_price") or 0)
     remaining = int(budget) - spent
     if spent <= 0 or remaining < budget * UNDERSPENT_RATIO:
         return None
-    return {
-        "message": (f"예산 {fmt_money(budget)} 중 {fmt_money(spent)}을 썼어요. {reason} "
-                    f"남은 {fmt_money(remaining)}으로 성능을 더 올리려면 '성능 우선'으로 다시 추천받을 수 있어요."),
-        "budget": int(budget), "spent": spent, "remaining": remaining, "suggest_priority": "performance",
-    }
+    head = f"예산 {fmt_money(budget)} 중 {fmt_money(spent)}을 썼어요."
+    if priority == "performance":
+        purpose = PURPOSE_LABEL.get(values.get("purpose") or "game", "이")
+        message = (f"{head} 추천은 예산을 채우는 방식이 아니라 {purpose} 용도 기준 등급에 맞춰 점수가 가장 높은 조합을 골라요. "
+                   f"남은 {fmt_money(remaining)}으로 올릴 부품은 결과 채팅에서 '남은 예산으로 뭘 올릴까?'라고 물어보세요.")
+        suggest = None
+    elif (reason := _UNDERSPENT_REASON.get(priority)) is not None:
+        message = (f"{head} {reason} "
+                   f"남은 {fmt_money(remaining)}으로 성능을 더 올리려면 '성능 우선'으로 다시 추천받을 수 있어요.")
+        suggest = "performance"
+    else:
+        return None
+    return {"message": message, "budget": int(budget), "spent": spent, "remaining": remaining,
+            "suggest_priority": suggest}
 
 
 def assess_budget_feasibility(conn, category: str | None, values: dict) -> dict | None:
