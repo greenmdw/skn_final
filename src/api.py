@@ -16,6 +16,7 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from psycopg_pool import PoolTimeout
 
 from src.auth.origin import OriginCheckMiddleware
 from src.config import (
@@ -50,6 +51,15 @@ if not IS_PRODUCTION:
 @app.exception_handler(TruefitError)
 def _truefit_error_handler(_req: Request, exc: TruefitError) -> JSONResponse:
     return JSONResponse(status_code=exc.http_status, content=exc.to_envelope())
+
+
+@app.exception_handler(PoolTimeout)
+def _pool_timeout_handler(_req: Request, _exc: PoolTimeout) -> JSONResponse:
+    """DB 연결을 기다리다 포기 — 서버 오류(500)가 아니라 "지금 몰려 있으니 잠시 뒤 다시"(503)로 알린다."""
+    return JSONResponse(
+        status_code=503, headers={"Retry-After": "2"},
+        content={"error": {"code": "service_busy", "message": "지금 요청이 몰려 있어요. 잠시 뒤 다시 시도해 주세요.", "field": None}},
+    )
 
 
 @app.exception_handler(NotImplementedError)

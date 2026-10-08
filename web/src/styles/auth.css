@@ -1,9 +1,9 @@
 /* 옛 frontend/css/theme.css 의 로그인·회원가입 스타일(.auth-*)을 그대로 옮기고, 색만 지금 화면(다크)에 맞췄다. */
 .flow.auth-route {
-  --tf-primary: #60edc0; --tf-primary-hover: #8ff5d5; --tf-secondary: #37695f;
-  --tf-bg: #071116; --tf-surface: #0d1a23; --tf-soft: #0c1820; --tf-border: #233744;
-  --tf-text: #f4f7f7; --tf-muted: #92a4b2; --tf-warning: #e0b24a; --tf-danger: #ff8f80;
-  --tf-on-primary: #06241b; --tf-warning-soft: #2a2410; --tf-danger-soft: #2a1512;
+  --tf-primary: #7f9bff; --tf-primary-hover: #a3b6ff; --tf-secondary: #33466b;
+  --tf-bg: #0b1220; --tf-surface: #121c30; --tf-soft: #0f1829; --tf-border: #22314d;
+  --tf-text: #eef3ff; --tf-muted: #9db0cf; --tf-warning: #e0b24a; --tf-danger: #ff8f80;
+  --tf-on-primary: #0a1020; --tf-warning-soft: #2a2410; --tf-danger-soft: #2a1512;
   --tf-shadow-soft: rgba(0, 0, 0, 0.35);
   font-family: 'IBM Plex Sans KR', 'Malgun Gothic', sans-serif; color: var(--tf-text); background: var(--tf-bg);
   min-height: 100%; -webkit-font-smoothing: antialiased;

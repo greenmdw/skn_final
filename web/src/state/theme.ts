@@ -6,7 +6,7 @@ const STORAGE_KEY = 'truefit.theme'
 const THEME_EVENT = 'truefit-theme-change'
 
 function storedTheme(): Theme {
-  try { return localStorage.getItem(STORAGE_KEY) === 'light' ? 'light' : 'dark' } catch { return 'dark' }
+  try { return localStorage.getItem(STORAGE_KEY) === 'dark' ? 'dark' : 'light' } catch { return 'light' }
 }
 
 function applyTheme(theme: Theme) {

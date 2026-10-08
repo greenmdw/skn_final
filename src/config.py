@@ -92,6 +92,13 @@ IS_PRODUCTION: bool = APP_ENV == "production"
 AUTH_COOKIE_SECURE: bool = IS_PRODUCTION or os.getenv("AUTH_COOKIE_SECURE", "0") == "1"
 _DEV_DEFAULT_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 
+# DB 커넥션 풀. 요청 하나가 연결을 잡는 시간은 짧아야 하지만(LLM 대기 중에는 잡지 않는다) 동시에 도는 요청이 풀보다 많으면
+# 줄을 선다. 기다려도 못 얻으면(DB_POOL_TIMEOUT 초) 500 이 아니라 503(+재시도 안내)으로 답한다. 서버 프로세스마다 따로 센다 —
+# (프로세스 수 × DB_POOL_MAX)가 DB 의 max_connections 를 넘지 않게 한다.
+DB_POOL_MIN: int = int(os.getenv("DB_POOL_MIN", "2"))
+DB_POOL_MAX: int = int(os.getenv("DB_POOL_MAX", "20"))
+DB_POOL_TIMEOUT: float = float(os.getenv("DB_POOL_TIMEOUT", "5"))
+
 
 def _with_dev_origins(configured: list[str], is_production: bool) -> list[str]:
     """개발요청 12번 — 개발 서버는 화면(5173)과 API(8000)가 다른 origin이라

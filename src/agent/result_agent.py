@@ -676,6 +676,26 @@ class TurnResult:
     result: dict
     trace: list[str]
     changed: bool
+    # 턴 기록(P1-3) — 호출자가 답 메시지의 metadata["turn"]에 남긴다. 경로·가드·토큰을 나중에 로그로 셀 수 있게.
+    intent: str = ""
+    guard: dict | None = None          # 수치·표현 가드가 LLM 문장을 버렸으면 {"numbers": [...], "words": [...]}
+    error: str | None = None           # 도구가 이미 바꾼 뒤 모델이 실패했으면 예외 이름
+    usage: dict | None = None          # 이 턴의 모델 호출 토큰 합계(usage_of)
+    outputs: list[str] = field(default_factory=list)   # 도구 결과 원문 — trace 는 160자로 잘려 사람이 답을 판정할 수 없다
+
+
+def usage_of(agent) -> dict | None:
+    """Strands 에이전트가 이 턴에 쓴 토큰 합계 — 턴마다 새 Agent 라 누적값이 곧 이 턴의 값이다.
+    공급자가 사용량을 안 주면(가짜 모델 등) None. 비용은 여기서 계산하지 않는다 — 단가는 바뀌므로 보고서에서 곱한다."""
+    metrics = getattr(agent, "event_loop_metrics", None)
+    usage = getattr(metrics, "accumulated_usage", None)
+    if not usage:
+        return None
+    out = {"input": int(usage.get("inputTokens") or 0), "output": int(usage.get("outputTokens") or 0),
+           "total": int(usage.get("totalTokens") or 0), "calls": int(getattr(metrics, "cycle_count", 0) or 0)}
+    if usage.get("cacheReadInputTokens"):
+        out["cache_read"] = int(usage["cacheReadInputTokens"])
+    return out if out["total"] or out["input"] or out["output"] else None
 
 
 def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | None = None) -> TurnResult:
@@ -686,8 +706,9 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
     run_id = result["run_id"]
     pairs = _db_history(conn, revision_id, run_id)
     hist_rows = [{"role": "user", "content": u} for u, _ in pairs]
+    intent = classify_intent(text)
     session = ResultSession(conn=conn, revision_id=revision_id, result=result, user_id=user_id,
-                            read_only=classify_intent(text) != "change",
+                            read_only=intent != "change",
                             search_confirmed=_search_confirmed(pairs, text))
     prefetched = _prefetch_explanations(session, text)
     prompt = system_prompt(result, text, hist_rows, prefetched)
@@ -699,24 +720,29 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
         tool_executor=SequentialToolExecutor(),   # 도구들이 요청 스레드의 DB 연결 하나를 같이 쓴다
         callback_handler=None,
     )
+    guard, error = None, None
     try:
         reply = str(agent(text)).strip()
-    except Exception:
+    except Exception as exc:
         if not session.changed:
             raise                      # 아무것도 안 바꿨으면 호출자가 규칙 경로로
         # 도구가 이미 구성표를 바꿨다 — 규칙 경로가 또 바꾸면 안 되니 바뀐 것만 알린다
         log.exception("result agent failed after tool writes; reporting trace")
         reply = "요청을 처리하다 답변 생성에 실패했어요. " + _guarded_reply(session, prefetched)
+        error = type(exc).__name__
     else:
         # 수치 가드 — 답변의 숫자는 전부 입력에 있던 것이어야 한다. 아니면 LLM 문장을 버리고 코드 문장으로.
         ok, outside = _reply_within(reply, [prompt, text, *session.outputs])
         bad_words = evaluative_words(reply)
         if not ok or bad_words:
             log.warning("result agent reply rejected (numbers %s, words %s) — replaced: %r", sorted(outside), bad_words, reply[:120])
+            guard = {"numbers": sorted(outside), "words": bad_words}
             reply = _guarded_reply(session, prefetched)
     # 채팅 말풍선은 평문(pre-wrap)이라 '**굵게**'가 별표 그대로 보인다 — 프롬프트로도 막지만 남으면 코드가 지운다
     reply = reply.replace("**", "")
     # 대화 저장은 호출자(recommendation_service.handle_result_message)가 한다 — 여기서 두 번 쓰지 않는다.
     if session.changed:
         session.refresh()
-    return TurnResult(reply=reply, result=session.result, trace=list(session.trace), changed=session.changed)
+    return TurnResult(reply=reply, result=session.result, trace=list(session.trace), changed=session.changed,
+                      intent=intent, guard=guard, error=error, usage=usage_of(agent),
+                      outputs=list(session.outputs))

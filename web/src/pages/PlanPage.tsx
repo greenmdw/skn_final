@@ -65,7 +65,7 @@ function PartRow({ item, open, busy, excluded, readOnly, confirming, lastOne, on
           <span className="pl-mono">{wonFmt(item.price)}</span>
           {item.qty != null && item.qty > 1 && item.unitPrice != null && <span className="pl-unit">개당 {wonFmt(item.unitPrice)} × {item.qty}</span>}
         </span>
-        <span className="chev" style={{ color: '#92a4b2', fontSize: 12 }}>{excluded ? '' : open ? '▲' : '▼'}</span>
+        <span className="chev" style={{ color: 'var(--muted)', fontSize: 12 }}>{excluded ? '' : open ? '▲' : '▼'}</span>
       </button>
       {excluded && (
         <div className="pl-out-foot">
@@ -75,12 +75,12 @@ function PartRow({ item, open, busy, excluded, readOnly, confirming, lastOne, on
       {open && !excluded && (
         <div className="pl-part-detail">
           <div className="pl-box"><h4>AI 추천 이유</h4><p>{item.fit || '추천 이유를 준비하지 못했어요.'}</p></div>
-          <div className="pl-box"><h4>주요 스펙</h4><p>{item.meta}</p><p style={{ color: '#92a4b2' }}>{item.source}{item.score ? ' · ' + item.score : ''}</p></div>
+          <div className="pl-box"><h4>주요 스펙</h4><p>{item.meta}</p><p style={{ color: 'var(--muted)' }}>{item.source}{item.score ? ' · ' + item.score : ''}</p></div>
           <div className="pl-box">
             <h4>구매 전 확인</h4>
             {item.checks && item.checks.length > 0
               ? <ul>{item.checks.map(text => <li key={text}>{text}</li>)}</ul>
-              : <p style={{ color: '#92a4b2' }}>서버가 준 확인 항목이 없어요.</p>}
+              : <p style={{ color: 'var(--muted)' }}>서버가 준 확인 항목이 없어요.</p>}
           </div>
           {!readOnly && <div className="pl-box pl-controls">
             <h4>수량 {busy && <span className="pl-busy" role="status">반영 중…</span>}</h4>
@@ -110,7 +110,7 @@ function PartRow({ item, open, busy, excluded, readOnly, confirming, lastOne, on
             <h4>리뷰</h4>
             {item.rating !== '-' || item.reviews !== '없음'
               ? <p><b style={{ fontSize: 20 }}>★ {item.rating}</b> <span style={{ marginLeft: 8 }}>리뷰 {item.reviews}</span></p>
-              : <p style={{ color: '#92a4b2' }}>이 제품의 리뷰 관측이 아직 없어요.</p>}
+              : <p style={{ color: 'var(--muted)' }}>이 제품의 리뷰 관측이 아직 없어요.</p>}
           </div>
           {!readOnly && <div className="pl-compare-bar">
             <div>
@@ -238,7 +238,7 @@ export default function PlanPage() {
           {checks.length > 0 && (
             <div className="pl-checks">
               <button type="button" className="pl-checks-toggle" aria-expanded={checksOpen} aria-controls="pl-checks-body" onClick={() => setChecksOpen(open => !open)}>
-                <span style={{ fontWeight: 600 }}>호환 검사 결과 <span className="pl-mono" style={{ color: '#92a4b2', fontWeight: 400 }}>{checks.length}개</span></span>
+                <span style={{ fontWeight: 600 }}>호환 검사 결과 <span className="pl-mono" style={{ color: 'var(--muted)', fontWeight: 400 }}>{checks.length}개</span></span>
                 <span className="pl-checks-sum">
                   <CheckSummary checks={checks} />
                 </span>

@@ -1,0 +1,114 @@
+/* TrueFit 공통 스타일 시스템: 흰 상단바 + 남색 사이드바 + 파란 그라데이션 버튼 + 그림자 있는 카드.
+   색은 styles.css 의 :root 토큰(--bg --panel --mint --grad …)을 쓰고, 이 파일은 가장 마지막에 불러와 화면별 CSS 위에 얹는다. */
+
+body { line-height: 1.45; }
+
+/* ===== 로고 이미지 (위아래 여백을 잘라 낸다) ===== */
+.tf-brand { display: block; width: 150px; height: 40px; overflow: hidden; flex: none; }
+.tf-brand img { display: block; width: 150px; height: auto; transform: translateY(-8px); }
+
+/* ===== 상단 바 ===== */
+.pl-top, .tf-home-header {
+  min-height: 68px; padding: 0 30px 0 36px; gap: 0 36px; flex-wrap: nowrap;
+  background: var(--panel); border-bottom: 1px solid var(--line); box-shadow: none; color: var(--text);
+}
+.tf-home-header { position: sticky; top: 0; z-index: 30; }
+.pl-brand, .tf-home-brand { width: auto; height: auto; overflow: visible; display: flex; align-items: center; margin-right: 4px; text-decoration: none; color: var(--text); }
+.pl-nav, .tf-home-nav { gap: 34px; align-self: stretch; }
+.pl-nav a, .tf-home-nav a {
+  position: relative; display: flex; align-items: center; padding: 0; border-radius: 0; background: transparent;
+  color: var(--text); font-size: 15px; font-weight: 750;
+}
+.pl-nav a:hover, .tf-home-nav a:hover { background: transparent; color: var(--mint); }
+.pl-nav a.on, .tf-home-nav a.active { background: transparent; color: var(--mint); }
+.pl-nav a.on::after, .tf-home-nav a.active::after, .pl-nav a:hover::after, .tf-home-nav a:hover::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; border-radius: 2px 2px 0 0; background: var(--mint);
+}
+.theme-toggle { height: 34px; border-color: var(--line2); border-radius: 9px; background: var(--panel); color: var(--text); font-weight: 700; box-shadow: none; }
+.theme-toggle:hover { border-color: var(--mint); color: var(--mint); }
+.tf-home-auth button { height: 36px; border: 1px solid var(--line2); border-radius: 9px; background: var(--panel); color: var(--text); font-weight: 700; }
+.tf-home-auth button:hover { border-color: var(--mint); color: var(--mint); background: var(--panel); }
+.tf-home-auth a:last-child button { border-color: transparent; background: var(--grad); color: #fff; box-shadow: 0 5px 12px rgba(49,87,255,.23); }
+.tf-home-auth a:last-child button:hover { color: #fff; filter: brightness(1.06); }
+.tf-user-name { color: var(--text); font-weight: 700; }
+.tf-user-name:hover, .tf-user-name[aria-expanded='true'] { border-color: var(--line2); background: var(--ink); color: var(--mint); }
+.tf-user-pop { border-color: var(--line); background: var(--panel); box-shadow: 0 16px 40px var(--shadow); }
+.tf-user-pop a, .tf-user-pop button { color: var(--text); }
+.tf-user-pop a:hover, .tf-user-pop button:hover { background: var(--ink); color: var(--mint); }
+.tf-user-pop .out, .tf-user-pop .out:hover { color: var(--bad); }
+
+/* ===== 남색 사이드바 (좌측 패널·마이페이지 메뉴) ===== */
+.sp-root, .mp-sidebar {
+  --text: var(--nav-text); --muted: var(--nav-muted); --ink: rgba(255,255,255,.08); --panel2: rgba(255,255,255,.06);
+  --line: var(--nav-line); --line2: rgba(216,229,244,.28); --mint: #8ea2ff; --on-mint: #ffffff;
+  background: var(--nav-bg); border-right: 0; color: var(--nav-text);
+}
+.sp-row:hover, .sp-item:hover { background: var(--nav-hover); }
+.sp-row.nav.on, .sp-item.on { background: rgba(255,255,255,.1); box-shadow: inset 3px 0 0 #8ea2ff; }
+.sp-row.new { background: var(--grad); color: #fff; box-shadow: 0 5px 14px rgba(49,87,255,.34); }
+.sp-avatar { background: var(--grad); color: #fff; }
+.sp-sheet { background: rgba(255,255,255,.05); }
+.sp-sheet.on { background: rgba(142,162,255,.14); border-color: #8ea2ff; }
+.sp-sheet.on .sp-sheet-price { color: #b7c4ff; }
+.sp-pop, .sp-ctxmenu { background: #17263a; border-color: rgba(216,229,244,.2); box-shadow: 0 14px 36px rgba(5,10,24,.5); }
+.sp-pop .out, .sp-ctxmenu .out, .sp-note.bad { color: #ff9aa6; }
+.sp-chip.on { background: rgba(142,162,255,.18); color: #c3cdff; border-color: #8ea2ff; }
+.sp-rename { background: rgba(255,255,255,.08); color: #fff; }
+
+.mp-sidebar { padding: 38px 17px 28px; }
+.mp-sidebar h2 { color: #fff; font-size: 24px; margin: 0 18px 18px; letter-spacing: -.4px; }
+.mp-nav { gap: 8px; }
+.mp-nav button { min-height: 54px; padding: 0 19px; gap: 16px; border-radius: 9px; color: var(--nav-text); font-weight: 600; }
+.mp-nav button:hover { background: var(--nav-hover); color: #fff; }
+.mp-nav button.on { background: var(--grad); color: #fff; box-shadow: 0 7px 18px rgba(45,78,255,.34); }
+.mp-nav .mp-icon { color: currentColor; }
+.mp-nav .mp-separator { background: var(--nav-line); margin: 16px 10px 20px; }
+
+/* ===== 카드·패널 ===== */
+.pl-card, .ck-card, .mp-section, .mp-stat, .mp-list, .mp-profile-card, .pl-box, .pl-check, .tf-path-card, .tf-choice-card, .auth-card { box-shadow: var(--card-shadow); }
+.pl-card, .ck-card, .mp-section, .mp-stat, .mp-list, .mp-profile-card, .mp-danger { border-radius: 13px; }
+.pl-chat, .sp-root { box-shadow: none; }
+.pl-chat { background: var(--panel); border-right: 1px solid var(--line); }
+.pl-chat-head { font-weight: 800; }
+
+/* ===== 버튼 ===== */
+.pl-btn:not(.ghost):not(:disabled), .pl-send:not(:disabled), .ck-primary:not(:disabled), .ck-small-primary:not(:disabled),
+.mp-btn.primary, .auth-btn, .pl-pill.mint, .pf-primary {
+  background: var(--grad); color: #fff; border-color: transparent; box-shadow: 0 5px 12px rgba(49,87,255,.23);
+}
+.pl-btn:hover:not(:disabled), .ck-primary:hover:not(:disabled), .ck-small-primary:hover:not(:disabled), .mp-btn:hover, .auth-btn:hover { transform: translateY(-1px); }
+.auth-btn:hover { background: var(--grad); filter: brightness(1.06); }
+.pl-btn.ghost, .mp-btn:not(.primary), .ck-text-button { border-color: var(--line2); background: var(--panel); color: var(--text); }
+.pl-btn.ghost { color: var(--mint); }
+.pl-btn:disabled, .ck-primary:disabled, .ck-small-primary:disabled { background: var(--ink); color: var(--muted); box-shadow: none; }
+.pl-msg-user { background: var(--grad); color: #fff; }
+.pl-bridge { background: var(--grad); color: #fff; }
+.pl-bridge a { background: rgba(255,255,255,.18); color: #fff; }
+.pl-choice, .ck-chip, .pf-kind { border-color: color-mix(in srgb, var(--mint) 35%, var(--line)); background: color-mix(in srgb, var(--mint) 9%, var(--panel)); color: var(--mint); }
+.pl-choice:hover { background: color-mix(in srgb, var(--mint) 16%, var(--panel)); }
+.pf-kind.on { background: var(--grad); color: #fff; border-color: transparent; }
+
+/* ===== 마이페이지 배너·카드 ===== */
+.mp-hero {
+  border: 0; border-radius: 18px; color: #fff; overflow: hidden; position: relative;
+  background: linear-gradient(120deg, #172b58, #3157ff 72%, #6d7cff); box-shadow: 0 14px 34px rgba(39,77,190,.18);
+}
+.mp-hero::after { content: ""; position: absolute; width: 240px; height: 240px; border: 50px solid rgba(255,255,255,.09); border-radius: 50%; right: -55px; top: -85px; }
+.mp-hero p { color: #e7edff; }
+.mp-hero h1 { letter-spacing: -.7px; }
+.mp-hero-art { background: transparent; color: #fff; position: relative; z-index: 1; }
+.mp-stat span:first-child { border-radius: 50%; width: 56px; height: 56px; background: color-mix(in srgb, var(--mint) 12%, var(--panel)); }
+.mp-stat:nth-child(3) span:first-child { color: var(--violet); background: color-mix(in srgb, var(--violet) 12%, var(--panel)); }
+.mp-stat:hover, .mp-report-card:hover, .mp-feature-card:hover { border-color: var(--line2); box-shadow: 0 12px 28px rgba(49,87,255,.11); }
+.mp-danger { background: var(--panel); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
+.mp-danger h2 { color: var(--bad); }
+.mp-danger button { background: var(--panel); border-color: var(--bad); color: var(--bad); }
+
+/* ===== 대화상자·알림 ===== */
+dialog, dialog.mp-dialog { border: 0; border-radius: 16px; background: var(--panel); color: var(--text); box-shadow: 0 24px 80px rgba(13,29,58,.3); }
+dialog::backdrop, dialog.mp-dialog::backdrop { background: rgba(10,20,40,.48); backdrop-filter: none; }
+.pl-modal-back { background: rgba(10,20,40,.48); }
+.toast, [data-theme='light'] .toast { background: #132238; color: #fff; border: 0; border-radius: 10px; box-shadow: 0 12px 32px rgba(9,20,40,.24); }
+
+/* ===== 표 머리 / 탭 ===== */
+th { background: var(--panel2); }
