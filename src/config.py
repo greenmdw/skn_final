@@ -99,6 +99,18 @@ DB_POOL_MIN: int = int(os.getenv("DB_POOL_MIN", "2"))
 DB_POOL_MAX: int = int(os.getenv("DB_POOL_MAX", "20"))
 DB_POOL_TIMEOUT: float = float(os.getenv("DB_POOL_TIMEOUT", "5"))
 
+# LLM 보호 — 모델 API 가 느리거나 몰릴 때 서버가 같이 무너지지 않게 한다. 전부 서버 프로세스마다 따로 센다.
+# · *_TIMEOUT: 한 번의 호출을 기다리는 최대 시간(초). 넘으면 호출 쪽의 규칙 경로로 넘어간다(기존 OpenAI 기본값은 600초).
+# · LLM_MAX_CONCURRENCY: 동시에 날아가는 모델 호출 수. 넘으면 LLM_QUEUE_TIMEOUT 초까지 줄을 서고, 그래도 못 타면 규칙 경로.
+# · LLM_REQUEST_MAX: LLM 을 기다리며 DB 연결을 쥐는 요청(조건 대화·결과 대화·견적 점검 되묻기·실시간 검색 등)의 동시 수.
+#   풀의 절반 아래로 묶어 두어야 나머지 요청(목록·리포트·결과 폴링)이 풀 고갈로 막히지 않는다.
+LLM_TIMEOUT_SECONDS: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "45"))
+LLM_VISION_TIMEOUT_SECONDS: float = float(os.getenv("LLM_VISION_TIMEOUT_SECONDS", "90"))
+LLM_SEARCH_TIMEOUT_SECONDS: float = float(os.getenv("LLM_SEARCH_TIMEOUT_SECONDS", "60"))
+LLM_MAX_CONCURRENCY: int = int(os.getenv("LLM_MAX_CONCURRENCY", "12"))
+LLM_QUEUE_TIMEOUT_SECONDS: float = float(os.getenv("LLM_QUEUE_TIMEOUT_SECONDS", "10"))
+LLM_REQUEST_MAX: int = int(os.getenv("LLM_REQUEST_MAX", str(max(1, DB_POOL_MAX // 2))))
+
 
 def _with_dev_origins(configured: list[str], is_production: bool) -> list[str]:
     """개발요청 12번 — 개발 서버는 화면(5173)과 API(8000)가 다른 origin이라

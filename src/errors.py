@@ -69,3 +69,10 @@ class ServiceUnavailable(TruefitError):
 
     code = "service_unavailable"
     http_status = 503
+
+
+class LLMBusy(ServiceUnavailable):
+    """모델 호출이 몰려 줄을 서다 포기했다 — 호출 쪽이 규칙 경로로 넘어가고, 잡히지 않으면 503(+재시도 안내)이 된다."""
+
+    code = "llm_busy"
+    headers = {"Retry-After": "3"}

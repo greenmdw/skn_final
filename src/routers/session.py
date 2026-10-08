@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, Response, status
 from src import schemas
 from src.auth.deps import Principal, optional_principal
+from src.clients.llm_guard import llm_request_slot
 from src.db import get_conn
 from src.errors import NotFound
 from src.repo.plan_repo import PlanRepo
@@ -77,6 +78,7 @@ def message(
     list_id: UUID,
     body: schemas.MessageIn,
     principal: Principal = Depends(optional_principal),
+    _slot: None = Depends(llm_request_slot),
 ) -> schemas.ConditionState:
     with get_conn() as conn:
         return schemas.ConditionState(**session_service.handle_message(conn, list_id, body.text, principal))
@@ -189,6 +191,7 @@ def result_message(
     list_id: UUID,
     body: schemas.ResultMessageIn,
     principal: Principal = Depends(optional_principal),
+    _slot: None = Depends(llm_request_slot),
 ) -> schemas.ResultMessageOut:
     with get_conn() as conn:
         revision = session_service._owned(PlanRepo(conn), list_id, principal)
@@ -200,6 +203,7 @@ def spec_file(
     list_id: UUID,
     body: schemas.SpecFileIn,
     principal: Principal = Depends(optional_principal),
+    _slot: None = Depends(llm_request_slot),
 ) -> schemas.ConditionState:
     with get_conn() as conn:
         return schemas.ConditionState(**session_service.attach_spec_file(

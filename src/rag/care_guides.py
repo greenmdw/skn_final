@@ -18,7 +18,7 @@ import json
 import math
 from functools import lru_cache
 
-from src.config import CARE_GUIDE_EMBEDDING_MODEL, CARE_GUIDES_JSON, MOCK_MODE, OPENAI_API_KEY
+from src.config import CARE_GUIDE_EMBEDDING_MODEL, CARE_GUIDES_JSON, LLM_TIMEOUT_SECONDS, MOCK_MODE, OPENAI_API_KEY
 
 _HASH_DIMENSIONS = 256
 
@@ -36,7 +36,7 @@ def _hash_embed(text: str) -> list[float]:
 def _openai_embed(texts: list[str]) -> list[list[float]]:
     from openai import OpenAI
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
+    client = OpenAI(api_key=OPENAI_API_KEY, timeout=LLM_TIMEOUT_SECONDS)
     response = client.embeddings.create(model=CARE_GUIDE_EMBEDDING_MODEL, input=texts)
     return [d.embedding for d in response.data]
 

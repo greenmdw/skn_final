@@ -10,7 +10,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY
+from src.clients.llm_guard import llm_call_slot
+from src.config import (
+    LLM_MODEL, LLM_PROVIDER, LLM_SEARCH_TIMEOUT_SECONDS, LLM_TIMEOUT_SECONDS, LLM_VISION_TIMEOUT_SECONDS, MOCK_MODE,
+    OPENAI_API_KEY,
+)
 
 _client: Any = None
 
@@ -24,7 +28,8 @@ def _get_client():
             raise RuntimeError("call_llm: OPENAI_API_KEY 미설정 (MOCK_MODE=0)")
         from openai import OpenAI
 
-        _client = OpenAI(api_key=OPENAI_API_KEY)
+        # timeout 을 두지 않으면 SDK 기본값이 600초라 멈춘 호출 하나가 스레드와 DB 연결을 10분 쥔다. 호출마다 with_options 로 더 정한다.
+        _client = OpenAI(api_key=OPENAI_API_KEY, timeout=LLM_TIMEOUT_SECONDS)
     return _client
 
 
@@ -46,7 +51,8 @@ def _call_openai(prompt: str, *, system: str | None, output_schema: dict | None,
 
     last_error: Exception | None = None
     for _attempt in range(2):  # 파싱 실패 시 1회 재시도
-        response = client.chat.completions.create(**kwargs)
+        with llm_call_slot():
+            response = client.chat.completions.create(**kwargs)
         content = response.choices[0].message.content or ""
         if not output_schema:
             return {"text": content}
@@ -116,13 +122,16 @@ def _call_openai_vision(image_data_url: str, *, system: str | None, output_schem
     # 코드를 안 고쳐도 된다. 이미지가 실려 있어 비용이 드니, 확인용 별도 호출은 만들지 않는다.
     from openai import BadRequestError
 
+    vision_client = client.with_options(timeout=LLM_VISION_TIMEOUT_SECONDS)
+
     def _create(call_kwargs: dict[str, Any]):
-        try:
-            return client.chat.completions.create(**call_kwargs)
-        except BadRequestError as exc:
-            if "temperature" in call_kwargs and "temperature" in str(exc).lower():
-                return client.chat.completions.create(**{k: v for k, v in call_kwargs.items() if k != "temperature"})
-            raise
+        with llm_call_slot():
+            try:
+                return vision_client.chat.completions.create(**call_kwargs)
+            except BadRequestError as exc:
+                if "temperature" in call_kwargs and "temperature" in str(exc).lower():
+                    return vision_client.chat.completions.create(**{k: v for k, v in call_kwargs.items() if k != "temperature"})
+                raise
 
     last_error: Exception | None = None
     for _attempt in range(2):
@@ -166,7 +175,9 @@ def call_llm_vision(
 
 def _call_openai_web_search(query: str, *, model: str) -> dict:
     client = _get_client()
-    response = client.responses.create(model=model or LLM_MODEL, tools=[{"type": "web_search"}], input=query)
+    with llm_call_slot():
+        response = client.with_options(timeout=LLM_SEARCH_TIMEOUT_SECONDS).responses.create(
+            model=model or LLM_MODEL, tools=[{"type": "web_search"}], input=query)
     source_url = None
     for item in response.output:
         if item.type != "message":
