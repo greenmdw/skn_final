@@ -157,7 +157,7 @@ def test_rule_path_answers_questions_without_changing_the_build(conn):
     "예산을 왜 이것밖에 안 썼어?", "왜 예산을 덜 썼어", "예산 다 안 쓰고 남긴 이유가 뭐야?",
     # 10/8 표현 점검에서 놓치던 것
     "예산 다 안 쓴 거야?", "왜 이렇게 싸게 맞췄어?", "300만원밖에 안 나왔네?", "예산 더 써도 되는데 왜 이렇게 싸?",
-    "왜 메모리가 16GB만 들어갔어? 돈 남잖아",
+    "왜 예산이 100만원 남았다고 나와?",
 ])
 def test_budget_left_questions_are_recognized(text):
     assert result_advice.is_budget_left_question(text)
@@ -169,6 +169,13 @@ def test_budget_left_questions_are_recognized(text):
     # 넓힌 규칙이 잡으면 안 되는 것
     "남은 돈이 10만원밖에 안 되는데 뭐 올릴 수 있어?", "왜 이 SSD가 다른 것보다 싸?", "돈 남는데 더 좋은 걸로 해줘",
     "예산 안에서 그래픽카드 바꿔줘", "왜 이 케이스 골랐어? 싸서?", "50만원만 안 쓰면 되는데 뭘 빼?",
+    # 부품 하나를 집은 말 — 세트를 고른 방식이 아니라 그 부품의 근거로 답한다(10/8 오탐 점검)
+    "왜 SSD는 싸게 맞췄어?", "파워 너무 싸게 맞춘 거 아니야? 왜 그래?", "왜 쿨러는 기본으로 짰어? 돈 더 써도 돼",
+    "왜 램을 16GB만 넣었어? 32GB 넣을 돈 남잖아", "왜 메모리가 16GB만 들어갔어? 돈 남잖아", "왜 수냉 쿨러 안 넣었어? 돈 남는데",
+    "왜 이 메인보드는 다른 것보다 10만원 싸게 나왔어?", "왜 이 부품은 싸게 맞췄는지 설명해 줘",
+    "왜 모니터 값은 안 들어갔어? 20만원 남았는데",
+    # 가정·제약·앞으로의 이야기
+    "예산 안 쓰고 중고로 사면 어때?", "왜 예산을 못 쓰게 막아놨어?", "예산을 안 쓴 부분은 다음에 쓸 수 있어?",
 ])
 def test_other_questions_are_not_budget_left_questions(text):
     assert not result_advice.is_budget_left_question(text)

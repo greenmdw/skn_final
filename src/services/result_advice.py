@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass
 from uuid import UUID
 
+from src.engine.brands import PC_SLOTS, SLOT_SYNONYMS
 from src.engine.lang import fmt_money
 
 # "더 좋다"를 코드가 정할 수 있는 슬롯과 그 값. 순서는 용도 기준 등급과의 차이로 다시 정한다(_upgrade_order).
@@ -429,17 +430,25 @@ _WHY_WORDS = ("왜", "이유", "어째서")
 _MONEY_WORDS = ("예산", "만원", "만 원", "돈", "금액")
 _LEFT_RE = re.compile(r"안\s*쓰|안\s*썼|덜\s*쓰|덜\s*썼|만\s*썼|만\s*쓴|남겼|남긴|남기|남았|남아|남는|남잖|짰|맞췄|적게|싸게"
                       r"|이렇게\s*싸")
-_NOT_FILLED_RE = re.compile(r"예산.{0,10}(다\s*안|못|안)\s*(쓰|썼|써|쓴|채)")
+# 이미 일어난 일만 — "예산 안 쓰고 중고로 사면?"·"못 쓰게 막아놨어?"(가정·제약)는 아니다
+_NOT_FILLED_RE = re.compile(r"예산.{0,10}(다\s*안|못|안)\s*(썼|쓴|채웠|채운)")
 # 돈 낱말이 없어도 세트 전체가 싸다는 말 — "왜 이렇게 싸게 맞췄어?"
 _CHEAP_BUILD_RE = re.compile(r"(싸게|저렴하게|적게)\s*(짰|맞췄|맞춘|구성)")
 # 이유를 묻는 낱말이 없어도 총액이 적게 나왔다는 말 — "300만원밖에 안 나왔네?". "10만원밖에 안 되는데"(남은 돈)는 아니다
 _ONLY_SPENT_RE = re.compile(r"만\s*원?\s*밖에\s*(안|못)\s*(나왔|나와|썼|쓰|쓴|들었)")
+# 부품 하나를 집은 말은 그 부품의 근거(explain)로 — "왜 SSD는 싸게 맞췄어?", "왜 수냉 쿨러 안 넣었어? 돈 남는데".
+# 세트에 없는 것(모니터·운영체제)도 세트를 고른 방식으로는 답이 안 된다
+_PART_WORDS = tuple(SLOT_SYNONYMS) + tuple(s.lower() for s in PC_SLOTS) + (
+    "이 부품", "그 부품", "이 제품", "모니터", "키보드", "마우스", "스피커", "운영체제", "윈도우", "배송")
+_LATER_RE = re.compile(r"쓸\s*수|다음에|나중에")       # "안 쓴 부분은 다음에 쓸 수 있어?" — 앞으로의 이야기
 
 
 def is_budget_left_question(text: str) -> bool:
     """"700만원 예산인데 왜 300만원에 짰어?", "예산 남았는데 왜 다 안 썼어?" — 예산을 덜 쓴 이유를 묻는 말.
     "남은 예산으로 뭘 올릴까?"(이유를 묻지 않음)는 아니다 — 그건 upgrade_options."""
     low = text.lower()
+    if any(w in low for w in _PART_WORDS) or _LATER_RE.search(low):
+        return False
     if _NOT_FILLED_RE.search(low) or _ONLY_SPENT_RE.search(low):
         return True
     if any(w in low for w in _WHY_WORDS) and _CHEAP_BUILD_RE.search(low):
