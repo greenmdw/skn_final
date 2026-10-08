@@ -285,34 +285,38 @@ def execute_recommendation(revision_id: UUID, run_id: UUID) -> None:
 
     # [5] 설명 문장(LLM 호출) — 별도 트랜잭션. 실패해도 위에서 이미 커밋한 부품·가격·검증에는
     # 영향이 없다. run.status는 건드리지 않고 문장 쪽 상태(reason_status/explanation_status)만 옮긴다.
+    # LLM 호출과 임베딩 검색은 DB 연결을 잡지 않고 한다 — 연결을 쥔 채 20초 가까이 기다리면 동시 추천 몇 건만으로
+    # 풀(max_size)이 바닥나 다른 요청이 PoolTimeout(500)으로 죽는다. 연결은 결과를 저장하는 짧은 구간에만 연다.
     try:
+        # rank 를 넘겨야 [3-B] 가 후보에 남긴 리뷰 관측 플래그를 [5] 가 읽는다.
+        # 빼면 모든 슬롯이 "관측 없음" 이 되고, 감점만 남고 근거가 사라진다 (기본값이 None 이라 조용히).
+        explanation = stage5_explain.run(
+            build,
+            verification,
+            noop,
+            rank=rank,
+            conditions=values,
+            **_explanation_extras(spec, tier_notes=upgrade_tier_notes(current_tiers, build.items)),
+        )
+        # "구매 전 확인"(checks) — 부품 사용 가이드 RAG 검색. 슬롯 고정 매핑이 아니라
+        # 품목명까지 넣은 질의로 임베딩 유사도 검색을 실제로 돌린다(src/rag/care_guides.py).
+        care_checks: dict[str, str] = {}
+        for it in build.items:
+            if candidate_id_by_slot.get(it.slot) is None:
+                continue
+            hits = search_care_guide(f"{it.slot} {it.name} 사용 시 확인할 점", k=1, slot=it.slot)
+            if hits:
+                care_checks[it.slot] = hits[0]["text"]
+
         with get_conn() as conn:
             erepo = EngineRepo(conn)
-            # rank 를 넘겨야 [3-B] 가 후보에 남긴 리뷰 관측 플래그를 [5] 가 읽는다.
-            # 빼면 모든 슬롯이 "관측 없음" 이 되고, 감점만 남고 근거가 사라진다 (기본값이 None 이라 조용히).
-            explanation = stage5_explain.run(
-                build,
-                verification,
-                noop,
-                rank=rank,
-                conditions=values,
-                **_explanation_extras(spec, tier_notes=upgrade_tier_notes(current_tiers, build.items)),
-            )
-
             for it in explanation.items:
                 candidate_id = candidate_id_by_slot.get(it.slot)
                 if candidate_id is not None and it.reason is not None:
                     erepo.update_candidate_reason(candidate_id, it.reason)
 
-            # "구매 전 확인"(checks) — 부품 사용 가이드 RAG 검색. 슬롯 고정 매핑이 아니라
-            # 품목명까지 넣은 질의로 임베딩 유사도 검색을 실제로 돌린다(src/rag/care_guides.py).
-            for it in build.items:
-                candidate_id = candidate_id_by_slot.get(it.slot)
-                if candidate_id is None:
-                    continue
-                hits = search_care_guide(f"{it.slot} {it.name} 사용 시 확인할 점", k=1, slot=it.slot)
-                if hits:
-                    erepo.update_candidate_checks(candidate_id, hits[0]["text"])
+            for slot, text in care_checks.items():
+                erepo.update_candidate_checks(candidate_id_by_slot[slot], text)
 
             # [5] 의 리뷰 관측(review_line_by_slot)·확인 필요(caveats)를 저장 경로에 싣는다.
             # 여기서 안 실으면 [3-B] 감점은 되는데 "왜" 가 화면에 안 간다 (review_service 주석 참고).

@@ -10,7 +10,7 @@ from typing import Iterator
 
 from psycopg_pool import ConnectionPool
 
-from src.config import DATABASE_URL
+from src.config import DATABASE_URL, DB_POOL_MAX, DB_POOL_MIN, DB_POOL_TIMEOUT
 
 _pool: ConnectionPool | None = None  # 지연 초기화
 
@@ -24,7 +24,7 @@ def get_pool() -> ConnectionPool:
     떠 있는 DB(로컬이든 RDS든) 연결은 보통 1초 안에 끝나 영향이 없다."""
     global _pool
     if _pool is None:
-        _pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=10, open=True, timeout=3,
+        _pool = ConnectionPool(DATABASE_URL, min_size=DB_POOL_MIN, max_size=DB_POOL_MAX, open=True, timeout=DB_POOL_TIMEOUT,
                                kwargs={"connect_timeout": 2})
     return _pool
 
