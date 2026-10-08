@@ -47,9 +47,68 @@ def test_set_item_validates_before_touching_db():
     assert s.set_item("GPU", qty="abc").startswith("오류")
     assert s.set_item("GPU").startswith("오류")          # 바꿀 값 없음
     assert s.set_item("모니터", qty="2").startswith("오류")
-    assert s.swap("GPU", "not-a-uuid").startswith("오류")
     assert s.swap("모니터", str(uuid4())).startswith("오류")
-    assert len(s.trace) == 6 and not s.changed
+    assert len(s.trace) == 5 and not s.changed
+
+
+def _pool(*names_prices, current="AMD Radeon RX 7600"):
+    """ProductRepo.candidates_by_slot 의 GPU 행 — swap 이 받아 주는 후보 전체."""
+    rows = [{"variant_id": uuid4(), "name": current, "product_key": "gpu_rx7600", "price": 525_000}]
+    rows += [{"variant_id": uuid4(), "name": n, "product_key": k, "price": p} for n, k, p in names_prices]
+    return rows
+
+
+def _swap_with(monkeypatch, pool):
+    """swap 이 실제로 어느 candidate_id 로 교체를 불렀는지 — DB 없이."""
+    from src.repo import product_repo
+    from src.services import recommendation_service as rs
+    called = []
+    monkeypatch.setattr(product_repo.ProductRepo, "__init__", lambda self, conn: None)
+    monkeypatch.setattr(product_repo.ProductRepo, "candidates_by_slot", lambda self: {"GPU": pool})
+    def fake_swap(conn, rid, item_id, cid, user_id=None):
+        called.append(str(cid))
+        res = _result()
+        res["items"][1]["product"]["name"] = next(r["name"] for r in pool if str(r["variant_id"]) == str(cid))
+        return res
+    monkeypatch.setattr(rs, "swap_item", fake_swap)
+    monkeypatch.setattr(ra.ResultSession, "_compat_note", lambda self: "")
+    from src.services import result_advice
+    monkeypatch.setattr(result_advice, "requirement_shortfalls", lambda conn, rid, slot, cids: {})
+    return called
+
+
+def test_swap_accepts_the_product_name_from_the_previous_answer(monkeypatch):
+    """"응 그렇게 바꿔줘" — 이력에 앞 답의 candidate_id 가 없어 모델이 제품 이름·제품 키로 swap 을 불러 거절되고
+    멈추던 것(10/8 평가 A-6: #17 전 1/10 → 후 6/10 실패). 앞 답의 절약 후보는 list_alternatives 에 안 나오기도 해서
+    swap 이 받아 주는 슬롯 후보 전체에서 찾는다."""
+    pool = _pool(("NVIDIA GeForce RTX 4060", "gpu_rtx4060_8g", 450_000),
+                 ("NVIDIA GeForce RTX 4060 Ti", "gpu_rtx4060ti_16g", 654_210),
+                 ("NVIDIA GeForce RTX 4060 Ti", "gpu_rtx4060ti_16g_b", 690_000),     # 같은 이름 중복 등록 — 싼 쪽
+                 ("AMD Radeon RX 7700 XT", "gpu_rx7700xt", 700_000))
+    called = _swap_with(monkeypatch, pool)
+    s = _session()
+    out = s.swap("GPU", "RTX 4060 Ti")
+    assert called == [str(pool[2]["variant_id"])], out
+    assert "RTX 4060 Ti" in out and s.changed
+    called.clear()
+    s.swap("GPU", "rtx4060")                       # 띄어쓰기·대소문자 무시, 뒤에 낱말이 더 없는 쪽(Ti 아님)
+    assert called == [str(pool[1]["variant_id"])]
+    called.clear()
+    s.swap("GPU", "gpu_rtx4060ti_16g")             # 제품 키를 그대로 넘긴 것(10/8 실측)
+    assert called == [str(pool[2]["variant_id"])]
+
+
+def test_swap_by_name_lists_the_options_when_ambiguous_or_missing(monkeypatch):
+    pool = _pool(("NVIDIA GeForce RTX 4060 Ti 8GB", "a", 600_000), ("NVIDIA GeForce RTX 4060 Ti 16GB", "b", 700_000))
+    called = _swap_with(monkeypatch, pool)
+    s = _session()
+    out = s.swap("GPU", "RTX 4060 Ti")              # 둘 다 뒤에 낱말이 더 있다 — 고르지 않는다
+    assert not called and not s.changed and out.startswith("오류")
+    assert str(pool[1]["variant_id"]) in out and str(pool[2]["variant_id"]) in out
+    out = s.swap("GPU", "RTX 5090")                 # 없는 이름
+    assert not called and out.startswith("오류") and "list_alternatives" in out
+    out = s.swap("GPU", "RX 7600")                  # 지금 담긴 부품
+    assert not called and "이미" in out
 
 
 def test_prefetch_triggers_only_on_why_questions(monkeypatch):

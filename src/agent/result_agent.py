@@ -45,6 +45,11 @@ def available() -> bool:
             and bool(OPENAI_API_KEY) and bool(LLM_MODEL))
 
 
+def _name_tokens(name: str) -> list[str]:
+    """"NVIDIA GeForce RTX 4060 Ti" → ['nvidia','geforce','rtx','4060','ti']. 'rtx4060'처럼 붙여 써도 글자·숫자 경계로 나눈다."""
+    return re.findall(r"[a-z]+|\d+|[가-힣]+", (name or "").lower())
+
+
 def _won(n: int | None) -> str:
     if n is None:
         return "-"
@@ -142,7 +147,12 @@ class ResultSession:
         try:
             cid = UUID(candidate_id)
         except ValueError:
-            return self._record(call, "오류: candidate_id 는 list_alternatives 가 돌려준 값이어야 합니다.")
+            # "응 그렇게 바꿔줘" — 이력에는 앞 답의 문장만 남고 candidate_id 가 없어서 모델이 제품 이름으로 부른다.
+            # 거절하면 거기서 멈추던 것(10/8 평가 A-6 #17 후 6/10 실패) — 이 슬롯 후보 중 이름이 하나로 맞으면 그것으로
+            found, note = self._candidate_by_name(it, candidate_id)
+            if found is None:
+                return self._record(call, note)
+            cid = UUID(found)
         from src.services import result_advice
         if (why := result_advice.requirement_shortfalls(self.conn, self.revision_id, it["slot"], [cid]).get(str(cid))):
             # 프롬프트 규칙("⚠ 후보로 바꾸지 않음")만으로는 모델이 8GB 램으로 바꿨다(10/7 수정 전 측정 2/6) — 도구가 막는다.
@@ -164,6 +174,36 @@ class ResultSession:
             f" · 총액 {_won(t['selected_price'])} · 예산 잔여 {_won(t['budget_remaining'])}"
             + (" · ⚠ 예산 초과" if t["over_budget"] else "")
             + self._compat_note()))
+
+    def _candidate_by_name(self, it: dict, name: str) -> tuple[str | None, str]:
+        """이 슬롯 후보(swap_item 이 받아 주는 카탈로그 후보 전체 — list_alternatives 에 안 나오는 절약 후보도 있다) 중
+        `name` 에 맞는 것의 variant_id. 제품 키("gpu_rtx4060ti_16g")가 같으면 그것, 아니면 낱말(영문·숫자 덩어리)이
+        이어서 들어 있는 이름. 여럿이면 그 뒤에 낱말이 더 없는 쪽만("RTX 4060" → 'RTX 4060 Ti' 아니고 'RTX 4060').
+        그래도 여럿이면 고르지 않고 후보와 candidate_id 를 돌려준다. 이름이 같은 중복 등록은 목록과 같게 더 싼 쪽."""
+        from src.repo.product_repo import ProductRepo
+        from src.services.recommendation_service import _dedupe_alternatives_by_name
+        rows = _dedupe_alternatives_by_name(ProductRepo(self.conn).candidates_by_slot().get(it["slot"], []))
+        key = name.strip().lower()
+        hits = [(r, True) for r in rows if (r.get("product_key") or "").lower() == key]
+        if not hits:
+            want = _name_tokens(name)
+            for r in rows:
+                got = _name_tokens(r.get("name"))
+                ends = [i + len(want) for i in range(len(got) - len(want) + 1) if want and got[i:i + len(want)] == want]
+                if ends:
+                    hits.append((r, any(e == len(got) for e in ends)))
+            if len(hits) > 1 and sum(tail for _, tail in hits) == 1:
+                hits = [h for h in hits if h[1]]
+        if len(hits) == 1:
+            r = hits[0][0]
+            if r.get("name") == it["product"]["name"]:
+                return None, f"오류: '{name}'은(는) 이미 이 {it['slot']}에 담긴 부품입니다."
+            return str(r["variant_id"]), ""
+        if hits:
+            listing = "\n".join(f"- candidate_id={r['variant_id']} · {r.get('name')} · {_won(r.get('price'))}" for r, _ in hits[:8])
+            return None, f"오류: '{name}'에 맞는 {it['slot']} 후보가 여럿입니다. 아래 candidate_id 중 하나로 swap 하세요.\n{listing}"
+        return None, (f"오류: '{name}'에 맞는 {it['slot']} 후보가 없습니다. candidate_id 는 list_alternatives·upgrade_options·"
+                      "savings_options·preview_swap 결과의 값입니다.")
 
     def _compat_note(self) -> str:
         """교체 뒤 다시 돌린 호환 점검이 찾은 문제(major)를 도구 결과에 싣는다 — 없으면 그 사실만."""
