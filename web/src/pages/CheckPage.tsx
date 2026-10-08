@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import PlannerShell from '../components/PlannerShell'
 import AnalysisView, { type LiveLookupState } from '../components/check/AnalysisView'
 import CheckChat, { type ChatEntry } from '../components/check/CheckChat'
@@ -74,6 +74,14 @@ export default function CheckPage() {
   filesRef.current = files
   const [text, setText] = useState('')
   const [question, setQuestion] = useState('')
+  // 마이페이지의 "받은 견적 점검에 적용"으로 들어오면 내 현재 PC 기준 질문을 미리 채운다(한 번만).
+  const location = useLocation()
+  useEffect(() => {
+    const preset = (location.state as { question?: unknown } | null)?.question
+    if (typeof preset !== 'string' || !preset) return
+    setQuestion(current => (current.trim() ? current : preset))
+    navigate(location.pathname + location.search, { replace: true, state: null })
+  }, [location, navigate])
   const [activeChips, setActiveChips] = useState<string[]>([])
   const [conditions, setConditions] = useState<QuoteConditions>({})
   // 초안·검토
