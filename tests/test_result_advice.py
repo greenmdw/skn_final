@@ -155,6 +155,9 @@ def test_rule_path_answers_questions_without_changing_the_build(conn):
 @pytest.mark.parametrize("text", [
     "왜 700만원 예산에 맞춰서 견적 짜달라 했는데 300만원에 짰어?", "예산 많이 남았는데 왜 다 안 썼어?",
     "예산을 왜 이것밖에 안 썼어?", "왜 예산을 덜 썼어", "예산 다 안 쓰고 남긴 이유가 뭐야?",
+    # 10/8 표현 점검에서 놓치던 것
+    "예산 다 안 쓴 거야?", "왜 이렇게 싸게 맞췄어?", "300만원밖에 안 나왔네?", "예산 더 써도 되는데 왜 이렇게 싸?",
+    "왜 메모리가 16GB만 들어갔어? 돈 남잖아",
 ])
 def test_budget_left_questions_are_recognized(text):
     assert result_advice.is_budget_left_question(text)
@@ -163,6 +166,9 @@ def test_budget_left_questions_are_recognized(text):
 @pytest.mark.parametrize("text", [
     "남은 예산으로 뭘 올릴까?", "돈 남았는데 바꿀 거 추천해 줄 수 있나?", "왜 이 CPU 골랐어?", "그래픽카드 왜 이거야?",
     "10만원 더 쓰면 뭐가 좋아져?",
+    # 넓힌 규칙이 잡으면 안 되는 것
+    "남은 돈이 10만원밖에 안 되는데 뭐 올릴 수 있어?", "왜 이 SSD가 다른 것보다 싸?", "돈 남는데 더 좋은 걸로 해줘",
+    "예산 안에서 그래픽카드 바꿔줘", "왜 이 케이스 골랐어? 싸서?", "50만원만 안 쓰면 되는데 뭘 빼?",
 ])
 def test_other_questions_are_not_budget_left_questions(text):
     assert not result_advice.is_budget_left_question(text)

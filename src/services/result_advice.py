@@ -427,15 +427,22 @@ PURPOSE_LABEL = {"game": "게임", "office": "사무", "study": "학습", "creat
 PRIORITY_LABEL = {"performance": "성능 우선", "value": "가성비 우선", "quiet": "저소음 우선"}
 _WHY_WORDS = ("왜", "이유", "어째서")
 _MONEY_WORDS = ("예산", "만원", "만 원", "돈", "금액")
-_LEFT_RE = re.compile(r"안\s*쓰|안\s*썼|덜\s*쓰|덜\s*썼|만\s*썼|만\s*쓴|남겼|남긴|남기|남았|남아|남는|짰|맞췄|적게|싸게")
-_NOT_FILLED_RE = re.compile(r"예산.{0,10}(다\s*안|못|안)\s*(쓰|썼|써|채)")
+_LEFT_RE = re.compile(r"안\s*쓰|안\s*썼|덜\s*쓰|덜\s*썼|만\s*썼|만\s*쓴|남겼|남긴|남기|남았|남아|남는|남잖|짰|맞췄|적게|싸게"
+                      r"|이렇게\s*싸")
+_NOT_FILLED_RE = re.compile(r"예산.{0,10}(다\s*안|못|안)\s*(쓰|썼|써|쓴|채)")
+# 돈 낱말이 없어도 세트 전체가 싸다는 말 — "왜 이렇게 싸게 맞췄어?"
+_CHEAP_BUILD_RE = re.compile(r"(싸게|저렴하게|적게)\s*(짰|맞췄|맞춘|구성)")
+# 이유를 묻는 낱말이 없어도 총액이 적게 나왔다는 말 — "300만원밖에 안 나왔네?". "10만원밖에 안 되는데"(남은 돈)는 아니다
+_ONLY_SPENT_RE = re.compile(r"만\s*원?\s*밖에\s*(안|못)\s*(나왔|나와|썼|쓰|쓴|들었)")
 
 
 def is_budget_left_question(text: str) -> bool:
     """"700만원 예산인데 왜 300만원에 짰어?", "예산 남았는데 왜 다 안 썼어?" — 예산을 덜 쓴 이유를 묻는 말.
     "남은 예산으로 뭘 올릴까?"(이유를 묻지 않음)는 아니다 — 그건 upgrade_options."""
     low = text.lower()
-    if _NOT_FILLED_RE.search(low):
+    if _NOT_FILLED_RE.search(low) or _ONLY_SPENT_RE.search(low):
+        return True
+    if any(w in low for w in _WHY_WORDS) and _CHEAP_BUILD_RE.search(low):
         return True
     return (any(w in low for w in _WHY_WORDS) and any(w in low for w in _MONEY_WORDS)
             and _LEFT_RE.search(low) is not None)
