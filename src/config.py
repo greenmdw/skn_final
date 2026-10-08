@@ -95,7 +95,7 @@ _DEV_DEFAULT_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
 # DB 커넥션 풀. 요청 하나가 연결을 잡는 시간은 짧아야 하지만(LLM 대기 중에는 잡지 않는다) 동시에 도는 요청이 풀보다 많으면
 # 줄을 선다. 기다려도 못 얻으면(DB_POOL_TIMEOUT 초) 500 이 아니라 503(+재시도 안내)으로 답한다. 서버 프로세스마다 따로 센다 —
 # (프로세스 수 × DB_POOL_MAX)가 DB 의 max_connections 를 넘지 않게 한다.
-DB_POOL_MIN: int = int(os.getenv("DB_POOL_MIN", "2"))
+DB_POOL_MIN: int = int(os.getenv("DB_POOL_MIN", "8"))
 DB_POOL_MAX: int = int(os.getenv("DB_POOL_MAX", "20"))
 DB_POOL_TIMEOUT: float = float(os.getenv("DB_POOL_TIMEOUT", "5"))
 
@@ -110,6 +110,24 @@ LLM_SEARCH_TIMEOUT_SECONDS: float = float(os.getenv("LLM_SEARCH_TIMEOUT_SECONDS"
 LLM_MAX_CONCURRENCY: int = int(os.getenv("LLM_MAX_CONCURRENCY", "12"))
 LLM_QUEUE_TIMEOUT_SECONDS: float = float(os.getenv("LLM_QUEUE_TIMEOUT_SECONDS", "10"))
 LLM_REQUEST_MAX: int = int(os.getenv("LLM_REQUEST_MAX", str(max(1, DB_POOL_MAX // 2))))
+# 백그라운드 작업(추천 설명 문장)은 사람이 기다리는 요청이 아니라서 모델 호출 자리를 더 오래 기다린다.
+LLM_BACKGROUND_QUEUE_TIMEOUT_SECONDS: float = float(os.getenv("LLM_BACKGROUND_QUEUE_TIMEOUT_SECONDS", "120"))
+
+# 추천 실행 — 요청 스레드 풀(40개)과 분리한 전용 작업자. 엔진 단계는 CPU 를 쓰고 DB 연결을 쥐므로 동시에 RECOMMEND_WORKERS 개만 돌고
+# 나머지는 줄을 선다(30건이 한꺼번에 돌면 서로 CPU 를 나눠 20초로 늘어지고 연결 20개를 그만큼 쥐어 다른 요청이 막혔다).
+# 설명 단계(LLM)는 DB 연결 없이 RECOMMEND_EXPLAIN_WORKERS 개까지 따로 돈다 — LLM_MAX_CONCURRENCY 이하로 둔다.
+# RECOMMEND_SYNC=1 이면 요청 뒤 같은 스레드에서 끝까지 돌린다(테스트용 — 결과를 바로 읽을 수 있다).
+RECOMMEND_WORKERS: int = int(os.getenv("RECOMMEND_WORKERS", "4"))
+RECOMMEND_EXPLAIN_WORKERS: int = int(os.getenv("RECOMMEND_EXPLAIN_WORKERS", "8"))
+RECOMMEND_SYNC: bool = os.getenv("RECOMMEND_SYNC", "0") == "1"
+# 백그라운드 작업(추천 실행)은 요청 풀과 따로 연결을 가진다 — 폴링 요청이 풀을 채워도 추천 실행이 연결을 못 얻어 실패하지 않게 한다.
+# (요청 풀 DB_POOL_MAX + 이 값)이 서버 프로세스 하나의 연결 수다.
+DB_BACKGROUND_POOL_MAX: int = int(os.getenv("DB_BACKGROUND_POOL_MAX", str(RECOMMEND_WORKERS + RECOMMEND_EXPLAIN_WORKERS)))
+# 서버가 재시작되거나 작업이 사라져 running/pending 으로 남은 실행을 실패로 정리한다. 이 시간보다 오래된 것만(다른 프로세스가
+# 정상으로 돌리는 중일 수 있다). 시작 직후 한 번은 더 짧은 기준을 쓴다.
+RECOMMEND_STALE_SECONDS: int = int(os.getenv("RECOMMEND_STALE_SECONDS", "600"))
+RECOMMEND_STARTUP_STALE_SECONDS: int = int(os.getenv("RECOMMEND_STARTUP_STALE_SECONDS", "60"))
+RECOMMEND_REAP_INTERVAL_SECONDS: int = int(os.getenv("RECOMMEND_REAP_INTERVAL_SECONDS", "60"))
 
 
 def _with_dev_origins(configured: list[str], is_production: bool) -> list[str]:

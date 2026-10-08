@@ -27,8 +27,12 @@ if DSN:
 
 
 def _in_use() -> int:
-    stats = db.get_pool().get_stats()
-    return stats["pool_size"] - stats["pool_available"]
+    """요청 풀과 백그라운드 풀에서 지금 빌려 간 연결 수."""
+    total = 0
+    for pool in (db.get_pool(), db.get_background_pool()):
+        stats = pool.get_stats()
+        total += stats["pool_size"] - stats["pool_available"]
+    return total
 
 
 def test_no_pooled_connection_is_held_while_the_explanation_llm_runs(monkeypatch):
@@ -70,7 +74,7 @@ def test_pool_size_and_wait_come_from_the_environment(monkeypatch):
     monkeypatch.setenv("DB_POOL_TIMEOUT", "1.5")
     try:
         reloaded = importlib.reload(config)
-        assert (reloaded.DB_POOL_MIN, reloaded.DB_POOL_MAX, reloaded.DB_POOL_TIMEOUT) == (2, 7, 1.5)
+        assert (reloaded.DB_POOL_MIN, reloaded.DB_POOL_MAX, reloaded.DB_POOL_TIMEOUT) == (8, 7, 1.5)
     finally:
         monkeypatch.delenv("DB_POOL_MAX")
         monkeypatch.delenv("DB_POOL_TIMEOUT")

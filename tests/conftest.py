@@ -19,6 +19,8 @@ from uuid import uuid4
 
 # src.config 를 import 하기 전에 정한다(config 가 .env 를 읽되 이미 있는 환경변수는 덮지 않는다).
 os.environ.setdefault("MOCK_MODE", "1")
+# 추천 실행을 요청 뒤 같은 스레드에서 끝까지 돌린다 — 테스트가 POST /recommend 직후 결과를 읽는다(운영은 전용 작업자 풀).
+os.environ.setdefault("RECOMMEND_SYNC", "1")
 # HTTP TestClient uses http://testserver. Keep local production .env settings
 # from disabling /dev or marking session cookies Secure in default test runs.
 # Explicit settings supplied by the test runner still take precedence.

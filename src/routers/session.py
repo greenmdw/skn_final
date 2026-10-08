@@ -8,7 +8,7 @@ from src.clients.llm_guard import llm_request_slot
 from src.db import get_conn
 from src.errors import NotFound
 from src.repo.plan_repo import PlanRepo
-from src.services import recommendation_service, session_service
+from src.services import recommendation_runner, recommendation_service, session_service
 
 router = APIRouter(prefix="/session", tags=["session"])
 
@@ -125,7 +125,7 @@ def recommend(
             revision["id"],
             strategy=body.strategy or "default",
         )
-    background_tasks.add_task(recommendation_service.execute_recommendation, revision["id"], UUID(accepted["run_id"]))
+    background_tasks.add_task(recommendation_runner.dispatch, revision["id"], UUID(accepted["run_id"]))
     return schemas.RecommendAcceptedOut(**accepted)
 
 @router.get("/{list_id}/result", response_model=schemas.RecommendResultOut)

@@ -42,7 +42,7 @@ from src.engine.spec_text import parse_spec_text
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.errors import RateLimited, ServiceUnavailable, ValidationFailed
 from src.services import (
-    quote_apply, quote_chat_service, quote_comparison_service, quote_draft_service, quote_review_service, recommendation_service,
+    quote_apply, quote_chat_service, quote_comparison_service, quote_draft_service, quote_review_service, recommendation_runner,
 )
 
 
@@ -317,8 +317,7 @@ def apply_quote_alternative(
         response.set_cookie("truefit_guest", result["browser_token"],
                             httponly=True, samesite="lax", max_age=60 * 60 * 24 * 180)
     if result["run_id"]:
-        background_tasks.add_task(recommendation_service.execute_recommendation,
-                                  UUID(result["revision_id"]), UUID(result["run_id"]))
+        background_tasks.add_task(recommendation_runner.dispatch, UUID(result["revision_id"]), UUID(result["run_id"]))
     return schemas.QuoteApplyOut(list_id=result["list_id"], slots=result["slots"], missing=result["missing"],
                                  run_id=result["run_id"])
 
