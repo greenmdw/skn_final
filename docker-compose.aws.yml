@@ -1,0 +1,28 @@
+# AWS 서버(EC2 + RDS)용 — DB 컨테이너 없이 api 만 띄운다. DB 는 RDS(.env 의 DATABASE_URL)를 쓴다.
+#   cp deploy/aws.env.example .env   # 값 채우기 (git 에 올리지 않는다)
+#   scripts/deploy_aws.sh            # pull → 빌드 → 마이그레이션 → 기동 → 헬스체크
+# 최초 1회만: docker compose -f docker-compose.aws.yml run --rm api python db/setup_all.py   (스키마 + 시드)
+services:
+  api:
+    build: .
+    image: truefit-api:aws
+    env_file: .env
+    # 프로세스 수는 vCPU 수에 맞춘다(t3.medium = 2). 요청 한도·LLM 상한·추천 작업자는 프로세스마다 따로 센다.
+    command: ["sh", "-c", "exec uvicorn src.api:app --host 0.0.0.0 --port 8000 --workers $${UVICORN_WORKERS:-2}"]
+    ports:
+      - "80:8000"
+    volumes:
+      # 비공개 시드 데이터(data/peripherals, data/review_seed 등 git 에 없는 파일)는 서버의 ./data 에 올려 두고 마운트한다 — 올릴 때 다시 빌드하지 않아도 된다.
+      - ./data:/app/data:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
