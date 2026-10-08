@@ -160,8 +160,9 @@ export interface BudgetWarning {
   message: string
 }
 
-/** 예산을 많이 남긴 이유 안내(서버가 문장을 만든다). 성능 우선으로 다시 추천받는 길을 함께 안내한다. */
-export interface BudgetNotice { message: string; remaining: number }
+/** 예산을 많이 남긴 이유 안내(서버가 문장을 만든다). suggestPriority 가 있으면 그 우선순위로 다시 추천받는 버튼을 단다
+ *  — 이미 성능 우선인 구성은 없다(남은 예산은 결과 채팅의 업그레이드 안내로). */
+export interface BudgetNotice { message: string; remaining: number; suggestPriority?: 'performance' }
 
 /** 추천 구성이 점수를 얻은 축별 비율(%, 합 100). 축 이름(가격·성능·밸런스·리뷰·호환여유)은 서버가 정한다. */
 export interface ContributionShare { axis: string; percent: number }

@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass
 from uuid import UUID
 
+from src.engine.brands import PC_SLOTS, SLOT_SYNONYMS
 from src.engine.lang import fmt_money
 
 # "더 좋다"를 코드가 정할 수 있는 슬롯과 그 값. 순서는 용도 기준 등급과의 차이로 다시 정한다(_upgrade_order).
@@ -422,6 +423,98 @@ def upgrade_options(conn, revision_id: UUID, budget: int | None = None) -> str:
     return "\n".join(lines)
 
 
+# ── 3-1. 예산을 다 안 쓴 이유 ────────────────────────────────────────────────
+PURPOSE_LABEL = {"game": "게임", "office": "사무", "study": "학습", "creation": "창작", "other": "기타"}
+PRIORITY_LABEL = {"performance": "성능 우선", "value": "가성비 우선", "quiet": "저소음 우선"}
+_WHY_WORDS = ("왜", "이유", "어째서")
+_MONEY_WORDS = ("예산", "만원", "만 원", "돈", "금액")
+_LEFT_RE = re.compile(r"안\s*쓰|안\s*썼|덜\s*쓰|덜\s*썼|만\s*썼|만\s*쓴|남겼|남긴|남기|남았|남아|남는|남잖|짰|맞췄|적게|싸게"
+                      r"|이렇게\s*싸")
+# 이미 일어난 일만 — "예산 안 쓰고 중고로 사면?"·"못 쓰게 막아놨어?"(가정·제약)는 아니다
+_NOT_FILLED_RE = re.compile(r"예산.{0,10}(다\s*안|못|안)\s*(썼|쓴|채웠|채운)")
+# 돈 낱말이 없어도 세트 전체가 싸다는 말 — "왜 이렇게 싸게 맞췄어?"
+_CHEAP_BUILD_RE = re.compile(r"(싸게|저렴하게|적게)\s*(짰|맞췄|맞춘|구성)")
+# 이유를 묻는 낱말이 없어도 총액이 적게 나왔다는 말 — "300만원밖에 안 나왔네?". "10만원밖에 안 되는데"(남은 돈)는 아니다
+_ONLY_SPENT_RE = re.compile(r"만\s*원?\s*밖에\s*(안|못)\s*(나왔|나와|썼|쓰|쓴|들었)")
+# 부품 하나를 집은 말은 그 부품의 근거(explain)로 — "왜 SSD는 싸게 맞췄어?", "왜 수냉 쿨러 안 넣었어? 돈 남는데".
+# 세트에 없는 것(모니터·운영체제)도 세트를 고른 방식으로는 답이 안 된다
+_PART_WORDS = tuple(SLOT_SYNONYMS) + tuple(s.lower() for s in PC_SLOTS) + (
+    "이 부품", "그 부품", "이 제품", "모니터", "키보드", "마우스", "스피커", "운영체제", "윈도우", "배송")
+_LATER_RE = re.compile(r"쓸\s*수|다음에|나중에")       # "안 쓴 부분은 다음에 쓸 수 있어?" — 앞으로의 이야기
+
+
+def is_budget_left_question(text: str) -> bool:
+    """"700만원 예산인데 왜 300만원에 짰어?", "예산 남았는데 왜 다 안 썼어?" — 예산을 덜 쓴 이유를 묻는 말.
+    "남은 예산으로 뭘 올릴까?"(이유를 묻지 않음)는 아니다 — 그건 upgrade_options."""
+    low = text.lower()
+    if any(w in low for w in _PART_WORDS) or _LATER_RE.search(low):
+        return False
+    if _NOT_FILLED_RE.search(low) or _ONLY_SPENT_RE.search(low):
+        return True
+    if any(w in low for w in _WHY_WORDS) and _CHEAP_BUILD_RE.search(low):
+        return True
+    return (any(w in low for w in _WHY_WORDS) and any(w in low for w in _MONEY_WORDS)
+            and _LEFT_RE.search(low) is not None)
+
+
+def budget_reason(conn, revision_id: UUID) -> str:
+    """예산을 다 안 쓴 이유 — 추천 엔진이 세트를 고르는 방식(예산 상한 안에서 점수 합 최대), 이번 요청의 축 가중치,
+    용도 기준 등급과 지금 CPU·GPU 등급을 사실대로 옮긴다. 고르지 않은 후보를 하나하나 다시 채점하지는 않는다
+    (엔진의 슬롯별 예산 배분·리뷰 점수를 다시 만들어야 한다) — 그래서 "이 부품이 몇 점 낮아서"는 말하지 않는다.
+    700만원 예산에 300만원 구성이 나왔을 때 채팅이 "근거를 확인할 수 없다"고만 답하던 것(2026-10-08 실측 8/8)."""
+    from src.engine.stage2_requirement import load_computer_rules
+    from src.engine.stage3b_rank import _weights_for
+    ctx = _context(conn, revision_id)
+    total = ctx.total()
+    if ctx.cvals.get("mode") == "upgrade":
+        return ("업그레이드 견적의 예산은 바꿀 부품에만 쓰는 돈이라, 바꿀 필요가 없는 부품만큼 남는 게 정상입니다. "
+                f"지금 바꿀 부품 합계는 {fmt_money(total)}입니다.")
+    if not ctx.budget_max:
+        return "예산 상한이 없는 견적이라 '남긴 예산'이 없습니다."
+    left = ctx.budget_max - total
+    if left <= 0:
+        return (f"예산 {fmt_money(ctx.budget_max)} 중 총액 {fmt_money(total)} — 예산을 다 썼습니다"
+                + (" (예산 초과)." if left < 0 else "."))
+    weights, _ = _weights_for(ctx.cvals, load_computer_rules()["ranking"])
+    shares = " · ".join(f"{axis} {round(w * 100)}%" for axis, w in sorted(weights.items(), key=lambda kv: -kv[1]) if w)
+    priority = ctx.cvals.get("priority")
+    purpose = PURPOSE_LABEL.get(ctx.cvals.get("purpose") or "game", "이")
+    lines = [
+        f"예산 {fmt_money(ctx.budget_max)} 중 {fmt_money(total)}을 썼습니다(약 {round(total / ctx.budget_max * 100)}%, "
+        f"잔여 {fmt_money(left)}).",
+        "추천 엔진은 예산을 채우는 방식이 아니라, 예산을 넘지 않는 조합 가운데 부품 점수 합이 가장 높은 것을 고릅니다. "
+        "예산은 넘으면 안 되는 상한입니다.",
+        f"이번 점수 비중({PRIORITY_LABEL.get(priority, '기본')}): {shares}.",
+    ]
+    ideals = _ideal_tiers(ctx)
+    standing = []
+    for slot in ("CPU", "GPU"):
+        row = ctx.row(slot)
+        cur = ctx.by_variant.get(str(row["variant_id"])) if row else None
+        tier = _metric(slot, cur.specs) if cur is not None else None
+        if tier is None or slot not in ideals:
+            continue
+        ideal = ideals[slot]
+        where = "보다 높음" if tier > ideal else ("과 같음" if tier == ideal else "에 못 미침")
+        standing.append((slot, tier, ideal))
+        lines.append(f"- {slot}: {cur.name} 성능 등급 {tier:g} — {purpose} 용도 기준 등급 {ideal:g}{where}")
+    if ideals:
+        lines.insert(3, f"'밸런스' 점수는 {purpose} 용도 기준 등급에 가까울수록 높고 기준보다 높아도 낮아도 깎이며, "
+                        "'가격' 점수는 비쌀수록 깎입니다.")
+    if priority in ("value", "quiet"):
+        heavy = "가격" if priority == "value" else "가격·소음"
+        lines.append(f"→ {PRIORITY_LABEL[priority]}이라 {heavy} 비중이 커서, 요구 성능을 채우는 범위에서 더 싼 쪽이 점수가 높습니다.")
+    elif standing and all(t >= i for _, t, i in standing):
+        lines.append("→ CPU·GPU가 이미 이 용도 기준 등급 이상이라, 더 비싼 부품은 성능 점수가 오르는 만큼 가격·밸런스 점수가 "
+                     "깎여 총점이 크게 오르지 않습니다. 리뷰 점수도 부품마다 달라 순위에 영향을 줍니다.")
+    elif standing:
+        lines.append("→ 기준에 못 미치는 부품이 있는데도 예산이 남은 이유는 이 계산만으로 확정할 수 없습니다"
+                     "(리뷰 점수와 부품 사이 호환 조합이 순위에 영향을 줍니다).")
+    lines.append("남은 예산으로 올릴 수 있는 부품은 '남은 예산으로 뭘 올릴까?'라고 물으면 계산해 드리고, "
+                 "용도·우선순위를 바꾸려면 화면의 '조건 바꾸기'에서 다시 추천받을 수 있습니다.")
+    return "\n".join(lines)
+
+
 # ── 4. 줄일 수 있는 것 ──────────────────────────────────────────────────────
 def _loss(slot: str, m0: float | None, m1: float | None) -> float:
     """바꿨을 때 잃는 성능 — CPU·GPU 는 등급 차, RAM 은 용량이 절반이 될 때마다 1. 값이 없는 슬롯(케이스·쿨러·파워·
@@ -656,6 +749,8 @@ def rule_reply(conn, revision_id: UUID, text: str, slot: str | None) -> str | No
         return game_check(conn, revision_id, ", ".join(games))
     if any(w in text for w in _CHECK_WORDS):
         return check_build(conn, revision_id)
+    if is_budget_left_question(text):          # "남았"이 업그레이드 낱말이기도 해서 그보다 먼저
+        return budget_reason(conn, revision_id)
     if slot is None and any(w in text for w in _SAVING_WORDS):
         return for_user(savings_options(conn, revision_id, _parse_won(text)))
     if slot is None and any(w in text for w in _UPGRADE_WORDS):

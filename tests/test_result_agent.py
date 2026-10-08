@@ -62,6 +62,17 @@ def test_prefetch_triggers_only_on_why_questions(monkeypatch):
     assert out == "EXPLAIN[CPU]\n\nEXPLAIN[GPU]"                                            # 빼둔 케이스는 제외
 
 
+def test_prefetch_answers_why_the_budget_was_left_with_the_set_method_not_eight_explains(monkeypatch):
+    """"왜 300만원에 짰어?"는 부품별 추천 이유가 아니라 세트를 고른 방식을 묻는다(2026-10-08)."""
+    from src.services import result_advice
+    s = _session()
+    monkeypatch.setattr(ra.ResultSession, "explain", lambda self, slot: f"EXPLAIN[{slot}]")
+    monkeypatch.setattr(result_advice, "is_pc", lambda conn, revision_id: True)
+    monkeypatch.setattr(result_advice, "budget_reason", lambda conn, revision_id: "BUDGET_REASON")
+    out = ra._prefetch_explanations(s, "왜 700만원 예산에 맞춰서 견적 짜달라 했는데 300만원에 짰어?")
+    assert out == "BUDGET_REASON" and s.trace == ["prefetch:budget_reason() → BUDGET_REASON"]
+
+
 def test_system_prompt_carries_table_reasons_budget_and_language():
     r = _result()
     p = ra.system_prompt(r, "왜 이 CPU야?", [], prefetched="PRE")

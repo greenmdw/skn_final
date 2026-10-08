@@ -270,6 +270,13 @@ class ResultSession:
                 return self._record(call, "오류: extra 는 금액(예: 100000, 10만원)")
         return self._record(call, result_advice.upgrade_options(self.conn, self.revision_id, budget))
 
+    def budget_reason(self) -> str:
+        from src.services import result_advice
+        call = "budget_reason()"
+        if (no := self._pc_only(call)) is not None:
+            return no
+        return self._record(call, result_advice.budget_reason(self.conn, self.revision_id))
+
     def savings_options(self, target: str = "") -> str:
         from src.agent.conditions_agent import _parse_amount
         from src.services import result_advice
@@ -408,6 +415,14 @@ def make_tools(s: ResultSession) -> list:
         return s.upgrade_options(extra, new_budget)
 
     @tool
+    def budget_reason() -> str:
+        """예산을 다 안 쓴 이유 — 추천 엔진이 세트를 고르는 방식(예산 상한 안에서 점수 합 최대), 이번 점수 비중,
+        용도 기준 등급과 지금 CPU·GPU 등급을 돌려준다. "왜 예산을 다 안 썼어?", "700만원인데 왜 300만원에 짰어?" 에 쓴다.
+        올릴 후보는 주지 않는다 — 그건 upgrade_options.
+        """
+        return s.budget_reason()
+
+    @tool
     def savings_options(target: str = "") -> str:
         """요구 사양을 지키면서 더 싸게 바꿀 수 있는 부품과 절약액, 요구 사양을 낮추면 줄일 수 있는 것을 돌려준다.
         target 을 주면 그 금액을 줄이는 조합을 계산한다. 바꾸지는 않는다. "뭘 바꾸면 싸져?", "20만원 줄이려면?" 에 쓴다.
@@ -517,7 +532,13 @@ _WHOLE_BUILD = ("구성", "견적", "전체", "이거", "이것", "이 조합", 
 def _prefetch_explanations(session: ResultSession, text: str) -> str:
     """'왜 이 CPU야?' 류는 모델이 explain 을 안 부르고 답하는 일이 있어서, 코드가 먼저 조회해 프롬프트에 싣는다.
     슬롯을 못 찾으면 담긴 부품 전부. 판단은 여전히 안 한다 — 저장된 사실을 옮길 뿐."""
+    from src.services import result_advice
     from src.services.recommendation_service import _match_slot
+    if result_advice.is_budget_left_question(text) and result_advice.is_pc(session.conn, session.revision_id):
+        # "왜 300만원에 짰어?"는 부품 8개의 추천 이유가 아니라 세트를 고른 방식을 묻는다 — explain 8번 대신 이것만
+        out = session.budget_reason()
+        session.trace[:] = [f"prefetch:{t}" for t in session.trace]
+        return out
     low = text.lower()
     if not any(w in low for w in _WHY) or is_whatif_question(text):
         return ""          # "바꿔도 괜찮아?"는 지금 부품의 근거가 아니라 가정 결과(preview_swap)를 묻는다
@@ -557,6 +578,9 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "preview_swap(특정 제품이면 candidate_id, '더 좋은 걸로/한 단계 올리면'이면 direction='up')으로 가정 결과만 확인해 차액·예산 초과 여부·요구 사양·호환 점검(전력 포함) 결과를 전한 뒤 '바꿔 드릴까요?'로 묻습니다. swap·set_qty 를 부르지 않습니다.",
         "6. '돈 남았는데 뭐 바꿀까', '남은 예산으로 업그레이드', 'N만원 더 쓰면' → upgrade_options. '예산을 N원으로 늘려줘'처럼 새 총예산을 말하면 upgrade_options(new_budget=N) — "
         "조건의 예산 자체는 이 화면에서 못 바꾼다고 한 번 말하고 그 금액 기준 후보를 보여 줍니다. 결과의 순서와 후보를 그대로 전하고, 사용자가 고르기 전에는 바꾸지 않습니다.",
+        # 6번 문장 뒤에 이어 붙였더니 "가격에 맞게 예산 줄여줘"에 RAM 을 바꾸는 일이 생겼다(10/8 평가 D-1 2/4) — 따로 둔다
+        "6-1. '왜 예산을 다 안 썼어?', '왜 300만원에 짰어?'처럼 예산을 남긴 이유를 물으면 budget_reason 의 방식 설명과 CPU·GPU 등급을 옮기고, "
+        "'→' 줄을 결론으로 전합니다. '예산을 다 쓰지 못했다'처럼 실패로 말하지 않습니다 — 예산은 상한입니다.",
         "7. '뭘 바꾸면 싸져?', 'N만원 줄이고 싶어' → savings_options(target). 금액을 말했으면 '→ … 성능을 가장 적게 잃는 조합' 줄을 먼저 전합니다 "
         "— 가장 많이 줄어드는 후보를 대신 권하지 않습니다. 요구 사양을 낮춰야 하는 항목은 그 사실(⚠)과 함께 전합니다.",
         "8. '파워 충분해?', '호환 문제 없어?', '이대로 사도 돼?', 'CPU가 발목 잡아?(병목)' → check_build. '쿨러 꼭 사야 돼?', '기본 쿨러 들어 있어?' → explain('쿨러') 의 'CPU 기본 쿨러' 값으로 답합니다. 이 게임 돌아가? → game_check(게임 이름). 도구 결과에 있는 항목만 말하고 fps·체감 성능은 말하지 않습니다.",
@@ -646,7 +670,7 @@ def _reply_within(reply: str, allowed_sources: list[str]) -> tuple[bool, set[str
     return (not outside), outside
 
 
-_READ_TOOLS = ("preview_swap(", "upgrade_options(", "savings_options(", "check_build(", "game_check(",
+_READ_TOOLS = ("preview_swap(", "upgrade_options(", "budget_reason(", "savings_options(", "check_build(", "game_check(",
               "search_unavailable_part(")
 
 
