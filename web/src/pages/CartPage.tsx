@@ -153,9 +153,9 @@ export default function CartPage() {
 
           <form className="pl-side" onSubmit={submit} noValidate>
             <div className="pl-card" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <div className="pl-sum-row"><span style={{ color: '#92a4b2' }}>본체</span><span className="pl-mono">{wonFmt(bodyTotal)}</span></div>
-              {peripherals.length > 0 && <div className="pl-sum-row"><span style={{ color: '#92a4b2' }}>주변기기</span><span className="pl-mono">{wonFmt(periphTotal)}</span></div>}
-              <div style={{ height: 1, background: '#233744' }} />
+              <div className="pl-sum-row"><span style={{ color: 'var(--muted)' }}>본체</span><span className="pl-mono">{wonFmt(bodyTotal)}</span></div>
+              {peripherals.length > 0 && <div className="pl-sum-row"><span style={{ color: 'var(--muted)' }}>주변기기</span><span className="pl-mono">{wonFmt(periphTotal)}</span></div>}
+              <div style={{ height: 1, background: 'var(--line)' }} />
               <div className="pl-sum-row"><b>합계</b><b className="pl-mono" style={{ fontSize: 22 }}>{wonFmt(total)}</b></div>
               {budget !== null && (
                 <div className="pl-note">{bodyTotal <= budget ? `본체 예산 ${wonFmt(budget)} 중 ${wonFmt(budget - bodyTotal)} 남아요` : `본체 예산 ${wonFmt(budget)}을 ${wonFmt(bodyTotal - budget)} 넘었어요`}</div>
