@@ -50,7 +50,7 @@ if not IS_PRODUCTION:
 
 @app.exception_handler(TruefitError)
 def _truefit_error_handler(_req: Request, exc: TruefitError) -> JSONResponse:
-    return JSONResponse(status_code=exc.http_status, content=exc.to_envelope())
+    return JSONResponse(status_code=exc.http_status, content=exc.to_envelope(), headers=getattr(exc, "headers", None))
 
 
 @app.exception_handler(PoolTimeout)

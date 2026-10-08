@@ -21,8 +21,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from src.engine.brands import canonical_slot, cpu_brand_pref
-from src.config import CONDITIONS_AGENT, LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY
+from src.config import CONDITIONS_AGENT, LLM_MODEL, LLM_PROVIDER, LLM_TIMEOUT_SECONDS, MOCK_MODE, OPENAI_API_KEY
 from src.engine.slot_rules import _parse_won
+from src.clients.llm_guard import llm_call_slot
 from src.errors import ServiceUnavailable
 
 # 대화로 설정하지 않는 필드 — 사양 파일 첨부(/spec-file)가 채운다
@@ -494,7 +495,7 @@ def _model():
         params = {"reasoning_effort": "none"}
     else:
         params = {"temperature": 0.2}
-    return OpenAIModel(client_args={"api_key": OPENAI_API_KEY}, model_id=LLM_MODEL, params=params)
+    return OpenAIModel(client_args={"api_key": OPENAI_API_KEY, "timeout": LLM_TIMEOUT_SECONDS}, model_id=LLM_MODEL, params=params)
 
 
 def run_turn(category: str, cat_def: dict, values: dict, history: list[dict], text: str,
@@ -521,6 +522,7 @@ def run_turn(category: str, cat_def: dict, values: dict, history: list[dict], te
         tool_executor=SequentialToolExecutor(),   # 도구들이 한 draft 를 순서대로 고친다
         callback_handler=None,          # 기본 핸들러는 stdout 에 스트리밍한다
     )
-    result = agent(text)
+    with llm_call_slot():
+        result = agent(text)
     return TurnResult(reply=str(result).strip(), patches=dict(draft.patches), trace=list(draft.trace),
                       preference_patches=list(draft.preference_patches))

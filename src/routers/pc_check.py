@@ -34,6 +34,7 @@ from src.auth import ratelimit
 from src.auth.deps import Principal, optional_principal
 from src.categories import load_category
 from src.config import LIVE_PART_LOOKUP_LIMIT_PER_MIN, PC_CHECK_LIMIT_PER_MIN
+from src.clients.llm_guard import llm_request_slot
 from src.db import get_conn
 from src.engine.owned_parts import preview_current_specs
 from src.engine.quote_items import is_placeholder_line
@@ -149,6 +150,7 @@ def create_quote_draft(
     question: str | None = Form(default=None),
     conditions: str | None = Form(default=None),
     principal: Principal = Depends(optional_principal),
+    _slot: None = Depends(llm_request_slot),
 ) -> schemas.QuoteDraftOut:
     """여러 장의 견적 이미지(+텍스트)를 인식해 항목 초안으로 저장한다(BE-02). 파일 하나가 실패해도 나머지는 유지한다.
     이미지 원본은 저장하지 않는다. 기존 단일 이미지 API(`/pc/reviews`)는 그대로 둔다."""
@@ -255,6 +257,7 @@ def apply_quote_draft_replacements(
 @router.post("/review-drafts/{draft_id}/items/{item_id}/live-lookup", response_model=schemas.LiveSpecLookupOut)
 def live_lookup_draft_item(
     draft_id: UUID, item_id: str, request: Request, principal: Principal = Depends(optional_principal),
+    _slot: None = Depends(llm_request_slot),
 ) -> schemas.LiveSpecLookupOut:
     """초안의 항목 하나를 실시간 검색+검증한다 — 사용자가 버튼을 눌렀을 때만(같은 부품군에 제품이 여럿이라 항목 단위)."""
     _check_live_lookup_limit(request)
@@ -335,6 +338,7 @@ def compare_quote_part(
 @router.post("/reviews/{list_id}/parts/{slot}/live-lookup", response_model=schemas.LiveSpecLookupOut)
 def live_lookup_quote_part(
     list_id: UUID, slot: str, request: Request, principal: Principal = Depends(optional_principal),
+    _slot: None = Depends(llm_request_slot),
 ) -> schemas.LiveSpecLookupOut:
     """카탈로그에 "대응 안 됨"으로 뜬 부품을 사용자가 버튼으로 눌렀을 때만 실시간 검색+검증한다
     (docs/미보유부품_실시간스펙검색_설계.md §2 — 자동 실행 금지, PC_CHECK_LIMIT_PER_MIN보다
@@ -349,6 +353,7 @@ def live_lookup_quote_part(
 def ask_about_quote_review(
     list_id: UUID, body: schemas.QuoteChatIn, request: Request,
     principal: Principal = Depends(optional_principal),
+    _slot: None = Depends(llm_request_slot),
 ) -> schemas.QuoteChatOut:
     """저장된 비교 분석 결과를 근거로 되묻는다 — 답과 근거, 대안 조회(CHAT-04). 대화는 저장된다(CHAT-08)."""
     _check_rate_limit(request)

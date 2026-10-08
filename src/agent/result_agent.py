@@ -31,6 +31,7 @@ from uuid import UUID
 
 from src.agent.conditions_agent import SEARCH_PERMISSION_MARKER as _SEARCH_PERMISSION_MARKER
 from src.agent.conditions_agent import _model, is_search_confirmation
+from src.clients.llm_guard import llm_call_slot
 from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, RESULT_AGENT
 from src.errors import NotFound, ServiceUnavailable
 
@@ -722,7 +723,8 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
     )
     guard, error = None, None
     try:
-        reply = str(agent(text)).strip()
+        with llm_call_slot():
+            reply = str(agent(text)).strip()
     except Exception as exc:
         if not session.changed:
             raise                      # 아무것도 안 바꿨으면 호출자가 규칙 경로로
