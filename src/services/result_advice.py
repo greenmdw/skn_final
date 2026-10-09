@@ -539,6 +539,91 @@ def budget_reason(conn, revision_id: UUID) -> str:
     return "\n".join(lines)
 
 
+# ── 3-1. 왜 이 부품인가 — 추천 당시 점수 근거 ─────────────────────────────────────
+# 리뷰 속성·상황 코드(data/review_seed/rules.json 의 PC 부품 코드)를 사용자 말로. 없는 코드는 코드 그대로 둔다.
+ASPECT_LABEL = {
+    "workload_performance": "작업 성능", "gaming_performance": "게임 성능", "io_performance": "읽기·쓰기 성능",
+    "thermal_management": "발열 관리", "cooling": "냉각 성능", "airflow": "통풍",
+    "operational_stability": "동작 안정성", "boot_memory_stability": "부팅·메모리 안정성",
+    "recognition_operation_stability": "인식·동작 안정성", "connection_stability": "연결 안정성",
+    "fan_quietness": "팬 소음", "coil_quietness": "코일 소음", "pump_quietness": "펌프 소음",
+    "installation_ease": "설치 편의", "cable_installation_ease": "케이블 설치 편의", "assembly_ease": "조립 편의",
+    "build_quality": "마감 품질", "port_button_accessibility": "포트·버튼 접근성", "bios_usability": "바이오스 사용성",
+    "port_connectivity_ease": "포트 연결 편의",
+}
+CONTEXT_LABEL = {
+    "gaming_load": "게임 중", "low_load": "가벼운 작업", "named_non_gaming_workload": "게임 외 작업",
+    "workload_unknown": "상황 불명", "duration_unknown": "사용 기간 불명", "extended_use": "오래 쓴 뒤",
+    "initial_operation": "처음 설치 직후", "installation_or_use": "설치·사용", "visual_or_physical_inspection": "외관·실물",
+    "fan_2400rpm": "팬 2400rpm", "fan_max_speed": "팬 최고 속도",
+}
+
+
+# 쇼핑몰 리뷰 앞에 붙는 별점 꼬리표 — 인용에 남기면 "최고예요"가 표현 가드(과장어)에 걸려 답이 버려진다
+_RATING_LABEL = re.compile(r"^(?:최고예요|좋아요|보통이에요|별로예요|나빠요|아주\s*좋아요)\s*")
+
+
+def _quote(member: dict, limit: int = 60) -> str:
+    text = ((member.get("evidence_sentences") or [None])[0] or member.get("observation_text") or "").strip()
+    text = _RATING_LABEL.sub("", text)
+    return text if len(text) <= limit else text[:limit].rstrip() + "…"
+
+
+def pick_basis(conn, revision_id: UUID, slot: str, variant_id) -> list[str]:
+    """'왜 이 CPU야?'의 근거 — 추천 당시 run 에 저장된 리뷰 계산 snapshot(recommendation_review_snapshot)만 읽는다.
+    그 슬롯 후보 가운데 총점 순위, 점수 비중, 리뷰 점수와 속성별 긍정·부정 관측 수·인용 한 줄. 지금 리뷰 집계를 다시
+    조회하거나 다른 축(가격·성능·밸런스)을 다시 채점하지는 않는다 — snapshot 에 없는 값이라 지어내게 된다.
+    전에는 explain 이 상품 단위 리뷰 요약만 읽어 "저장된 추천 이유와 리뷰 관측은 없습니다"로 답했다(실패 9, 10/2)."""
+    from src.engine.stage2_requirement import load_computer_rules
+    from src.engine.stage3b_rank import _weights_for
+    from src.services.recommendation_review_snapshot import snapshot_from_run
+    from src.services.recommendation_service import _require_done_run
+
+    snap = snapshot_from_run(_require_done_run(conn, revision_id)[1])
+    if snap is None:
+        return ["추천 당시 점수 근거: 이 추천에는 저장돼 있지 않음(리뷰 계산 기록 이전 추천)"]
+    cands = snap.get("candidates") or {}
+    me = cands.get(str(variant_id))
+    if me is None:
+        return ["추천 당시 점수 근거: 이 부품은 추천 당시 후보에 없던 부품이라 점수가 없음"]
+    lines = []
+    weights, _ = _weights_for(snap.get("request_conditions") or {}, load_computer_rules()["ranking"])
+    shares = " · ".join(f"{axis} {round(w * 100)}%" for axis, w in sorted(weights.items(), key=lambda kv: -kv[1]) if w)
+    lines.append(f"추천 엔진 점수 비중: {shares}")
+    pool = sorted((c for c in cands.values() if c.get("slot") == me.get("slot")), key=lambda c: -c["rank_score"])
+    rank = next(i for i, c in enumerate(pool, 1) if c is me)
+    line = f"이 슬롯 후보 {len(pool)}개 중 점수 {rank}위(총점 {me['rank_score']:.3f})"
+    if rank > 1:
+        top = pool[0]
+        name = conn.execute(
+            "SELECT p.name FROM catalog.product_variant v JOIN catalog.product p ON p.id=v.product_id WHERE v.id=%s",
+            (top["variant_id"],)).fetchone()
+        line += (f" — 1위는 {name[0] if name else '다른 후보'}(총점 {top['rank_score']:.3f}). 엔진은 슬롯마다 1위를 따로 "
+                 "고르지 않고 예산·호환을 지키는 조합 가운데 점수 합이 가장 높은 것을 고르므로 1위가 아닌 부품이 들어갈 수 있음")
+    if str(variant_id) != (snap.get("selected") or {}).get(slot):
+        line += " · 추천 뒤 채팅에서 바꾼 부품"
+    lines.append(line)
+    detail = me.get("detail") or {}
+    contribs = detail.get("contributions") or []
+    seen = [c for c in contribs if (c.get("p", 0) + c.get("n", 0) + c.get("mixed", 0)) > 0]
+    empty = [c for c in contribs if c not in seen]
+    value = float(detail.get("value", 0.5))
+    lines.append(f"리뷰 점수 {value:.2f}(0~1, 관측이 없으면 중립 0.50) · 비중 {round(me['rank_weight'] * 100)}%라 "
+                 f"총점 기여 {me['rank_contribution']:.3f}")
+    for c in seen:
+        label = f"{ASPECT_LABEL.get(c['aspect_code'], c['aspect_code'])}({CONTEXT_LABEL.get(c['context_code'], c['context_code'])})"
+        counts = f"긍정 {c.get('p', 0)}·부정 {c.get('n', 0)}" + (f"·엇갈림 {c['mixed']}" if c.get("mixed") else "")
+        quote = next((_quote(m) for m in c.get("members") or [] if _quote(m)), "")
+        lines.append(f"- {label}: 리뷰 {counts}" + (f" — \"{quote}\"" if quote else ""))
+    if empty:
+        names = ", ".join(ASPECT_LABEL.get(c["aspect_code"], c["aspect_code"]) for c in empty)
+        lines.append(f"- 리뷰 관측 없음(중립으로 계산): {names}")
+    if not seen:
+        lines.append("→ 이 부품은 요청 조건에 맞는 리뷰 관측이 없어 리뷰 점수가 순위를 가르지 않았음")
+    lines.append("리뷰 점수는 요청 조건과 리뷰 관측의 부합 정도이며, 확률이나 개별 리뷰의 진위를 뜻하지 않음")
+    return lines
+
+
 # ── 4. 줄일 수 있는 것 ──────────────────────────────────────────────────────
 def _loss(slot: str, m0: float | None, m1: float | None) -> float:
     """바꿨을 때 잃는 성능 — CPU·GPU 는 등급 차, RAM 은 용량이 절반이 될 때마다 1. 값이 없는 슬롯(케이스·쿨러·파워·

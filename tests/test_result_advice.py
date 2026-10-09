@@ -199,6 +199,37 @@ def test_budget_reason_for_value_priority_points_at_the_price_weight(conn):
     assert "(가성비 우선): 가격 50%" in out and "→ 가성비 우선이라 가격 비중이 커서" in out, out
 
 
+def test_pick_basis_reports_rank_weights_and_review_observations_from_the_run_snapshot(conn):
+    """"왜 이 CPU 골랐어?"에 "저장된 추천 이유와 리뷰 관측은 없습니다"로 답하던 것(실패 9, 10/2) — 추천 당시 snapshot 의
+    후보 중 순위·점수 비중·리뷰 점수와 속성별 관측 수를 옮긴다. 저장은 하지 않는다."""
+    from src.services.recommendation_review_snapshot import snapshot_from_run
+    revision_id = _build(conn, budget=3_000_000, priority="performance")
+    before = _snapshot(conn, revision_id)
+    snap = snapshot_from_run(recommendation_service._require_done_run(conn, revision_id)[1])
+    for slot, variant_id in snap["selected"].items():
+        out = "\n".join(result_advice.pick_basis(conn, revision_id, slot, variant_id))
+        pool = sorted((c for c in snap["candidates"].values() if c["slot"] == slot), key=lambda c: -c["rank_score"])
+        rank = [c["variant_id"] for c in pool].index(variant_id) + 1
+        assert f"후보 {len(pool)}개 중 점수 {rank}위" in out, out
+        assert "점수 비중: 성능 55%" in out and "리뷰 점수 " in out and "바꾼 부품" not in out
+        assert ("1위는" in out) == (rank > 1)
+        if not any(c["p"] + c["n"] + c["mixed"] for c in snap["candidates"][variant_id]["detail"]["contributions"]):
+            assert "리뷰 점수가 순위를 가르지 않았음" in out
+    assert _snapshot(conn, revision_id) == before
+
+
+def test_pick_basis_marks_a_part_swapped_in_after_the_run_and_one_outside_the_snapshot(conn):
+    from src.services.recommendation_review_snapshot import snapshot_from_run
+    revision_id = _build(conn, budget=3_000_000)
+    snap = snapshot_from_run(recommendation_service._require_done_run(conn, revision_id)[1])
+    chosen = snap["selected"]["GPU"]
+    other = next(c for c in sorted((c for c in snap["candidates"].values() if c["slot"] == "GPU"),
+                                   key=lambda c: -c["rank_score"])[1:] if c["variant_id"] != chosen)
+    out = "\n".join(result_advice.pick_basis(conn, revision_id, "GPU", other["variant_id"]))
+    assert "1위는" in out and "추천 뒤 채팅에서 바꾼 부품" in out, out
+    assert "후보에 없던 부품" in result_advice.pick_basis(conn, revision_id, "GPU", uuid.uuid4())[0]
+
+
 def test_rule_path_answers_why_the_budget_was_left(conn):
     revision_id = _build(conn, budget=7_000_000, purpose="office", priority="performance")
     reply = recommendation_service.handle_result_message(
@@ -312,3 +343,12 @@ def test_swap_refuses_a_candidate_below_the_build_requirement(conn):
     out = session.swap(slot, cid)
     assert out.startswith("바꾸지 않음"), out
     assert not session.changed and _snapshot(conn, revision_id) == before
+
+
+@pytest.mark.parametrize("sentence, expected", [
+    ("최고예요 제품 잘 작동됩니다~", "제품 잘 작동됩니다~"),
+    ("좋아요 배송 빠름", "배송 빠름"),
+    ("성능 최고예요", "성능 최고예요"),            # 앞에 붙은 꼬리표만 뗀다
+])
+def test_review_quote_drops_the_leading_rating_label(sentence, expected):
+    assert result_advice._quote({"evidence_sentences": [sentence]}) == expected
