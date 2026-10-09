@@ -70,9 +70,6 @@ def test_upgrade_options_lists_only_better_compatible_parts_within_budget(conn):
     assert _snapshot(conn, revision_id) == before
 
 
-@pytest.mark.xfail(strict=True, reason="알려진 실패(10/7 베이스라인 비사실 1건의 원인) — 새 총예산을 말해도 후보마다 "
-                                       "'바꾼 뒤 잔여'를 원래 예산으로 계산해 음수가 나오고, 모델이 그걸 '200만원 초과'로 "
-                                       "옮겼다. 고치면 이 표시를 지운다")
 def test_upgrade_options_with_new_budget_reports_remaining_against_the_new_budget(conn):
     from src.agent.result_agent import ResultSession
     revision_id = _build(conn)                       # 예산 150만
@@ -286,3 +283,32 @@ def test_relaxing_only_lowers_performance_never_power_or_socket(conn):
             verdict, reasons = result_advice._requirement_verdict(ctx, row["slot"], cand)
             if verdict == "Fail":
                 assert row["slot"] in ("CPU", "GPU", "RAM"), (row["slot"], reasons)
+
+
+def test_swap_refuses_a_candidate_below_the_build_requirement(conn):
+    """실패 7(10/3 리허설) — "램 더 싼 걸로 바꿔줘"에 32GB 가 8GB 로 바뀌었다. 요구 사양 미달 후보는 도구가 바꾸지 않고,
+    후보 목록에도 이유와 함께 ⚠ 를 단다(성능 등급만 보던 목록은 용량 미달을 못 잡았다)."""
+    from src.agent.result_agent import ResultSession
+    revision_id = _build(conn, purpose="video_edit")
+    ctx = result_advice._context(conn, revision_id)
+    result = recommendation_service.get_stored_result(conn, revision_id)
+    session = ResultSession(conn=conn, revision_id=revision_id, result=result, read_only=False)
+    found = None
+    for slot in ("RAM", "CPU", "GPU", "파워", "저장장치"):
+        if ctx.row(slot) is None:
+            continue
+        for line in session.list_alternatives(slot).splitlines():
+            cid = (_ID.findall(line) or [None])[0]
+            cand = ctx.by_variant.get(cid) if cid else None
+            if cand is not None and result_advice._requirement_verdict(ctx, slot, cand)[0] == "Fail":
+                found = (slot, cid, line)
+                break
+        if found:
+            break
+    assert found, "후보 목록에 요구 사양을 못 채우는 후보가 없다"
+    slot, cid, line = found
+    assert "⚠ 요구 사양 미달(" in line, line
+    before = _snapshot(conn, revision_id)
+    out = session.swap(slot, cid)
+    assert out.startswith("바꾸지 않음"), out
+    assert not session.changed and _snapshot(conn, revision_id) == before

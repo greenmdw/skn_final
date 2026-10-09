@@ -45,6 +45,11 @@ def available() -> bool:
             and bool(OPENAI_API_KEY) and bool(LLM_MODEL))
 
 
+def _name_tokens(name: str) -> list[str]:
+    """"NVIDIA GeForce RTX 4060 Ti" → ['nvidia','geforce','rtx','4060','ti']. 'rtx4060'처럼 붙여 써도 글자·숫자 경계로 나눈다."""
+    return re.findall(r"[a-z]+|\d+|[가-힣]+", (name or "").lower())
+
+
 def _won(n: int | None) -> str:
     if n is None:
         return "-"
@@ -109,7 +114,10 @@ class ResultSession:
         rows = list_alternatives(self.conn, self.revision_id, UUID(it["item_id"]))["items"]
         if not rows:
             return self._record(call, f"{it['slot']}: 다른 후보 없음")
+        from src.services import result_advice
         pmin = self._perf_min_by_slot().get(it["slot"])
+        short = result_advice.requirement_shortfalls(self.conn, self.revision_id, it["slot"],
+                                                     [r["candidate_id"] for r in rows])
         lines = [f"{it['slot']} 현재: {it['product']['name']} {_won(it['price'])}"
                  + (f" · 요구 성능 티어 ≥ {pmin}" if pmin is not None else "")]
         for i, r in enumerate(rows, 1):
@@ -119,7 +127,10 @@ class ResultSession:
                     tier = int(r["product"]["spec_summary"].split("티어")[1])
                 except ValueError:
                     tier = None
-            flag = " ⚠ 요구 사양 미달" if (pmin is not None and tier is not None and tier < pmin) else ""
+            if (why := short.get(str(r["candidate_id"]))) is not None:
+                flag = f" ⚠ 요구 사양 미달({why})"
+            else:
+                flag = " ⚠ 요구 사양 미달" if (pmin is not None and tier is not None and tier < pmin) else ""
             lines.append(f"{i}. candidate_id={r['candidate_id']} · {r['product']['name']} · {_won(r['price'])}"
                          f" ({r['price_delta']:+,}원) · {r['label']}"
                          + (f" · 성능 티어 {tier}" if tier is not None else "") + flag)
@@ -136,7 +147,20 @@ class ResultSession:
         try:
             cid = UUID(candidate_id)
         except ValueError:
-            return self._record(call, "오류: candidate_id 는 list_alternatives 가 돌려준 값이어야 합니다.")
+            # "응 그렇게 바꿔줘" — 이력에는 앞 답의 문장만 남고 candidate_id 가 없어서 모델이 제품 이름으로 부른다.
+            # 거절하면 거기서 멈추던 것(10/8 평가 A-6 #17 후 6/10 실패) — 이 슬롯 후보 중 이름이 하나로 맞으면 그것으로
+            found, note = self._candidate_by_name(it, candidate_id)
+            if found is None:
+                return self._record(call, note)
+            cid = UUID(found)
+        from src.services import result_advice
+        if (why := result_advice.requirement_shortfalls(self.conn, self.revision_id, it["slot"], [cid]).get(str(cid))):
+            # 프롬프트 규칙("⚠ 후보로 바꾸지 않음")만으로는 모델이 8GB 램으로 바꿨다(10/7 수정 전 측정 2/6) — 도구가 막는다.
+            # 사용자가 알고도 원하면 화면의 후보 목록에서 직접 고른다(그 경로는 막지 않는다).
+            return self._record(call, (
+                f"바꾸지 않음: 이 후보는 이 견적의 요구 사양에 못 미칩니다({why}). 사용자에게 그 사실을 알리고 요구를 채우는"
+                " 후보(list_alternatives 에서 ⚠ 없는 것)를 권하세요. 그래도 그 부품을 원하면 구성표의 후보 목록에서 직접"
+                " 고를 수 있다고 안내하세요."))
         before = it["product"]["name"], it["price"]
         try:
             self.result = swap_item(self.conn, self.revision_id, UUID(it["item_id"]), cid, user_id=self.user_id)
@@ -150,6 +174,36 @@ class ResultSession:
             f" · 총액 {_won(t['selected_price'])} · 예산 잔여 {_won(t['budget_remaining'])}"
             + (" · ⚠ 예산 초과" if t["over_budget"] else "")
             + self._compat_note()))
+
+    def _candidate_by_name(self, it: dict, name: str) -> tuple[str | None, str]:
+        """이 슬롯 후보(swap_item 이 받아 주는 카탈로그 후보 전체 — list_alternatives 에 안 나오는 절약 후보도 있다) 중
+        `name` 에 맞는 것의 variant_id. 제품 키("gpu_rtx4060ti_16g")가 같으면 그것, 아니면 낱말(영문·숫자 덩어리)이
+        이어서 들어 있는 이름. 여럿이면 그 뒤에 낱말이 더 없는 쪽만("RTX 4060" → 'RTX 4060 Ti' 아니고 'RTX 4060').
+        그래도 여럿이면 고르지 않고 후보와 candidate_id 를 돌려준다. 이름이 같은 중복 등록은 목록과 같게 더 싼 쪽."""
+        from src.repo.product_repo import ProductRepo
+        from src.services.recommendation_service import _dedupe_alternatives_by_name
+        rows = _dedupe_alternatives_by_name(ProductRepo(self.conn).candidates_by_slot().get(it["slot"], []))
+        key = name.strip().lower()
+        hits = [(r, True) for r in rows if (r.get("product_key") or "").lower() == key]
+        if not hits:
+            want = _name_tokens(name)
+            for r in rows:
+                got = _name_tokens(r.get("name"))
+                ends = [i + len(want) for i in range(len(got) - len(want) + 1) if want and got[i:i + len(want)] == want]
+                if ends:
+                    hits.append((r, any(e == len(got) for e in ends)))
+            if len(hits) > 1 and sum(tail for _, tail in hits) == 1:
+                hits = [h for h in hits if h[1]]
+        if len(hits) == 1:
+            r = hits[0][0]
+            if r.get("name") == it["product"]["name"]:
+                return None, f"오류: '{name}'은(는) 이미 이 {it['slot']}에 담긴 부품입니다."
+            return str(r["variant_id"]), ""
+        if hits:
+            listing = "\n".join(f"- candidate_id={r['variant_id']} · {r.get('name')} · {_won(r.get('price'))}" for r, _ in hits[:8])
+            return None, f"오류: '{name}'에 맞는 {it['slot']} 후보가 여럿입니다. 아래 candidate_id 중 하나로 swap 하세요.\n{listing}"
+        return None, (f"오류: '{name}'에 맞는 {it['slot']} 후보가 없습니다. candidate_id 는 list_alternatives·upgrade_options·"
+                      "savings_options·preview_swap 결과의 값입니다.")
 
     def _compat_note(self) -> str:
         """교체 뒤 다시 돌린 호환 점검이 찾은 문제(major)를 도구 결과에 싣는다 — 없으면 그 사실만."""
@@ -256,19 +310,18 @@ class ResultSession:
         call = f"upgrade_options(extra={extra!r}, new_budget={new_budget!r})"
         if (no := self._pc_only(call)) is not None:
             return no
-        budget = None
+        budget, total = None, None
         if new_budget.strip():
             total = _parse_amount(new_budget)
             if not total:
                 return self._record(call, "오류: new_budget 은 금액(예: 2000000, 200만원)")
-            budget = total - int((self.result.get("totals") or {}).get("selected_price") or 0)
-            if budget <= 0:
+            if total - int((self.result.get("totals") or {}).get("selected_price") or 0) <= 0:
                 return self._record(call, f"새 예산 {_won(total)}이 지금 총액 {_won((self.result.get('totals') or {}).get('selected_price'))} 이하라 올릴 여유가 없습니다.")
         elif extra.strip():
             budget = _parse_amount(extra)
             if not budget:
                 return self._record(call, "오류: extra 는 금액(예: 100000, 10만원)")
-        return self._record(call, result_advice.upgrade_options(self.conn, self.revision_id, budget))
+        return self._record(call, result_advice.upgrade_options(self.conn, self.revision_id, budget, new_budget=total))
 
     def budget_reason(self) -> str:
         from src.services import result_advice
@@ -496,10 +549,13 @@ _ASK_RE = re.compile(
     r"|ㄱㄱ\s*\?"
 )
 _ASK_LOOSE_RE = re.compile(r"ㄱㅊ|괜찮음|괜춘|무방|어케\s*생각|어떻게\s*생각|어떰|어떨까|나을까|낫나|좋을까")
+_IMPERATIVE = (r"(?:바꿔|교체해|변경해|빼|넣어|담아|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해|로\s*해|로\s*가자|로\s*할게|로\s*갈게)"
+               r"\s*(?:줘|주세요|줄래|주라|줄\s*수|주셈|주삼|주쇼|쥬|줭|봐|요|라)")
+_IMPERATIVE_RE = re.compile(_IMPERATIVE)
+_CLAUSE_SPLIT = re.compile(r"[,.!?\n]+")
 _CHANGE_RE = re.compile(
-    r"(?:바꿔|교체해|변경해|빼|넣어|담아|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해|로\s*해|로\s*가자|로\s*할게|로\s*갈게)"
-    r"\s*(?:줘|주세요|줄래|주라|줄\s*수|주셈|주삼|주쇼|쥬|줭|봐|요|라)"
-    r"|(?:로\s*해|로\s*할게|로\s*갈게|로\s*가자)\b"
+    _IMPERATIVE
+    + r"|(?:로\s*해|로\s*할게|로\s*갈게|로\s*가자)\b"
     r"|(?:으)?로\s*[요.!~]*\s*$"                              # "7600X로", "SSD 2개로", "더 싼 걸로" — 말줄임 요청
     r"|^\s*(?:응|ㅇㅇ|ㅇㅋ|오케이|ok|okay|네|넵|예|그래|좋아|콜|ㄱㄱ|고고|부탁해|그렇게\s*해)(?:\s|[.!~,]|$)"
     r"|ㄱㄱ(?!\s*\?)"
@@ -512,10 +568,40 @@ def _search_confirmed(pairs: list[tuple[str, str]], text: str) -> bool:
     return is_search_confirmation(last_reply, text)
 
 
+# 조건(예산·우선순위·용도…)을 바꾸라는 말 — 결과 채팅은 부품만 바꾼다. "남은 예산으로", "예산 안에서", "예산 넘어도"는
+# 조건을 쓰는 말이지 바꾸라는 말이 아니라서 뺀다. 사이에 부품 이름이 있으면("예산 맞춰서 그래픽카드 올려줘") 부품 요청이다.
+_CONDITION_CHANGE_RE = re.compile(
+    r"(?:예산|우선순위|용도|목적|해상도)(?!\s*(?:으로|로|안|내|에서|에|초과|넘|잔여|남|대비))([^,.!?\n]{0,12}?)" + _CHANGE_VERB)
+CONDITION_NOTICE = "예산·우선순위·용도 같은 조건은 이 채팅에서 바뀌지 않아요. 화면의 '조건 바꾸기'를 누르면 조건 대화로 돌아가 바꿀 수 있습니다."
+
+
+def is_condition_change_request(text: str) -> bool:
+    from src.engine.brands import SLOT_SYNONYMS
+    low = text.lower()
+    return any(not any(k in m.group(1) for k in SLOT_SYNONYMS) for m in _CONDITION_CHANGE_RE.finditer(low))
+
+
+def with_condition_notice(text: str, reply: str) -> str:
+    """조건을 바꾸라는 말이면 답 끝에 '조건 바꾸기' 안내를 붙인다(이미 있으면 그대로). 프롬프트 규칙만으로는 "가격에
+    맞게 예산 줄여줘"가 부품 절약 조합으로 오독되고(10/7 수정 전 측정 2/3), "우선순위를 성능으로 바꿔줘"에 조건이
+    안 바뀌는데 반영된 것처럼 읽혔다(팀원 관찰 10/7). 모델 경로·규칙 경로 모두 여기를 지난다."""
+    if not is_condition_change_request(text) or "조건 바꾸기" in reply:
+        return reply
+    return f"{reply.rstrip()}\n\n{CONDITION_NOTICE}" if reply.strip() else CONDITION_NOTICE
+
+
+def _is_ask(low: str) -> bool:
+    return bool(_ASK_RE.search(low) or (_ASK_LOOSE_RE.search(low) and re.search(_CHANGE_VERB, low)))
+
+
 def classify_intent(text: str) -> str:
     """'change'(바꾸라는 말) / 'ask'(바꿔도 되는지 묻는 말) / 'other'. 구성표를 바꾸는 도구는 'change'에서만 열린다."""
     low = text.lower().strip()
-    if _ASK_RE.search(low) or (_ASK_LOOSE_RE.search(low) and re.search(_CHANGE_VERB, low)):
+    # 허락 + 명령("예산 조금 넘어도 괜찮아, 그걸로 바꿔줘") — 앞 절의 허락('도 괜찮')이 묻는 말로 먼저 잡혀 되묻던 것
+    # (10/3 리허설 실패 6). 묻는 말 표시가 없는 절에 바꾸라는 명령이 있으면 바꾸라는 말이다.
+    if any(_IMPERATIVE_RE.search(c) and not _is_ask(c) for c in _CLAUSE_SPLIT.split(low)):
+        return "change"
+    if _is_ask(low):
         return "ask"
     if _CHANGE_RE.search(low):
         return "change"
@@ -595,7 +681,7 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "5. '바꿔도 돼?', '바꾸면 괜찮을까?', '올려도 문제없어?', '32기가로 늘려도 돼?' 처럼 **바꿔도 되는지 묻는 말은 교체 요청이 아닙니다**. "
         "preview_swap(특정 제품이면 candidate_id, '더 좋은 걸로/한 단계 올리면'이면 direction='up')으로 가정 결과만 확인해 차액·예산 초과 여부·요구 사양·호환 점검(전력 포함) 결과를 전한 뒤 '바꿔 드릴까요?'로 묻습니다. swap·set_qty 를 부르지 않습니다.",
         "6. '돈 남았는데 뭐 바꿀까', '남은 예산으로 업그레이드', 'N만원 더 쓰면' → upgrade_options. '예산을 N원으로 늘려줘'처럼 새 총예산을 말하면 upgrade_options(new_budget=N) — "
-        "조건의 예산 자체는 이 화면에서 못 바꾼다고 한 번 말하고 그 금액 기준 후보를 보여 줍니다. 결과의 순서와 후보를 그대로 전하고, 사용자가 고르기 전에는 바꾸지 않습니다.",
+        "조건의 예산 자체는 이 화면에서 못 바꾸고 화면의 '조건 바꾸기'에서 바꾼다고 한 번 말하고 그 금액 기준 후보를 보여 줍니다. 결과의 순서와 후보를 그대로 전하고, 사용자가 고르기 전에는 바꾸지 않습니다.",
         # 6번 문장 뒤에 이어 붙였더니 "가격에 맞게 예산 줄여줘"에 RAM 을 바꾸는 일이 생겼다(10/8 평가 D-1 2/4) — 따로 둔다
         "6-1. '왜 예산을 다 안 썼어?', '왜 300만원에 짰어?'처럼 예산을 남긴 이유를 물으면 budget_reason 의 방식 설명과 CPU·GPU 등급을 옮기고, "
         "'→' 줄을 결론으로 전합니다. '예산을 다 쓰지 못했다'처럼 실패로 말하지 않습니다 — 예산은 상한입니다.",
@@ -688,9 +774,12 @@ def _won_unit_amounts(text: str) -> list[tuple[set[str], str]]:
 _EVALUATIVE = ("강력", "뛰어나", "최고", "압도적", "완벽", "훌륭", "우수", "극대화")
 
 
-def evaluative_words(reply: str) -> list[str]:
-    """답변 속 평가어. '최고가'(가장 비싼 가격)는 평가가 아니다 — "최고가 후보로 바꿨다"가 버려지던 것."""
-    return [w for w in _EVALUATIVE if re.search(w + ("(?!가)" if w == "최고" else ""), reply)]
+def evaluative_words(reply: str, user_text: str = "") -> list[str]:
+    """답변 속 평가어. '최고가'(가장 비싼 가격)는 평가가 아니다 — "최고가 후보로 바꿨다"가 버려지던 것.
+    사용자 말에 있던 낱말은 빼다 — "4K 최고 옵션도 되지?"의 전제를 정정하려고 '최고 옵션'을 옮긴 답이 3/3 버려지고,
+    대체 문장은 전제를 정정하지 않았다(10/7 수정 전 측정). 이 가드는 모델이 스스로 붙인 과장어를 막는 것이다."""
+    return [w for w in _EVALUATIVE
+            if re.search(w + ("(?!가)" if w == "최고" else ""), reply) and w not in user_text]
 
 
 def _reply_within(reply: str, allowed_sources: list[str]) -> tuple[bool, set[str]]:
@@ -798,7 +887,7 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
     else:
         # 수치 가드 — 답변의 숫자는 전부 입력에 있던 것이어야 한다. 아니면 LLM 문장을 버리고 코드 문장으로.
         ok, outside = _reply_within(reply, [prompt, text, *session.outputs])
-        bad_words = evaluative_words(reply)
+        bad_words = evaluative_words(reply, text)
         if not ok or bad_words:
             log.warning("result agent reply rejected (numbers %s, words %s) — replaced: %r", sorted(outside), bad_words, reply[:120])
             guard = {"numbers": sorted(outside), "words": bad_words}

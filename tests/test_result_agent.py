@@ -47,9 +47,68 @@ def test_set_item_validates_before_touching_db():
     assert s.set_item("GPU", qty="abc").startswith("오류")
     assert s.set_item("GPU").startswith("오류")          # 바꿀 값 없음
     assert s.set_item("모니터", qty="2").startswith("오류")
-    assert s.swap("GPU", "not-a-uuid").startswith("오류")
     assert s.swap("모니터", str(uuid4())).startswith("오류")
-    assert len(s.trace) == 6 and not s.changed
+    assert len(s.trace) == 5 and not s.changed
+
+
+def _pool(*names_prices, current="AMD Radeon RX 7600"):
+    """ProductRepo.candidates_by_slot 의 GPU 행 — swap 이 받아 주는 후보 전체."""
+    rows = [{"variant_id": uuid4(), "name": current, "product_key": "gpu_rx7600", "price": 525_000}]
+    rows += [{"variant_id": uuid4(), "name": n, "product_key": k, "price": p} for n, k, p in names_prices]
+    return rows
+
+
+def _swap_with(monkeypatch, pool):
+    """swap 이 실제로 어느 candidate_id 로 교체를 불렀는지 — DB 없이."""
+    from src.repo import product_repo
+    from src.services import recommendation_service as rs
+    called = []
+    monkeypatch.setattr(product_repo.ProductRepo, "__init__", lambda self, conn: None)
+    monkeypatch.setattr(product_repo.ProductRepo, "candidates_by_slot", lambda self: {"GPU": pool})
+    def fake_swap(conn, rid, item_id, cid, user_id=None):
+        called.append(str(cid))
+        res = _result()
+        res["items"][1]["product"]["name"] = next(r["name"] for r in pool if str(r["variant_id"]) == str(cid))
+        return res
+    monkeypatch.setattr(rs, "swap_item", fake_swap)
+    monkeypatch.setattr(ra.ResultSession, "_compat_note", lambda self: "")
+    from src.services import result_advice
+    monkeypatch.setattr(result_advice, "requirement_shortfalls", lambda conn, rid, slot, cids: {})
+    return called
+
+
+def test_swap_accepts_the_product_name_from_the_previous_answer(monkeypatch):
+    """"응 그렇게 바꿔줘" — 이력에 앞 답의 candidate_id 가 없어 모델이 제품 이름·제품 키로 swap 을 불러 거절되고
+    멈추던 것(10/8 평가 A-6: #17 전 1/10 → 후 6/10 실패). 앞 답의 절약 후보는 list_alternatives 에 안 나오기도 해서
+    swap 이 받아 주는 슬롯 후보 전체에서 찾는다."""
+    pool = _pool(("NVIDIA GeForce RTX 4060", "gpu_rtx4060_8g", 450_000),
+                 ("NVIDIA GeForce RTX 4060 Ti", "gpu_rtx4060ti_16g", 654_210),
+                 ("NVIDIA GeForce RTX 4060 Ti", "gpu_rtx4060ti_16g_b", 690_000),     # 같은 이름 중복 등록 — 싼 쪽
+                 ("AMD Radeon RX 7700 XT", "gpu_rx7700xt", 700_000))
+    called = _swap_with(monkeypatch, pool)
+    s = _session()
+    out = s.swap("GPU", "RTX 4060 Ti")
+    assert called == [str(pool[2]["variant_id"])], out
+    assert "RTX 4060 Ti" in out and s.changed
+    called.clear()
+    s.swap("GPU", "rtx4060")                       # 띄어쓰기·대소문자 무시, 뒤에 낱말이 더 없는 쪽(Ti 아님)
+    assert called == [str(pool[1]["variant_id"])]
+    called.clear()
+    s.swap("GPU", "gpu_rtx4060ti_16g")             # 제품 키를 그대로 넘긴 것(10/8 실측)
+    assert called == [str(pool[2]["variant_id"])]
+
+
+def test_swap_by_name_lists_the_options_when_ambiguous_or_missing(monkeypatch):
+    pool = _pool(("NVIDIA GeForce RTX 4060 Ti 8GB", "a", 600_000), ("NVIDIA GeForce RTX 4060 Ti 16GB", "b", 700_000))
+    called = _swap_with(monkeypatch, pool)
+    s = _session()
+    out = s.swap("GPU", "RTX 4060 Ti")              # 둘 다 뒤에 낱말이 더 있다 — 고르지 않는다
+    assert not called and not s.changed and out.startswith("오류")
+    assert str(pool[1]["variant_id"]) in out and str(pool[2]["variant_id"]) in out
+    out = s.swap("GPU", "RTX 5090")                 # 없는 이름
+    assert not called and out.startswith("오류") and "list_alternatives" in out
+    out = s.swap("GPU", "RX 7600")                  # 지금 담긴 부품
+    assert not called and "이미" in out
 
 
 def test_prefetch_triggers_only_on_why_questions(monkeypatch):
@@ -257,10 +316,19 @@ def test_classify_other_does_not_open_write_tools(text):
     assert ra.classify_intent(text) == "other"
 
 
-@pytest.mark.xfail(strict=True, reason="알려진 실패(실패 6, 10/3 리허설) — '넘어도 괜찮아'의 '도 괜찮'이 묻는 말로 "
-                                       "먼저 잡혀 바꾸는 도구가 닫히고 되묻는다. P1-6에서 고치면 이 표시를 지운다")
-def test_permission_plus_imperative_is_a_change_request():
-    assert ra.classify_intent("예산 조금 넘어도 괜찮아, 그걸로 바꿔줘") == "change"
+@pytest.mark.parametrize("text", [
+    "예산 조금 넘어도 괜찮아, 그걸로 바꿔줘",                       # 실패 6 (10/3 리허설)
+    "예산 조금 넘어도 괜찮아, 그래픽카드 한 단계 좋은 걸로 바꿔줘",
+    "비싸도 상관없어. 4070으로 바꿔줘",
+])
+def test_permission_plus_imperative_is_a_change_request(text):
+    """허락('넘어도 괜찮아')이 묻는 말로 먼저 잡혀 바꾸는 도구가 닫히고 되묻던 것 — 명령이 든 절이 따로 있으면 바꾼다."""
+    assert ra.classify_intent(text) == "change"
+
+
+@pytest.mark.parametrize("text", ["바꿔줘도 괜찮아?", "예산 조금 넘어도 괜찮아?", "그래픽카드 바꿔줘도 돼?"])
+def test_imperative_inside_a_question_stays_a_question(text):
+    assert ra.classify_intent(text) != "change"
 
 
 def test_read_only_turn_refuses_writes_without_touching_db():
@@ -312,6 +380,13 @@ def test_highest_price_word_is_not_evaluative():
     assert ra.evaluative_words("최고의 선택입니다") == ["최고"]
 
 
+def test_evaluative_words_from_the_users_own_message_are_not_flagged():
+    """잘못된 전제("RTX 4090이니까 4K 최고 옵션도 되지?")를 정정하는 답은 사용자 말을 옮긴다 — 막으면 정정이 사라진다."""
+    reply = "현재 그래픽카드는 RTX 4090이 아니라 RX 7600이라 4K 최고 옵션은 확인되지 않습니다."
+    assert ra.evaluative_words(reply, "그래픽카드가 RTX 4090이니까 4K 최고 옵션도 되지?") == []
+    assert ra.evaluative_words(reply + " 압도적인 구성입니다.", "4K 최고 옵션도 되지?") == ["압도적"]
+
+
 def test_search_unavailable_part_busy_lookup_is_a_sentence_not_an_exception(monkeypatch):
     from src.errors import ServiceUnavailable
 
@@ -327,3 +402,20 @@ def test_search_unavailable_part_busy_lookup_is_a_sentence_not_an_exception(monk
 
     out = s.search_unavailable_part("GPU", "RTX 6090")
     assert "몰려 있어요" in out and "가져오지 못했습니다" in out
+
+
+@pytest.mark.parametrize("text", ["가격에 맞게 예산 줄여줘", "우선순위를 성능으로 바꿔줘", "예산 200만원으로 늘려줘",
+                                  "용도를 영상 편집으로 바꿔줘"])
+def test_condition_change_request_gets_the_conditions_screen_notice(text):
+    """결과 채팅은 조건을 바꾸지 않는다 — 실패 5("예산 줄여줘"가 부품 절약으로 오독)와 팀원 관찰("우선순위를 성능으로
+    바꿔줘"가 반영된 것처럼 읽힘). 모델이 안내를 빠뜨려도 코드가 '조건 바꾸기'를 붙인다."""
+    reply = ra.with_condition_notice(text, "부품 후보는 다음과 같습니다.")
+    assert reply.startswith("부품 후보는") and reply.endswith(ra.CONDITION_NOTICE)
+    assert ra.with_condition_notice(text, reply) == reply                       # 이미 있으면 다시 붙이지 않는다
+
+
+@pytest.mark.parametrize("text", ["남은 예산으로 할 만한 업그레이드 있어?", "예산 조금 넘어도 괜찮아, 그걸로 바꿔줘",
+                                  "예산 안에서 그래픽카드 바꿔줘", "예산 맞춰서 그래픽카드 올려줘", "남은 예산 얼마야?",
+                                  "예산 초과 안 되게 램 바꿔줘", "CPU를 한 단계 낮추면 얼마나 아껴?"])
+def test_part_requests_that_mention_the_budget_get_no_notice(text):
+    assert ra.with_condition_notice(text, "답") == "답"
