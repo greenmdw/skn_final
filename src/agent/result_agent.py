@@ -260,6 +260,10 @@ class ResultSession:
         r = it.get("reason") or {}
         lines.append("저장된 추천 이유: " + (r.get("text") if r.get("status") == "ready" and r.get("text")
                                        else f"(없음 — 상태 {r.get('status')})"))
+        if self.conn is not None and it["product"].get("variant_id"):
+            from src.services import result_advice
+            if result_advice.is_pc(self.conn, self.revision_id):
+                lines += result_advice.pick_basis(self.conn, self.revision_id, it["slot"], it["product"]["variant_id"])
         if it["slot"] in ("CPU", "쿨러") and self.conn is not None:
             from src.services import result_advice
             if result_advice.is_pc(self.conn, self.revision_id):
@@ -433,7 +437,8 @@ def make_tools(s: ResultSession) -> list:
     @tool
     def explain(slot: str) -> str:
         """왜 이 부품인지 묻는 질문("왜 이 CPU야?", "이거 괜찮아?", "리뷰 어때?")에 답하기 위해 부른다.
-        저장된 추천 이유, 예산 비중, 근거 인용, 세트 검증 쟁점, 리뷰 관측(상품 단위)을 그대로 돌려준다.
+        저장된 추천 이유, 예산 비중, 추천 당시 점수 근거(후보 중 순위·점수 비중·리뷰 점수와 속성별 긍정·부정 관측),
+        세트 검증 쟁점, 리뷰 관측(상품 단위)을 그대로 돌려준다.
         판정은 하지 않는다.
 
         Args:
@@ -677,7 +682,9 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "3. '빼줘/필요 없어' → remove_or_restore(false). '2개로' → set_qty. "
         "한 문장에 부품 여러 개가 나오면 각 부품에 그 부품 앞뒤에 붙은 요청만 적용하고 도구를 따로 부릅니다.",
         "4. '왜 이거?', '이유가 뭐야?', '이거 괜찮아?', '믿을 만해?' 처럼 지금 부품의 근거를 묻는 말에는 **반드시 explain 을 먼저 부르고** 그 내용만 전합니다. "
-        "저장된 추천 이유가 없어도 explain 이 준 가격·예산 비중·검증 쟁점·리뷰 관측은 전합니다.",
+        "저장된 추천 이유가 없어도 explain 이 준 가격·예산 비중·검증 쟁점·리뷰 관측은 전합니다. "
+        "'추천 당시 점수 근거'가 있으면 후보 중 순위와 리뷰에서 긍정·부정이 몇 건이었는지를 쉬운 말로 전하고(리뷰 문장은 짧게 하나), "
+        "가격·성능·밸런스 점수가 몇 점이었는지는 도구 결과에 없으므로 지어내지 않습니다.",
         "5. '바꿔도 돼?', '바꾸면 괜찮을까?', '올려도 문제없어?', '32기가로 늘려도 돼?' 처럼 **바꿔도 되는지 묻는 말은 교체 요청이 아닙니다**. "
         "preview_swap(특정 제품이면 candidate_id, '더 좋은 걸로/한 단계 올리면'이면 direction='up')으로 가정 결과만 확인해 차액·예산 초과 여부·요구 사양·호환 점검(전력 포함) 결과를 전한 뒤 '바꿔 드릴까요?'로 묻습니다. swap·set_qty 를 부르지 않습니다.",
         "6. '돈 남았는데 뭐 바꿀까', '남은 예산으로 업그레이드', 'N만원 더 쓰면' → upgrade_options. '예산을 N원으로 늘려줘'처럼 새 총예산을 말하면 upgrade_options(new_budget=N) — "
