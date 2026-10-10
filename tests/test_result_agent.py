@@ -482,3 +482,15 @@ def test_previous_candidates_carry_the_ids_the_last_answer_proposed():
     p = ra.system_prompt(_result(), "응 그렇게 바꿔줘", [{"role": "user", "content": "a"}], previous=out)
     assert "직전 답의 근거가 된 후보" in p and gpu.strip() in p
     assert "직전 답의 근거가 된 후보" not in ra.system_prompt(_result(), "응", [])
+
+
+def test_guard_rejects_a_summed_remaining_told_as_over_budget():
+    """잔여 22,472원을 "예산보다 22,472원 초과"로 뒤집어 말한 답(10/10 평가 B-4) — 숫자는 셈으로 허용되므로 방향을 따로 본다."""
+    r = {"budget_max": 2_000_000, "totals": {"selected_price": 1_907_128}}
+    listing = "7. candidate_id=x · WD_BLACK SN770 · 130,000원 (+70,400원) · 프리미엄 후보"
+    assert ra.swap_arithmetic_sign_errors("총액은 1,977,528원이 되어 예산보다 22,472원 초과합니다.", r, [listing]) == ["22,472원 초과"]
+    assert ra.swap_arithmetic_sign_errors("총액 1,977,528원, 예산 잔여 22,472원입니다.", r, [listing]) == []
+    assert ra.swap_arithmetic_sign_errors("22,472원이 남습니다.", r, [listing]) == []
+    over = {"budget_max": 1_950_000, "totals": {"selected_price": 1_907_128}}
+    assert ra.swap_arithmetic_sign_errors("27,528원이 남습니다.", over, [listing]) == ["27,528원 남"]
+    assert ra.swap_arithmetic_sign_errors("예산을 27,528원 초과합니다.", over, [listing]) == []

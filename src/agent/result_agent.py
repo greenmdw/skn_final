@@ -887,6 +887,25 @@ def swap_arithmetic(result: dict, outputs: list[str]) -> str:
     return " ".join(out)
 
 
+def swap_arithmetic_sign_errors(reply: str, result: dict, outputs: list[str]) -> list[str]:
+    """swap_arithmetic 으로 허용한 잔여를 반대로 말한 곳 — 남는 22,472원을 "예산보다 22,472원 초과"로 전했다(10/10 평가
+    B-4). 숫자는 맞아 수치 가드를 지나므로, 셈으로만 얻은 잔여는 그 금액 바로 앞뒤의 '초과'·'남'까지 맞아야 한다."""
+    t = result.get("totals") or {}
+    total, budget = t.get("selected_price"), result.get("budget_max")
+    if total is None or not budget:
+        return []
+    bad = []
+    for src in outputs:
+        for m in _DELTA_RE.finditer(src):
+            left = budget - (total + int(m.group(1).replace(",", "")))
+            amount = f"{abs(left):,}"
+            wrong = "초과" if left >= 0 else "남"
+            near = rf"{amount}\s*원?[^\d.,]{{0,4}}{wrong}|{wrong}[^\d.,]{{0,6}}{amount}"
+            if amount != "0" and re.search(near, reply):
+                bad.append(f"{amount}원 {wrong}")
+    return bad
+
+
 _READ_TOOLS = ("preview_swap(", "upgrade_options(", "budget_reason(", "savings_options(", "check_build(", "game_check(",
               "search_unavailable_part(")
 
@@ -979,7 +998,7 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
         # 수치 가드 — 답변의 숫자는 전부 입력에 있던 것이어야 한다. 아니면 LLM 문장을 버리고 코드 문장으로.
         ok, outside = _reply_within(reply, [prompt, text, *session.outputs,
                                             swap_arithmetic(session.result, session.outputs)])
-        bad_words = evaluative_words(reply, text)
+        bad_words = evaluative_words(reply, text) + swap_arithmetic_sign_errors(reply, session.result, session.outputs)
         if not ok or bad_words:
             log.warning("result agent reply rejected (numbers %s, words %s) — replaced: %r", sorted(outside), bad_words, reply[:120])
             guard = {"numbers": sorted(outside), "words": bad_words}
