@@ -824,6 +824,29 @@ def _reply_within(reply: str, allowed_sources: list[str]) -> tuple[bool, set[str
     return (not outside), outside
 
 
+# 후보 목록의 "(+88,199원)", 가정 계산의 "차액 +5,740원" — 한 부품만 바꿀 때의 차액
+_DELTA_RE = re.compile(r"(?:\(|차액\s*)([+-][\d,]+)원")
+
+
+def swap_arithmetic(result: dict, outputs: list[str]) -> str:
+    """도구가 준 차액 하나로 바꾼 뒤 총액·잔여를 셈한 값들 — 수치 가드가 허용할 숫자로 쓴다.
+    list_alternatives 만 부른 뒤 "바꾸면 총액 1,403,337원"(= 1,315,138 + 88,199)을 직접 더해 말한 답이 맞는데도
+    지어낸 숫자로 버려졌다(10/9 P1-8 대체 3건 중 2건). 차액 하나를 지금 총액에 더한 값과 그때의 잔여만 넓힌다 —
+    차액 여러 개를 합친 값은 검산할 수 없어 여전히 막는다."""
+    t = result.get("totals") or {}
+    total, budget = t.get("selected_price"), result.get("budget_max")
+    if total is None:
+        return ""
+    out = []
+    for src in outputs:
+        for m in _DELTA_RE.finditer(src):
+            after = total + int(m.group(1).replace(",", ""))
+            out.append(f"{after:,}")
+            if budget:
+                out.append(f"{budget - after:,}")
+    return " ".join(out)
+
+
 _READ_TOOLS = ("preview_swap(", "upgrade_options(", "budget_reason(", "savings_options(", "check_build(", "game_check(",
               "search_unavailable_part(")
 
@@ -912,7 +935,8 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
         error = type(exc).__name__
     else:
         # 수치 가드 — 답변의 숫자는 전부 입력에 있던 것이어야 한다. 아니면 LLM 문장을 버리고 코드 문장으로.
-        ok, outside = _reply_within(reply, [prompt, text, *session.outputs])
+        ok, outside = _reply_within(reply, [prompt, text, *session.outputs,
+                                            swap_arithmetic(session.result, session.outputs)])
         bad_words = evaluative_words(reply, text)
         if not ok or bad_words:
             log.warning("result agent reply rejected (numbers %s, words %s) — replaced: %r", sorted(outside), bad_words, reply[:120])

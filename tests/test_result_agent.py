@@ -434,3 +434,18 @@ def test_condition_change_request_gets_the_conditions_screen_notice(text):
                                   "예산 초과 안 되게 램 바꿔줘", "CPU를 한 단계 낮추면 얼마나 아껴?"])
 def test_part_requests_that_mention_the_budget_get_no_notice(text):
     assert ra.with_condition_notice(text, "답") == "답"
+
+
+def test_guard_accepts_a_total_summed_from_one_listed_delta_only():
+    """list_alternatives 만 부르고 "바꾸면 총액 1,403,337원"을 직접 더한 답이 맞는데도 버려졌다(10/9 P1-8) —
+    지금 총액 + 차액 하나, 그때의 잔여만 허용한다. 차액 두 개를 합친 값은 검산할 수 없어 그대로 막는다."""
+    r = _result()                                    # 총액 780,000 · 예산 1,500,000
+    listing = "1. candidate_id=x · A · 120,000원 (+88,199원) · 프리미엄 후보\n2. candidate_id=y · B · 50,000원 (-30,000원)"
+    extra = ra.swap_arithmetic(r, [listing])
+    ok, _ = ra._reply_within("A로 바꾸면 총액 868,199원, 잔여 631,801원입니다.", [listing, extra])
+    assert ok
+    ok, _ = ra._reply_within("B로 바꾸면 약 75만 원, 잔여 750,000원입니다.", [listing, extra])
+    assert ok
+    ok, outside = ra._reply_within("둘 다 바꾸면 총액 838,199원입니다.", [listing, extra])
+    assert not ok and outside == {"838199"}
+    assert ra.swap_arithmetic({"totals": {}}, [listing]) == ""
