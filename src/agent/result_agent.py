@@ -40,6 +40,9 @@ log = logging.getLogger(__name__)
 _HISTORY_TURNS = 8
 
 
+_CANDIDATE_ID_RE = re.compile(r"candidate_id=([0-9a-f-]{36})")
+
+
 def available() -> bool:
     return (not MOCK_MODE and RESULT_AGENT and LLM_PROVIDER == "openai"
             and bool(OPENAI_API_KEY) and bool(LLM_MODEL))
@@ -152,7 +155,7 @@ class ResultSession:
         if it is None:
             return self._record(call, f"오류: '{slot}' 슬롯이 없습니다.")
         try:
-            cid = UUID(candidate_id)
+            cid = UUID(self._seen_candidate_id(candidate_id.strip()))
         except ValueError:
             # "응 그렇게 바꿔줘" — 이력에는 앞 답의 문장만 남고 candidate_id 가 없어서 모델이 제품 이름으로 부른다.
             # 거절하면 거기서 멈추던 것(10/8 평가 A-6 #17 후 6/10 실패) — 이 슬롯 후보 중 이름이 하나로 맞으면 그것으로
@@ -181,6 +184,16 @@ class ResultSession:
             f" · 총액 {_won(t['selected_price'])} · 예산 잔여 {_won(t['budget_remaining'])}"
             + (" · ⚠ 예산 초과" if t["over_budget"] else "")
             + self._compat_note()))
+
+    def _seen_candidate_id(self, candidate_id: str) -> str:
+        """이번 턴 도구 결과에 나온 candidate_id 와 한두 글자만 다르면 그 id — 모델이 36자 id 를 옮기다 한 글자를 바꿨다
+        ("929cd20f-b17b-…" → "…-b17e-…", 10/10 평가 C-3 2/3 "해당 후보를 찾을 수 없습니다"로 교체 실패). 후보는 도구가
+        보여 준 id 안에서만 고르고, 가까운 것이 둘 이상이면 고치지 않는다."""
+        seen = set(_CANDIDATE_ID_RE.findall("\n".join(self.outputs)))
+        if candidate_id in seen or len(candidate_id) != 36:
+            return candidate_id
+        near = [c for c in seen if len(c) == 36 and sum(a != b for a, b in zip(c, candidate_id)) <= 2]
+        return near[0] if len(near) == 1 else candidate_id
 
     def _candidate_by_name(self, it: dict, name: str) -> tuple[str | None, str]:
         """이 슬롯 후보(swap_item 이 받아 주는 카탈로그 후보 전체 — list_alternatives 에 안 나오는 절약 후보도 있다) 중

@@ -449,3 +449,17 @@ def test_guard_accepts_a_total_summed_from_one_listed_delta_only():
     ok, outside = ra._reply_within("둘 다 바꾸면 총액 838,199원입니다.", [listing, extra])
     assert not ok and outside == {"838199"}
     assert ra.swap_arithmetic({"totals": {}}, [listing]) == ""
+
+
+def test_swap_repairs_a_candidate_id_off_by_a_character_from_this_turns_output():
+    """모델이 도구가 보여 준 id 를 한 글자 바꿔 옮겨 교체가 실패했다(10/10 평가 C-3 2/3). 이번 턴 결과에 나온 id 하나와
+    두 글자 이내로만 다르면 그 id 로 고치고, 가까운 것이 없거나 둘 이상이면 그대로 둔다."""
+    s = ra.ResultSession(conn=None, revision_id=None, result=_result())
+    shown = "929cd20f-b17b-4ebb-b9d6-905c4425a19b"
+    s.outputs.append(f"(가정 계산) GPU: A → B · candidate_id={shown}")
+    assert s._seen_candidate_id("929cd20f-b17e-4ebb-b9d6-905c4425a19b") == shown
+    assert s._seen_candidate_id(shown) == shown
+    far = "00000000-0000-4ebb-b9d6-905c4425a19b"
+    assert s._seen_candidate_id(far) == far
+    s.outputs.append("candidate_id=929cd20f-b17c-4ebb-b9d6-905c4425a19b")
+    assert s._seen_candidate_id("929cd20f-b17e-4ebb-b9d6-905c4425a19b") == "929cd20f-b17e-4ebb-b9d6-905c4425a19b"
