@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from src.api import app
 from src.services.recommendation_review_snapshot import (
+    clear_snapshot_cache,
     original_review, review_for_candidate, snapshot_from_run, snapshot_step,
 )
 from tests.test_list_history_http import _recommended_list, _signed_up
@@ -182,6 +183,7 @@ def test_cloned_revision_keeps_source_run_and_legacy_detail_is_unavailable():
         assert all(i["review_detail"]["source_run_id"] == result["run_id"] for i in cloned["items"])
         # An older run lacking the snapshot must not be backfilled from live data.
         conn.execute("UPDATE engine.recommendation_run SET reasoning_log='[]'::jsonb WHERE id=%s", (cloned["run_id"],))
+        clear_snapshot_cache()     # snapshot 은 앱이 바꾸지 않는 값이라 프로세스 메모리에 캐시한다 — 이 테스트는 DB 를 직접 고쳤으니 비운다
         legacy = get_stored_result(conn, cloned_id)
         assert all(i["review_detail"]["status"] == "unavailable" and
                    i["review_detail"]["reason"] == "snapshot_missing" for i in legacy["items"])

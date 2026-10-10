@@ -82,6 +82,29 @@ class EngineRepo(Repo):
         return self._one("SELECT * FROM engine.recommendation_run WHERE id=%s",(run_id,))
     def get_latest_run(self, revision_id: UUID) -> dict | None:
         return self._one("SELECT * FROM engine.recommendation_run WHERE revision_id=%s ORDER BY created_at DESC LIMIT 1",(revision_id,))
+    # 폴링(GET /result)용 — reasoning_log(추천 한 건 약 236KB, 리뷰 계산 근거가 대부분)와 input_snapshot 을 읽지 않는다.
+    # SELECT * 로 읽으면 DB 가 압축을 풀고 앱이 JSON 을 파싱하는 데 한 번에 약 17ms(큰 열 제외 0.3ms)가 들고, 폴링이 초당 수 회 몰린다.
+    _RUN_LIGHT_COLUMNS = ("id, revision_id, domain_version_id, input_hash, draft_lock_version, engine_versions, status, completed_at, "
+                          "created_at, updated_at, explanation_status, explanation_headline, explanation_text")
+
+    def get_latest_run_light(self, revision_id: UUID) -> dict | None:
+        return self._one(f"SELECT {self._RUN_LIGHT_COLUMNS} FROM engine.recommendation_run WHERE revision_id=%s ORDER BY created_at DESC LIMIT 1", (revision_id,))
+
+    def get_run_trace(self, run_id: UUID) -> list[dict]:
+        """reasoning_log 중 리뷰 계산 snapshot 을 뺀 항목들(화면의 추적 기록). snapshot 은 get_run_snapshot_steps 로 따로 읽는다."""
+        from src.services.recommendation_review_snapshot import SNAPSHOT_STEP
+        row = self._one(
+            "SELECT COALESCE(jsonb_agg(e), '[]'::jsonb) AS steps FROM engine.recommendation_run r, jsonb_array_elements(r.reasoning_log) e "
+            "WHERE r.id=%s AND e->>'step' <> %s", (run_id, SNAPSHOT_STEP))
+        return list(row["steps"] or [])
+
+    def get_run_snapshot_steps(self, run_id: UUID) -> list[dict]:
+        from src.services.recommendation_review_snapshot import SNAPSHOT_STEP
+        row = self._one(
+            "SELECT COALESCE(jsonb_agg(e), '[]'::jsonb) AS steps FROM engine.recommendation_run r, jsonb_array_elements(r.reasoning_log) e "
+            "WHERE r.id=%s AND e->>'step' = %s", (run_id, SNAPSHOT_STEP))
+        return list(row["steps"] or [])
+
     def has_running_run(self, revision_id: UUID) -> bool:
         row = self._one("SELECT 1 FROM engine.recommendation_run WHERE revision_id=%s AND status='running' LIMIT 1", (revision_id,))
         return row is not None

@@ -5,6 +5,10 @@ re-query current review aggregates. Legacy runs explicitly have unavailable deta
 """
 from __future__ import annotations
 
+import os
+import threading
+from collections import OrderedDict
+
 from pydantic import ValidationError
 
 from src.dto import ReviewScoreDetail
@@ -48,6 +52,33 @@ def snapshot_from_run(run: dict) -> dict | None:
     if len(entries) != 1 or not isinstance(entries[0], dict):
         return None
     return entries[0] if entries[0].get("version") == SNAPSHOT_VERSION else None
+
+
+_SNAPSHOT_CACHE: "OrderedDict[str, dict | None]" = OrderedDict()
+_SNAPSHOT_CACHE_LOCK = threading.Lock()
+_SNAPSHOT_CACHE_SIZE = int(os.getenv("RESULT_SNAPSHOT_CACHE_SIZE", "32"))
+
+
+def clear_snapshot_cache() -> None:
+    with _SNAPSHOT_CACHE_LOCK:
+        _SNAPSHOT_CACHE.clear()
+
+
+def cached_snapshot(erepo, run_id) -> dict | None:
+    """완료된 실행의 리뷰 계산 snapshot. 한 번 저장되면 바뀌지 않으므로(위 머리글) 프로세스 메모리에 둔다 — 결과를 폴링할 때마다
+    약 780KB 를 읽고 파싱하는 것을 피한다. 크기는 RESULT_SNAPSHOT_CACHE_SIZE(기본 32 실행, 가장 오래 안 쓴 것부터 버린다).
+    완료되지 않은(running) 실행에는 쓰지 않는다."""
+    key = str(run_id)
+    with _SNAPSHOT_CACHE_LOCK:
+        if key in _SNAPSHOT_CACHE:
+            _SNAPSHOT_CACHE.move_to_end(key)
+            return _SNAPSHOT_CACHE[key]
+    snapshot = snapshot_from_run({"reasoning_log": erepo.get_run_snapshot_steps(run_id)})
+    with _SNAPSHOT_CACHE_LOCK:
+        _SNAPSHOT_CACHE[key] = snapshot
+        while len(_SNAPSHOT_CACHE) > max(1, _SNAPSHOT_CACHE_SIZE):
+            _SNAPSHOT_CACHE.popitem(last=False)
+    return snapshot
 
 
 def review_for_candidate(snapshot, *, variant_id, product_id, slot,

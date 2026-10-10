@@ -655,13 +655,13 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
     from src.services import review_service
 
     erepo, prepo, prodrepo = EngineRepo(conn), PlanRepo(conn), ProductRepo(conn)
-    run = erepo.get_latest_run(revision_id)
+    # 폴링마다 불리는 길이라 reasoning_log·input_snapshot(추천 한 건 약 236KB)을 읽지 않는 가벼운 조회를 쓴다. 필요할 때만 따로 읽는다.
+    run = erepo.get_latest_run_light(revision_id)
     if run is None:
         return None
     from src.services.recommendation_review_snapshot import (
-        original_review, review_for_candidate, snapshot_from_run,
+        cached_snapshot, original_review, review_for_candidate,
     )
-    review_snapshot = snapshot_from_run(run)
 
     revision = prepo.get_revision(revision_id)
     full = prepo.load_full(revision_id)
@@ -685,7 +685,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
         "items": [], "totals": None,
         "verification": {"status": "pending", "confidence": None, "issues": []},
         "explanation": {"status": "pending", "text": None},
-        "reasoning_log": run.get("reasoning_log") or [],
+        "reasoning_log": [],
         "data_notice": ("PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. "
             "추천 리뷰 상세는 해당 실행에 저장된 실제 리뷰 속성 관측을 기준으로 제공합니다. "
             "상세 미제공은 리뷰가 없다는 뜻이 아닙니다. 별점·리뷰 총수와는 별개이며, "
@@ -698,6 +698,10 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
     if status == "running":
         return result
 
+    review_snapshot = cached_snapshot(erepo, run["id"])
+    # 추적 기록(화면용)은 설명이 끝난 뒤에만 있다 — 설명 대기 중 폴링에서는 읽지 않는다. 리뷰 계산 snapshot(약 780KB)은 응답에 싣지 않는다.
+    trace = [] if (run.get("explanation_status") or "pending") == "pending" else erepo.get_run_trace(run["id"])
+    result["reasoning_log"] = trace
     candidates_by_slot = prodrepo.candidates_by_slot()
     items = []
     candidate_rows = erepo.get_candidates(run["id"])
@@ -762,7 +766,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
             for v in validations
         ],
     }
-    contribution = next((step["contribution"] for step in (run.get("reasoning_log") or [])
+    contribution = next((step["contribution"] for step in trace
                          if isinstance(step, dict) and step.get("contribution")), None)
     result["explanation"] = {
         "status": run.get("explanation_status") or "pending",
