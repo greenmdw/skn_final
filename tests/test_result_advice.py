@@ -369,3 +369,23 @@ def test_swap_refuses_a_candidate_below_the_build_requirement(conn):
 ])
 def test_review_quote_drops_the_leading_rating_label(sentence, expected):
     assert result_advice._quote({"evidence_sentences": [sentence]}) == expected
+
+
+def test_ram_step_down_falls_back_to_a_cheaper_part_of_the_same_capacity(conn):
+    """"램 좀 더 싼 걸로 바꿔줘" — 요구를 채우는 더 낮은 용량이 없으면 8GB(요구 미달)만 내밀어 교체가 막혔다(10/10 평가).
+    같은 용량의 더 싼 후보가 있으면 그것을 고른다."""
+    revision_id = _build(conn)
+    ctx = result_advice._context(conn, revision_id)
+    cur = ctx.chosen()["RAM"]
+    m0 = result_advice._metric("RAM", cur.specs)
+    lower_ok = [c for c in ctx.pool["RAM"] if (result_advice._metric("RAM", c.specs) or m0) < m0
+                and result_advice._requirement_verdict(ctx, "RAM", c)[0] != "Fail" and not result_advice._new_failures(ctx, "RAM", c)]
+    same = [c for c in ctx.pool["RAM"] if c.variant_id != cur.variant_id and result_advice._metric("RAM", c.specs) == m0
+            and result_advice._price(c) < result_advice._price(cur) and not result_advice._new_failures(ctx, "RAM", c)
+            and result_advice._requirement_verdict(ctx, "RAM", c)[0] != "Fail"]
+    if lower_ok or not same:
+        pytest.skip("이 카탈로그에선 요구를 채우는 더 낮은 용량이 있거나 같은 용량의 더 싼 후보가 없다")
+    cand = result_advice.step_candidate(ctx, "RAM", "down")
+    assert cand.variant_id == max(same, key=result_advice._price).variant_id
+    out = result_advice.preview_swap(conn, revision_id, "RAM", direction="down")
+    assert "같은 단계의 더 싼 후보" in out and "⚠ 이 견적의 요구 사양을 못 채움" not in out, out

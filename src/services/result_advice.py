@@ -270,6 +270,12 @@ def step_candidate(ctx: _Ctx, slot: str, direction: str):
     if m0 is not None:
         stepped = [c for c in meets if _metric(slot, c.specs) is not None
                    and (_metric(slot, c.specs) > m0 if up else _metric(slot, c.specs) < m0)]
+        if not stepped and not up:
+            # "램 좀 더 싼 걸로"에 요구를 채우는 더 낮은 용량이 없으면 8GB(요구 미달)만 내밀어 교체가 막혔다 —
+            # 같은 용량·등급의 더 싼 후보가 있었는데(10/10 평가 2/3). 그중 지금과 가장 가까운 가격
+            same = [c for c in meets if _metric(slot, c.specs) == m0 and _price(c) < _price(cur)]
+            if same:
+                return max(same, key=_price)
         pool = stepped or pool
     else:
         stepped = [c for c in meets if (_price(c) > _price(cur) if up else _price(c) < _price(cur))]
@@ -323,7 +329,9 @@ def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = No
     m0 = _metric(slot, cur.specs) if cur is not None else None
     m1 = _metric(slot, cand.specs)
     if m0 is not None or m1 is not None:
-        lines.append(f"{slot} {_metric_text(slot, m0)} → {_metric_text(slot, m1)}")
+        lines.append(f"{slot} {_metric_text(slot, m0)} → {_metric_text(slot, m1)}"
+                     + (" (요구 사양을 채우는 더 낮은 단계가 없어 같은 단계의 더 싼 후보)"
+                        if direction == "down" and not variant_id and m0 is not None and m0 == m1 else ""))
     elif not variant_id and (note := no_metric_note(slot)):
         lines.append(note)
     elif slot == "저장장치":
