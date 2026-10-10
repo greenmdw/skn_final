@@ -70,6 +70,7 @@ class ResultSession:
     outputs: list[str] = field(default_factory=list)   # 도구 결과 원문 — 수치 가드의 허용 근거(trace 는 160자로 자른다)
     changed: bool = False
     read_only: bool = False                        # 바꾸라는 말이 아니면(classify_intent) 이번 턴은 구성표를 바꾸지 않는다
+    previous: str = ""                              # 앞 턴 도구 결과의 후보 줄(previous_candidates) — id 고치기에도 쓴다
     search_confirmed: bool = False                  # 직전 턴에 실시간 검색 동의를 구했고 이번 메시지가 동의인지(run_turn이 미리 판정)
 
     def _record(self, call: str, out: str) -> str:
@@ -189,7 +190,7 @@ class ResultSession:
         """이번 턴 도구 결과에 나온 candidate_id 와 한두 글자만 다르면 그 id — 모델이 36자 id 를 옮기다 한 글자를 바꿨다
         ("929cd20f-b17b-…" → "…-b17e-…", 10/10 평가 C-3 2/3 "해당 후보를 찾을 수 없습니다"로 교체 실패). 후보는 도구가
         보여 준 id 안에서만 고르고, 가까운 것이 둘 이상이면 고치지 않는다."""
-        seen = set(_CANDIDATE_ID_RE.findall("\n".join(self.outputs)))
+        seen = set(_CANDIDATE_ID_RE.findall("\n".join([*self.outputs, self.previous])))
         if candidate_id in seen or len(candidate_id) != 36:
             return candidate_id
         near = [c for c in seen if len(c) == 36 and sum(a != b for a, b in zip(c, candidate_id)) <= 2]
@@ -684,7 +685,7 @@ def _budget_rounded(budget: int | None, t: dict) -> str:
     return " (어림: " + " · ".join(parts) + ")"
 
 
-def system_prompt(result: dict, user_text: str, history: list[dict], prefetched: str = "") -> str:
+def system_prompt(result: dict, user_text: str, history: list[dict], prefetched: str = "", previous: str = "") -> str:
     t = result.get("totals") or {}
     v = result.get("verification") or {}
     issues = " | ".join(f"[{i['axis']}] {i['text']}" for i in (v.get("issues") or [])) or "없음"
@@ -742,19 +743,16 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "가격 차이는 도구 결과대로 전합니다. '가장 비싼/싼 후보'는 list_alternatives 끝의 '가장 싼 것·가장 비싼 것' 줄로만 말합니다.",
         "17. '아까 ~라고 했잖아', '전에 ~해 준다고 했지'처럼 앞의 대화를 전제로 하면 위 대화 기록에 있는지 봅니다. 없으면 그런 말을 한 적이 없다고 "
         "짧게 바로잡고(잘못을 인정하거나 사과하지 않습니다) 지금 구성표 상태를 전한 뒤, 원하면 해 드린다고 묻습니다.",
+        *(["", "직전 답의 근거가 된 후보(앞 턴 도구 결과 — '응 그렇게 바꿔줘'처럼 앞 제안을 받으면 이 candidate_id 로 swap):",
+           previous] if previous else []),
         *(["", "사용자 질문에 대해 미리 조회한 근거 (이걸로 답합니다. 더 필요하면 explain):", prefetched] if prefetched else []),
         "",
         "답변 언어: 한국어 존댓말. 화면은 평문이라 마크다운(**굵게**, #, 표)을 쓰지 않습니다.",
     ])
 
 
-def _db_history(conn, revision_id: UUID, run_id: str, limit: int = _HISTORY_TURNS) -> list[tuple[str, str]]:
-    """DB(identity.message)에서 이번 run의 결과 화면 채팅만 최근 N턴 — 프로세스 메모리(재시작하면
-    사라지던 예전 `_HISTORY`) 대신이다(CHAT-08). 조건 대화(session_service)는 같은 conversation에
-    더 앞서 쌓여 있지만, 이 run이 생기기 전(created_at 이전) 것들이라 여기서는 제외한다 — 결과
-    화면 에이전트에게 "게임용 컴퓨터 맞춰주세요" 같은 조건 대화 턴을 섞어 넣으면 구성표 얘기를
-    하는 이 에이전트의 맥락과 안 맞는다. 저장(대화 이력 전체를 화면에 복원하는 것)은
-    `GET /session/{id}`가 이미 하므로 여기서는 에이전트가 볼 맥락만 좁힌다."""
+def _run_messages(conn, revision_id: UUID, run_id: str) -> list[dict]:
+    """이 run 이 생긴 뒤의 대화 메시지(시간순) — 조건 대화는 run 보다 앞서라 빠진다."""
     from src.repo.plan_repo import PlanRepo
     from src.repo.user_repo import ConversationRepo
 
@@ -764,7 +762,36 @@ def _db_history(conn, revision_id: UUID, run_id: str, limit: int = _HISTORY_TURN
     messages = ConversationRepo(conn).messages(conversation_id)
     if cutoff_at is not None:
         messages = [m for m in messages if m["created_at"] >= cutoff_at]
+    return messages
 
+
+# 앞 턴에서 실을 후보 줄 수 — 절약·업그레이드·가정 계산 결과는 몇 줄이다. 후보 목록(list_alternatives)은 39줄까지 가서 뺀다
+_PREVIOUS_CANDIDATE_LINES = 12
+
+
+def previous_candidates(messages: list[dict]) -> str:
+    """직전 답의 근거가 된 도구 결과 중 candidate_id 가 있는 줄 — 답 메시지의 턴 기록(metadata["turn"]["outputs"])에서.
+    이력에는 답 문장만 남아 "응 그렇게 바꿔줘"에 모델이 id 를 몰라 후보 목록을 다시 뒤지다 실패했다 — 제안한 4060 Ti 는
+    list_alternatives 목록에 없다(10/8 A-6 6/10, 10/10 평가 0/3). 앞 답이 실제로 제안한 후보를 그대로 넘긴다."""
+    last = next((m for m in reversed(messages) if m["role"] == "assistant"), None)
+    outputs = (((last or {}).get("metadata") or {}).get("turn") or {}).get("outputs") or []
+    lines: list[str] = []
+    for out in outputs:
+        for line in out.splitlines():
+            line = line.strip()
+            if "candidate_id=" in line and not re.match(r"\d+\. candidate_id=", line) and line not in lines:
+                lines.append(line)
+    return "\n".join(lines[:_PREVIOUS_CANDIDATE_LINES])
+
+
+def _db_history(conn, revision_id: UUID, run_id: str, limit: int = _HISTORY_TURNS) -> list[tuple[str, str]]:
+    """DB(identity.message)에서 이번 run의 결과 화면 채팅만 최근 N턴 — 프로세스 메모리(재시작하면
+    사라지던 예전 `_HISTORY`) 대신이다(CHAT-08). 조건 대화(session_service)는 같은 conversation에
+    더 앞서 쌓여 있지만, 이 run이 생기기 전(created_at 이전) 것들이라 여기서는 제외한다 — 결과
+    화면 에이전트에게 "게임용 컴퓨터 맞춰주세요" 같은 조건 대화 턴을 섞어 넣으면 구성표 얘기를
+    하는 이 에이전트의 맥락과 안 맞는다. 저장(대화 이력 전체를 화면에 복원하는 것)은
+    `GET /session/{id}`가 이미 하므로 여기서는 에이전트가 볼 맥락만 좁힌다."""
+    messages = _run_messages(conn, revision_id, run_id)
     pairs: list[tuple[str, str]] = []
     pending: str | None = None
     for m in messages:
@@ -920,13 +947,15 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
 
     run_id = result["run_id"]
     pairs = _db_history(conn, revision_id, run_id)
+    previous = previous_candidates(_run_messages(conn, revision_id, run_id)) if pairs else ""
     hist_rows = [{"role": "user", "content": u} for u, _ in pairs]
     intent = classify_intent(text)
     session = ResultSession(conn=conn, revision_id=revision_id, result=result, user_id=user_id,
                             read_only=intent != "change",
                             search_confirmed=_search_confirmed(pairs, text))
     prefetched = _prefetch_explanations(session, text)
-    prompt = system_prompt(result, text, hist_rows, prefetched)
+    session.previous = previous
+    prompt = system_prompt(result, text, hist_rows, prefetched, previous)
     agent = Agent(
         model=_model(),
         system_prompt=prompt,

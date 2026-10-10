@@ -463,3 +463,22 @@ def test_swap_repairs_a_candidate_id_off_by_a_character_from_this_turns_output()
     assert s._seen_candidate_id(far) == far
     s.outputs.append("candidate_id=929cd20f-b17c-4ebb-b9d6-905c4425a19b")
     assert s._seen_candidate_id("929cd20f-b17e-4ebb-b9d6-905c4425a19b") == "929cd20f-b17e-4ebb-b9d6-905c4425a19b"
+
+
+def test_previous_candidates_carry_the_ids_the_last_answer_proposed():
+    """"응 그렇게 바꿔줘" — 이력엔 답 문장만 있어 모델이 앞 답이 제안한 후보의 id 를 몰랐다(10/10 평가 A-6 0/3).
+    직전 답 메시지의 턴 기록에서 후보 줄(목록 번호 줄은 빼고)을 꺼내 프롬프트에 싣는다."""
+    gpu = "    · GPU: RTX 4070 SUPER 916,930원 → RTX 4060 Ti 654,210원 (절약 262,720원) · candidate_id=929cd20f-b17b-4ebb-b9d6-905c4425a19b"
+    msgs = [
+        {"role": "user", "content": "10만원 줄일 수 있어?", "metadata": {}},
+        {"role": "assistant", "content": "GPU를 4060 Ti로…", "metadata": {"turn": {"outputs": [
+            "지금 총액 1,799,288원\n" + gpu + "\n- GPU: 같은 줄\n1. candidate_id=aaaaaaaa-0000-0000-0000-000000000000 · 목록 줄",
+            gpu.strip()]}}},
+        {"role": "user", "content": "응 그렇게 바꿔줘", "metadata": {}},
+    ]
+    out = ra.previous_candidates(msgs)
+    assert out.splitlines()[0] == gpu.strip() and "목록 줄" not in out and out.count("929cd20f") == 1
+    assert ra.previous_candidates([{"role": "assistant", "content": "x", "metadata": None}]) == ""
+    p = ra.system_prompt(_result(), "응 그렇게 바꿔줘", [{"role": "user", "content": "a"}], previous=out)
+    assert "직전 답의 근거가 된 후보" in p and gpu.strip() in p
+    assert "직전 답의 근거가 된 후보" not in ra.system_prompt(_result(), "응", [])
