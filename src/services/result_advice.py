@@ -113,6 +113,20 @@ def _metric(slot: str, specs: dict) -> float | None:
     return None
 
 
+# 저장장치 용량은 카탈로그에 라인업 최대치만 있다(같은 이름이 500GB·1TB·2TB 로 팔린다). "용량 큰 걸로 하면 얼마야?"에
+# 가격 순 다음 후보를 "한 단계 큰 구성"으로 전하고, 39개 후보 중 8번째를 "가장 비싸다"고 하던 것(10/9 P1-8, 실패 8).
+STORAGE_CAPACITY_NOTE = ("저장장치 용량: 카탈로그에는 제품 라인업의 최대 용량만 있어 후보마다 실제 판매 용량을 알 수 없음 "
+                         "— 이 목록·계산으로 용량이 커지거나 작아진다고 말할 수 없음")
+
+
+def no_metric_note(slot: str) -> str | None:
+    """'더 좋다'를 정할 값이 없는 슬롯에서 한 단계 위/아래를 가격으로 골랐다는 사실 — 성능·용량이 바뀐다는 뜻이 아니다."""
+    if slot in _UPGRADE_SLOTS:
+        return None
+    note = f"{slot}는 성능 등급·용량처럼 '더 좋다'를 정할 값이 없어 가격으로 바로 위/아래 후보를 골랐음(더 좋아진다는 뜻이 아님)"
+    return note + (" · " + STORAGE_CAPACITY_NOTE if slot == "저장장치" else "")
+
+
 def _metric_text(slot: str, value: float | None) -> str:
     if value is None:
         return "등급 정보 없음"
@@ -256,6 +270,12 @@ def step_candidate(ctx: _Ctx, slot: str, direction: str):
     if m0 is not None:
         stepped = [c for c in meets if _metric(slot, c.specs) is not None
                    and (_metric(slot, c.specs) > m0 if up else _metric(slot, c.specs) < m0)]
+        if not stepped and not up:
+            # "램 좀 더 싼 걸로"에 요구를 채우는 더 낮은 용량이 없으면 8GB(요구 미달)만 내밀어 교체가 막혔다 —
+            # 같은 용량·등급의 더 싼 후보가 있었는데(10/10 평가 2/3). 그중 지금과 가장 가까운 가격
+            same = [c for c in meets if _metric(slot, c.specs) == m0 and _price(c) < _price(cur)]
+            if same:
+                return max(same, key=_price)
         pool = stepped or pool
     else:
         stepped = [c for c in meets if (_price(c) > _price(cur) if up else _price(c) < _price(cur))]
@@ -309,7 +329,13 @@ def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = No
     m0 = _metric(slot, cur.specs) if cur is not None else None
     m1 = _metric(slot, cand.specs)
     if m0 is not None or m1 is not None:
-        lines.append(f"{slot} {_metric_text(slot, m0)} → {_metric_text(slot, m1)}")
+        lines.append(f"{slot} {_metric_text(slot, m0)} → {_metric_text(slot, m1)}"
+                     + (" (요구 사양을 채우는 더 낮은 단계가 없어 같은 단계의 더 싼 후보)"
+                        if direction == "down" and not variant_id and m0 is not None and m0 == m1 else ""))
+    elif not variant_id and (note := no_metric_note(slot)):
+        lines.append(note)
+    elif slot == "저장장치":
+        lines.append(STORAGE_CAPACITY_NOTE)
     verdict, reasons = _requirement_verdict(ctx, slot, cand)
     if verdict == "Fail" and not variant_id:
         # step_candidate 는 요구 사양을 채우는 후보를 먼저 고른다 — 여기 왔으면 그런 후보가 카탈로그에 없다

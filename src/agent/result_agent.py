@@ -40,6 +40,9 @@ log = logging.getLogger(__name__)
 _HISTORY_TURNS = 8
 
 
+_CANDIDATE_ID_RE = re.compile(r"candidate_id=([0-9a-f-]{36})")
+
+
 def available() -> bool:
     return (not MOCK_MODE and RESULT_AGENT and LLM_PROVIDER == "openai"
             and bool(OPENAI_API_KEY) and bool(LLM_MODEL))
@@ -67,6 +70,7 @@ class ResultSession:
     outputs: list[str] = field(default_factory=list)   # 도구 결과 원문 — 수치 가드의 허용 근거(trace 는 160자로 자른다)
     changed: bool = False
     read_only: bool = False                        # 바꾸라는 말이 아니면(classify_intent) 이번 턴은 구성표를 바꾸지 않는다
+    previous: str = ""                              # 앞 턴 도구 결과의 후보 줄(previous_candidates) — id 고치기에도 쓴다
     search_confirmed: bool = False                  # 직전 턴에 실시간 검색 동의를 구했고 이번 메시지가 동의인지(run_turn이 미리 판정)
 
     def _record(self, call: str, out: str) -> str:
@@ -134,6 +138,13 @@ class ResultSession:
             lines.append(f"{i}. candidate_id={r['candidate_id']} · {r['product']['name']} · {_won(r['price'])}"
                          f" ({r['price_delta']:+,}원) · {r['label']}"
                          + (f" · 성능 티어 {tier}" if tier is not None else "") + flag)
+        priced = [(i, r) for i, r in enumerate(rows, 1) if r.get("price") is not None]
+        if len(priced) > 1:
+            lo, hi = min(priced, key=lambda x: x[1]["price"]), max(priced, key=lambda x: x[1]["price"])
+            lines.append(f"후보 {len(rows)}개 중 가장 싼 것 {lo[0]}. {lo[1]['product']['name']} {_won(lo[1]['price'])}"
+                         f" · 가장 비싼 것 {hi[0]}. {hi[1]['product']['name']} {_won(hi[1]['price'])}")
+        if it["slot"] == "저장장치":
+            lines.append(result_advice.STORAGE_CAPACITY_NOTE)
         return self._record(call, "\n".join(lines))
 
     def swap(self, slot: str, candidate_id: str) -> str:
@@ -145,7 +156,7 @@ class ResultSession:
         if it is None:
             return self._record(call, f"오류: '{slot}' 슬롯이 없습니다.")
         try:
-            cid = UUID(candidate_id)
+            cid = UUID(self._seen_candidate_id(candidate_id.strip()))
         except ValueError:
             # "응 그렇게 바꿔줘" — 이력에는 앞 답의 문장만 남고 candidate_id 가 없어서 모델이 제품 이름으로 부른다.
             # 거절하면 거기서 멈추던 것(10/8 평가 A-6 #17 후 6/10 실패) — 이 슬롯 후보 중 이름이 하나로 맞으면 그것으로
@@ -174,6 +185,16 @@ class ResultSession:
             f" · 총액 {_won(t['selected_price'])} · 예산 잔여 {_won(t['budget_remaining'])}"
             + (" · ⚠ 예산 초과" if t["over_budget"] else "")
             + self._compat_note()))
+
+    def _seen_candidate_id(self, candidate_id: str) -> str:
+        """이번 턴 도구 결과에 나온 candidate_id 와 한두 글자만 다르면 그 id — 모델이 36자 id 를 옮기다 한 글자를 바꿨다
+        ("929cd20f-b17b-…" → "…-b17e-…", 10/10 평가 C-3 2/3 "해당 후보를 찾을 수 없습니다"로 교체 실패). 후보는 도구가
+        보여 준 id 안에서만 고르고, 가까운 것이 둘 이상이면 고치지 않는다."""
+        seen = set(_CANDIDATE_ID_RE.findall("\n".join([*self.outputs, self.previous])))
+        if candidate_id in seen or len(candidate_id) != 36:
+            return candidate_id
+        near = [c for c in seen if len(c) == 36 and sum(a != b for a, b in zip(c, candidate_id)) <= 2]
+        return near[0] if len(near) == 1 else candidate_id
 
     def _candidate_by_name(self, it: dict, name: str) -> tuple[str | None, str]:
         """이 슬롯 후보(swap_item 이 받아 주는 카탈로그 후보 전체 — list_alternatives 에 안 나오는 절약 후보도 있다) 중
@@ -664,7 +685,7 @@ def _budget_rounded(budget: int | None, t: dict) -> str:
     return " (어림: " + " · ".join(parts) + ")"
 
 
-def system_prompt(result: dict, user_text: str, history: list[dict], prefetched: str = "") -> str:
+def system_prompt(result: dict, user_text: str, history: list[dict], prefetched: str = "", previous: str = "") -> str:
     t = result.get("totals") or {}
     v = result.get("verification") or {}
     issues = " | ".join(f"[{i['axis']}] {i['text']}" for i in (v.get("issues") or [])) or "없음"
@@ -677,6 +698,11 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         f"세트 검증 쟁점: {issues}",
         "구성표:",
         _build_table(result),
+        # 새 대화에서 "아까 쿨러 빼 준다고 했잖아"에 "제가 제대로 처리하지 못했습니다"로 없던 약속을 인정했다(10/9 P1-8) —
+        # 기록이 없다는 사실을 모델이 알 수 없었다
+        "이 화면의 대화 기록: " + ("없음 — 이번이 첫 질문이라 당신이 이전에 한 말이나 약속은 없습니다." if not history
+                              else f"최근 {len(history)}턴만 보입니다(앞의 메시지들)." if len(history) >= _HISTORY_TURNS
+                              else f"{len(history)}턴 전부(앞의 메시지들). 그 밖에 당신이 한 말이나 약속은 없습니다."),
         "",
         "규칙:",
         "1. '바꿔줘', '로 해줘', '바꿔 주세요'처럼 바꾸라고 하면 되묻지 말고 바로 swap 합니다. candidate_id 는 list_alternatives·upgrade_options·savings_options·preview_swap 결과에서만 가져오고, 지어내거나 답변에 보여 주지 않습니다.",
@@ -713,19 +739,20 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "문장이면 그걸로 끝내고(이 턴에 swap하지 않습니다), 검색 결과가 오면 '카탈로그 정식 등재 값이 아니다'는 "
         "부분까지 그대로 전합니다. 검색 결과로 얻은 스펙만으로 swap하지 않습니다 — 그 제품은 여전히 카탈로그에 없어 "
         "교체할 candidate_id가 없습니다.",
+        "16. 저장장치 용량을 물으면 카탈로그에 후보마다 실제 판매 용량이 없다는 사실부터 말하고, 어떤 후보가 용량이 더 크다·작다고 말하지 않습니다. "
+        "가격 차이는 도구 결과대로 전합니다. '가장 비싼/싼 후보'는 list_alternatives 끝의 '가장 싼 것·가장 비싼 것' 줄로만 말합니다.",
+        "17. '아까 ~라고 했잖아', '전에 ~해 준다고 했지'처럼 앞의 대화를 전제로 하면 위 대화 기록에 있는지 봅니다. 없으면 그런 말을 한 적이 없다고 "
+        "짧게 바로잡고(잘못을 인정하거나 사과하지 않습니다) 지금 구성표 상태를 전한 뒤, 원하면 해 드린다고 묻습니다.",
+        *(["", "직전 답의 근거가 된 후보(앞 턴 도구 결과 — '응 그렇게 바꿔줘'처럼 앞 제안을 받으면 이 candidate_id 로 swap):",
+           previous] if previous else []),
         *(["", "사용자 질문에 대해 미리 조회한 근거 (이걸로 답합니다. 더 필요하면 explain):", prefetched] if prefetched else []),
         "",
         "답변 언어: 한국어 존댓말. 화면은 평문이라 마크다운(**굵게**, #, 표)을 쓰지 않습니다.",
     ])
 
 
-def _db_history(conn, revision_id: UUID, run_id: str, limit: int = _HISTORY_TURNS) -> list[tuple[str, str]]:
-    """DB(identity.message)에서 이번 run의 결과 화면 채팅만 최근 N턴 — 프로세스 메모리(재시작하면
-    사라지던 예전 `_HISTORY`) 대신이다(CHAT-08). 조건 대화(session_service)는 같은 conversation에
-    더 앞서 쌓여 있지만, 이 run이 생기기 전(created_at 이전) 것들이라 여기서는 제외한다 — 결과
-    화면 에이전트에게 "게임용 컴퓨터 맞춰주세요" 같은 조건 대화 턴을 섞어 넣으면 구성표 얘기를
-    하는 이 에이전트의 맥락과 안 맞는다. 저장(대화 이력 전체를 화면에 복원하는 것)은
-    `GET /session/{id}`가 이미 하므로 여기서는 에이전트가 볼 맥락만 좁힌다."""
+def _run_messages(conn, revision_id: UUID, run_id: str) -> list[dict]:
+    """이 run 이 생긴 뒤의 대화 메시지(시간순) — 조건 대화는 run 보다 앞서라 빠진다."""
     from src.repo.plan_repo import PlanRepo
     from src.repo.user_repo import ConversationRepo
 
@@ -735,7 +762,36 @@ def _db_history(conn, revision_id: UUID, run_id: str, limit: int = _HISTORY_TURN
     messages = ConversationRepo(conn).messages(conversation_id)
     if cutoff_at is not None:
         messages = [m for m in messages if m["created_at"] >= cutoff_at]
+    return messages
 
+
+# 앞 턴에서 실을 후보 줄 수 — 절약·업그레이드·가정 계산 결과는 몇 줄이다. 후보 목록(list_alternatives)은 39줄까지 가서 뺀다
+_PREVIOUS_CANDIDATE_LINES = 12
+
+
+def previous_candidates(messages: list[dict]) -> str:
+    """직전 답의 근거가 된 도구 결과 중 candidate_id 가 있는 줄 — 답 메시지의 턴 기록(metadata["turn"]["outputs"])에서.
+    이력에는 답 문장만 남아 "응 그렇게 바꿔줘"에 모델이 id 를 몰라 후보 목록을 다시 뒤지다 실패했다 — 제안한 4060 Ti 는
+    list_alternatives 목록에 없다(10/8 A-6 6/10, 10/10 평가 0/3). 앞 답이 실제로 제안한 후보를 그대로 넘긴다."""
+    last = next((m for m in reversed(messages) if m["role"] == "assistant"), None)
+    outputs = (((last or {}).get("metadata") or {}).get("turn") or {}).get("outputs") or []
+    lines: list[str] = []
+    for out in outputs:
+        for line in out.splitlines():
+            line = line.strip()
+            if "candidate_id=" in line and not re.match(r"\d+\. candidate_id=", line) and line not in lines:
+                lines.append(line)
+    return "\n".join(lines[:_PREVIOUS_CANDIDATE_LINES])
+
+
+def _db_history(conn, revision_id: UUID, run_id: str, limit: int = _HISTORY_TURNS) -> list[tuple[str, str]]:
+    """DB(identity.message)에서 이번 run의 결과 화면 채팅만 최근 N턴 — 프로세스 메모리(재시작하면
+    사라지던 예전 `_HISTORY`) 대신이다(CHAT-08). 조건 대화(session_service)는 같은 conversation에
+    더 앞서 쌓여 있지만, 이 run이 생기기 전(created_at 이전) 것들이라 여기서는 제외한다 — 결과
+    화면 에이전트에게 "게임용 컴퓨터 맞춰주세요" 같은 조건 대화 턴을 섞어 넣으면 구성표 얘기를
+    하는 이 에이전트의 맥락과 안 맞는다. 저장(대화 이력 전체를 화면에 복원하는 것)은
+    `GET /session/{id}`가 이미 하므로 여기서는 에이전트가 볼 맥락만 좁힌다."""
+    messages = _run_messages(conn, revision_id, run_id)
     pairs: list[tuple[str, str]] = []
     pending: str | None = None
     for m in messages:
@@ -808,6 +864,48 @@ def _reply_within(reply: str, allowed_sources: list[str]) -> tuple[bool, set[str
     return (not outside), outside
 
 
+# 후보 목록의 "(+88,199원)", 가정 계산의 "차액 +5,740원" — 한 부품만 바꿀 때의 차액
+_DELTA_RE = re.compile(r"(?:\(|차액\s*)([+-][\d,]+)원")
+
+
+def swap_arithmetic(result: dict, outputs: list[str]) -> str:
+    """도구가 준 차액 하나로 바꾼 뒤 총액·잔여를 셈한 값들 — 수치 가드가 허용할 숫자로 쓴다.
+    list_alternatives 만 부른 뒤 "바꾸면 총액 1,403,337원"(= 1,315,138 + 88,199)을 직접 더해 말한 답이 맞는데도
+    지어낸 숫자로 버려졌다(10/9 P1-8 대체 3건 중 2건). 차액 하나를 지금 총액에 더한 값과 그때의 잔여만 넓힌다 —
+    차액 여러 개를 합친 값은 검산할 수 없어 여전히 막는다."""
+    t = result.get("totals") or {}
+    total, budget = t.get("selected_price"), result.get("budget_max")
+    if total is None:
+        return ""
+    out = []
+    for src in outputs:
+        for m in _DELTA_RE.finditer(src):
+            after = total + int(m.group(1).replace(",", ""))
+            out.append(f"{after:,}")
+            if budget:
+                out.append(f"{budget - after:,}")
+    return " ".join(out)
+
+
+def swap_arithmetic_sign_errors(reply: str, result: dict, outputs: list[str]) -> list[str]:
+    """swap_arithmetic 으로 허용한 잔여를 반대로 말한 곳 — 남는 22,472원을 "예산보다 22,472원 초과"로 전했다(10/10 평가
+    B-4). 숫자는 맞아 수치 가드를 지나므로, 셈으로만 얻은 잔여는 그 금액 바로 앞뒤의 '초과'·'남'까지 맞아야 한다."""
+    t = result.get("totals") or {}
+    total, budget = t.get("selected_price"), result.get("budget_max")
+    if total is None or not budget:
+        return []
+    bad = []
+    for src in outputs:
+        for m in _DELTA_RE.finditer(src):
+            left = budget - (total + int(m.group(1).replace(",", "")))
+            amount = f"{abs(left):,}"
+            wrong = "초과" if left >= 0 else "남"
+            near = rf"{amount}\s*원?[^\d.,]{{0,4}}{wrong}|{wrong}[^\d.,]{{0,6}}{amount}"
+            if amount != "0" and re.search(near, reply):
+                bad.append(f"{amount}원 {wrong}")
+    return bad
+
+
 _READ_TOOLS = ("preview_swap(", "upgrade_options(", "budget_reason(", "savings_options(", "check_build(", "game_check(",
               "search_unavailable_part(")
 
@@ -868,13 +966,15 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
 
     run_id = result["run_id"]
     pairs = _db_history(conn, revision_id, run_id)
+    previous = previous_candidates(_run_messages(conn, revision_id, run_id)) if pairs else ""
     hist_rows = [{"role": "user", "content": u} for u, _ in pairs]
     intent = classify_intent(text)
     session = ResultSession(conn=conn, revision_id=revision_id, result=result, user_id=user_id,
                             read_only=intent != "change",
                             search_confirmed=_search_confirmed(pairs, text))
     prefetched = _prefetch_explanations(session, text)
-    prompt = system_prompt(result, text, hist_rows, prefetched)
+    session.previous = previous
+    prompt = system_prompt(result, text, hist_rows, prefetched, previous)
     agent = Agent(
         model=_model(),
         system_prompt=prompt,
@@ -896,8 +996,9 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
         error = type(exc).__name__
     else:
         # 수치 가드 — 답변의 숫자는 전부 입력에 있던 것이어야 한다. 아니면 LLM 문장을 버리고 코드 문장으로.
-        ok, outside = _reply_within(reply, [prompt, text, *session.outputs])
-        bad_words = evaluative_words(reply, text)
+        ok, outside = _reply_within(reply, [prompt, text, *session.outputs,
+                                            swap_arithmetic(session.result, session.outputs)])
+        bad_words = evaluative_words(reply, text) + swap_arithmetic_sign_errors(reply, session.result, session.outputs)
         if not ok or bad_words:
             log.warning("result agent reply rejected (numbers %s, words %s) — replaced: %r", sorted(outside), bad_words, reply[:120])
             guard = {"numbers": sorted(outside), "words": bad_words}

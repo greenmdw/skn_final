@@ -145,6 +145,17 @@ def test_system_prompt_carries_table_reasons_budget_and_language():
     assert "미리 조회한 근거" not in ra.system_prompt(r, "swap the gpu", [])
 
 
+def test_system_prompt_says_whether_there_was_an_earlier_conversation():
+    """새 대화에서 "아까 쿨러 빼 준다고 했잖아"에 없던 약속을 인정했다(10/9 P1-8) — 기록이 없다는 걸 프롬프트가 말한다."""
+    r = _result()
+    assert "이번이 첫 질문이라 당신이 이전에 한 말이나 약속은 없습니다" in ra.system_prompt(r, "아까 쿨러 빼 준다고 했잖아", [])
+    two = [{"role": "user", "content": "a"}, {"role": "user", "content": "b"}]
+    assert "2턴 전부(앞의 메시지들). 그 밖에" in ra.system_prompt(r, "아까 그거", two)
+    full = [{"role": "user", "content": str(i)} for i in range(ra._HISTORY_TURNS)]
+    p = ra.system_prompt(r, "아까 그거", full)
+    assert f"최근 {ra._HISTORY_TURNS}턴만 보입니다" in p and "그 밖에 당신이" not in p
+
+
 def test_strands_registers_change_and_question_tools():
     tools = ra.make_tools(_session())
     assert [t.tool_name for t in tools] == [
@@ -423,3 +434,63 @@ def test_condition_change_request_gets_the_conditions_screen_notice(text):
                                   "예산 초과 안 되게 램 바꿔줘", "CPU를 한 단계 낮추면 얼마나 아껴?"])
 def test_part_requests_that_mention_the_budget_get_no_notice(text):
     assert ra.with_condition_notice(text, "답") == "답"
+
+
+def test_guard_accepts_a_total_summed_from_one_listed_delta_only():
+    """list_alternatives 만 부르고 "바꾸면 총액 1,403,337원"을 직접 더한 답이 맞는데도 버려졌다(10/9 P1-8) —
+    지금 총액 + 차액 하나, 그때의 잔여만 허용한다. 차액 두 개를 합친 값은 검산할 수 없어 그대로 막는다."""
+    r = _result()                                    # 총액 780,000 · 예산 1,500,000
+    listing = "1. candidate_id=x · A · 120,000원 (+88,199원) · 프리미엄 후보\n2. candidate_id=y · B · 50,000원 (-30,000원)"
+    extra = ra.swap_arithmetic(r, [listing])
+    ok, _ = ra._reply_within("A로 바꾸면 총액 868,199원, 잔여 631,801원입니다.", [listing, extra])
+    assert ok
+    ok, _ = ra._reply_within("B로 바꾸면 약 75만 원, 잔여 750,000원입니다.", [listing, extra])
+    assert ok
+    ok, outside = ra._reply_within("둘 다 바꾸면 총액 838,199원입니다.", [listing, extra])
+    assert not ok and outside == {"838199"}
+    assert ra.swap_arithmetic({"totals": {}}, [listing]) == ""
+
+
+def test_swap_repairs_a_candidate_id_off_by_a_character_from_this_turns_output():
+    """모델이 도구가 보여 준 id 를 한 글자 바꿔 옮겨 교체가 실패했다(10/10 평가 C-3 2/3). 이번 턴 결과에 나온 id 하나와
+    두 글자 이내로만 다르면 그 id 로 고치고, 가까운 것이 없거나 둘 이상이면 그대로 둔다."""
+    s = ra.ResultSession(conn=None, revision_id=None, result=_result())
+    shown = "929cd20f-b17b-4ebb-b9d6-905c4425a19b"
+    s.outputs.append(f"(가정 계산) GPU: A → B · candidate_id={shown}")
+    assert s._seen_candidate_id("929cd20f-b17e-4ebb-b9d6-905c4425a19b") == shown
+    assert s._seen_candidate_id(shown) == shown
+    far = "00000000-0000-4ebb-b9d6-905c4425a19b"
+    assert s._seen_candidate_id(far) == far
+    s.outputs.append("candidate_id=929cd20f-b17c-4ebb-b9d6-905c4425a19b")
+    assert s._seen_candidate_id("929cd20f-b17e-4ebb-b9d6-905c4425a19b") == "929cd20f-b17e-4ebb-b9d6-905c4425a19b"
+
+
+def test_previous_candidates_carry_the_ids_the_last_answer_proposed():
+    """"응 그렇게 바꿔줘" — 이력엔 답 문장만 있어 모델이 앞 답이 제안한 후보의 id 를 몰랐다(10/10 평가 A-6 0/3).
+    직전 답 메시지의 턴 기록에서 후보 줄(목록 번호 줄은 빼고)을 꺼내 프롬프트에 싣는다."""
+    gpu = "    · GPU: RTX 4070 SUPER 916,930원 → RTX 4060 Ti 654,210원 (절약 262,720원) · candidate_id=929cd20f-b17b-4ebb-b9d6-905c4425a19b"
+    msgs = [
+        {"role": "user", "content": "10만원 줄일 수 있어?", "metadata": {}},
+        {"role": "assistant", "content": "GPU를 4060 Ti로…", "metadata": {"turn": {"outputs": [
+            "지금 총액 1,799,288원\n" + gpu + "\n- GPU: 같은 줄\n1. candidate_id=aaaaaaaa-0000-0000-0000-000000000000 · 목록 줄",
+            gpu.strip()]}}},
+        {"role": "user", "content": "응 그렇게 바꿔줘", "metadata": {}},
+    ]
+    out = ra.previous_candidates(msgs)
+    assert out.splitlines()[0] == gpu.strip() and "목록 줄" not in out and out.count("929cd20f") == 1
+    assert ra.previous_candidates([{"role": "assistant", "content": "x", "metadata": None}]) == ""
+    p = ra.system_prompt(_result(), "응 그렇게 바꿔줘", [{"role": "user", "content": "a"}], previous=out)
+    assert "직전 답의 근거가 된 후보" in p and gpu.strip() in p
+    assert "직전 답의 근거가 된 후보" not in ra.system_prompt(_result(), "응", [])
+
+
+def test_guard_rejects_a_summed_remaining_told_as_over_budget():
+    """잔여 22,472원을 "예산보다 22,472원 초과"로 뒤집어 말한 답(10/10 평가 B-4) — 숫자는 셈으로 허용되므로 방향을 따로 본다."""
+    r = {"budget_max": 2_000_000, "totals": {"selected_price": 1_907_128}}
+    listing = "7. candidate_id=x · WD_BLACK SN770 · 130,000원 (+70,400원) · 프리미엄 후보"
+    assert ra.swap_arithmetic_sign_errors("총액은 1,977,528원이 되어 예산보다 22,472원 초과합니다.", r, [listing]) == ["22,472원 초과"]
+    assert ra.swap_arithmetic_sign_errors("총액 1,977,528원, 예산 잔여 22,472원입니다.", r, [listing]) == []
+    assert ra.swap_arithmetic_sign_errors("22,472원이 남습니다.", r, [listing]) == []
+    over = {"budget_max": 1_950_000, "totals": {"selected_price": 1_907_128}}
+    assert ra.swap_arithmetic_sign_errors("27,528원이 남습니다.", over, [listing]) == ["27,528원 남"]
+    assert ra.swap_arithmetic_sign_errors("예산을 27,528원 초과합니다.", over, [listing]) == []

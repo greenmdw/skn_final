@@ -112,6 +112,23 @@ def test_preview_swap_up_picks_the_next_tier_and_reports_budget(conn):
     assert "전력:" in out or "⚠ 호환 점검 문제" in out
 
 
+def test_storage_step_and_list_say_capacity_is_unknown(conn):
+    """실패 8(10/9 P1-8) — "저장장치 용량 큰 걸로 하면 얼마야?"에 가격 순 다음 후보를 "한 단계 큰 구성"으로 전하고,
+    39개 후보 중 8번째를 "가장 비싸다"고 했다. 도구 결과가 용량을 모른다는 것과 가장 싼·비싼 후보를 직접 말한다."""
+    from src.agent.result_agent import ResultSession
+    revision_id = _build(conn)
+    out = result_advice.preview_swap(conn, revision_id, "저장장치", direction="up")
+    assert "가격으로 바로 위/아래 후보를 골랐음" in out and result_advice.STORAGE_CAPACITY_NOTE in out, out
+    assert result_advice.STORAGE_CAPACITY_NOTE not in result_advice.preview_swap(conn, revision_id, "GPU", direction="up")
+    result = recommendation_service.get_stored_result(conn, revision_id)
+    listing = ResultSession(conn=conn, revision_id=revision_id, result=result).list_alternatives("저장장치")
+    lines = listing.splitlines()
+    assert lines[-1] == result_advice.STORAGE_CAPACITY_NOTE, listing
+    prices = [int(p.replace(",", "")) for p in re.findall(r"^\d+\. candidate_id=\S+ · .+? · ([\d,]+)원", listing, re.M)]
+    top = re.search(r"가장 비싼 것 \d+\. .+ ([\d,]+)원$", lines[-2])
+    assert top and int(top.group(1).replace(",", "")) == max(prices), lines[-2]
+
+
 def test_savings_options_target_beyond_reach_says_so(conn):
     revision_id = _build(conn)
     out = result_advice.savings_options(conn, revision_id, 10_000_000)
@@ -352,3 +369,23 @@ def test_swap_refuses_a_candidate_below_the_build_requirement(conn):
 ])
 def test_review_quote_drops_the_leading_rating_label(sentence, expected):
     assert result_advice._quote({"evidence_sentences": [sentence]}) == expected
+
+
+def test_ram_step_down_falls_back_to_a_cheaper_part_of_the_same_capacity(conn):
+    """"램 좀 더 싼 걸로 바꿔줘" — 요구를 채우는 더 낮은 용량이 없으면 8GB(요구 미달)만 내밀어 교체가 막혔다(10/10 평가).
+    같은 용량의 더 싼 후보가 있으면 그것을 고른다."""
+    revision_id = _build(conn)
+    ctx = result_advice._context(conn, revision_id)
+    cur = ctx.chosen()["RAM"]
+    m0 = result_advice._metric("RAM", cur.specs)
+    lower_ok = [c for c in ctx.pool["RAM"] if (result_advice._metric("RAM", c.specs) or m0) < m0
+                and result_advice._requirement_verdict(ctx, "RAM", c)[0] != "Fail" and not result_advice._new_failures(ctx, "RAM", c)]
+    same = [c for c in ctx.pool["RAM"] if c.variant_id != cur.variant_id and result_advice._metric("RAM", c.specs) == m0
+            and result_advice._price(c) < result_advice._price(cur) and not result_advice._new_failures(ctx, "RAM", c)
+            and result_advice._requirement_verdict(ctx, "RAM", c)[0] != "Fail"]
+    if lower_ok or not same:
+        pytest.skip("이 카탈로그에선 요구를 채우는 더 낮은 용량이 있거나 같은 용량의 더 싼 후보가 없다")
+    cand = result_advice.step_candidate(ctx, "RAM", "down")
+    assert cand.variant_id == max(same, key=result_advice._price).variant_id
+    out = result_advice.preview_swap(conn, revision_id, "RAM", direction="down")
+    assert "같은 단계의 더 싼 후보" in out and "⚠ 이 견적의 요구 사양을 못 채움" not in out, out
