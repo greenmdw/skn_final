@@ -145,6 +145,17 @@ def test_system_prompt_carries_table_reasons_budget_and_language():
     assert "미리 조회한 근거" not in ra.system_prompt(r, "swap the gpu", [])
 
 
+def test_system_prompt_says_whether_there_was_an_earlier_conversation():
+    """새 대화에서 "아까 쿨러 빼 준다고 했잖아"에 없던 약속을 인정했다(10/9 P1-8) — 기록이 없다는 걸 프롬프트가 말한다."""
+    r = _result()
+    assert "이번이 첫 질문이라 당신이 이전에 한 말이나 약속은 없습니다" in ra.system_prompt(r, "아까 쿨러 빼 준다고 했잖아", [])
+    two = [{"role": "user", "content": "a"}, {"role": "user", "content": "b"}]
+    assert "2턴 전부(앞의 메시지들). 그 밖에" in ra.system_prompt(r, "아까 그거", two)
+    full = [{"role": "user", "content": str(i)} for i in range(ra._HISTORY_TURNS)]
+    p = ra.system_prompt(r, "아까 그거", full)
+    assert f"최근 {ra._HISTORY_TURNS}턴만 보입니다" in p and "그 밖에 당신이" not in p
+
+
 def test_strands_registers_change_and_question_tools():
     tools = ra.make_tools(_session())
     assert [t.tool_name for t in tools] == [

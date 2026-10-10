@@ -112,6 +112,23 @@ def test_preview_swap_up_picks_the_next_tier_and_reports_budget(conn):
     assert "전력:" in out or "⚠ 호환 점검 문제" in out
 
 
+def test_storage_step_and_list_say_capacity_is_unknown(conn):
+    """실패 8(10/9 P1-8) — "저장장치 용량 큰 걸로 하면 얼마야?"에 가격 순 다음 후보를 "한 단계 큰 구성"으로 전하고,
+    39개 후보 중 8번째를 "가장 비싸다"고 했다. 도구 결과가 용량을 모른다는 것과 가장 싼·비싼 후보를 직접 말한다."""
+    from src.agent.result_agent import ResultSession
+    revision_id = _build(conn)
+    out = result_advice.preview_swap(conn, revision_id, "저장장치", direction="up")
+    assert "가격으로 바로 위/아래 후보를 골랐음" in out and result_advice.STORAGE_CAPACITY_NOTE in out, out
+    assert result_advice.STORAGE_CAPACITY_NOTE not in result_advice.preview_swap(conn, revision_id, "GPU", direction="up")
+    result = recommendation_service.get_stored_result(conn, revision_id)
+    listing = ResultSession(conn=conn, revision_id=revision_id, result=result).list_alternatives("저장장치")
+    lines = listing.splitlines()
+    assert lines[-1] == result_advice.STORAGE_CAPACITY_NOTE, listing
+    prices = [int(p.replace(",", "")) for p in re.findall(r"^\d+\. candidate_id=\S+ · .+? · ([\d,]+)원", listing, re.M)]
+    top = re.search(r"가장 비싼 것 \d+\. .+ ([\d,]+)원$", lines[-2])
+    assert top and int(top.group(1).replace(",", "")) == max(prices), lines[-2]
+
+
 def test_savings_options_target_beyond_reach_says_so(conn):
     revision_id = _build(conn)
     out = result_advice.savings_options(conn, revision_id, 10_000_000)

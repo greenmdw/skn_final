@@ -134,6 +134,13 @@ class ResultSession:
             lines.append(f"{i}. candidate_id={r['candidate_id']} · {r['product']['name']} · {_won(r['price'])}"
                          f" ({r['price_delta']:+,}원) · {r['label']}"
                          + (f" · 성능 티어 {tier}" if tier is not None else "") + flag)
+        priced = [(i, r) for i, r in enumerate(rows, 1) if r.get("price") is not None]
+        if len(priced) > 1:
+            lo, hi = min(priced, key=lambda x: x[1]["price"]), max(priced, key=lambda x: x[1]["price"])
+            lines.append(f"후보 {len(rows)}개 중 가장 싼 것 {lo[0]}. {lo[1]['product']['name']} {_won(lo[1]['price'])}"
+                         f" · 가장 비싼 것 {hi[0]}. {hi[1]['product']['name']} {_won(hi[1]['price'])}")
+        if it["slot"] == "저장장치":
+            lines.append(result_advice.STORAGE_CAPACITY_NOTE)
         return self._record(call, "\n".join(lines))
 
     def swap(self, slot: str, candidate_id: str) -> str:
@@ -677,6 +684,11 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         f"세트 검증 쟁점: {issues}",
         "구성표:",
         _build_table(result),
+        # 새 대화에서 "아까 쿨러 빼 준다고 했잖아"에 "제가 제대로 처리하지 못했습니다"로 없던 약속을 인정했다(10/9 P1-8) —
+        # 기록이 없다는 사실을 모델이 알 수 없었다
+        "이 화면의 대화 기록: " + ("없음 — 이번이 첫 질문이라 당신이 이전에 한 말이나 약속은 없습니다." if not history
+                              else f"최근 {len(history)}턴만 보입니다(앞의 메시지들)." if len(history) >= _HISTORY_TURNS
+                              else f"{len(history)}턴 전부(앞의 메시지들). 그 밖에 당신이 한 말이나 약속은 없습니다."),
         "",
         "규칙:",
         "1. '바꿔줘', '로 해줘', '바꿔 주세요'처럼 바꾸라고 하면 되묻지 말고 바로 swap 합니다. candidate_id 는 list_alternatives·upgrade_options·savings_options·preview_swap 결과에서만 가져오고, 지어내거나 답변에 보여 주지 않습니다.",
@@ -713,6 +725,10 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "문장이면 그걸로 끝내고(이 턴에 swap하지 않습니다), 검색 결과가 오면 '카탈로그 정식 등재 값이 아니다'는 "
         "부분까지 그대로 전합니다. 검색 결과로 얻은 스펙만으로 swap하지 않습니다 — 그 제품은 여전히 카탈로그에 없어 "
         "교체할 candidate_id가 없습니다.",
+        "16. 저장장치 용량을 물으면 카탈로그에 후보마다 실제 판매 용량이 없다는 사실부터 말하고, 어떤 후보가 용량이 더 크다·작다고 말하지 않습니다. "
+        "가격 차이는 도구 결과대로 전합니다. '가장 비싼/싼 후보'는 list_alternatives 끝의 '가장 싼 것·가장 비싼 것' 줄로만 말합니다.",
+        "17. '아까 ~라고 했잖아', '전에 ~해 준다고 했지'처럼 앞의 대화를 전제로 하면 위 대화 기록에 있는지 봅니다. 없으면 그런 말을 한 적이 없다고 "
+        "짧게 바로잡고(잘못을 인정하거나 사과하지 않습니다) 지금 구성표 상태를 전한 뒤, 원하면 해 드린다고 묻습니다.",
         *(["", "사용자 질문에 대해 미리 조회한 근거 (이걸로 답합니다. 더 필요하면 explain):", prefetched] if prefetched else []),
         "",
         "답변 언어: 한국어 존댓말. 화면은 평문이라 마크다운(**굵게**, #, 표)을 쓰지 않습니다.",
