@@ -219,10 +219,12 @@ def test_budget_reason_for_value_priority_points_at_the_price_weight(conn):
 def test_pick_basis_reports_rank_weights_and_review_observations_from_the_run_snapshot(conn):
     """"왜 이 CPU 골랐어?"에 "저장된 추천 이유와 리뷰 관측은 없습니다"로 답하던 것(실패 9, 10/2) — 추천 당시 snapshot 의
     후보 중 순위·점수 비중·리뷰 점수와 속성별 관측 수를 옮긴다. 저장은 하지 않는다."""
-    from src.services.recommendation_review_snapshot import snapshot_from_run
+    from src.services.recommendation_review_snapshot import cached_snapshot, clear_snapshot_cache
     revision_id = _build(conn, budget=3_000_000, priority="performance")
     before = _snapshot(conn, revision_id)
-    snap = snapshot_from_run(recommendation_service._require_done_run(conn, revision_id)[1])
+    clear_snapshot_cache()
+    erepo, run = recommendation_service._require_done_run(conn, revision_id)
+    snap = cached_snapshot(erepo, run["id"])
     for slot, variant_id in snap["selected"].items():
         out = "\n".join(result_advice.pick_basis(conn, revision_id, slot, variant_id))
         pool = sorted((c for c in snap["candidates"].values() if c["slot"] == slot), key=lambda c: -c["rank_score"])
@@ -236,9 +238,11 @@ def test_pick_basis_reports_rank_weights_and_review_observations_from_the_run_sn
 
 
 def test_pick_basis_marks_a_part_swapped_in_after_the_run_and_one_outside_the_snapshot(conn):
-    from src.services.recommendation_review_snapshot import snapshot_from_run
+    from src.services.recommendation_review_snapshot import cached_snapshot, clear_snapshot_cache
     revision_id = _build(conn, budget=3_000_000)
-    snap = snapshot_from_run(recommendation_service._require_done_run(conn, revision_id)[1])
+    clear_snapshot_cache()
+    erepo, run = recommendation_service._require_done_run(conn, revision_id)
+    snap = cached_snapshot(erepo, run["id"])
     chosen = snap["selected"]["GPU"]
     other = next(c for c in sorted((c for c in snap["candidates"].values() if c["slot"] == "GPU"),
                                    key=lambda c: -c["rank_score"])[1:] if c["variant_id"] != chosen)

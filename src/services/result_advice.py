@@ -602,10 +602,11 @@ def pick_basis(conn, revision_id: UUID, slot: str, variant_id) -> list[str]:
     전에는 explain 이 상품 단위 리뷰 요약만 읽어 "저장된 추천 이유와 리뷰 관측은 없습니다"로 답했다(실패 9, 10/2)."""
     from src.engine.stage2_requirement import load_computer_rules
     from src.engine.stage3b_rank import _weights_for
-    from src.services.recommendation_review_snapshot import snapshot_from_run
+    from src.services.recommendation_review_snapshot import cached_snapshot
     from src.services.recommendation_service import _require_done_run
 
-    snap = snapshot_from_run(_require_done_run(conn, revision_id)[1])
+    erepo, run = _require_done_run(conn, revision_id)
+    snap = cached_snapshot(erepo, run["id"])
     if snap is None:
         return ["추천 당시 점수 근거: 이 추천에는 저장돼 있지 않음(리뷰 계산 기록 이전 추천)"]
     cands = snap.get("candidates") or {}

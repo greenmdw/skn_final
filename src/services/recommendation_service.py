@@ -784,7 +784,9 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
 def _require_done_run(conn, revision_id: UUID) -> tuple:
     from src.repo.engine_repo import EngineRepo
     erepo = EngineRepo(conn)
-    run = erepo.get_latest_run(revision_id)
+    # 담기·교체·대안·결과 대화가 부를 때마다 reasoning_log·input_snapshot(수백 KB)을 읽지 않도록 가벼운 조회를 쓴다.
+    # 추적 기록이 필요한 곳(교체 후 요약 갱신)은 erepo.get_run_trace, 리뷰 snapshot 은 cached_snapshot 으로 따로 읽는다.
+    run = erepo.get_latest_run_light(revision_id)
     if run is None or run["status"] != "completed":
         raise NotFound("추천 결과가 없습니다. 먼저 /recommend 를 호출하세요.")
     return erepo, run
@@ -1019,8 +1021,8 @@ def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
     from src.repo.catalog_repo import load_specs_by_variant
     from src.repo.product_repo import ProductRepo
     erepo, run = _require_done_run(conn, revision_id)
-    from src.services.recommendation_review_snapshot import snapshot_from_run
-    review_snapshot = snapshot_from_run(run)
+    from src.services.recommendation_review_snapshot import cached_snapshot
+    review_snapshot = cached_snapshot(erepo, run["id"])
     stored = erepo.get_candidates(run["id"])
     current = _find_candidate(stored, item_id)
     current_price = int(current["price"]) if current["price"] is not None else 0
@@ -1088,7 +1090,7 @@ def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID,
         note = f"※ 이후 {current['slot']}를 '{target['name']}'(으)로 교체했습니다({delta}). 이 요약은 교체 전 구성 기준입니다."
         erepo.set_explanation(run["id"], headline=run.get("explanation_headline") or "",
                               text=run["explanation_text"].rstrip() + "\n\n" + note,
-                              reasoning_log=run.get("reasoning_log") or [])
+                              reasoning_log=erepo.get_run_trace(run["id"]))
 
     # P8 FB03: 실제로 바꿔치기가 성공한 뒤에만 기록한다 — 위의 not-found 거부는 아무 것도
     # 남기지 않는다.
