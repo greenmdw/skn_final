@@ -26,7 +26,7 @@ def get_pool() -> ConnectionPool:
     global _pool
     if _pool is None:
         _pool = ConnectionPool(DATABASE_URL, min_size=DB_POOL_MIN, max_size=DB_POOL_MAX, open=True, timeout=DB_POOL_TIMEOUT,
-                               kwargs={"connect_timeout": 2})
+                               kwargs={"connect_timeout": 2}, check=ConnectionPool.check_connection)
     return _pool
 
 
@@ -36,7 +36,8 @@ def get_background_pool() -> ConnectionPool:
     global _background_pool
     if _background_pool is None:
         _background_pool = ConnectionPool(DATABASE_URL, min_size=1, max_size=max(1, DB_BACKGROUND_POOL_MAX), open=True,
-                                          timeout=max(DB_POOL_TIMEOUT, 15), kwargs={"connect_timeout": 2})
+                                          timeout=max(DB_POOL_TIMEOUT, 15), kwargs={"connect_timeout": 2},
+                                          check=ConnectionPool.check_connection)
     return _background_pool
 
 

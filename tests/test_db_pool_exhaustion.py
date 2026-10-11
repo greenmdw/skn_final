@@ -80,3 +80,16 @@ def test_pool_size_and_wait_come_from_the_environment(monkeypatch):
         monkeypatch.delenv("DB_POOL_TIMEOUT")
         importlib.reload(config)
     assert config.DB_POOL_MAX == 20 and config.DB_POOL_TIMEOUT == 5.0
+
+
+def test_pool_replaces_dead_connection_on_checkout():
+    """RDS 재시작처럼 풀 안의 연결이 죽어도, 빌릴 때 점검(check)이 그 연결을 버리고 새로 맺는다(U-14)."""
+    pool = db.get_pool()
+    with pool.connection() as conn:
+        backend = conn.execute("SELECT pg_backend_pid()").fetchone()[0]
+    if True:                                          # 별도 연결로 방금 쓴 연결을 서버에서 끊는다
+        import psycopg
+        with psycopg.connect(DSN, autocommit=True) as admin:
+            admin.execute("SELECT pg_terminate_backend(%s)", (backend,))
+    with pool.connection() as conn:
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
