@@ -34,5 +34,7 @@ def test_search_without_slot_searches_all_guides():
     assert {h["id"] for h in search_care_guide("SSD 발열", k=len(ids))} == ids
 
 
-def test_unknown_slot_falls_back_to_all_guides():
-    assert search_care_guide("SSD 발열", k=1, slot="특이슬롯")
+@pytest.mark.parametrize("kind", [None, "care", "install"])
+def test_search_with_unknown_slot_returns_nothing(kind):
+    """표에 없는 슬롯 이름이면 전 문서로 새지 않고 빈 결과를 낸다(U-11a)."""
+    assert search_care_guide("발열 서멀 스로틀링", k=5, slot="없는슬롯", kind=kind) == []

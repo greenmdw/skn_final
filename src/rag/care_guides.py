@@ -106,7 +106,8 @@ def search_care_guide(query: str, k: int = 1, slot: str | None = None, kind: str
     if not docs:
         return []
     table = INSTALL_GUIDE_IDS if kind == "install" else SLOT_GUIDE_IDS
-    allowed = table.get(slot) if slot else None
+    # slot 을 줬는데 표에 없으면 빈 결과다 — 전 문서 검색으로 새면 엉뚱한 가이드가 붙는다(U-11a).
+    allowed = table.get(slot, ()) if slot else None
     q = _embed([query])[0]
     scored = sorted(
         ({"id": d["id"], "kind": d.get("kind", "care"), "text": d["text"], "score": round(_cosine(q, e), 4)}
