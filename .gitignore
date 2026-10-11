@@ -95,3 +95,11 @@ docs/history/*
 # ── 사양 추출 llm_live 회귀 테스트용 이미지: 저작권·개인정보 때문에 README만 추적 ──
 tests/fixtures/spec_images/*
 !tests/fixtures/spec_images/README.md
+
+# ── 내 로컬 전용 문서 (멘토링 정리 등, 팀과 공유하지 않음) ──
+docs/local/
+
+# ── 화면설계서(PPT) 제작 중간 산출물 ──
+.ppt-build/
+output/presentations/
+artifacts/screen-spec/

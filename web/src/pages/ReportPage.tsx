@@ -93,7 +93,7 @@ export default function ReportPage() {
         <article className="pl-paper">
           <div className="pl-paper-head">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              <div className="pl-mono" style={{ fontSize: 11, color: '#92a4b2' }}>TRUEFIT 견적 리포트</div>
+              <div className="pl-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>TRUEFIT 견적 리포트</div>
               <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em' }}>{setup.title}</div>
               <div className="pl-note">
                 {[confirmed && `${confirmed} 확정`, setup.date && `구매 예정 ${isoToKo(setup.date)}`, `목표 금액 ${wonFmt(setup.target)}`].filter(Boolean).join(' · ')}
@@ -111,7 +111,7 @@ export default function ReportPage() {
             {setup.plan.items.map(item => (
               <div className="pl-report-row" key={item.id}>
                 <ProductThumb imageUrl={item.imageUrl} partKey={item.key} name={item.name} />
-                <span className="cat" style={{ color: '#92a4b2' }}>{item.type}</span>
+                <span className="cat" style={{ color: 'var(--muted)' }}>{item.type}</span>
                 <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                     <b>{item.name}</b>
@@ -133,7 +133,7 @@ export default function ReportPage() {
               {setup.peripherals?.map(item => (
                 <div className="pl-report-row" key={`${item.kind}-${item.name}`}>
                   <ProductThumb imageUrl={item.imageUrl} partKey={item.kind} name={item.name} />
-                  <span className="cat" style={{ color: '#92a4b2' }}>{{ monitor: '모니터', keyboard: '키보드', mouse: '마우스', speaker: '스피커' }[item.kind]}</span>
+                  <span className="cat" style={{ color: 'var(--muted)' }}>{{ monitor: '모니터', keyboard: '키보드', mouse: '마우스', speaker: '스피커' }[item.kind]}</span>
                   <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
                       <b>{item.name}</b>

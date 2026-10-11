@@ -1,8 +1,6 @@
 import { Link, NavLink } from 'react-router-dom'
 import { useAuthUser } from '../state/authStore'
-import truefitLogo from '../assets/truefit-logo.png'
-import truefitLogoLight from '../assets/truefit-logo-light.png'
-import { useTheme } from '../state/theme'
+import Brand from './Brand'
 import ThemeToggle from './ThemeToggle'
 import UserMenu from './UserMenu'
 
@@ -11,11 +9,10 @@ import UserMenu from './UserMenu'
 // 저장한 견적·대화 내역은 플래너(/start)의 좌측 패널에서 본다.
 export default function MarketingHeader() {
   const user = useAuthUser()
-  const { theme } = useTheme()
   return (
     <header className="tf-home-header">
       <Link className="tf-home-brand" to="/" aria-label="TrueFit 홈">
-        <img src={theme === 'light' ? truefitLogoLight : truefitLogo} alt="" aria-hidden="true" />
+        <Brand />
       </Link>
       <nav className="tf-home-nav" aria-label="주요 메뉴">
         <NavLink to="/start">새 컴퓨터 본체</NavLink>

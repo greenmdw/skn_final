@@ -32,12 +32,12 @@ def conn():
         connection.close()
 
 
-def _build(conn, budget: int = 1_500_000, purpose: str = "game") -> uuid.UUID:
+def _build(conn, budget: int = 1_500_000, purpose: str = "game", priority: str = "value") -> uuid.UUID:
     created = session_service.create_session(conn, Principal(user_id=None, browser_token=None))
     principal = Principal(user_id=None, browser_token=created["browser_token"])
     list_uuid = uuid.UUID(created["list_id"])
     session_service.choose_category(conn, list_uuid, "computer", "build", principal)
-    for field, value in (("purpose", purpose), ("budget_max", budget), ("priority", "value")):
+    for field, value in (("purpose", purpose), ("budget_max", budget), ("priority", priority)):
         session_service.patch_slot(conn, list_uuid, field, value, principal)
     revision_id = PlanRepo(conn).get_current_revision(list_uuid)["id"]
     accepted = recommendation_service.start_recommendation(conn, revision_id, strategy="default")
@@ -70,6 +70,17 @@ def test_upgrade_options_lists_only_better_compatible_parts_within_budget(conn):
     assert _snapshot(conn, revision_id) == before
 
 
+def test_upgrade_options_with_new_budget_reports_remaining_against_the_new_budget(conn):
+    from src.agent.result_agent import ResultSession
+    revision_id = _build(conn)                       # 예산 150만
+    result = recommendation_service.get_stored_result(conn, revision_id)
+    out = ResultSession(conn=conn, revision_id=revision_id, result=result).upgrade_options(new_budget="200만원")
+    pairs = re.findall(r"바꾼 뒤 총액 ([\d,]+)원, 바꾼 뒤 잔여 (-?[\d,]+)원", out)
+    assert pairs, out
+    for after, left in pairs:
+        assert int(left.replace(",", "")) == 2_000_000 - int(after.replace(",", "")), out
+
+
 def test_upgrade_options_with_tiny_amount_says_nothing_fits(conn):
     revision_id = _build(conn)
     out = result_advice.upgrade_options(conn, revision_id, 1)
@@ -99,6 +110,23 @@ def test_preview_swap_up_picks_the_next_tier_and_reports_budget(conn):
     assert result_advice._metric("GPU", cand.specs) == min(higher)
     assert "바꾼 뒤 총액" in out and ("잔여" in out or "예산 초과" in out)
     assert "전력:" in out or "⚠ 호환 점검 문제" in out
+
+
+def test_storage_step_and_list_say_capacity_is_unknown(conn):
+    """실패 8(10/9 P1-8) — "저장장치 용량 큰 걸로 하면 얼마야?"에 가격 순 다음 후보를 "한 단계 큰 구성"으로 전하고,
+    39개 후보 중 8번째를 "가장 비싸다"고 했다. 도구 결과가 용량을 모른다는 것과 가장 싼·비싼 후보를 직접 말한다."""
+    from src.agent.result_agent import ResultSession
+    revision_id = _build(conn)
+    out = result_advice.preview_swap(conn, revision_id, "저장장치", direction="up")
+    assert "가격으로 바로 위/아래 후보를 골랐음" in out and result_advice.STORAGE_CAPACITY_NOTE in out, out
+    assert result_advice.STORAGE_CAPACITY_NOTE not in result_advice.preview_swap(conn, revision_id, "GPU", direction="up")
+    result = recommendation_service.get_stored_result(conn, revision_id)
+    listing = ResultSession(conn=conn, revision_id=revision_id, result=result).list_alternatives("저장장치")
+    lines = listing.splitlines()
+    assert lines[-1] == result_advice.STORAGE_CAPACITY_NOTE, listing
+    prices = [int(p.replace(",", "")) for p in re.findall(r"^\d+\. candidate_id=\S+ · .+? · ([\d,]+)원", listing, re.M)]
+    top = re.search(r"가장 비싼 것 \d+\. .+ ([\d,]+)원$", lines[-2])
+    assert top and int(top.group(1).replace(",", "")) == max(prices), lines[-2]
 
 
 def test_savings_options_target_beyond_reach_says_so(conn):
@@ -136,6 +164,94 @@ def test_rule_path_answers_questions_without_changing_the_build(conn):
     # 바꾸라는 말은 예전처럼 바꾼다
     done = recommendation_service.handle_result_message(conn, revision_id, "그래픽카드를 더 저렴한 걸로 바꿔줘")
     assert "바꿨어요" in done["reply"] and _snapshot(conn, revision_id) != before
+
+
+@pytest.mark.parametrize("text", [
+    "왜 700만원 예산에 맞춰서 견적 짜달라 했는데 300만원에 짰어?", "예산 많이 남았는데 왜 다 안 썼어?",
+    "예산을 왜 이것밖에 안 썼어?", "왜 예산을 덜 썼어", "예산 다 안 쓰고 남긴 이유가 뭐야?",
+    # 10/8 표현 점검에서 놓치던 것
+    "예산 다 안 쓴 거야?", "왜 이렇게 싸게 맞췄어?", "300만원밖에 안 나왔네?", "예산 더 써도 되는데 왜 이렇게 싸?",
+    "왜 예산이 100만원 남았다고 나와?",
+])
+def test_budget_left_questions_are_recognized(text):
+    assert result_advice.is_budget_left_question(text)
+
+
+@pytest.mark.parametrize("text", [
+    "남은 예산으로 뭘 올릴까?", "돈 남았는데 바꿀 거 추천해 줄 수 있나?", "왜 이 CPU 골랐어?", "그래픽카드 왜 이거야?",
+    "10만원 더 쓰면 뭐가 좋아져?",
+    # 넓힌 규칙이 잡으면 안 되는 것
+    "남은 돈이 10만원밖에 안 되는데 뭐 올릴 수 있어?", "왜 이 SSD가 다른 것보다 싸?", "돈 남는데 더 좋은 걸로 해줘",
+    "예산 안에서 그래픽카드 바꿔줘", "왜 이 케이스 골랐어? 싸서?", "50만원만 안 쓰면 되는데 뭘 빼?",
+    # 부품 하나를 집은 말 — 세트를 고른 방식이 아니라 그 부품의 근거로 답한다(10/8 오탐 점검)
+    "왜 SSD는 싸게 맞췄어?", "파워 너무 싸게 맞춘 거 아니야? 왜 그래?", "왜 쿨러는 기본으로 짰어? 돈 더 써도 돼",
+    "왜 램을 16GB만 넣었어? 32GB 넣을 돈 남잖아", "왜 메모리가 16GB만 들어갔어? 돈 남잖아", "왜 수냉 쿨러 안 넣었어? 돈 남는데",
+    "왜 이 메인보드는 다른 것보다 10만원 싸게 나왔어?", "왜 이 부품은 싸게 맞췄는지 설명해 줘",
+    "왜 모니터 값은 안 들어갔어? 20만원 남았는데",
+    # 가정·제약·앞으로의 이야기
+    "예산 안 쓰고 중고로 사면 어때?", "왜 예산을 못 쓰게 막아놨어?", "예산을 안 쓴 부분은 다음에 쓸 수 있어?",
+])
+def test_other_questions_are_not_budget_left_questions(text):
+    assert not result_advice.is_budget_left_question(text)
+
+
+def test_budget_reason_explains_how_the_set_was_chosen_without_changing_it(conn):
+    """700만원 예산에 300만원 구성이 나왔을 때 "근거를 확인할 수 없다"고만 답하던 것(2026-10-08) — 고르는 방식·이번
+    점수 비중·용도 기준 등급과 지금 등급을 코드가 옮긴다."""
+    revision_id = _build(conn, budget=7_000_000, purpose="office", priority="performance")
+    before = _snapshot(conn, revision_id)
+    ctx = result_advice._context(conn, revision_id)
+    out = result_advice.budget_reason(conn, revision_id)
+    assert f"잔여 {ctx.budget_max - ctx.total():,}원" in out, out
+    assert "점수 합이 가장 높은 것" in out and "예산은 넘으면 안 되는 상한" in out
+    assert "(성능 우선): 성능 55%" in out                       # 우선순위별 가중치 표 그대로
+    assert "사무 용도 기준 등급" in out and "- CPU:" in out and "- GPU:" in out
+    assert "\n→ " in out                                         # 결론 줄은 코드가 고른다
+    assert _snapshot(conn, revision_id) == before
+
+
+def test_budget_reason_for_value_priority_points_at_the_price_weight(conn):
+    revision_id = _build(conn, budget=3_000_000)
+    out = result_advice.budget_reason(conn, revision_id)
+    assert "(가성비 우선): 가격 50%" in out and "→ 가성비 우선이라 가격 비중이 커서" in out, out
+
+
+def test_pick_basis_reports_rank_weights_and_review_observations_from_the_run_snapshot(conn):
+    """"왜 이 CPU 골랐어?"에 "저장된 추천 이유와 리뷰 관측은 없습니다"로 답하던 것(실패 9, 10/2) — 추천 당시 snapshot 의
+    후보 중 순위·점수 비중·리뷰 점수와 속성별 관측 수를 옮긴다. 저장은 하지 않는다."""
+    from src.services.recommendation_review_snapshot import snapshot_from_run
+    revision_id = _build(conn, budget=3_000_000, priority="performance")
+    before = _snapshot(conn, revision_id)
+    snap = snapshot_from_run(recommendation_service._require_done_run(conn, revision_id)[1])
+    for slot, variant_id in snap["selected"].items():
+        out = "\n".join(result_advice.pick_basis(conn, revision_id, slot, variant_id))
+        pool = sorted((c for c in snap["candidates"].values() if c["slot"] == slot), key=lambda c: -c["rank_score"])
+        rank = [c["variant_id"] for c in pool].index(variant_id) + 1
+        assert f"후보 {len(pool)}개 중 점수 {rank}위" in out, out
+        assert "점수 비중: 성능 55%" in out and "리뷰 점수 " in out and "바꾼 부품" not in out
+        assert ("1위는" in out) == (rank > 1)
+        if not any(c["p"] + c["n"] + c["mixed"] for c in snap["candidates"][variant_id]["detail"]["contributions"]):
+            assert "리뷰 점수가 순위를 가르지 않았음" in out
+    assert _snapshot(conn, revision_id) == before
+
+
+def test_pick_basis_marks_a_part_swapped_in_after_the_run_and_one_outside_the_snapshot(conn):
+    from src.services.recommendation_review_snapshot import snapshot_from_run
+    revision_id = _build(conn, budget=3_000_000)
+    snap = snapshot_from_run(recommendation_service._require_done_run(conn, revision_id)[1])
+    chosen = snap["selected"]["GPU"]
+    other = next(c for c in sorted((c for c in snap["candidates"].values() if c["slot"] == "GPU"),
+                                   key=lambda c: -c["rank_score"])[1:] if c["variant_id"] != chosen)
+    out = "\n".join(result_advice.pick_basis(conn, revision_id, "GPU", other["variant_id"]))
+    assert "1위는" in out and "추천 뒤 채팅에서 바꾼 부품" in out, out
+    assert "후보에 없던 부품" in result_advice.pick_basis(conn, revision_id, "GPU", uuid.uuid4())[0]
+
+
+def test_rule_path_answers_why_the_budget_was_left(conn):
+    revision_id = _build(conn, budget=7_000_000, purpose="office", priority="performance")
+    reply = recommendation_service.handle_result_message(
+        conn, revision_id, "왜 700만원 예산에 맞춰서 견적 짜달라 했는데 300만원에 짰어?")["reply"]
+    assert "예산을 채우는 방식이 아니라" in reply, reply
 
 
 def test_step_down_prefers_parts_that_still_meet_the_requirement(conn):
@@ -215,3 +331,61 @@ def test_relaxing_only_lowers_performance_never_power_or_socket(conn):
             verdict, reasons = result_advice._requirement_verdict(ctx, row["slot"], cand)
             if verdict == "Fail":
                 assert row["slot"] in ("CPU", "GPU", "RAM"), (row["slot"], reasons)
+
+
+def test_swap_refuses_a_candidate_below_the_build_requirement(conn):
+    """실패 7(10/3 리허설) — "램 더 싼 걸로 바꿔줘"에 32GB 가 8GB 로 바뀌었다. 요구 사양 미달 후보는 도구가 바꾸지 않고,
+    후보 목록에도 이유와 함께 ⚠ 를 단다(성능 등급만 보던 목록은 용량 미달을 못 잡았다)."""
+    from src.agent.result_agent import ResultSession
+    revision_id = _build(conn, purpose="video_edit")
+    ctx = result_advice._context(conn, revision_id)
+    result = recommendation_service.get_stored_result(conn, revision_id)
+    session = ResultSession(conn=conn, revision_id=revision_id, result=result, read_only=False)
+    found = None
+    for slot in ("RAM", "CPU", "GPU", "파워", "저장장치"):
+        if ctx.row(slot) is None:
+            continue
+        for line in session.list_alternatives(slot).splitlines():
+            cid = (_ID.findall(line) or [None])[0]
+            cand = ctx.by_variant.get(cid) if cid else None
+            if cand is not None and result_advice._requirement_verdict(ctx, slot, cand)[0] == "Fail":
+                found = (slot, cid, line)
+                break
+        if found:
+            break
+    assert found, "후보 목록에 요구 사양을 못 채우는 후보가 없다"
+    slot, cid, line = found
+    assert "⚠ 요구 사양 미달(" in line, line
+    before = _snapshot(conn, revision_id)
+    out = session.swap(slot, cid)
+    assert out.startswith("바꾸지 않음"), out
+    assert not session.changed and _snapshot(conn, revision_id) == before
+
+
+@pytest.mark.parametrize("sentence, expected", [
+    ("최고예요 제품 잘 작동됩니다~", "제품 잘 작동됩니다~"),
+    ("좋아요 배송 빠름", "배송 빠름"),
+    ("성능 최고예요", "성능 최고예요"),            # 앞에 붙은 꼬리표만 뗀다
+])
+def test_review_quote_drops_the_leading_rating_label(sentence, expected):
+    assert result_advice._quote({"evidence_sentences": [sentence]}) == expected
+
+
+def test_ram_step_down_falls_back_to_a_cheaper_part_of_the_same_capacity(conn):
+    """"램 좀 더 싼 걸로 바꿔줘" — 요구를 채우는 더 낮은 용량이 없으면 8GB(요구 미달)만 내밀어 교체가 막혔다(10/10 평가).
+    같은 용량의 더 싼 후보가 있으면 그것을 고른다."""
+    revision_id = _build(conn)
+    ctx = result_advice._context(conn, revision_id)
+    cur = ctx.chosen()["RAM"]
+    m0 = result_advice._metric("RAM", cur.specs)
+    lower_ok = [c for c in ctx.pool["RAM"] if (result_advice._metric("RAM", c.specs) or m0) < m0
+                and result_advice._requirement_verdict(ctx, "RAM", c)[0] != "Fail" and not result_advice._new_failures(ctx, "RAM", c)]
+    same = [c for c in ctx.pool["RAM"] if c.variant_id != cur.variant_id and result_advice._metric("RAM", c.specs) == m0
+            and result_advice._price(c) < result_advice._price(cur) and not result_advice._new_failures(ctx, "RAM", c)
+            and result_advice._requirement_verdict(ctx, "RAM", c)[0] != "Fail"]
+    if lower_ok or not same:
+        pytest.skip("이 카탈로그에선 요구를 채우는 더 낮은 용량이 있거나 같은 용량의 더 싼 후보가 없다")
+    cand = result_advice.step_candidate(ctx, "RAM", "down")
+    assert cand.variant_id == max(same, key=result_advice._price).variant_id
+    out = result_advice.preview_swap(conn, revision_id, "RAM", direction="down")
+    assert "같은 단계의 더 싼 후보" in out and "⚠ 이 견적의 요구 사양을 못 채움" not in out, out

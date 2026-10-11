@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from src.agent.conditions_agent import _model
+from src.clients.llm_guard import llm_call_slot
 from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, QUOTE_REVIEW_AGENT
 
 log = logging.getLogger(__name__)
@@ -272,7 +273,8 @@ def run_turn(review: dict, history: list[tuple[str, str]], text: str,
         tool_executor=SequentialToolExecutor(),
         callback_handler=None,
     )
-    reply = str(agent(text)).strip()
+    with llm_call_slot():
+        reply = str(agent(text)).strip()
     ok, outside, bad = reply_is_grounded(reply, [prompt, text, *session.outputs])
     ok = ok and price_claims_are_grounded(reply, review)
     if not ok:

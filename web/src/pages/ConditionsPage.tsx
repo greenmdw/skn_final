@@ -59,7 +59,7 @@ export default function ConditionsPage() {
             return (
               <div className="pl-req" key={key}>
                 <div className="k">{label(key, fallback)}</div>
-                <div className="v" style={{ color: text ? undefined : '#92a4b2' }}>{text || '아직 말씀하지 않았어요'}</div>
+                <div className="v" style={{ color: text ? undefined : 'var(--muted)' }}>{text || '아직 말씀하지 않았어요'}</div>
                 {text ? <span className="pl-badge ok">채워짐</span> : <span className="pl-badge need">답변 필요</span>}
               </div>
             )
@@ -67,7 +67,7 @@ export default function ConditionsPage() {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>추가 조건 <span style={{ fontWeight: 400, color: '#92a4b2' }}>· 채팅에서 말한 것만 쌓여요</span></div>
+          <div style={{ fontSize: 13, fontWeight: 600 }}>추가 조건 <span style={{ fontWeight: 400, color: 'var(--muted)' }}>· 채팅에서 말한 것만 쌓여요</span></div>
           {applied.length > 0 && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               <div className="pl-group-title on">추천에 반영됨</div>

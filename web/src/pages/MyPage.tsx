@@ -1,163 +1,185 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import PlannerShell from '../components/PlannerShell'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
-import { logout, setAuthUser, useAuthUser } from '../state/authStore'
+import MarketingHeader from '../components/MarketingHeader'
+import Modal from '../components/Modal'
+import { logout, useAuthUser } from '../state/authStore'
+import { useSetups } from '../state/SetupsContext'
 import { useToast } from '../state/ToastContext'
-import { authErrorMessage, validPassword } from './auth/messages'
+import { wonFmt } from '../utils/format'
+import { authErrorMessage } from './auth/messages'
+import Dashboard from './mypage/Dashboard'
+import { ConfigsPage, ConsultsPage, ReportsPage } from './mypage/ListPages'
+import MyPcPage from './mypage/MyPcPage'
+import ProfilePage from './mypage/ProfilePage'
+import { NAV, type MyPageId } from './mypage/nav'
+import { PC_FIELDS, configKey, dateText, pcQuestion, readMyPc, reportPath, setupSpecs, setupTotal, writeMyPc, type MyPc, type PcParts } from './mypage/model'
 import '../styles/mypage.css'
 
-const joinedText = (iso: string | undefined) => {
-  const time = iso ? Date.parse(iso) : NaN
-  return Number.isNaN(time) ? '' : new Date(time).toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })
+const PAGE_IDS = NAV.flatMap(item => (item === 'separator' ? [] : [item[0]]))
+const isPage = (value: string | null): value is MyPageId => PAGE_IDS.includes(value as MyPageId)
+
+function ConfigDialog({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const { savedSetups } = useSetups()
+  const setup = id ? savedSetups.find(item => configKey(item) === id) : undefined
+  return (
+    <Modal open={Boolean(setup)} onClose={onClose} className="mp-dialog mp-dialog-sm">
+      {setup && (
+        <div className="mp-dialog-body">
+          <header className="mp-dialog-head">
+            <div><h2>{setup.title} 상세 구성</h2><p>{dateText(setup.savedAt)} 확정 · 합계 {wonFmt(setupTotal(setup))}</p></div>
+            <button className="mp-close" type="button" onClick={onClose} aria-label="닫기">×</button>
+          </header>
+          <div className="mpx-spec-grid">
+            {setupSpecs(setup).map(([label, value], index) => <div key={label + index}><small>{label}</small>{value}</div>)}
+          </div>
+          <div className="mp-dialog-actions">
+            <Link className="mp-btn mp-link-btn" to={reportPath(setup)}>리포트 열기</Link>
+            <button className="mp-btn primary" type="button" onClick={onClose}>닫기</button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
 }
 
-// 계정 정보 보기와 이름·비밀번호 변경, 회원 탈퇴. 모두 서버(/auth/me, /auth/password, /auth/withdraw)가 처리한다.
+function WithdrawDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { showToast } = useToast()
+  const navigate = useNavigate()
+  const [password, setPassword] = useState('')
+  const [sure, setSure] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => { if (!open) { setPassword(''); setSure(false); setBusy(false); setError('') } }, [open])
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    if (!password) { setError('비밀번호를 입력해 주세요.'); return }
+    if (!sure) { setError('탈퇴하면 되돌릴 수 없다는 안내를 확인해 주세요.'); return }
+    setBusy(true); setError('')
+    try {
+      await api.auth.withdraw(password)
+      await logout().catch(() => undefined)
+      showToast('탈퇴했어요. 이용해 주셔서 감사합니다.')
+      navigate('/')
+    } catch (caught) { setError(authErrorMessage(caught)); setBusy(false) }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} className="mp-dialog mp-dialog-sm">
+      <form className="mp-dialog-body" onSubmit={submit} noValidate>
+        <header className="mp-dialog-head">
+          <div><h2>회원 탈퇴</h2><p>TrueFit 계정을 탈퇴하시겠어요?</p></div>
+          <button className="mp-close" type="button" onClick={onClose} aria-label="닫기">×</button>
+        </header>
+        <div className="mp-danger" style={{ marginTop: 18 }}>
+          <div><h2>복구할 수 없어요</h2><p>탈퇴하면 저장한 PC 구성, AI 상담 기록, 추천 리포트가 모두 삭제되며 복구할 수 없습니다.</p></div>
+        </div>
+        <label style={{ display: 'grid', gap: 6, marginTop: 16, fontWeight: 700, fontSize: 13 }}>본인 확인을 위해 비밀번호를 입력해 주세요
+          <input className="mp-input" type="password" autoComplete="current-password" value={password} disabled={busy}
+            onChange={event => { setPassword(event.target.value); setError('') }} />
+        </label>
+        <label className="mp-check" style={{ marginTop: 12 }}>
+          <input type="checkbox" checked={sure} disabled={busy} onChange={event => { setSure(event.target.checked); setError('') }} />
+          <span>탈퇴하면 되돌릴 수 없다는 점을 확인했어요.</span>
+        </label>
+        {error && <div className="mp-alert" role="alert">{error}</div>}
+        <div className="mp-dialog-actions">
+          <button className="mp-btn" type="button" disabled={busy} onClick={onClose}>취소</button>
+          <button className="mp-btn" type="submit" disabled={busy} style={{ color: '#fff', background: 'var(--bad)', borderColor: 'var(--bad)' }}>{busy ? '탈퇴하는 중…' : '탈퇴하기'}</button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
+// My TrueFit: 왼쪽 메뉴 + 화면들. 구성·리포트·상담 기록은 서버에 저장된 내 견적 데이터를 그대로 보여 준다.
 export default function MyPage() {
   const user = useAuthUser()
   const { showToast } = useToast()
   const navigate = useNavigate()
-
-  const [name, setName] = useState(user?.name ?? '')
-  const [nameBusy, setNameBusy] = useState(false)
-  const [nameError, setNameError] = useState('')
-  const [marketingBusy, setMarketingBusy] = useState(false)
-
-  const [current, setCurrent] = useState('')
-  const [next, setNext] = useState('')
-  const [again, setAgain] = useState('')
-  const [passwordBusy, setPasswordBusy] = useState(false)
-  const [passwordError, setPasswordError] = useState('')
-
+  const [params, setParams] = useSearchParams()
+  const page: MyPageId = isPage(params.get('tab')) ? (params.get('tab') as MyPageId) : 'dashboard'
+  const [configId, setConfigId] = useState<string | null>(null)
   const [withdrawOpen, setWithdrawOpen] = useState(false)
-  const [withdrawPassword, setWithdrawPassword] = useState('')
-  const [withdrawSure, setWithdrawSure] = useState(false)
-  const [withdrawBusy, setWithdrawBusy] = useState(false)
-  const [withdrawError, setWithdrawError] = useState('')
+  const mainRef = useRef<HTMLElement>(null)
 
-  useEffect(() => { if (user) setName(user.name) }, [user])
+  const email = user?.email ?? ''
+  const [myPc, setMyPc] = useState<MyPc | null>(() => (email ? readMyPc(email) : null))
+  useEffect(() => { setMyPc(email ? readMyPc(email) : null) }, [email])
+  useEffect(() => { mainRef.current?.scrollTo({ top: 0 }) }, [page])
+
+  const go = (next: MyPageId) => setParams(next === 'dashboard' ? {} : { tab: next })
+
+  function registerPc(parts: PcParts, source: string, title: string): boolean {
+    const clean: PcParts = {}
+    for (const [key] of PC_FIELDS) { const value = (parts[key] ?? '').trim(); if (value) clean[key] = value }
+    if (!Object.keys(clean).length) { showToast('부품을 한 가지 이상 입력해 주세요.'); return false }
+    const next: MyPc = { parts: clean, source, title, savedAt: new Date().toISOString() }
+    writeMyPc(email, next); setMyPc(next)
+    showToast('내 현재 PC로 등록했어요.')
+    return true
+  }
+  function resetPc() {
+    if (!window.confirm('등록한 내 현재 PC를 삭제할까요?')) return
+    writeMyPc(email, null); setMyPc(null)
+    showToast('내 현재 PC를 삭제했어요.')
+  }
+  function usePc() {
+    if (!myPc) return
+    showToast('내 PC 구성을 견적 점검 질문에 넣어 두었어요.')
+    navigate('/check', { state: { question: pcQuestion(myPc) } })
+  }
 
   if (!user) {
     return (
-      <PlannerShell>
-        <div className="pl-page narrow">
-          <h2 className="pl-h2">마이페이지</h2>
-          <div className="pl-empty">로그인한 뒤에 볼 수 있어요.</div>
-          <div><Link className="pl-btn" style={{ textDecoration: 'none', display: 'inline-block' }} to="/login?next=/mypage">로그인하기</Link></div>
+      <div className="mp-root">
+        <MarketingHeader />
+        <div className="mp-page" style={{ margin: 'auto' }}>
+          <div className="mp-section">
+            <div className="mp-empty-card">
+              <strong>마이페이지는 로그인한 뒤에 볼 수 있어요</strong>
+              <span>저장한 구성과 상담 기록, 리포트를 한곳에서 모아 볼 수 있어요.</span>
+              <Link className="mp-btn primary mp-link-btn" to="/login?next=/mypage">로그인하기</Link>
+            </div>
+          </div>
         </div>
-      </PlannerShell>
+      </div>
     )
   }
 
-  async function saveName(event: FormEvent) {
-    event.preventDefault()
-    const clean = name.trim()
-    if (!clean) { setNameError('이름을 입력해 주세요.'); return }
-    if (clean.length > 20) { setNameError('이름은 20자 이하로 입력해 주세요.'); return }
-    if (clean === user?.name) { setNameError('지금 이름과 같아요.'); return }
-    setNameBusy(true); setNameError('')
-    try {
-      setAuthUser(await api.auth.updateProfile({ name: clean }))
-      showToast('이름을 바꿨어요.')
-    } catch (caught) { setNameError(authErrorMessage(caught)) } finally { setNameBusy(false) }
+  const pages: Record<MyPageId, React.ReactNode> = {
+    dashboard: <Dashboard user={user} myPc={myPc} go={go} openConfig={setConfigId} />,
+    mypc: <MyPcPage myPc={myPc} onRegister={registerPc} onReset={resetPc} onUse={usePc} />,
+    configs: <ConfigsPage openConfig={setConfigId} />,
+    consults: <ConsultsPage />,
+    reports: <ReportsPage />,
+    profile: <ProfilePage user={user} onWithdraw={() => setWithdrawOpen(true)} />,
   }
 
-  async function toggleMarketing(checked: boolean) {
-    setMarketingBusy(true)
-    try {
-      setAuthUser(await api.auth.updateProfile({ marketingConsent: checked }))
-      showToast(checked ? '마케팅 정보 수신에 동의했어요.' : '마케팅 정보 수신 동의를 해제했어요.')
-    } catch (caught) { showToast(authErrorMessage(caught)) } finally { setMarketingBusy(false) }
-  }
-
-  async function savePassword(event: FormEvent) {
-    event.preventDefault()
-    if (!current) { setPasswordError('현재 비밀번호를 입력해 주세요.'); return }
-    if (!validPassword(next)) { setPasswordError('새 비밀번호는 영문과 숫자를 포함해 8자 이상이어야 해요.'); return }
-    if (next === current) { setPasswordError('현재 비밀번호와 다른 비밀번호로 바꿔 주세요.'); return }
-    if (next !== again) { setPasswordError('새 비밀번호가 서로 일치하지 않아요.'); return }
-    setPasswordBusy(true); setPasswordError('')
-    try {
-      await api.auth.changePassword({ currentPassword: current, newPassword: next })
-      setCurrent(''); setNext(''); setAgain('')
-      showToast('비밀번호를 바꿨어요.')
-    } catch (caught) { setPasswordError(authErrorMessage(caught)) } finally { setPasswordBusy(false) }
-  }
-
-  async function withdraw(event: FormEvent) {
-    event.preventDefault()
-    if (!withdrawPassword) { setWithdrawError('비밀번호를 입력해 주세요.'); return }
-    if (!withdrawSure) { setWithdrawError('탈퇴하면 되돌릴 수 없다는 안내를 확인해 주세요.'); return }
-    setWithdrawBusy(true); setWithdrawError('')
-    try {
-      await api.auth.withdraw(withdrawPassword)
-      await logout().catch(() => undefined)
-      showToast('탈퇴했어요. 이용해 주셔서 감사합니다.')
-      navigate('/')
-    } catch (caught) { setWithdrawError(authErrorMessage(caught)); setWithdrawBusy(false) }
-  }
-
-  const joined = joinedText(user.createdAt)
   return (
-    <PlannerShell>
-      <div className="pl-page mp-page">
-        <div className="mp-heading">
-          <div className="pl-eyebrow pl-mono">마이페이지</div>
-          <h2 className="pl-h2" style={{ fontSize: 26 }}>{user.name} 님</h2>
-          <span className="pl-note">{user.email}{joined ? ` · ${joined} 가입` : ''}</span>
-        </div>
-
-        <section className="pl-card mp-card">
-          <h3>계정 정보</h3>
-          <form className="mp-form" onSubmit={saveName} noValidate>
-            <label className="pl-field">이메일<input value={user.email} readOnly disabled /></label>
-            <label className="pl-field">이름
-              <input value={name} maxLength={20} onChange={event => { setName(event.target.value); setNameError('') }} />
-            </label>
-            {nameError && <div className="pl-alert bad" role="alert">{nameError}</div>}
-            <div className="mp-actions"><button type="submit" className="pl-btn" disabled={nameBusy}>{nameBusy ? '저장하는 중…' : '이름 저장'}</button></div>
-          </form>
-          <label className="mp-check">
-            <input type="checkbox" checked={Boolean(user.marketingConsent)} disabled={marketingBusy} onChange={event => void toggleMarketing(event.target.checked)} />
-            <span>마케팅 정보 수신에 동의합니다 <small>(선택)</small></span>
-          </label>
-        </section>
-
-        <section className="pl-card mp-card">
-          <h3>비밀번호 변경</h3>
-          <form className="mp-form" onSubmit={savePassword} noValidate>
-            <label className="pl-field">현재 비밀번호<input type="password" autoComplete="current-password" value={current} onChange={event => { setCurrent(event.target.value); setPasswordError('') }} /></label>
-            <label className="pl-field">새 비밀번호<input type="password" autoComplete="new-password" value={next} onChange={event => { setNext(event.target.value); setPasswordError('') }} placeholder="영문·숫자 포함 8자 이상" /></label>
-            <label className="pl-field">새 비밀번호 확인<input type="password" autoComplete="new-password" value={again} onChange={event => { setAgain(event.target.value); setPasswordError('') }} /></label>
-            {passwordError && <div className="pl-alert bad" role="alert">{passwordError}</div>}
-            <div className="mp-actions"><button type="submit" className="pl-btn" disabled={passwordBusy}>{passwordBusy ? '바꾸는 중…' : '비밀번호 변경'}</button></div>
-          </form>
-        </section>
-
-        <section className="pl-card mp-card mp-danger">
-          <h3>회원 탈퇴</h3>
-          {!withdrawOpen ? (
-            <>
-              <p className="pl-note">탈퇴하면 계정 정보가 삭제되고 되돌릴 수 없어요.</p>
-              <div className="mp-actions"><button type="button" className="mp-danger-btn" onClick={() => setWithdrawOpen(true)}>탈퇴 진행하기</button></div>
-            </>
-          ) : (
-            <form className="mp-form" onSubmit={withdraw} noValidate>
-              <p className="pl-note">본인 확인을 위해 비밀번호를 입력해 주세요. 탈퇴하면 계정 정보가 삭제되고 되돌릴 수 없어요.</p>
-              <label className="pl-field">비밀번호<input type="password" autoComplete="current-password" value={withdrawPassword} onChange={event => { setWithdrawPassword(event.target.value); setWithdrawError('') }} /></label>
-              <label className="mp-check">
-                <input type="checkbox" checked={withdrawSure} onChange={event => { setWithdrawSure(event.target.checked); setWithdrawError('') }} />
-                <span>탈퇴하면 되돌릴 수 없다는 점을 확인했어요.</span>
-              </label>
-              {withdrawError && <div className="pl-alert bad" role="alert">{withdrawError}</div>}
-              <div className="mp-actions">
-                <button type="button" className="pl-btn ghost" disabled={withdrawBusy} onClick={() => { setWithdrawOpen(false); setWithdrawPassword(''); setWithdrawSure(false); setWithdrawError('') }}>취소</button>
-                <button type="submit" className="mp-danger-btn" disabled={withdrawBusy}>{withdrawBusy ? '탈퇴하는 중…' : '회원 탈퇴'}</button>
-              </div>
-            </form>
-          )}
-        </section>
-      </div>
-    </PlannerShell>
+    <div className="mp-root">
+      <MarketingHeader />
+      <section className="mypage-shell" aria-label="My TrueFit 마이페이지">
+        <aside className="mp-sidebar">
+          <h2>My TrueFit</h2>
+          <nav className="mp-nav" aria-label="마이페이지 메뉴">
+            {NAV.map(item => (item === 'separator'
+              ? <span className="mp-separator" aria-hidden="true" key="sep" />
+              : (
+                <button key={item[0]} className={page === item[0] ? 'on' : ''} type="button" aria-current={page === item[0] ? 'page' : undefined} onClick={() => go(item[0])}>
+                  <span className="mp-icon">{item[1]}</span>{item[2]}
+                </button>
+              )))}
+          </nav>
+        </aside>
+        <main className="mp-main" ref={mainRef}>
+          <div className="mp-page">{pages[page]}</div>
+        </main>
+      </section>
+      <ConfigDialog id={configId} onClose={() => setConfigId(null)} />
+      <WithdrawDialog open={withdrawOpen} onClose={() => setWithdrawOpen(false)} />
+    </div>
   )
 }

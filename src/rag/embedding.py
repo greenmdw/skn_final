@@ -147,7 +147,9 @@ class OpenAIEmbedder:
                 raise EmbeddingError("embedding_unavailable")
             from openai import OpenAI
 
-            self.client = OpenAI(api_key=OPENAI_API_KEY)
+            from src.config import LLM_TIMEOUT_SECONDS
+
+            self.client = OpenAI(api_key=OPENAI_API_KEY, timeout=LLM_TIMEOUT_SECONDS)
         return self.client
 
     def embed(self, texts: list[str]) -> list[list[float]]:

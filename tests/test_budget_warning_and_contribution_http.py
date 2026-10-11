@@ -64,7 +64,7 @@ def test_result_carries_the_real_contribution_not_the_old_mockup_numbers(client)
     assert any(step.get("step") == "기여도" for step in result["reasoning_log"])
 
 
-def test_value_priority_result_explains_the_unspent_budget_but_performance_does_not(client):
+def test_value_priority_result_explains_the_unspent_budget_and_offers_performance(client):
     lid, _ = _start(client, purpose="game", budget_max=2_000_000, priority="value")
     assert client.post(f"/session/{lid}/recommend", json={}).status_code == 202
     result = client.get(f"/session/{lid}/result").json()
@@ -78,4 +78,5 @@ def test_value_priority_result_explains_the_unspent_budget_but_performance_does_
     assert client.post(f"/session/{lid}/recommend", json={}).status_code == 202
     again = client.get(f"/session/{lid}/result").json()
     assert again["totals"]["selected_price"] > result["totals"]["selected_price"]
-    assert again["budget_notice"] is None
+    # 성능 우선으로 받은 구성에는 다시 추천받으라는 안내가 없다(많이 남으면 이유 안내만, 버튼 없음)
+    assert again["budget_notice"] is None or again["budget_notice"]["suggest_priority"] is None

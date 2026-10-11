@@ -22,7 +22,7 @@
 .pf-kind b { font-size: 14px; }
 .pf-kind i { color: var(--mint); font-size: 17px; font-style: normal; }
 .pf-kind small { display: block; margin-top: 15px; color: var(--muted); font-size: 11px; line-height: 1.45; }
-.pf-kind.on { border-color: var(--mint); background: var(--mint); color: var(--on-mint); }
+.pf-kind.on { border-color: transparent; background: var(--grad); color: #fff; }
 .pf-kind.on i, .pf-kind.on small { color: var(--on-mint); }
 .pf-condition-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .pf-condition-card, .pf-extra {
@@ -33,7 +33,7 @@
 .pf-card-title b, .pf-extra > b { font-size: 13px; }
 .pf-card-title span, .pf-extra > span { color: var(--muted); font-size: 11px; }
 .pf-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 14px; }
-.pf-chips > span { padding: 5px 9px; border-radius: 999px; background: rgba(96,237,192,.13); color: var(--mint); font-size: 11px; }
+.pf-chips > span { padding: 5px 9px; border-radius: 999px; background: rgba(62,98,255,.13); color: var(--mint); font-size: 11px; }
 .pf-chips p { margin: 0; color: var(--muted); font-size: 12px; }
 .pf-extra { min-height: 92px; }
 .pf-action { display: flex; align-items: center; justify-content: flex-end; gap: 20px; }
@@ -43,7 +43,7 @@
 .pf-chat .pl-chat-log { gap: 12px; }
 .pf-chat .pl-chat-foot { display: flex; flex-direction: column; gap: 10px; }
 .pf-quick { margin-bottom: 0; }
-.pf-reflected { padding: 8px 10px; border-radius: 6px; background: rgba(28,201,145,.16); color: var(--ok); font-size: 11px; line-height: 1.5; }
+.pf-reflected { padding: 8px 10px; border-radius: 6px; background: rgba(61,220,151,.16); color: var(--ok); font-size: 11px; line-height: 1.5; }
 
 .pf-results-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .pf-results-heading > div:first-child { display: flex; flex-direction: column; gap: 8px; }
@@ -54,7 +54,7 @@
 .pf-results-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .pf-result-card { min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); display: flex; flex-direction: column; gap: 20px; }
 .pf-product-head { display: grid; grid-template-columns: 70px minmax(0, 1fr) auto; gap: 14px; align-items: start; }
-.pf-product-image { overflow: hidden; width: 70px; height: 70px; border: 1px solid var(--line); border-radius: 12px; background: repeating-linear-gradient(135deg, #132129 0 9px, #0b171e 9px 18px); display: grid; place-items: center; color: var(--muted); font-size: 11px; }
+.pf-product-image { overflow: hidden; width: 70px; height: 70px; border: 1px solid var(--line); border-radius: 12px; background: repeating-linear-gradient(135deg, #16213a 0 9px, #0f1829 9px 18px); display: grid; place-items: center; color: var(--muted); font-size: 11px; }
 .pf-product-title { min-width: 0; }
 .pf-product-title > span { color: var(--muted); font-size: 12px; font-weight: 600; }
 .pf-product-title h2 { margin: 5px 0 6px; font-size: 16px; line-height: 1.35; overflow-wrap: anywhere; }
@@ -65,9 +65,9 @@
 .pf-evidence > p { margin: 0; font-size: 13px; line-height: 1.6; }
 .pf-review { display: flex; flex-direction: column; gap: 6px; }
 .pf-review > p { margin: 0; font-size: 13px; line-height: 1.5; }
-.pf-review-track { height: 6px; border-radius: 999px; overflow: hidden; background: #1b2b34; }
+.pf-review-track { height: 6px; border-radius: 999px; overflow: hidden; background: #1c2b47; }
 .pf-review-track i { display: block; height: 100%; border-radius: inherit; background: var(--mint); }
-.pf-review blockquote { margin: 2px 0 0; padding: 2px 0 2px 12px; border-left: 2px solid var(--line2); color: #c6d2d9; font-size: 12px; line-height: 1.65; }
+.pf-review blockquote { margin: 2px 0 0; padding: 2px 0 2px 12px; border-left: 2px solid var(--line2); color: #c6d2e6; font-size: 12px; line-height: 1.65; }
 .pf-review.weak .pf-review-track i { background: #e0b24a; }
 .pf-weak-note { padding: 8px 10px; border: 1px dashed #665329; border-radius: 8px; background: rgba(224,178,74,.08); color: #e6c774; font-size: 11px; line-height: 1.5; }
 .pf-device-checks { padding: 12px 14px; border-radius: 11px; background: var(--panel2); display: flex; flex-direction: column; gap: 9px; }

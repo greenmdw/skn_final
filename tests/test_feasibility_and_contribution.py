@@ -127,11 +127,21 @@ def test_quiet_priority_gets_its_own_reason():
     assert "저소음" in notice["message"]
 
 
-def test_no_notice_when_the_leftover_is_small_or_priority_already_fills_the_budget():
+def test_no_notice_when_the_leftover_is_small():
     build = {"mode": "build", "budget_max": 2_000_000}
     assert budget_notice(_totals(1_800_000), {**build, "priority": "value"}) is None          # 10% 남음 — 흔한 정도
     assert budget_notice(_totals(1_700_000), {**build, "priority": "value"}) is not None      # 정확히 15% 는 안내
-    assert budget_notice(_totals(1_000_000), {**build, "priority": "performance"}) is None    # 성능 우선은 채우는 쪽이다
+    assert budget_notice(_totals(1_800_000), {**build, "priority": "performance"}) is None
+
+
+def test_performance_priority_that_leaves_a_lot_explains_the_method_without_a_retry_offer():
+    """성능 우선은 "이미 채우는 쪽"이라 빼 두었지만 700만원 예산에 300만원 구성이 나왔다(2026-10-08). 다시 추천받을
+    우선순위가 없으니 suggest_priority 는 비우고(화면이 버튼을 숨긴다) 결과 채팅으로 안내한다."""
+    notice = budget_notice(_totals(3_085_120), {"mode": "build", "budget_max": 7_000_000, "priority": "performance",
+                                                "purpose": "office"})
+    assert notice["suggest_priority"] is None and notice["remaining"] == 3_914_880
+    assert "사무 용도 기준 등급" in notice["message"] and "남은 예산으로 뭘 올릴까?" in notice["message"]
+    assert "성능 우선'으로 다시" not in notice["message"]
 
 
 def test_no_notice_for_upgrade_over_budget_or_missing_data():

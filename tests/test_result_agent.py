@@ -47,9 +47,68 @@ def test_set_item_validates_before_touching_db():
     assert s.set_item("GPU", qty="abc").startswith("오류")
     assert s.set_item("GPU").startswith("오류")          # 바꿀 값 없음
     assert s.set_item("모니터", qty="2").startswith("오류")
-    assert s.swap("GPU", "not-a-uuid").startswith("오류")
     assert s.swap("모니터", str(uuid4())).startswith("오류")
-    assert len(s.trace) == 6 and not s.changed
+    assert len(s.trace) == 5 and not s.changed
+
+
+def _pool(*names_prices, current="AMD Radeon RX 7600"):
+    """ProductRepo.candidates_by_slot 의 GPU 행 — swap 이 받아 주는 후보 전체."""
+    rows = [{"variant_id": uuid4(), "name": current, "product_key": "gpu_rx7600", "price": 525_000}]
+    rows += [{"variant_id": uuid4(), "name": n, "product_key": k, "price": p} for n, k, p in names_prices]
+    return rows
+
+
+def _swap_with(monkeypatch, pool):
+    """swap 이 실제로 어느 candidate_id 로 교체를 불렀는지 — DB 없이."""
+    from src.repo import product_repo
+    from src.services import recommendation_service as rs
+    called = []
+    monkeypatch.setattr(product_repo.ProductRepo, "__init__", lambda self, conn: None)
+    monkeypatch.setattr(product_repo.ProductRepo, "candidates_by_slot", lambda self: {"GPU": pool})
+    def fake_swap(conn, rid, item_id, cid, user_id=None):
+        called.append(str(cid))
+        res = _result()
+        res["items"][1]["product"]["name"] = next(r["name"] for r in pool if str(r["variant_id"]) == str(cid))
+        return res
+    monkeypatch.setattr(rs, "swap_item", fake_swap)
+    monkeypatch.setattr(ra.ResultSession, "_compat_note", lambda self: "")
+    from src.services import result_advice
+    monkeypatch.setattr(result_advice, "requirement_shortfalls", lambda conn, rid, slot, cids: {})
+    return called
+
+
+def test_swap_accepts_the_product_name_from_the_previous_answer(monkeypatch):
+    """"응 그렇게 바꿔줘" — 이력에 앞 답의 candidate_id 가 없어 모델이 제품 이름·제품 키로 swap 을 불러 거절되고
+    멈추던 것(10/8 평가 A-6: #17 전 1/10 → 후 6/10 실패). 앞 답의 절약 후보는 list_alternatives 에 안 나오기도 해서
+    swap 이 받아 주는 슬롯 후보 전체에서 찾는다."""
+    pool = _pool(("NVIDIA GeForce RTX 4060", "gpu_rtx4060_8g", 450_000),
+                 ("NVIDIA GeForce RTX 4060 Ti", "gpu_rtx4060ti_16g", 654_210),
+                 ("NVIDIA GeForce RTX 4060 Ti", "gpu_rtx4060ti_16g_b", 690_000),     # 같은 이름 중복 등록 — 싼 쪽
+                 ("AMD Radeon RX 7700 XT", "gpu_rx7700xt", 700_000))
+    called = _swap_with(monkeypatch, pool)
+    s = _session()
+    out = s.swap("GPU", "RTX 4060 Ti")
+    assert called == [str(pool[2]["variant_id"])], out
+    assert "RTX 4060 Ti" in out and s.changed
+    called.clear()
+    s.swap("GPU", "rtx4060")                       # 띄어쓰기·대소문자 무시, 뒤에 낱말이 더 없는 쪽(Ti 아님)
+    assert called == [str(pool[1]["variant_id"])]
+    called.clear()
+    s.swap("GPU", "gpu_rtx4060ti_16g")             # 제품 키를 그대로 넘긴 것(10/8 실측)
+    assert called == [str(pool[2]["variant_id"])]
+
+
+def test_swap_by_name_lists_the_options_when_ambiguous_or_missing(monkeypatch):
+    pool = _pool(("NVIDIA GeForce RTX 4060 Ti 8GB", "a", 600_000), ("NVIDIA GeForce RTX 4060 Ti 16GB", "b", 700_000))
+    called = _swap_with(monkeypatch, pool)
+    s = _session()
+    out = s.swap("GPU", "RTX 4060 Ti")              # 둘 다 뒤에 낱말이 더 있다 — 고르지 않는다
+    assert not called and not s.changed and out.startswith("오류")
+    assert str(pool[1]["variant_id"]) in out and str(pool[2]["variant_id"]) in out
+    out = s.swap("GPU", "RTX 5090")                 # 없는 이름
+    assert not called and out.startswith("오류") and "list_alternatives" in out
+    out = s.swap("GPU", "RX 7600")                  # 지금 담긴 부품
+    assert not called and "이미" in out
 
 
 def test_prefetch_triggers_only_on_why_questions(monkeypatch):
@@ -60,6 +119,17 @@ def test_prefetch_triggers_only_on_why_questions(monkeypatch):
     assert ra._prefetch_explanations(s, "그래픽카드 리뷰 어때?") == "EXPLAIN[GPU]"    # 동의어 → 슬롯
     out = ra._prefetch_explanations(s, "이 구성 괜찮아?")                                # 슬롯 없음 → 담긴 것 전부
     assert out == "EXPLAIN[CPU]\n\nEXPLAIN[GPU]"                                            # 빼둔 케이스는 제외
+
+
+def test_prefetch_answers_why_the_budget_was_left_with_the_set_method_not_eight_explains(monkeypatch):
+    """"왜 300만원에 짰어?"는 부품별 추천 이유가 아니라 세트를 고른 방식을 묻는다(2026-10-08)."""
+    from src.services import result_advice
+    s = _session()
+    monkeypatch.setattr(ra.ResultSession, "explain", lambda self, slot: f"EXPLAIN[{slot}]")
+    monkeypatch.setattr(result_advice, "is_pc", lambda conn, revision_id: True)
+    monkeypatch.setattr(result_advice, "budget_reason", lambda conn, revision_id: "BUDGET_REASON")
+    out = ra._prefetch_explanations(s, "왜 700만원 예산에 맞춰서 견적 짜달라 했는데 300만원에 짰어?")
+    assert out == "BUDGET_REASON" and s.trace == ["prefetch:budget_reason() → BUDGET_REASON"]
 
 
 def test_system_prompt_carries_table_reasons_budget_and_language():
@@ -73,6 +143,17 @@ def test_system_prompt_carries_table_reasons_budget_and_language():
     assert "미리 조회한 근거" in p and "\nPRE" in p
     assert "답변 언어: 한국어 존댓말." in p and "마크다운" in p.splitlines()[-1]
     assert "미리 조회한 근거" not in ra.system_prompt(r, "swap the gpu", [])
+
+
+def test_system_prompt_says_whether_there_was_an_earlier_conversation():
+    """새 대화에서 "아까 쿨러 빼 준다고 했잖아"에 없던 약속을 인정했다(10/9 P1-8) — 기록이 없다는 걸 프롬프트가 말한다."""
+    r = _result()
+    assert "이번이 첫 질문이라 당신이 이전에 한 말이나 약속은 없습니다" in ra.system_prompt(r, "아까 쿨러 빼 준다고 했잖아", [])
+    two = [{"role": "user", "content": "a"}, {"role": "user", "content": "b"}]
+    assert "2턴 전부(앞의 메시지들). 그 밖에" in ra.system_prompt(r, "아까 그거", two)
+    full = [{"role": "user", "content": str(i)} for i in range(ra._HISTORY_TURNS)]
+    p = ra.system_prompt(r, "아까 그거", full)
+    assert f"최근 {ra._HISTORY_TURNS}턴만 보입니다" in p and "그 밖에 당신이" not in p
 
 
 def test_strands_registers_change_and_question_tools():
@@ -162,6 +243,38 @@ def test_reply_within_accepts_input_numbers_and_rejects_invented():
     assert ok
 
 
+@pytest.mark.parametrize("reply", [
+    "예산 700만 원은 상한입니다.", "예산 700만원 중 3,085,120원을 썼습니다.", "잔여 391만 4,880원입니다.",
+    "총 1억 2,000만 원입니다.", "RTX 5070만 남기고 바꿀게요.",            # 마지막: 모델명 + 조사 '만' — 원래 숫자로도 허용
+])
+def test_reply_within_accepts_won_written_with_man_and_eok(reply):
+    """"700만 원"이 근거의 "7,000,000원"과 다른 숫자(700)로 보여 답이 통째로 버려지던 것(10/8 실측 48턴 중 3턴)."""
+    prompt = "예산 상한: 7,000,000원 · 총액: 3,085,120원 · 잔여: 3,914,880원 · 비교 120,000,000원 · GPU RTX 5070"
+    ok, out = ra._reply_within(reply, [prompt])
+    assert ok and not out, out
+
+
+def test_prompt_carries_rounded_amounts_so_the_guard_keeps_them():
+    """모델이 '약 391만 원'·'44.1%'를 스스로 계산하면 가드가 버린다 — 어림값을 입력에 둔다."""
+    result = {"category": "computer", "budget_max": 7_000_000, "items": [],
+              "totals": {"selected_price": 3_085_120, "budget_remaining": 3_914_880}}
+    prompt = ra.system_prompt(result, "예산 대비 몇 퍼센트 썼어?", [])
+    assert "총액 약 309만 원" in prompt and "잔여 약 391만 원" in prompt and "예산의 44.1%(약 44%) 사용" in prompt
+    ok, out = ra._reply_within("총액은 약 309만 원으로 예산의 44.1%를 썼고, 약 391만 원이 남았습니다.", [prompt])
+    assert ok and not out, out
+
+
+@pytest.mark.parametrize("reply, invented", [
+    ("예산 800만 원은 상한입니다.", {"800"}),
+    ("잔여 약 391만 원입니다.", {"391"}),                                     # 반올림한 금액은 근거에 없는 숫자
+    ("잔여 391만 5,000원입니다.", {"391", "5000"}),
+])
+def test_reply_within_still_rejects_invented_man_amounts(reply, invented):
+    prompt = "예산 상한: 7,000,000원 · 총액: 3,085,120원 · 잔여: 3,914,880원"
+    ok, out = ra._reply_within(reply, [prompt])
+    assert not ok and out == invented, out
+
+
 def test_guarded_reply_prefers_changes_then_prefetched_then_template():
     s = _session()
     s.changed = True
@@ -185,9 +298,21 @@ _ASK = ("CPU 더 성능 좋은 걸로 바꿔도 문제없을까?", "램 32기가
         "파워 바꾸는거 ㄱㅊ?", "씨퓨 업글 해도 무방?", "SSD 1테라 더 달아도 됨")
 _CHANGE = ("CPU 한 단계 좋은 걸로 바꿔줘", "그래픽카드도 바꿔줘", "SSD 2개로", "SSD 2개로 해줘", "쿨러 빼줘",
            "그래픽카드 더 싼 걸로 바꿔줄래?", "응 그걸로 바꿔줘", "ㅇㅇ", "응", "네", "7600X로", "그걸로 ㄱㄱ",
-           "예산 200만원으로 늘려줘", "그래픽카드 더 저렴한 걸로", "글카 4060ti로 바꿔주세요", "글카 한단계 위로 바꿔주셈")
+           "예산 200만원으로 늘려줘", "그래픽카드 더 저렴한 걸로", "글카 4060ti로 바꿔주세요", "글카 한단계 위로 바꿔주셈",
+           # 10/3 리허설 대본 (P1-5 여러 턴 회귀 — 앞 턴 제안을 받는 말, 방향만 말하는 교체)
+           "응 그렇게 바꿔줘", "그걸로 바꿔줘", "램이 너무 비싼데 좀 더 싼 걸로 바꿔줘", "CPU를 7600X로 바꿔줘",
+           # 반말 명령 (10/8 팀 시연 — '줘'가 없어 other 로 빠지던 것)
+           "GPU 바꿔", "그래픽카드 더 좋은 걸로 바꿔", "쿨러 빼", "램 32기가로 올려!", "모든걸 더 비싼걸로 바꿔")
 _OTHER = ("돈 남았는데 바꿀 거 추천해 줄 수 있나?", "왜 이 그래픽카드 골랐어?", "이 구성 괜찮아?", "파워 용량 충분해?",
-          "이 글카 ㄱㅊ?", "쿨러 꼭 사야 돼?", "인텔이랑 AMD 차이가 뭐야?", "남는돈으로 머 올리지")
+          "이 글카 ㄱㅊ?", "쿨러 꼭 사야 돼?", "인텔이랑 AMD 차이가 뭐야?", "남는돈으로 머 올리지",
+          # 10/3 리허설 대본 — "그대로 두고"·거절·가정 질문은 구성표를 바꾸지 않는다
+          "남은 예산 얼마야?", "그래픽카드 MSI 제품 맞아?", "CPU를 한 단계 낮추면 얼마나 아껴?", "ㄴㄴ",
+          "그럼 CPU는 그대로 두고, 전체에서 10만원 정도 줄일 수 있어?",
+          "아니 CPU는 그대로 두고, 대신 전체에서 10만원 정도 줄일 수 있어?",
+          # 잘못된 전제 (P1-5) — 없던 약속을 근거로 바꾸게 하지 않는다
+          "아까 쿨러 빼 준다고 했잖아, 왜 아직 있어?",
+          # 반말이어도 물음표로 끝나면 묻는 말 — 바꾸지 않는다
+          "GPU 바꿔?", "이거 왜 빼?")
 
 
 @pytest.mark.parametrize("text", _ASK)
@@ -204,6 +329,21 @@ def test_classify_change(text):
 def test_classify_other_does_not_open_write_tools(text):
     """바꾸라는 말이 아니면(묻는 말이든 다른 말이든) 바꾸는 도구가 닫힌다 — 허용 목록."""
     assert ra.classify_intent(text) == "other"
+
+
+@pytest.mark.parametrize("text", [
+    "예산 조금 넘어도 괜찮아, 그걸로 바꿔줘",                       # 실패 6 (10/3 리허설)
+    "예산 조금 넘어도 괜찮아, 그래픽카드 한 단계 좋은 걸로 바꿔줘",
+    "비싸도 상관없어. 4070으로 바꿔줘",
+])
+def test_permission_plus_imperative_is_a_change_request(text):
+    """허락('넘어도 괜찮아')이 묻는 말로 먼저 잡혀 바꾸는 도구가 닫히고 되묻던 것 — 명령이 든 절이 따로 있으면 바꾼다."""
+    assert ra.classify_intent(text) == "change"
+
+
+@pytest.mark.parametrize("text", ["바꿔줘도 괜찮아?", "예산 조금 넘어도 괜찮아?", "그래픽카드 바꿔줘도 돼?"])
+def test_imperative_inside_a_question_stays_a_question(text):
+    assert ra.classify_intent(text) != "change"
 
 
 def test_read_only_turn_refuses_writes_without_touching_db():
@@ -255,6 +395,13 @@ def test_highest_price_word_is_not_evaluative():
     assert ra.evaluative_words("최고의 선택입니다") == ["최고"]
 
 
+def test_evaluative_words_from_the_users_own_message_are_not_flagged():
+    """잘못된 전제("RTX 4090이니까 4K 최고 옵션도 되지?")를 정정하는 답은 사용자 말을 옮긴다 — 막으면 정정이 사라진다."""
+    reply = "현재 그래픽카드는 RTX 4090이 아니라 RX 7600이라 4K 최고 옵션은 확인되지 않습니다."
+    assert ra.evaluative_words(reply, "그래픽카드가 RTX 4090이니까 4K 최고 옵션도 되지?") == []
+    assert ra.evaluative_words(reply + " 압도적인 구성입니다.", "4K 최고 옵션도 되지?") == ["압도적"]
+
+
 def test_search_unavailable_part_busy_lookup_is_a_sentence_not_an_exception(monkeypatch):
     from src.errors import ServiceUnavailable
 
@@ -270,3 +417,80 @@ def test_search_unavailable_part_busy_lookup_is_a_sentence_not_an_exception(monk
 
     out = s.search_unavailable_part("GPU", "RTX 6090")
     assert "몰려 있어요" in out and "가져오지 못했습니다" in out
+
+
+@pytest.mark.parametrize("text", ["가격에 맞게 예산 줄여줘", "우선순위를 성능으로 바꿔줘", "예산 200만원으로 늘려줘",
+                                  "용도를 영상 편집으로 바꿔줘"])
+def test_condition_change_request_gets_the_conditions_screen_notice(text):
+    """결과 채팅은 조건을 바꾸지 않는다 — 실패 5("예산 줄여줘"가 부품 절약으로 오독)와 팀원 관찰("우선순위를 성능으로
+    바꿔줘"가 반영된 것처럼 읽힘). 모델이 안내를 빠뜨려도 코드가 '조건 바꾸기'를 붙인다."""
+    reply = ra.with_condition_notice(text, "부품 후보는 다음과 같습니다.")
+    assert reply.startswith("부품 후보는") and reply.endswith(ra.CONDITION_NOTICE)
+    assert ra.with_condition_notice(text, reply) == reply                       # 이미 있으면 다시 붙이지 않는다
+
+
+@pytest.mark.parametrize("text", ["남은 예산으로 할 만한 업그레이드 있어?", "예산 조금 넘어도 괜찮아, 그걸로 바꿔줘",
+                                  "예산 안에서 그래픽카드 바꿔줘", "예산 맞춰서 그래픽카드 올려줘", "남은 예산 얼마야?",
+                                  "예산 초과 안 되게 램 바꿔줘", "CPU를 한 단계 낮추면 얼마나 아껴?"])
+def test_part_requests_that_mention_the_budget_get_no_notice(text):
+    assert ra.with_condition_notice(text, "답") == "답"
+
+
+def test_guard_accepts_a_total_summed_from_one_listed_delta_only():
+    """list_alternatives 만 부르고 "바꾸면 총액 1,403,337원"을 직접 더한 답이 맞는데도 버려졌다(10/9 P1-8) —
+    지금 총액 + 차액 하나, 그때의 잔여만 허용한다. 차액 두 개를 합친 값은 검산할 수 없어 그대로 막는다."""
+    r = _result()                                    # 총액 780,000 · 예산 1,500,000
+    listing = "1. candidate_id=x · A · 120,000원 (+88,199원) · 프리미엄 후보\n2. candidate_id=y · B · 50,000원 (-30,000원)"
+    extra = ra.swap_arithmetic(r, [listing])
+    ok, _ = ra._reply_within("A로 바꾸면 총액 868,199원, 잔여 631,801원입니다.", [listing, extra])
+    assert ok
+    ok, _ = ra._reply_within("B로 바꾸면 약 75만 원, 잔여 750,000원입니다.", [listing, extra])
+    assert ok
+    ok, outside = ra._reply_within("둘 다 바꾸면 총액 838,199원입니다.", [listing, extra])
+    assert not ok and outside == {"838199"}
+    assert ra.swap_arithmetic({"totals": {}}, [listing]) == ""
+
+
+def test_swap_repairs_a_candidate_id_off_by_a_character_from_this_turns_output():
+    """모델이 도구가 보여 준 id 를 한 글자 바꿔 옮겨 교체가 실패했다(10/10 평가 C-3 2/3). 이번 턴 결과에 나온 id 하나와
+    두 글자 이내로만 다르면 그 id 로 고치고, 가까운 것이 없거나 둘 이상이면 그대로 둔다."""
+    s = ra.ResultSession(conn=None, revision_id=None, result=_result())
+    shown = "929cd20f-b17b-4ebb-b9d6-905c4425a19b"
+    s.outputs.append(f"(가정 계산) GPU: A → B · candidate_id={shown}")
+    assert s._seen_candidate_id("929cd20f-b17e-4ebb-b9d6-905c4425a19b") == shown
+    assert s._seen_candidate_id(shown) == shown
+    far = "00000000-0000-4ebb-b9d6-905c4425a19b"
+    assert s._seen_candidate_id(far) == far
+    s.outputs.append("candidate_id=929cd20f-b17c-4ebb-b9d6-905c4425a19b")
+    assert s._seen_candidate_id("929cd20f-b17e-4ebb-b9d6-905c4425a19b") == "929cd20f-b17e-4ebb-b9d6-905c4425a19b"
+
+
+def test_previous_candidates_carry_the_ids_the_last_answer_proposed():
+    """"응 그렇게 바꿔줘" — 이력엔 답 문장만 있어 모델이 앞 답이 제안한 후보의 id 를 몰랐다(10/10 평가 A-6 0/3).
+    직전 답 메시지의 턴 기록에서 후보 줄(목록 번호 줄은 빼고)을 꺼내 프롬프트에 싣는다."""
+    gpu = "    · GPU: RTX 4070 SUPER 916,930원 → RTX 4060 Ti 654,210원 (절약 262,720원) · candidate_id=929cd20f-b17b-4ebb-b9d6-905c4425a19b"
+    msgs = [
+        {"role": "user", "content": "10만원 줄일 수 있어?", "metadata": {}},
+        {"role": "assistant", "content": "GPU를 4060 Ti로…", "metadata": {"turn": {"outputs": [
+            "지금 총액 1,799,288원\n" + gpu + "\n- GPU: 같은 줄\n1. candidate_id=aaaaaaaa-0000-0000-0000-000000000000 · 목록 줄",
+            gpu.strip()]}}},
+        {"role": "user", "content": "응 그렇게 바꿔줘", "metadata": {}},
+    ]
+    out = ra.previous_candidates(msgs)
+    assert out.splitlines()[0] == gpu.strip() and "목록 줄" not in out and out.count("929cd20f") == 1
+    assert ra.previous_candidates([{"role": "assistant", "content": "x", "metadata": None}]) == ""
+    p = ra.system_prompt(_result(), "응 그렇게 바꿔줘", [{"role": "user", "content": "a"}], previous=out)
+    assert "직전 답의 근거가 된 후보" in p and gpu.strip() in p
+    assert "직전 답의 근거가 된 후보" not in ra.system_prompt(_result(), "응", [])
+
+
+def test_guard_rejects_a_summed_remaining_told_as_over_budget():
+    """잔여 22,472원을 "예산보다 22,472원 초과"로 뒤집어 말한 답(10/10 평가 B-4) — 숫자는 셈으로 허용되므로 방향을 따로 본다."""
+    r = {"budget_max": 2_000_000, "totals": {"selected_price": 1_907_128}}
+    listing = "7. candidate_id=x · WD_BLACK SN770 · 130,000원 (+70,400원) · 프리미엄 후보"
+    assert ra.swap_arithmetic_sign_errors("총액은 1,977,528원이 되어 예산보다 22,472원 초과합니다.", r, [listing]) == ["22,472원 초과"]
+    assert ra.swap_arithmetic_sign_errors("총액 1,977,528원, 예산 잔여 22,472원입니다.", r, [listing]) == []
+    assert ra.swap_arithmetic_sign_errors("22,472원이 남습니다.", r, [listing]) == []
+    over = {"budget_max": 1_950_000, "totals": {"selected_price": 1_907_128}}
+    assert ra.swap_arithmetic_sign_errors("27,528원이 남습니다.", over, [listing]) == ["27,528원 남"]
+    assert ra.swap_arithmetic_sign_errors("예산을 27,528원 초과합니다.", over, [listing]) == []

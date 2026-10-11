@@ -18,18 +18,40 @@ function toApiError(status: number, body: unknown): ApiError {
   return new ApiError('요청을 처리하지 못했습니다. 잠시 후 다시 시도해주세요.', 'HTTP_' + status)
 }
 
-export async function request<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
-  let response: Response
-  try {
-    response = await fetch(path, {
-      method,
-      credentials: 'include',
-      headers: body === undefined ? { Accept: 'application/json' } : { Accept: 'application/json', 'Content-Type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    })
-  } catch {
-    throw new ApiError(NETWORK_MESSAGE, 'NETWORK')
+const LLM_BUSY_CODE = 'llm_busy'
+const SERVER_BUSY_CODE = 'service_busy'
+const BUSY_RETRIES = 2
+const BUSY_DEFAULT_WAIT_SECONDS = 3
+
+/** fetch 한 번. 서버가 "지금 몰려 있다"고 하면(503) Retry-After 만큼 기다렸다 최대 2번 다시 보낸다.
+ *  · llm_busy: AI 응답을 기다리는 요청이 많다 — 모든 요청에 적용. 오류가 나면 서버가 DB 변경을 되돌리므로 다시 보내도 중복되지 않는다.
+ *  · service_busy: DB 연결을 못 얻었다 — 읽기(GET)에만 적용한다(추천 결과를 기다리는 폴링이 한 번 막혀도 실패로 끝나지 않게).
+ *  그래도 안 되면 서버의 안내 문장이 그대로 사용자에게 간다. */
+async function send(path: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    let response: Response
+    try {
+      response = await fetch(path, init)
+    } catch {
+      throw new ApiError(NETWORK_MESSAGE, 'NETWORK')
+    }
+    if (response.status !== 503 || attempt >= BUSY_RETRIES) return response
+    const body = await response.clone().json().catch(() => null) as ErrorEnvelope | null
+    const code = body?.error?.code
+    const retryable = code === LLM_BUSY_CODE || (code === SERVER_BUSY_CODE && (init.method ?? 'GET') === 'GET')
+    if (!retryable) return response
+    const seconds = Number(response.headers.get('Retry-After'))
+    await sleep((seconds > 0 ? seconds : BUSY_DEFAULT_WAIT_SECONDS) * 1000)
   }
+}
+
+export async function request<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', path: string, body?: unknown): Promise<T> {
+  const response = await send(path, {
+    method,
+    credentials: 'include',
+    headers: body === undefined ? { Accept: 'application/json' } : { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
   const text = response.status === 204 ? '' : await response.text()
   let parsed: unknown = null
   if (text) {
@@ -41,12 +63,7 @@ export async function request<T>(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DEL
 
 /** 파일을 함께 보내는 multipart 요청. Content-Type 은 브라우저가 경계값과 함께 정한다. */
 export async function requestForm<T>(path: string, form: FormData): Promise<T> {
-  let response: Response
-  try {
-    response = await fetch(path, { method: 'POST', credentials: 'include', headers: { Accept: 'application/json' }, body: form })
-  } catch {
-    throw new ApiError(NETWORK_MESSAGE, 'NETWORK')
-  }
+  const response = await send(path, { method: 'POST', credentials: 'include', headers: { Accept: 'application/json' }, body: form })
   const text = await response.text()
   let parsed: unknown = null
   if (text) {
