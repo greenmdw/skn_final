@@ -249,6 +249,18 @@ def review_brief(product_key: str) -> dict | None:
             "signals": _review_signals(product_key), "cleansing_summary": _cleansing_summary(), "plain": plain}
 
 
+def db_review_counts(conn, product_ids) -> dict[str, int]:
+    """상품별 리뷰 문서 수(evidence.review_document) — 추천 순위의 리뷰 점수가 읽는 DB 의 건수다.
+    review_brief 의 total_count 는 아마존 파일 산출물이라 우리 카탈로그 상품과 겹치지 않아 항상 비었다(U-12)."""
+    ids = [str(p) for p in product_ids if p]
+    if not ids:
+        return {}
+    rows = conn.execute(
+        "SELECT product_id::text, count(*) FROM evidence.review_document WHERE product_id::text = ANY(%s) GROUP BY product_id",
+        (ids,)).fetchall()
+    return {r[0]: int(r[1]) for r in rows}
+
+
 def usage_context_with_telemetry(usage_context: dict | None, telemetry: ReviewTelemetry | None) -> dict:
     """`review_revision.usage_context` 에 폼 계측값을 `telemetry` 키로 넣는다.
 

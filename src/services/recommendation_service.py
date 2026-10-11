@@ -709,6 +709,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
     specs_by_variant = load_specs_by_variant(
         conn, [(row["product_type"], str(row["variant_id"])) for row in candidate_rows]
     )
+    review_counts = review_service.db_review_counts(conn, [row["product_id"] for row in candidate_rows])
     for row in candidate_rows:
         product_key = (pc_catalog_key(row["product_type"], row["brand"], row["product_key"])
                        if category == "computer" and row["product_type"] in PC_TYPE_TO_SLOT
@@ -728,7 +729,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
             "price": price, "price_source": "observed" if category == "computer" else "synthetic",
             "price_observed_at": row["observed_at"].isoformat() if row["observed_at"] else None,
             "qty": row["qty"], "selected": row["selected"], "timing": row["timing"], "budget_share": None,
-            "review": review_service.review_brief(product_key),
+            "review": _review_with_db_count(review_service.review_brief(product_key), review_counts.get(str(row["product_id"]))),
             "review_detail": review_for_candidate(
                 review_snapshot, variant_id=row["variant_id"], product_id=row["product_id"],
                 slot=row["slot"], selection_source="user_swap" if row["score"] is None else "automatic",
@@ -780,6 +781,13 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
 
 
 # ── 결과 화면 상호작용 (§D-4-2: 담기/빼기·수량·구매시점 / 후보 교체 / 결과 대화) ──
+
+def _review_with_db_count(brief: dict | None, db_count: int | None) -> dict | None:
+    """화면의 '리뷰 N개' 는 순위가 읽는 DB 의 리뷰 문서 수로 채운다 — 파일 산출물에 상품이 없을 때만(U-12)."""
+    if brief is None or brief.get("total_count") is not None or not db_count:
+        return brief
+    return {**brief, "total_count": db_count}
+
 
 def _require_done_run(conn, revision_id: UUID) -> tuple:
     from src.repo.engine_repo import EngineRepo
