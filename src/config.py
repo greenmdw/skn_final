@@ -227,6 +227,9 @@ CARE_GUIDE_EMBED_MAX_RETRIES: int = int(os.getenv("CARE_GUIDE_EMBED_MAX_RETRIES"
 # 내려간다(부품표는 이미 공개된 뒤라 사용자는 표를 보고 있다). 요청 한 번의 상한은 남은 예산과 아래 값 중 작은 쪽이다.
 EXPLANATION_DEADLINE_S: float = float(os.getenv("EXPLANATION_DEADLINE_S", "25"))
 LLM_REQUEST_TIMEOUT_S: float = float(os.getenv("LLM_REQUEST_TIMEOUT_S", "20"))
+# 세트 검증 쟁점 문장(LLM) 시간 예산 — 검증 한 번(verify_build)의 모든 쟁점이 함께 쓴다. 이 호출은 부품표 저장 트랜잭션과 부품
+# 교체·수량 변경 요청 안에서 DB 연결·행 잠금을 쥔 채 돌므로 짧게 둔다. 넘기면 규칙 문장으로 내려간다.
+ISSUE_SENTENCE_DEADLINE_S: float = float(os.getenv("ISSUE_SENTENCE_DEADLINE_S", "5"))
 
 # 리뷰 임베딩 백필(evidence.review_embedding, 0008_review_aspect.sql) — 문서·질의 공통 모델/차원은
 # 그 마이그레이션에서 팀이 이미 합의했다(OpenAI text-embedding-3-small, 1536차원). 컬럼이

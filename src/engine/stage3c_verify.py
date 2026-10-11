@@ -25,10 +25,11 @@
 """
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from src.clients.llm_client import call_llm
-from src.config import CONFIDENCE_THRESHOLD
+from src.config import CONFIDENCE_THRESHOLD, ISSUE_SENTENCE_DEADLINE_S
 from src.dto import (BuildResult, Candidate, Issue, PeripheralPick, PeripheralRequirement, RequirementSpec,
                      VerificationResult, VerificationTarget)
 from src.engine import LogFn, spec_rules
@@ -172,17 +173,18 @@ def _approx_sentence(axis: str) -> str:
             "구매 전 제조사 스펙으로 확인해 주세요.")
 
 
-def _issue_sentence(axis: str, tool_result: str, evidence: list[dict]) -> str:
+def _issue_sentence(axis: str, tool_result: str, evidence: list[dict], deadline: float | None = None) -> str:
     """쟁점 1건을 중립 문장으로.
 
     판정어가 섞이면 1회 재생성하고, 그래도 섞이거나 호출이 실패하면 규칙 템플릿으로
     내려간다. 문장화 실패는 신뢰도 점수에 영향을 주지 않는다 (기획서 §10-11 E4).
+    deadline(time.monotonic 기준)을 주면 재생성·HTTP 재시도까지 그 안에서 끝내고, 넘기면 규칙 템플릿이다.
     """
     snippets = "\n".join(f"- {e.get('text', '')}" for e in evidence) or "- (없음)"
     prompt = f"축: {axis}\n관측값: {tool_result or '(기록 없음)'}\n근거:\n{snippets}"
     for _attempt in range(2):
         try:
-            text = (call_llm(prompt, system=verify_issue_system()).get("text") or "").strip()
+            text = (call_llm(prompt, system=verify_issue_system(), deadline=deadline).get("text") or "").strip()
         except Exception:
             break
         if text and not _contains_verdict(text):
@@ -256,6 +258,8 @@ def verify_build(
     범위 밖이라 여전히 없다.
     """
     log("[3-C] 세트 검증 (규칙 스캐폴드) ...")
+    # 쟁점 문장(LLM)은 이 검증의 모든 쟁점이 한 시간 예산을 나눠 쓴다 — 호출자가 DB 연결·행 잠금을 쥔 채 기다린다.
+    deadline = time.monotonic() + ISSUE_SENTENCE_DEADLINE_S
     rows_by_axis: dict[str, dict] = {}
     have_provenance = chosen is not None and spec is not None and rules is not None
     if have_provenance:
@@ -271,7 +275,7 @@ def verify_build(
         s = str(state).lower()
         if "fail" in s or "미충족" in s or "over" in s:
             ev = _catalog_evidence(rows_by_axis.get(axis), chosen) if have_provenance else []
-            issues.append(Issue(axis=axis, text=_issue_sentence(axis, state, ev),
+            issues.append(Issue(axis=axis, text=_issue_sentence(axis, state, ev, deadline),
                                 tool_result=state, evidence=ev, judge="위반", penalty=_FAIL_ISSUE_PENALTY))
             penalty += _FAIL_ISSUE_PENALTY
         elif "pending" in s or "근사" in s:
@@ -299,7 +303,7 @@ def verify_build(
         else:
             budget_axis, budget_judge, budget_tool_result = "예산", "초과", f"{used_pct}%"
         ev = _catalog_evidence(rows_by_axis.get(budget_axis), chosen) if have_provenance else []
-        issues.append(Issue(axis=budget_axis, text=_issue_sentence(budget_axis, budget_tool_result, ev),
+        issues.append(Issue(axis=budget_axis, text=_issue_sentence(budget_axis, budget_tool_result, ev, deadline),
                             tool_result=budget_tool_result, evidence=ev, judge=budget_judge, penalty=budget_penalty))
         penalty += budget_penalty
 

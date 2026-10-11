@@ -79,10 +79,11 @@ def _retry_wait(exc: Exception, attempt: int) -> float | None:
 def _create_within(client, kwargs: dict, deadline: float):
     """마감 시각 안에서 요청한다 — 요청마다 남은 시간(최대 LLM_REQUEST_TIMEOUT_S)만 주고, 일시적 오류는 남은 시간이 있으면 다시 보낸다."""
     for attempt in range(_HTTP_RETRIES + 1):
-        left = _remaining(deadline)
         try:
             # 동시 호출 자리(llm_call_slot)는 요청마다 쥐고 놓는다 — 재시도 전에 기다리는 동안 다른 호출의 자리를 막지 않게.
-            with llm_call_slot():
+            # 자리는 남은 시간만큼만 기다리고, 요청 제한 시간은 자리를 얻은 뒤의 남은 시간으로 정한다(줄 선 시간도 예산에 든다).
+            with llm_call_slot(max_wait=_remaining(deadline)):
+                left = _remaining(deadline)
                 return client.with_options(timeout=min(left, LLM_REQUEST_TIMEOUT_S), max_retries=0).chat.completions.create(**kwargs)
         except Exception as exc:
             wait = _retry_wait(exc, attempt) if attempt < _HTTP_RETRIES else None

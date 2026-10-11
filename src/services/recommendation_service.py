@@ -19,7 +19,7 @@ from psycopg_pool import PoolTimeout
 from src.categories import load_category
 from src.dto import PipelineResult, RequirementSpec
 from src.engine.brands import SLOT_SYNONYMS
-from src.engine.lang import fmt_money
+from src.engine.lang import fmt_money, josa
 from src.engine.slots import slots_from_conditions as _slots_from_conditions
 from src.engine.stage3c_verify import AXIS_SLOTS as _AXIS_SLOTS
 from src.errors import Conflict, NotFound, ValidationFailed
@@ -219,7 +219,8 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
     from src.repo.catalog_repo import load_candidates_by_slot_from_db
     from src.repo.engine_repo import EngineRepo
     from src.repo.plan_repo import PlanRepo
-    from src.rag.care_guides import search_care_guide
+    from src.config import MOCK_MODE
+    from src.rag.care_guides import search_care_guides
     from src.engine.owned_parts import upgrade_tier_notes
     from src.services import review_service
 
@@ -320,6 +321,8 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
             # 부품·가격·검증은 여기서 이미 확정됐다. [5] 설명 문장(LLM)은 아직 안 돌았으므로
             # reason=None 으로 저장한다 — add_candidate가 자동으로 reason_status='pending' 처리.
             candidate_id_by_slot: dict[str, UUID] = {}
+            # 엔진이 고른 원래 상품 — 설명 단계가 "이 행이 아직 그 상품인지" 확인하는 기준(설명이 오기 전에 교체될 수 있다).
+            variant_id_by_slot: dict[str, UUID] = {}
             for item in build.items:
                 if item.variant_id is None:
                     raise ValidationFailed("추천 후보의 DB 상품 ID가 없습니다.", field="catalog", code="catalog_incomplete")
@@ -332,6 +335,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
                     score=item.score, score_method_version="v1", reason=None,
                     offer_observation_id=offer_observation_id,
                 )
+                variant_id_by_slot[item.slot] = variant_id
 
             _store_validations(erepo, run_id, verification)
 
@@ -358,6 +362,9 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
         # 영향이 없다. run.status는 건드리지 않고 문장 쪽 상태(reason_status/explanation_status)만 옮긴다.
         # LLM 호출과 임베딩 검색은 DB 연결을 잡지 않고 한다 — 연결을 쥔 채 20초 가까이 기다리면 동시 추천 몇 건만으로
         # 풀(max_size)이 바닥나 다른 요청이 PoolTimeout(500)으로 죽는다. 연결은 결과를 저장하는 짧은 구간에만 연다.
+        # 구간별 시간: queue_ms(설명 작업자 줄), explain_ms(설명 LLM), guide_ms(가이드 검색), post_ms(이 단계 전체).
+        post_started = time.perf_counter()
+        stage, explain_ms, guide_ms = "explain", 0.0, 0.0
         try:
             # rank 를 넘겨야 [3-B] 가 후보에 남긴 리뷰 관측 플래그를 [5] 가 읽는다.
             # 빼면 모든 슬롯이 "관측 없음" 이 되고, 감점만 남고 근거가 사라진다 (기본값이 None 이라 조용히).
@@ -369,26 +376,42 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
                 conditions=values,
                 **_explanation_extras(spec, tier_notes=upgrade_tier_notes(current_tiers, build.items)),
             )
+            explain_ms = (time.perf_counter() - post_started) * 1000
+            # 문장이 LLM 것인지 규칙 템플릿으로 내려갔는지(왜) — [5] 의 진행 로그는 버리므로(noop) 여기서 남긴다.
+            # 실제 LLM 인데 규칙으로 내려갔으면(시간 초과·요청 오류·검사 불통과) WARNING 이다. 이유 문장·프롬프트는 남기지 않는다.
+            log.log(logging.WARNING if explanation.text_source == "rule" and not MOCK_MODE else logging.INFO,
+                    "recommendation explained run_id=%s source=%s fallback=%s rule_slots=%d/%d explain_ms=%.0f",
+                    run_id, explanation.text_source, explanation.fallback_reason or "-",
+                    len(explanation.rule_reason_slots), len(explanation.items), explain_ms)
             # "구매 전 확인"(checks) — 부품 사용 가이드 RAG 검색. 슬롯 고정 매핑이 아니라
             # 품목명까지 넣은 질의로 임베딩 유사도 검색을 실제로 돌린다(src/rag/care_guides.py).
-            care_checks: dict[str, str] = {}
-            for it in build.items:
-                if candidate_id_by_slot.get(it.slot) is None:
-                    continue
-                hits = search_care_guide(f"{it.slot} {it.name} 사용 시 확인할 점", k=1, slot=it.slot)
-                if hits:
-                    care_checks[it.slot] = hits[0]["text"]
+            # 부품마다 따로 찾으면 질의 임베딩 요청이 부품 수만큼 차례로 나간다 — 캐시에 없는 질의만 요청 한 번으로 묶는다
+            # (search_care_guides, 결과는 부품별 search_care_guide 와 같다). 가이드를 못 찾은 부품도 failed 로 끝낸다 —
+            # pending 으로 두면 화면이 끝없이 다시 읽는다.
+            stage = "guide"
+            guide_started = time.perf_counter()
+            targets = [it for it in build.items if candidate_id_by_slot.get(it.slot) is not None]
+            hits_by_target = search_care_guides([(f"{it.slot} {it.name} 사용 시 확인할 점", it.slot) for it in targets], k=1)
+            care_checks: dict[str, str | None] = {
+                it.slot: hits[0]["text"] if hits else None for it, hits in zip(targets, hits_by_target)}
+            guide_ms = (time.perf_counter() - guide_started) * 1000
+            stage = "save"
 
             def _save() -> None:
                 with get_conn() as conn:
                     erepo = EngineRepo(conn)
+                    # 이유·가이드는 엔진이 고른 원래 상품을 아직 가리키는 행에만 쓴다 — 설명이 오기 전에 사용자가 교체했으면
+                    # 그 행에는 교체 문장이 있고, 이전 상품의 이유·가이드가 새 상품을 덮으면 안 된다.
                     for it in explanation.items:
                         candidate_id = candidate_id_by_slot.get(it.slot)
                         if candidate_id is not None and it.reason is not None:
-                            erepo.update_candidate_reason(candidate_id, it.reason)
+                            erepo.update_candidate_reason(candidate_id, it.reason, variant_id_by_slot[it.slot])
 
                     for slot, text in care_checks.items():
-                        erepo.update_candidate_checks(candidate_id_by_slot[slot], text)
+                        if text is not None:
+                            erepo.update_candidate_checks(candidate_id_by_slot[slot], text, variant_id_by_slot[slot])
+                        else:
+                            erepo.fail_candidate_checks(candidate_id_by_slot[slot], variant_id_by_slot[slot])
 
                     # [5] 의 리뷰 관측(review_line_by_slot)·확인 필요(caveats)를 저장 경로에 싣는다.
                     # 여기서 안 실으면 [3-B] 감점은 되는데 "왜" 가 화면에 안 간다 (review_service 주석 참고).
@@ -421,19 +444,30 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
 
                     # 03 "추천 요약" 본문 = summary + 확인이 필요한 것. 슬롯별 reason 은 각 부품의 "추천 이유" 에
                     # 따로 나가므로 여기 나열하지 않는다 (전에는 reason 8줄을 이어붙여 요약이 아니었다).
-                    erepo.set_explanation(
-                        run_id, headline=explanation.headline,
-                        text=review_service.explanation_text_with_caveats(explanation.summary, explanation.caveats),
-                        reasoning_log=trace,
-                    )
+                    summary_text = review_service.explanation_text_with_caveats(explanation.summary, explanation.caveats)
+                    # 요약은 엔진이 고른 구성 기준이다 — 그동안 교체된 부품이 있으면 그 사실을 본문 끝에 적는다(swap_item 과 같은 안내).
+                    # 위 UPDATE 로 후보 행을 잠근 뒤라 이 사이에 새 교체가 끼어들지 않는다.
+                    replaced = _replaced_since_build(erepo, run_id, candidate_id_by_slot, variant_id_by_slot)
+                    if replaced:
+                        summary_text = summary_text.rstrip() + "\n\n" + _replaced_note(replaced)
+                    erepo.set_explanation(run_id, headline=explanation.headline, text=summary_text, reasoning_log=trace)
             _retry_on_pool_timeout(_save)
-        except Exception:  # noqa: BLE001 — [5] 실패는 문장만 failed, 부품표는 이미 done인 채로 둔다
+            now = time.perf_counter()
+            log.info("recommendation post_done run_id=%s explain_source=%s queue_ms=%.0f explain_ms=%.0f guide_ms=%.0f "
+                     "post_ms=%.0f total_ms=%.0f", run_id, explanation.text_source, (post_started - core_done) * 1000,
+                     explain_ms, guide_ms, (now - post_started) * 1000, (now - started) * 1000)
+        except Exception as exc:  # noqa: BLE001 — [5] 실패는 문장만 failed, 부품표는 이미 done인 채로 둔다
+            log.warning("recommendation post_failed run_id=%s stage=%s error=%s post_ms=%.0f total_ms=%.0f",
+                        run_id, stage, type(exc).__name__, (time.perf_counter() - post_started) * 1000,
+                        (time.perf_counter() - started) * 1000)
+
             def _mark_failed() -> None:
                 with get_conn() as fail_conn:
                     fail_erepo = EngineRepo(fail_conn)
-                    for candidate_id in candidate_id_by_slot.values():
-                        fail_erepo.fail_candidate_reason(candidate_id)
-                        fail_erepo.fail_candidate_checks(candidate_id)
+                    # 아직 pending 인 원래 상품의 행만 failed 로 — 교체가 문장을 채운 행은 건드리지 않는다.
+                    for slot, candidate_id in candidate_id_by_slot.items():
+                        fail_erepo.fail_candidate_reason(candidate_id, variant_id_by_slot[slot])
+                        fail_erepo.fail_candidate_checks(candidate_id, variant_id_by_slot[slot])
                     fail_erepo.fail_explanation(run_id)
 
             _retry_on_pool_timeout(_mark_failed)
@@ -442,6 +476,20 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
         finish_explanation()
     else:
         defer(finish_explanation)
+
+
+def _replaced_since_build(erepo, run_id: UUID, candidate_id_by_slot: dict[str, UUID],
+                          variant_id_by_slot: dict[str, UUID]) -> list[dict]:
+    """엔진이 고른 상품에서 지금은 다른 상품으로 바뀐 후보 행들 — 설명 단계가 도는 동안 사용자가 교체한 부품."""
+    original = {candidate_id_by_slot[slot]: variant_id for slot, variant_id in variant_id_by_slot.items()}
+    return [row for row in erepo.get_candidates(run_id)
+            if original.get(row["id"], row["variant_id"]) != row["variant_id"]]
+
+
+def _replaced_note(replaced: list[dict]) -> str:
+    """요약 본문 끝에 붙이는 "교체 전 구성 기준" 안내 — swap_item 이 요약에 붙이는 안내와 같은 말투."""
+    parts = ", ".join(f"{josa(row['slot'], '을/를')} '{row['product_name']}'(으)로" for row in replaced)
+    return f"※ 이후 {parts} 교체했습니다. 이 요약은 교체 전 구성 기준입니다."
 
 
 def _store_validations(erepo, run_id: UUID, verification) -> None:

@@ -1,4 +1,5 @@
-"""설명 문장(LLM)의 시간 예산 — JSON 재생성·의미 재생성·HTTP 재시도(일시적 오류만)를 한 예산 안에서 쓰고, 넘기면 규칙 문장으로 내려간다.
+"""설명 문장·세트 검증 쟁점 문장(LLM)의 시간 예산 — JSON 재생성·의미 재생성·HTTP 재시도(일시적 오류만)와 동시 호출 자리 대기를
+한 예산 안에서 쓰고, 넘기면 규칙 문장으로 내려간다.
 
 실제 API 를 부르지 않는다. 가짜 OpenAI 클라이언트로 요청마다 받은 제한 시간·재시도 설정과 호출 횟수를 본다.
 """
@@ -211,3 +212,69 @@ def test_explanation_retries_share_one_deadline(monkeypatch):
     assert stage5_explain._llm_draft(build, SimpleNamespace(targets=[]), None, lambda _m: None, outcome=outcome) is None
     assert len(deadlines) == 2 and deadlines[0] == deadlines[1]
     assert outcome == {"reason": "check_rejected"}            # 재생성해도 검사 불통과
+
+
+# ── 세트 검증 쟁점 문장(LLM) 시간 예산 — 부품표 저장 트랜잭션·교체 요청 안에서 DB 연결·행 잠금을 쥔 채 돌므로 짧게 끝낸다 ──
+
+def test_the_call_slot_wait_is_capped_by_max_wait(monkeypatch):
+    """동시 호출 자리가 모두 찼을 때, 시간 예산이 있는 호출은 남은 시간보다 오래 줄 서지 않는다(기본 대기 10초·120초 대신)."""
+    import threading
+
+    from src.clients import llm_guard
+    from src.errors import LLMBusy
+
+    monkeypatch.setattr(llm_guard, "_call_slots", threading.BoundedSemaphore(1))
+    llm_guard._call_slots.acquire()                       # 자리를 모두 쓴 상태
+    started = time.monotonic()
+    with pytest.raises(LLMBusy):
+        with llm_guard.llm_call_slot(max_wait=0.05):
+            pass
+    assert time.monotonic() - started < 1
+
+
+def test_a_deadline_call_gives_up_on_a_full_slot_queue_within_its_budget(fake, monkeypatch):
+    import threading
+
+    from src.clients import llm_guard
+    from src.errors import LLMBusy
+
+    client = fake(['{"ok": 1}'])
+    monkeypatch.setattr(llm_guard, "_call_slots", threading.BoundedSemaphore(1))
+    llm_guard._call_slots.acquire()
+    started = time.monotonic()
+    with pytest.raises(LLMBusy):
+        llm_client._call_openai("p", system=None, output_schema={"type": "object"}, model="m",
+                                deadline=time.monotonic() + 0.2)
+    assert time.monotonic() - started < 2 and client.calls == 0
+
+
+def test_an_issue_sentence_past_its_deadline_falls_back_to_the_rule_sentence_without_calling(fake, monkeypatch):
+    from src.engine import stage3c_verify
+
+    client = fake([])
+    monkeypatch.setattr(llm_client, "MOCK_MODE", False)
+    text = stage3c_verify._issue_sentence("socket", "fail", [], deadline=time.monotonic() - 1)
+    assert text == stage3c_verify._rule_sentence("socket", "fail")
+    assert client.calls == 0
+
+
+def test_verify_build_shares_one_issue_sentence_deadline_across_its_issues(monkeypatch):
+    from src.config import ISSUE_SENTENCE_DEADLINE_S
+    from src.dto import BuildResult
+    from src.engine import stage3c_verify
+
+    seen: list[float | None] = []
+
+    def record(prompt, **kwargs):
+        seen.append(kwargs.get("deadline"))
+        return {"text": "관측값을 그대로 옮긴 문장입니다."}
+
+    monkeypatch.setattr(stage3c_verify, "call_llm", record)
+    before = time.monotonic()
+    build = BuildResult(list_id="t", link_check={"socket": "fail", "power": "fail", "budget": "fail"},
+                        budget={"max": 100, "used": 150, "used_pct": 150.0})
+    result = stage3c_verify.verify_build(build, "computer")
+
+    assert len(result.targets[0].issues) == 3 and len(seen) == 3
+    assert len(set(seen)) == 1                                  # 세 쟁점이 같은 예산을 나눠 쓴다
+    assert before < seen[0] <= time.monotonic() + ISSUE_SENTENCE_DEADLINE_S

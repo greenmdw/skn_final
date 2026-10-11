@@ -36,8 +36,11 @@ def llm_background() -> Iterator[None]:
 
 
 @contextmanager
-def llm_call_slot() -> Iterator[None]:
+def llm_call_slot(max_wait: float | None = None) -> Iterator[None]:
+    """max_wait 를 주면 자리를 그보다 오래 기다리지 않는다 — 시간 예산이 있는 호출(설명 문장·쟁점 문장)이 줄 서는 동안 예산을 넘기지 않게."""
     wait = config.LLM_BACKGROUND_QUEUE_TIMEOUT_SECONDS if _background.get() else config.LLM_QUEUE_TIMEOUT_SECONDS
+    if max_wait is not None:
+        wait = max(0.0, min(wait, max_wait))
     if not _call_slots.acquire(timeout=wait):
         raise LLMBusy("지금 AI 응답을 기다리는 요청이 많아요. 잠시 뒤 다시 시도해 주세요.")
     try:
