@@ -100,6 +100,22 @@ class SlotPatchIn(BaseModel):
     value: Any | None = None
 
 
+class SlotsPatchIn(BaseModel):
+    """여러 조건을 한 번에 반영한다(PATCH /session/{id}/slots) — 조건마다 PATCH 를 보내면 응답마다 예산 경고를 다시 계산했다."""
+    slots: list[SlotPatchIn] = Field(min_length=1, max_length=20)
+
+
+class ResultStatusOut(BaseModel):
+    """GET /session/{id}/result/status — 폴링용 가벼운 상태. 전체 결과를 조립하지 않는다."""
+    run_id: str
+    status: str                      # running | done | failed
+    explanation_status: str          # pending | ready | failed
+    # 부품표는 done 인데 요약·이유·사용 가이드 중 아직 오는 것이 있으면 true
+    postprocess_pending: bool = False
+    result_version: str
+    error: dict | None = None
+
+
 # ── PC 견적 점검: 사양 텍스트 매칭 미리보기 (세션 없이 호출) ──
 class OwnedPartsPreviewIn(BaseModel):
     # 슬롯 이름(원문 그대로, 예: "CPU"·"그래픽카드") -> 사용자가 적은 자유 텍스트.
@@ -797,6 +813,8 @@ class ItemOut(BaseModel):
     original_review_detail: RecommendationReviewOut | None = None
     reason: TextStatusOut
     checks: TextStatusOut
+    # 사용 가이드 검색 상태(pending | ready | failed | unavailable). checks.status 는 코드 점검 문구 때문에 항상 ready 다.
+    guide_status: str = "ready"
     alternatives_count: int = 0
 
 
@@ -961,6 +979,8 @@ class RecommendResultOut(BaseModel):
     lock_version: int | None = None
     run_id: str
     status: str                      # running | done | failed
+    # 결과 내용 버전 — GET /result/status 의 result_version 과 같으면 다시 받을 필요가 없다.
+    result_version: str | None = None
     progress: list[ProgressStepOut] = Field(default_factory=list)
     category: str
     conditions_summary: str = ""

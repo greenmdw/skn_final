@@ -16,9 +16,11 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import threading
 from functools import lru_cache
 
-from src.config import CARE_GUIDE_EMBEDDING_MODEL, CARE_GUIDES_JSON, MOCK_MODE, OPENAI_API_KEY
+from src.config import (CARE_GUIDE_EMBED_MAX_RETRIES, CARE_GUIDE_EMBED_TIMEOUT_S, CARE_GUIDE_EMBEDDING_MODEL,
+                        CARE_GUIDES_JSON, MOCK_MODE, OPENAI_API_KEY)
 
 _HASH_DIMENSIONS = 256
 
@@ -33,11 +35,17 @@ def _hash_embed(text: str) -> list[float]:
     return [v / norm for v in vec]
 
 
-def _openai_embed(texts: list[str]) -> list[list[float]]:
+@lru_cache(maxsize=1)
+def _openai_client():
+    """클라이언트는 한 번 만들어 재사용한다(호출마다 새로 만들면 연결·TLS 를 매번 다시 맺는다). 제한 시간·재시도도 명시한다 —
+    SDK 기본값(600초·2회)이면 응답이 멈췄을 때 견적 후처리가 수 분 매달린다."""
     from openai import OpenAI
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
-    response = client.embeddings.create(model=CARE_GUIDE_EMBEDDING_MODEL, input=texts)
+    return OpenAI(api_key=OPENAI_API_KEY, timeout=CARE_GUIDE_EMBED_TIMEOUT_S, max_retries=CARE_GUIDE_EMBED_MAX_RETRIES)
+
+
+def _openai_embed(texts: list[str]) -> list[list[float]]:
+    response = _openai_client().embeddings.create(model=CARE_GUIDE_EMBEDDING_MODEL, input=texts)
     return [d.embedding for d in response.data]
 
 
@@ -115,3 +123,54 @@ def search_care_guide(query: str, k: int = 1, slot: str | None = None, kind: str
         key=lambda h: h["score"], reverse=True,
     )
     return scored[:k]
+
+
+# 질의 벡터 캐시 — 견적 후처리의 질의는 "{슬롯} {상품명} 사용 시 확인할 점"이라 같은 상품이면 매번 같다. 문서·모델은 프로세스 안에서
+# 바뀌지 않으므로(바뀌면 재시작) 질의 문자열만 키로 둔다. 상품 수만큼만 쌓이지만 상한을 둔다.
+_QUERY_VECTOR_CACHE_MAX = 4096
+_query_vectors: dict[str, list[float]] = {}
+_query_vectors_lock = threading.Lock()
+
+
+def _query_vectors_for(queries: list[str]) -> list[list[float]]:
+    """질의들의 벡터 — 캐시에 없는 것만 임베딩 요청 한 번으로 묶어 만든다."""
+    with _query_vectors_lock:
+        found = {q: _query_vectors[q] for q in queries if q in _query_vectors}
+    missing = [q for q in dict.fromkeys(queries) if q not in found]
+    if missing:
+        vectors = _embed(missing)
+        found.update(zip(missing, vectors))
+        with _query_vectors_lock:
+            if len(_query_vectors) + len(missing) > _QUERY_VECTOR_CACHE_MAX:
+                _query_vectors.clear()
+            _query_vectors.update(zip(missing, vectors))
+    return [found[q] for q in queries]
+
+
+def search_care_guides(requests: list[tuple[str, str | None]], k: int = 1) -> list[list[dict]]:
+    """여러 (질의, 슬롯)의 구매 전 확인 가이드를 한꺼번에 찾는다 — 결과는 입력 순서대로, 각각 search_care_guide 와 같은 모양.
+
+    견적 후처리가 부품마다 search_care_guide 를 따로 부르면 질의 임베딩 요청이 부품 수만큼(8번) 직렬로 나갔다. 여기서는 후보
+    문서가 없는 슬롯(주변기기 등)은 임베딩 없이 빈 결과로 두고, 나머지 질의를 캐시에 없는 것만 한 번의 요청으로 묶는다.
+    슬롯별 가이드 범위·유사도 정렬은 search_care_guide 와 같다."""
+    allowed_by_index = [SLOT_GUIDE_IDS.get(slot) if slot else None for _query, slot in requests]
+    wanted = [i for i, allowed in enumerate(allowed_by_index) if allowed is None or allowed]
+    if not wanted:
+        return [[] for _ in requests]
+    docs, embeddings = _load_guides()
+    if not docs:
+        return [[] for _ in requests]
+    vectors = dict(zip(wanted, _query_vectors_for([requests[i][0] for i in wanted])))
+    results: list[list[dict]] = []
+    for i, allowed in enumerate(allowed_by_index):
+        if i not in vectors:
+            results.append([])
+            continue
+        scored = sorted(
+            ({"id": d["id"], "kind": d.get("kind", "care"), "text": d["text"], "score": round(_cosine(vectors[i], e), 4)}
+             for d, e in zip(docs, embeddings)
+             if allowed is None or d["id"] in allowed),
+            key=lambda h: h["score"], reverse=True,
+        )
+        results.append(scored[:k])
+    return results

@@ -8,9 +8,11 @@
 from __future__ import annotations
 
 import json
+import math
+import time
 from typing import Any
 
-from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY
+from src.config import LLM_MODEL, LLM_PROVIDER, LLM_REQUEST_TIMEOUT_S, MOCK_MODE, OPENAI_API_KEY
 
 _client: Any = None
 
@@ -28,7 +30,63 @@ def _get_client():
     return _client
 
 
-def _call_openai(prompt: str, *, system: str | None, output_schema: dict | None, model: str) -> dict:
+def _remaining(deadline: float | None) -> float | None:
+    """deadline(time.monotonic 기준)까지 남은 초. 없으면 None, 지났으면 TimeoutError."""
+    if deadline is None:
+        return None
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise TimeoutError("call_llm: 시간 예산을 다 썼습니다")
+    return left
+
+
+# 시간 예산이 있는 호출의 HTTP 재시도. SDK 재시도는 예산을 모르므로 끄고, 여기서 남은 시간을 보며 다시 보낸다 — 횟수(2회)와
+# 대상(연결 오류·시간 초과·408/409/429/5xx, x-should-retry·Retry-After 헤더)은 SDK 기본과 같다.
+_HTTP_RETRIES = 2
+_RETRY_BACKOFF_S = (0.5, 1.0)
+# 기다린 뒤 이만큼도 남지 않으면 다시 보내지 않는다 — 응답을 받기 전에 예산이 끝나는 요청이다.
+_MIN_RETRY_WINDOW_S = 2.0
+
+
+def _retry_wait(exc: Exception, attempt: int) -> float | None:
+    """다시 보낼 만한 오류면 기다릴 초, 아니면 None."""
+    import openai
+
+    if isinstance(exc, openai.APIConnectionError):          # 시간 초과(APITimeoutError)도 여기에 든다
+        return _RETRY_BACKOFF_S[attempt]
+    if not isinstance(exc, openai.APIStatusError):
+        return None
+    headers = exc.response.headers
+    should_retry = headers.get("x-should-retry")
+    if should_retry == "false":
+        return None
+    if should_retry != "true" and exc.status_code not in (408, 409, 429) and exc.status_code < 500:
+        return None
+    try:
+        retry_after = float(headers.get("retry-after", ""))
+    except ValueError:
+        retry_after = 0.0
+    if not math.isfinite(retry_after):
+        return None
+    return max(_RETRY_BACKOFF_S[attempt], retry_after)
+
+
+def _create_within(client, kwargs: dict, deadline: float):
+    """마감 시각 안에서 요청한다 — 요청마다 남은 시간(최대 LLM_REQUEST_TIMEOUT_S)만 주고, 일시적 오류는 남은 시간이 있으면 다시 보낸다."""
+    for attempt in range(_HTTP_RETRIES + 1):
+        left = _remaining(deadline)
+        try:
+            return client.with_options(timeout=min(left, LLM_REQUEST_TIMEOUT_S), max_retries=0).chat.completions.create(**kwargs)
+        except Exception as exc:
+            wait = _retry_wait(exc, attempt) if attempt < _HTTP_RETRIES else None
+            if wait is None or deadline - time.monotonic() - wait < _MIN_RETRY_WINDOW_S:
+                raise
+            time.sleep(wait)
+    raise AssertionError("unreachable")
+
+
+def _call_openai(prompt: str, *, system: str | None, output_schema: dict | None, model: str,
+                 deadline: float | None = None) -> dict:
     client = _get_client()
     messages = []
     if system:
@@ -46,7 +104,8 @@ def _call_openai(prompt: str, *, system: str | None, output_schema: dict | None,
 
     last_error: Exception | None = None
     for _attempt in range(2):  # 파싱 실패 시 1회 재시도
-        response = client.chat.completions.create(**kwargs)
+        # 시간 예산이 있으면 HTTP 재시도까지 그 안에서 센다(_create_within). 없으면 SDK 기본(제한 시간·재시도 2회) 그대로.
+        response = client.chat.completions.create(**kwargs) if deadline is None else _create_within(client, kwargs, deadline)
         content = response.choices[0].message.content or ""
         if not output_schema:
             return {"text": content}
@@ -63,6 +122,7 @@ def call_llm(
     system: str | None = None,
     output_schema: dict | None = None,
     model: str = LLM_MODEL,
+    deadline: float | None = None,
 ) -> dict:
     """LLM 호출.
 
@@ -71,12 +131,13 @@ def call_llm(
         system: 시스템 프롬프트.
         output_schema: 주어지면 스키마에 맞는 dict, 없으면 {"text": str} 반환.
         model: 모델 식별자 (env 주입).
+        deadline: time.monotonic() 기준 마감 시각. 주면 파싱 재시도·HTTP 재시도까지 이 안에서 끝내고, 넘기면 TimeoutError.
 
     Returns:
         output_schema 가 있으면 dict, 없으면 {"text": str}.
     """
     if not MOCK_MODE:
-        return _call_openai(prompt, system=system, output_schema=output_schema, model=model)
+        return _call_openai(prompt, system=system, output_schema=output_schema, model=model, deadline=deadline)
 
     preview = prompt.replace("\n", " ")[:36]
     print(f"[MOCK] LLM 호출: {preview}...")

@@ -9,7 +9,10 @@
 """
 from __future__ import annotations
 
+import time
+
 from src.clients.llm_client import call_llm
+from src.config import EXPLANATION_DEADLINE_S
 from src.dto import (BuildResult, Explanation, ExplanationDraft, ExplanationItem, RankResult,
                      VerificationResult)
 from src.engine import LogFn
@@ -172,8 +175,11 @@ def _extra_note(conditions: dict | None) -> str:
 
 def _llm_draft(build: BuildResult, verification: VerificationResult,
                rank: RankResult | None, log: LogFn, *,
-               conditions: dict | None = None) -> ExplanationDraft | None:
+               conditions: dict | None = None, outcome: dict | None = None) -> ExplanationDraft | None:
     """문장 초안 1회 생성. 검사를 통과한 것만 돌려주고 아니면 None → 규칙 템플릿 (§11-6).
+
+    outcome 을 주면 None 일 때 그 까닭을 outcome["reason"] 에 적는다 — 예외 클래스명(시간 초과·요청 오류 등) 또는
+    "check_rejected"(재생성해도 검사 불통과). 운영 로그가 이 값으로 규칙 문장이 쓰인 이유를 남긴다.
 
     수치·부품명·통과여부는 아래 입력으로 확정해 준다. LLM 이 슬롯을 바꾸거나 다른 슬롯의
     부품을 끌어오거나 점수를 만들어내면 버린다 — 그 경우 호출자가 기존 규칙 문장을 쓴다.
@@ -197,12 +203,16 @@ def _llm_draft(build: BuildResult, verification: VerificationResult,
     want = {it.slot for it in build.items}
     names = {it.slot: it.name for it in build.items}
     schema = ExplanationDraft.model_json_schema()
+    # 의미 검사 재생성(아래 2회)·JSON 재생성·HTTP 재시도를 한 시간 예산 안에서 쓴다 — 넘기면 규칙 템플릿으로 내려간다.
+    deadline = time.monotonic() + EXPLANATION_DEADLINE_S
     for _attempt in range(2):
         try:
             draft = ExplanationDraft.model_validate(
-                call_llm("\n".join(lines), system=explain_system(), output_schema=schema))
+                call_llm("\n".join(lines), system=explain_system(), output_schema=schema, deadline=deadline))
         except Exception as exc:
             log(f"      [5] 문장 생성 실패 ({type(exc).__name__}) → 규칙 템플릿")
+            if outcome is not None:
+                outcome["reason"] = type(exc).__name__
             return None
         if {i.slot for i in draft.items} != want:
             continue
@@ -224,6 +234,8 @@ def _llm_draft(build: BuildResult, verification: VerificationResult,
             continue
         return draft
     log("      [5] 검사 불통과 → 규칙 템플릿")
+    if outcome is not None:
+        outcome["reason"] = "check_rejected"
     return None
 
 
@@ -257,7 +269,8 @@ def run(build: BuildResult, verification: VerificationResult, log: LogFn,
     gray = tgt.gray_axes if tgt else []
 
     # 리뷰 관측(review_line_by_slot·evidence)은 규칙이 만든 것을 그대로 둔다 — LLM 은 건드리지 않는다.
-    draft = _llm_draft(build, verification, rank, log, conditions=conditions)
+    draft_outcome: dict = {}
+    draft = _llm_draft(build, verification, rank, log, conditions=conditions, outcome=draft_outcome)
     reason_by_slot = {i.slot: i.reason for i in draft.items} if draft else {}
 
     items, review_lines, review_caveats = [], {}, []
@@ -295,4 +308,8 @@ def run(build: BuildResult, verification: VerificationResult, log: LogFn,
         items=items,
         caveats=caveats,
         review_line_by_slot=review_lines,
+        text_source="llm" if draft else "rule",
+        fallback_reason=draft_outcome.get("reason", ""),
+        # 초안의 슬롯 이유가 금지어·다른 슬롯 부품명으로 빠져 규칙 문장이 들어간 슬롯(초안 전체가 없으면 모든 슬롯)
+        rule_reason_slots=[it.slot for it in build.items if not reason_by_slot.get(it.slot)],
     )

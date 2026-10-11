@@ -32,18 +32,42 @@ class EngineRepo(Repo):
         reason_status = "ready" if reason is not None else "pending"
         row=self._one("""INSERT INTO engine.recommendation_candidate (run_id,requirement_id,variant_id,offer_observation_id,result,score,score_method_version,reason,reason_status)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",(run_id,requirement_id,variant_id,offer_observation_id,result,score,score_method_version,reason,reason_status)); return row["id"]
-    def update_candidate_reason(self, candidate_id: UUID, reason: str) -> None:
-        """[5] 설명 문장이 부품표 확정보다 늦게 끝날 때, 나중에 reason만 채워 넣는다."""
-        self._exec("UPDATE engine.recommendation_candidate SET reason=%s, reason_status='ready' WHERE id=%s",(reason,candidate_id))
-    def fail_candidate_reason(self, candidate_id: UUID) -> None:
-        """[5] 실패 — reason은 NULL로 남기고(제약상 ready만 값을 가짐) 상태만 failed로."""
-        self._exec("UPDATE engine.recommendation_candidate SET reason_status='failed' WHERE id=%s",(candidate_id,))
-    def update_candidate_checks(self, candidate_id: UUID, checks: str) -> None:
-        """부품 사용 가이드 RAG 검색 결과 — "구매 전 확인" 문장을 채운다."""
-        self._exec("UPDATE engine.recommendation_candidate SET checks=%s, checks_status='ready' WHERE id=%s",(checks,candidate_id))
-    def fail_candidate_checks(self, candidate_id: UUID) -> None:
-        """가이드 검색/임베딩 실패 — checks는 NULL로 남기고 상태만 failed로."""
-        self._exec("UPDATE engine.recommendation_candidate SET checks_status='failed' WHERE id=%s",(candidate_id,))
+    def update_candidate_reason(self, candidate_id: UUID, reason: str, variant_id: UUID | None = None) -> bool:
+        """[5] 설명 문장이 부품표 확정보다 늦게 끝날 때, 나중에 reason만 채워 넣는다.
+
+        variant_id 를 주면 그 상품을 가리키는 행일 때만 채운다 — 후처리 도중 사용자가 부품을 교체했으면 행의
+        variant_id 가 이미 바뀌어 있어서, 이전 상품의 문장이 새 상품(교체 문장)을 덮어쓰지 않는다. 채웠는지(bool)를 돌려준다."""
+        sql, params = "UPDATE engine.recommendation_candidate SET reason=%s, reason_status='ready' WHERE id=%s", [reason, candidate_id]
+        if variant_id is not None:
+            sql += " AND variant_id=%s"
+            params.append(variant_id)
+        return self.conn.execute(sql, params).rowcount > 0
+    def fail_candidate_reason(self, candidate_id: UUID, variant_id: UUID | None = None) -> bool:
+        """[5] 실패 — reason은 NULL로 남기고(제약상 ready만 값을 가짐) 상태만 failed로.
+
+        아직 pending 인 행만 바꾼다. 교체가 이미 문장을 채운(ready) 행을 failed 로 바꾸면 reason_content_check 제약 위반이다.
+        variant_id 를 주면 그 상품을 가리키는 행일 때만 바꾼다. 바꿨는지(bool)를 돌려준다."""
+        sql, params = "UPDATE engine.recommendation_candidate SET reason_status='failed' WHERE id=%s AND reason_status='pending'", [candidate_id]
+        if variant_id is not None:
+            sql += " AND variant_id=%s"
+            params.append(variant_id)
+        return self.conn.execute(sql, params).rowcount > 0
+    def update_candidate_checks(self, candidate_id: UUID, checks: str, variant_id: UUID | None = None) -> bool:
+        """부품 사용 가이드 RAG 검색 결과 — "구매 전 확인" 문장을 채운다. variant_id 를 주면 그 상품을 가리키는 행일 때만
+        채운다(이전 상품의 가이드가 교체된 새 상품에 붙지 않게). 채웠는지(bool)를 돌려준다."""
+        sql, params = "UPDATE engine.recommendation_candidate SET checks=%s, checks_status='ready' WHERE id=%s", [checks, candidate_id]
+        if variant_id is not None:
+            sql += " AND variant_id=%s"
+            params.append(variant_id)
+        return self.conn.execute(sql, params).rowcount > 0
+    def fail_candidate_checks(self, candidate_id: UUID, variant_id: UUID | None = None) -> bool:
+        """가이드 검색/임베딩 실패 — checks는 NULL로 남기고 상태만 failed로. 아직 pending 인 행만 바꾼다(variant_id 를 주면
+        그 상품을 가리키는 행일 때만). 바꿨는지(bool)를 돌려준다."""
+        sql, params = "UPDATE engine.recommendation_candidate SET checks_status='failed' WHERE id=%s AND checks_status='pending'", [candidate_id]
+        if variant_id is not None:
+            sql += " AND variant_id=%s"
+            params.append(variant_id)
+        return self.conn.execute(sql, params).rowcount > 0
     def add_validation(self, run_id: UUID, *, rule_key: str, rule_version: str, executor_version: str, status: str, severity: str, measured_values: dict, threshold: dict, message: str, checked_at, issues: list | None = None) -> UUID:
         row=self._one("""INSERT INTO engine.validation_result (run_id,rule_key,rule_version,executor_version,status,severity,measured_values,threshold,message,checked_at,issues)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",(run_id,rule_key,rule_version,executor_version,status,severity,Jsonb(measured_values),Jsonb(threshold),message,checked_at,Jsonb(issues or []))); return row["id"]
@@ -82,6 +106,14 @@ class EngineRepo(Repo):
         return self._one("SELECT * FROM engine.recommendation_run WHERE id=%s",(run_id,))
     def get_latest_run(self, revision_id: UUID) -> dict | None:
         return self._one("SELECT * FROM engine.recommendation_run WHERE revision_id=%s ORDER BY created_at DESC LIMIT 1",(revision_id,))
+    def get_latest_run_state(self, revision_id: UUID) -> dict | None:
+        """가벼운 상태 조회용 — reasoning_log(리뷰 스냅샷 포함 수백 KB) 같은 큰 컬럼을 읽지 않는다."""
+        return self._one("SELECT id, status, explanation_status, updated_at FROM engine.recommendation_run "
+                         "WHERE revision_id=%s ORDER BY created_at DESC LIMIT 1", (revision_id,))
+    def get_candidate_states(self, run_id: UUID) -> list[dict]:
+        """가벼운 상태 조회용 — 후보 행의 상태 컬럼만(상품·가격·리뷰 조인 없음)."""
+        return self._all("SELECT id, variant_id, score, reason_status, checks_status, selected, qty, timing, updated_at "
+                         "FROM engine.recommendation_candidate WHERE run_id=%s", (run_id,))
     def has_running_run(self, revision_id: UUID) -> bool:
         row = self._one("SELECT 1 FROM engine.recommendation_run WHERE revision_id=%s AND status='running' LIMIT 1", (revision_id,))
         return row is not None
@@ -117,10 +149,11 @@ class EngineRepo(Repo):
     def update_candidate_variant(self, candidate_id: UUID, *, variant_id: UUID,
                                   offer_observation_id: UUID | None) -> None:
         """후보 교체 — item_id(행 자체)는 그대로 두고 내용만 바꿔치기한다(계약: item_id 고정).
-        점수·설명 문장은 더 이상 새 상품을 반영하지 않으므로 pending으로 되돌린다."""
+        점수·설명 문장·사용 가이드는 더 이상 새 상품을 반영하지 않으므로 pending으로 되돌린다(이전 상품의 가이드가 남지 않게)."""
         self._exec(
             "UPDATE engine.recommendation_candidate SET variant_id=%s, offer_observation_id=%s, "
-            "score=NULL, score_method_version=NULL, reason=NULL, reason_status='pending' WHERE id=%s",
+            "score=NULL, score_method_version=NULL, reason=NULL, reason_status='pending', "
+            "checks=NULL, checks_status='pending' WHERE id=%s",
             (variant_id, offer_observation_id, candidate_id),
         )
 

@@ -178,12 +178,12 @@ def pytest_terminal_summary(terminalreporter):
 # intentional, and out of tests that verify recommendation readiness failures.
 _REVIEW_SUCCESS_MODULES = {
     'test_alternatives_compat', 'test_budget_warning_and_contribution_http',
-    'test_chat08_result_history', 'test_confirm_qty_timing_http',
+    'test_chat08_result_history', 'test_confirm_qty_timing_http', 'test_confirm_reason_fallback',
     'test_feedback_events', 'test_history_journey', 'test_list_history_http',
     'test_list_revisions_http', 'test_list_service', 'test_notification_acc02',
     'test_peripheral_line_confirm_http', 'test_peripherals_recommend_http',
-    'test_pipeline_http_smoke', 'test_preference_signal', 'test_quote_apply',
-    'test_report_delete_rename_http', 'test_research_loop', 'test_result_advice', 'test_result_interaction',
+    'test_pipeline_http_smoke', 'test_postprocess_swap_race', 'test_preference_signal', 'test_quote_apply',
+    'test_report_delete_rename_http', 'test_research_loop', 'test_result_status_http', 'test_result_advice', 'test_result_interaction',
     'test_reverify_after_swap', 'test_revise_confirmed_report',
     'test_revision_from_old_report_http', 'test_session_resume_http',
     'test_upgrade_mode', 'test_upgrade_notes', 'test_upgrade_questions',

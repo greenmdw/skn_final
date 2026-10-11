@@ -113,3 +113,21 @@ def test_top_n_solution_is_untouched_when_it_already_exists():
     result = run({"CPU": [CPU], "쿨러": [COOLER_LGA]}, pool={"쿨러": [COOLER_LGA, COOLER_LGA_BEST]})
     assert keys(result)["쿨러"] == "cooler_lga"
     assert "widened" not in result.alternatives
+
+
+def test_widened_and_cheapest_search_node_counts_are_kept_separately():
+    """확대 점수 탐색이 예산 안에서 못 찾아 최저가 호환 탐색까지 돌면, 두 탐색의 방문 수를 각각 남긴다
+    (예전엔 최저가 탐색이 widened_visited 를 덮어써 확대 탐색의 방문 수가 사라졌다)."""
+    from src.engine.stage4_optimize import _search_pc_build
+
+    cpu = cand("CPU", "cpu_lga", 100, 9, socket="LGA1851")
+    top = {"CPU": [cpu], "쿨러": [COOLER_AM_ONLY]}
+    wide = {"CPU": [cpu], "쿨러": [COOLER_AM_ONLY, COOLER_LGA]}
+    spec = RequirementSpec(list_id="fb", category="computer", mode="build", targets={"CPU": {}, "쿨러": {}})
+    from src.engine.stage2_requirement import load_computer_rules
+
+    chosen, counts, compatible = _search_pc_build(top, ["CPU", "쿨러"], 50, spec,
+                                                  load_computer_rules()["verification"], wide_pools=wide)
+    assert compatible and chosen["쿨러"].product_key == "cooler_lga"      # 예산(50)은 넘지만 호환되는 최저가
+    assert counts["widened"] == 1
+    assert counts["widened_visited"] >= 1 and counts["cheapest_visited"] >= 1

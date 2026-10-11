@@ -418,7 +418,8 @@ def _cheapest_compatible(
         visit(0, 0)
     except _NodeCap:
         counts["capped"] = 1
-    counts["widened_visited"] = nodes
+    # 확대 점수 탐색의 방문 수(widened_visited)와 따로 센다 — 같은 키에 쓰면 두 탐색이 다 돈 경우 앞의 값이 지워졌다.
+    counts["cheapest_visited"] = nodes
     return best
 
 

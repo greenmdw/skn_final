@@ -182,6 +182,14 @@ REVIEW_SUSPECT_COUNTS: Path = DATA_DIR / "review_suspect_counts.json"
 # 무관한 별도 기능 — 이미 동작 확인된 OpenAI 키를 그대로 쓴다.
 CARE_GUIDES_JSON: Path = DATA_DIR / "pc_care_guides.json"
 CARE_GUIDE_EMBEDDING_MODEL: str = os.getenv("CARE_GUIDE_EMBEDDING_MODEL", "text-embedding-3-small")
+# 가이드 임베딩 요청 한 번의 제한 시간·재시도. SDK 기본값(600초·2회)이면 응답이 멈췄을 때 견적 후처리가 수 분 매달린다.
+CARE_GUIDE_EMBED_TIMEOUT_S: float = float(os.getenv("CARE_GUIDE_EMBED_TIMEOUT_S", "10"))
+CARE_GUIDE_EMBED_MAX_RETRIES: int = int(os.getenv("CARE_GUIDE_EMBED_MAX_RETRIES", "1"))
+
+# 견적 설명 문장(LLM) 전체 시간 예산 — JSON 재생성·의미 재생성·HTTP 재시도를 모두 이 안에서 쓴다. 넘기면 규칙 문장으로
+# 내려간다(부품표는 이미 공개된 뒤라 사용자는 표를 보고 있다). 요청 한 번의 상한은 남은 예산과 아래 값 중 작은 쪽이다.
+EXPLANATION_DEADLINE_S: float = float(os.getenv("EXPLANATION_DEADLINE_S", "25"))
+LLM_REQUEST_TIMEOUT_S: float = float(os.getenv("LLM_REQUEST_TIMEOUT_S", "20"))
 
 # 리뷰 임베딩 백필(evidence.review_embedding, 0008_review_aspect.sql) — 문서·질의 공통 모델/차원은
 # 그 마이그레이션에서 팀이 이미 합의했다(OpenAI text-embedding-3-small, 1536차원). 컬럼이

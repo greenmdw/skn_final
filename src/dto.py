@@ -303,6 +303,10 @@ class Explanation(BaseModel):
     items: list[ExplanationItem] = Field(default_factory=list)
     caveats: list[str] = Field(default_factory=list)
     review_line_by_slot: dict[str, str] = Field(default_factory=dict)
+    # 문장 출처 — 운영 로그에서 LLM 문장이 쓰였는지, 규칙 템플릿으로 내려갔는지(왜) 가리는 데 쓴다. 화면에는 나가지 않는다.
+    text_source: str = "rule"                                    # "llm" | "rule"
+    fallback_reason: str = ""                                    # 규칙으로 내려간 까닭: 예외 클래스명 또는 "check_rejected"
+    rule_reason_slots: list[str] = Field(default_factory=list)   # LLM 초안을 쓰고도 이유가 규칙 문장인 슬롯
 
 
 # (구 추천 결과 DTO는 §D-4-2 계약(RecommendResultOut, src/schemas.py)으로 대체되어 제거됨.
