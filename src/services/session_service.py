@@ -313,6 +313,20 @@ def patch_slot(
 ) -> dict:
     repo = PlanRepo(conn)
     current = _owned(repo, list_id, principal)
+    values, category = _current_values(repo, current["id"])
+    allowed = {"category", "mode"}
+    if category is not None:
+        cat_def = _category(category)
+        allowed |= set(cat_def.get("slot_schema") or {}) | {f["key"] for f in cat_def.get("fields") or []}
+    else:
+        allowed |= set(_category("computer").get("slot_schema") or {})
+    if field not in allowed:
+        raise ValidationFailed("알 수 없는 조건 항목입니다.", field="field")
+    if field == "budget_max":
+        try:
+            value = slot_rules.normalize_budget(value)
+        except ValueError as exc:
+            raise ValidationFailed(str(exc), field="value") from None
     repo.upsert_condition(current["id"], field, {"value": value}, "explicit")
     return _state(conn, list_id, principal)
 
