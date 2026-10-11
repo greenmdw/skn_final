@@ -46,17 +46,23 @@ def budget_notice(totals: dict | None, values: dict) -> dict | None:
     """예산을 많이 남긴 새 구성에, 왜 남았는지와 남은 예산을 쓰는 길을 안내하는 문장.
 
     점수 규칙은 건드리지 않는다 — 결과는 그대로고 설명만 붙인다. 업그레이드는 예산이 바꿀 부품에 쓸 돈이라
-    남는 게 자연스러워 제외하고, 예산 초과·조금 남은 경우도 안내하지 않는다.
+    남는 게 자연스러워 제외하고, 조금 남은 경우도 안내하지 않는다. 예산을 넘은 구성에는 얼마나 넘었는지 알린다(remaining 이 음수).
     성능 우선은 "이미 채우는 쪽"이라 빼 두었는데, 실제로는 용도 기준 등급을 넘는 부품이 점수에서 이기지 못해
     700만원 예산에 300만원 구성이 나왔다(2026-10-08 팀 시연·회의). 그때는 다시 추천받을 우선순위가 없으니
     suggest_priority 를 비우고 결과 채팅으로 안내한다."""
     from src.services.result_advice import PURPOSE_LABEL
     budget = values.get("budget_max")
     priority = values.get("priority")
-    if not totals or not budget or values.get("mode") != "build" or totals.get("over_budget"):
+    if not totals or not budget or values.get("mode") != "build":
         return None
     spent = int(totals.get("selected_price") or 0)
     remaining = int(budget) - spent
+    if totals.get("over_budget"):
+        # 예산을 넘은 구성은 조용히 보여 주지 않는다(U-08) — 얼마나 넘었는지와 줄이는 길을 적는다.
+        # 넘은 이유가 요구 성능의 최저가 때문인지 사용자가 바꾼 부품 때문인지는 여기서 모르므로 이유는 단정하지 않는다.
+        return {"message": (f"예산 {fmt_money(budget)}보다 {fmt_money(-remaining)} 많은 {fmt_money(spent)} 구성이에요. "
+                            "예산을 올리거나 해상도·게임 같은 요구 사양을 낮추거나, 부품을 더 저렴한 것으로 바꾸면 예산에 가까워져요."),
+                "budget": int(budget), "spent": spent, "remaining": remaining, "suggest_priority": None}
     if spent <= 0 or remaining < budget * UNDERSPENT_RATIO:
         return None
     head = f"예산 {fmt_money(budget)} 중 {fmt_money(spent)}을 썼어요."

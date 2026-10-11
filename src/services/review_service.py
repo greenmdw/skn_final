@@ -256,9 +256,10 @@ def db_review_counts(conn, product_ids) -> dict[str, int]:
     if not ids:
         return {}
     rows = conn.execute(
-        "SELECT product_id::text, count(*) FROM evidence.review_document WHERE product_id::text = ANY(%s) GROUP BY product_id",
-        (ids,)).fetchall()
-    return {r[0]: int(r[1]) for r in rows}
+        "SELECT product_id::text AS product_id, count(*) AS n FROM evidence.review_document "
+        "WHERE product_id::text = ANY(%s) GROUP BY product_id", (ids,)).fetchall()
+    # 연결의 행 형식이 호출 경로마다 다르다(튜플 / dict) — 둘 다 읽는다.
+    return {str(r["product_id"] if isinstance(r, dict) else r[0]): int(r["n"] if isinstance(r, dict) else r[1]) for r in rows}
 
 
 def usage_context_with_telemetry(usage_context: dict | None, telemetry: ReviewTelemetry | None) -> dict:

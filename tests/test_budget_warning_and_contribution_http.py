@@ -80,3 +80,24 @@ def test_value_priority_result_explains_the_unspent_budget_and_offers_performanc
     assert again["totals"]["selected_price"] > result["totals"]["selected_price"]
     # 성능 우선으로 받은 구성에는 다시 추천받으라는 안내가 없다(많이 남으면 이유 안내만, 버튼 없음)
     assert again["budget_notice"] is None or again["budget_notice"]["suggest_priority"] is None
+
+
+def test_over_budget_result_says_how_much_it_exceeds(client):
+    """U-08 — 요구 성능의 최저가가 예산을 넘으면 결과에 초과 금액과 줄이는 길을 알린다(조용히 넘기지 않는다)."""
+    lid, _state = _start(client, purpose="game", budget_max=600_000, priority="performance")
+    assert client.post(f"/session/{lid}/recommend", json={}).status_code == 202
+    result = client.get(f"/session/{lid}/result").json()
+    assert result["totals"]["over_budget"] is True
+    notice = result["budget_notice"]
+    assert notice is not None and notice["remaining"] < 0 and notice["suggest_priority"] is None
+    assert notice["spent"] == result["totals"]["selected_price"] and notice["budget"] == 600_000
+    assert "많은" in notice["message"] and "예산" in notice["message"]
+
+
+def test_within_budget_result_has_no_over_budget_notice(client):
+    lid, _state = _start(client, purpose="game", budget_max=5_000_000, priority="performance")
+    assert client.post(f"/session/{lid}/recommend", json={}).status_code == 202
+    result = client.get(f"/session/{lid}/result").json()
+    notice = result["budget_notice"]
+    assert result["totals"]["over_budget"] is False
+    assert notice is None or notice["remaining"] >= 0

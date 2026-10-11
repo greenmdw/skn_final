@@ -944,7 +944,7 @@ class CompatCheckOut(BaseModel):
 
 
 class BudgetNoticeOut(BaseModel):
-    """예산을 많이 남긴 이유 안내 — 우선순위(가성비·저소음·성능)와 상관없이 예산을 많이 남긴 새 구성에 채운다."""
+    """예산 안내 — 예산을 많이 남긴 새 구성(이유와 쓰는 길) 또는 예산을 넘은 구성(얼마나 넘었는지, remaining 이 음수)에 채운다."""
 
     message: str
     budget: int
