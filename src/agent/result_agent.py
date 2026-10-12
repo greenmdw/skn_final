@@ -566,7 +566,7 @@ def make_tools(s: ResultSession) -> list:
         return s.search_unavailable_part(slot, product_text)
 
     return [list_alternatives, swap, set_qty, remove_or_restore, explain,
-            preview_swap, preview_qty, upgrade_options, savings_options, check_build, game_check,
+            preview_swap, preview_qty, upgrade_options, budget_reason, savings_options, check_build, game_check,
             search_unavailable_part]
 
 

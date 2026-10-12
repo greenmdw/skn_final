@@ -160,7 +160,7 @@ def test_strands_registers_change_and_question_tools():
     tools = ra.make_tools(_session())
     assert [t.tool_name for t in tools] == [
         "list_alternatives", "swap", "set_qty", "remove_or_restore", "explain",
-        "preview_swap", "preview_qty", "upgrade_options", "savings_options", "check_build", "game_check",
+        "preview_swap", "preview_qty", "upgrade_options", "budget_reason", "savings_options", "check_build", "game_check",
         "search_unavailable_part"]
     swap_spec = next(t for t in tools if t.tool_name == "swap").tool_spec
     assert set(swap_spec["inputSchema"]["json"]["required"]) == {"slot", "candidate_id"}
