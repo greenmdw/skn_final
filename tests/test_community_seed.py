@@ -102,3 +102,87 @@ def test_update_flag_refreshes_existing_posts(tmp_path):
         assert seed.load_examples(conn, [changed], apply=True, update=True).updated == [f"{tag}-1"]
     items = TestClient(app).get("/community/posts", params={"q": tag}).json()["items"]
     assert [i["title"] for i in items] == [f"{tag} 바뀐 제목"]
+
+
+# ── 이미지 ───────────────────────────────────────────────────────────────────────────
+def _img(folder: Path, name: str, size=(400, 300), fmt="PNG") -> None:
+    from PIL import Image
+    folder.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", size, (20, 120, 220)).save(folder / name, fmt)
+
+
+@pytest.fixture()
+def upload_dir(monkeypatch, tmp_path):
+    from src.services import community_service as svc
+    monkeypatch.setattr(svc, "COMMUNITY_UPLOAD_DIR", str(tmp_path / "uploads"))
+    return tmp_path / "uploads"
+
+
+def _stored(upload_dir: Path) -> int:
+    return sum(1 for p in upload_dir.rglob("*") if p.is_file()) if upload_dir.exists() else 0
+
+
+def test_images_are_validated_in_dry_run_and_loaded_on_apply(tmp_path, upload_dir):
+    tag = f"T{os.urandom(3).hex()}"
+    src = tmp_path / "posts"
+    src.mkdir()
+    _img(src, "a.png"); _img(src / "pics", "b.jpg", (3000, 1000), "JPEG")
+    post = _write(src, f"{tag}-1.md", f"id: {tag}-1\nboard: free\nauthor: P01\nis_example: true\ntitle: {tag} 사진 글\nimages: [pics/b.jpg, a.png]")
+    with get_conn() as conn:
+        report = seed.load_examples(conn, [post], apply=False)
+    assert report.created == [f"{tag}-1"] and not report.errors and _stored(upload_dir) == 0
+    with get_conn() as conn:
+        report = seed.load_examples(conn, [post], apply=True)
+    assert not report.errors and _stored(upload_dir) == 2
+    item = TestClient(app).get("/community/posts", params={"q": tag}).json()["items"][0]
+    assert item["image_count"] == 2
+    detail = TestClient(app).get(f"/community/posts/{item['id']}").json()
+    assert [(i["width"], i["height"]) for i in detail["images"]] == [(1600, 533), (400, 300)]       # 첫 장(b.jpg)이 대표, 긴 변 1600px
+    assert TestClient(app).get(detail["images"][0]["url"]).headers["content-type"] == "image/jpeg"
+
+
+def test_image_problems_are_reported_per_post(tmp_path, upload_dir):
+    tag = f"T{os.urandom(3).hex()}"
+    src = tmp_path / "posts"
+    src.mkdir()
+    (src / "fake.png").write_bytes(b"not an image")
+    outside = tmp_path / "outside.png"
+    _img(tmp_path, "outside.png")
+    files = [
+        _write(src, f"{tag}-1.md", f"id: {tag}-1\nboard: free\nauthor: P01\ntitle: t1\nimages: [missing.png]"),
+        _write(src, f"{tag}-2.md", f"id: {tag}-2\nboard: free\nauthor: P01\ntitle: t2\nimages: [fake.png]"),
+        _write(src, f"{tag}-3.md", f"id: {tag}-3\nboard: free\nauthor: P01\ntitle: t3\nimages: ['../outside.png']"),
+        _write(src, f"{tag}-4.md", f"id: {tag}-4\nboard: free\nauthor: P01\ntitle: t4\nimages: [a, b, c, d, e, f]"),
+        _write(src, f"{tag}-5.md", f"id: {tag}-5\nboard: free\nauthor: P01\ntitle: t5"),
+    ]
+    assert outside.exists()
+    with get_conn() as conn:
+        report = seed.load_examples(conn, files, apply=False)
+    messages = {name: msg for name, msg in report.errors}
+    assert len(messages) == 4 and report.created == [f"{tag}-5"]
+    assert "파일이 없다" in messages[f"{tag}-1.md"] and "이미지" in messages[f"{tag}-2.md"]
+    assert "폴더 밖" in messages[f"{tag}-3.md"] and "최대" in messages[f"{tag}-4.md"]
+
+
+def test_update_replaces_images_and_failed_apply_leaves_no_files(tmp_path, upload_dir):
+    tag = f"T{os.urandom(3).hex()}"
+    src = tmp_path / "posts"
+    src.mkdir()
+    _img(src, "a.png"); _img(src, "b.png"); _img(src, "c.png")
+    path = _write(src, f"{tag}-1.md", f"id: {tag}-1\nboard: free\nauthor: P01\ntitle: {tag} 글\nimages: [a.png, b.png]")
+    with get_conn() as conn:
+        seed.load_examples(conn, [path], apply=True)
+    assert _stored(upload_dir) == 2
+    _write(src, f"{tag}-1.md", f"id: {tag}-1\nboard: free\nauthor: P01\ntitle: {tag} 글\nimages: [c.png]")
+    with get_conn() as conn:
+        report = seed.load_examples(conn, [path], apply=True, update=True)
+    assert report.updated == [f"{tag}-1"] and not report.errors
+    seed._remove_files(report.stale_keys)                       # main() 이 커밋 뒤에 하는 일
+    assert _stored(upload_dir) == 1
+    item = TestClient(app).get("/community/posts", params={"q": tag}).json()["items"][0]
+    assert item["image_count"] == 1
+    # images 를 생략하고 갱신하면 이미지는 그대로
+    _write(src, f"{tag}-1.md", f"id: {tag}-1\nboard: free\nauthor: P01\ntitle: {tag} 글 수정")
+    with get_conn() as conn:
+        seed.load_examples(conn, [path], apply=True, update=True)
+    assert TestClient(app).get("/community/posts", params={"q": tag}).json()["items"][0]["image_count"] == 1

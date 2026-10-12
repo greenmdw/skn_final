@@ -14,6 +14,7 @@
         option:             # 키보드 스위치 등(선택)
     title: "[4주 사용] 클로 그립으로 써본 G PRO X SUPERLIGHT 2"
     tags: [마우스, FPS]     # 선택
+    images: [a1-1_1.jpg, a1-1_2.png]   # 선택 — 글 파일과 같은 폴더(하위 폴더 가능)의 이미지, 첫 장이 대표. 최대 5장, 장당 5MB
     ---
     본문…
 
@@ -21,6 +22,9 @@
     python db/seed_community_examples.py <글 폴더>                 # 점검(dry-run)
     python db/seed_community_examples.py <글 폴더> --apply         # 적재
     python db/seed_community_examples.py <글 폴더> --apply --update   # 이미 있는 글은 본문·제목·태그·제품도 갱신
+
+이미지: 글 화면에서 올릴 때와 같은 검증(JPEG·PNG·WebP, 5MB)·축소(긴 변 1600px)·EXIF 제거를 거쳐 저장 폴더(COMMUNITY_UPLOAD_DIR)에 넣는다.
+점검(dry-run)에서도 파일이 있는지·올릴 수 있는지 확인한다. --update 는 글의 이미지를 머리말 목록으로 교체한다(머리말에 images 가 없으면 이미지는 그대로 둔다).
 
 멱등: 같은 id 는 두 번 들어가지 않는다(--update 가 없으면 건너뛴다). 글은 파일 이름 순서대로 1분 간격으로 과거에 게시한 것으로
 적재해 목록 순서가 안정적이다. 직접 쓴(is_example: false) 글도 같은 형식으로 적재할 수 있다.
@@ -38,9 +42,11 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from src.config import COMMUNITY_IMAGE_MAX_BYTES, COMMUNITY_IMAGE_MAX_PER_POST, COMMUNITY_IMAGE_MAX_SIDE_PX  # noqa: E402
 from src.db import get_conn  # noqa: E402
 from src.repo.community_repo import CommunityRepo  # noqa: E402
-from src.services.community_service import BOARD_TYPES, KIND_TO_TYPE, TYPE_TO_KIND  # noqa: E402
+from src.services.community_service import BOARD_TYPES, KIND_TO_TYPE, TYPE_TO_KIND, _remove_files, _store  # noqa: E402
+from src.storage.community_images import InvalidImage, process_image  # noqa: E402
 
 # 예시 글 작성자 20명(닉네임은 예시_사용기_작성_기획.md 4장). 로그인할 수 없는 계정(비밀번호 없음)으로 만든다.
 AUTHORS = {
@@ -58,6 +64,8 @@ class Report:
     updated: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)
     errors: list[tuple[str, str]] = field(default_factory=list)
+    saved_keys: list[str] = field(default_factory=list)       # 이번 실행에서 저장한 이미지 파일 — 롤백하면 지운다
+    stale_keys: list[str] = field(default_factory=list)       # 교체돼 빠진 이미지 파일 — 커밋된 뒤에 지운다
 
 
 def parse_file(path: Path) -> dict:
@@ -82,7 +90,14 @@ def parse_file(path: Path) -> dict:
     products = meta.get("products") or []
     if not isinstance(products, list):
         raise ValueError("products 는 목록이어야 한다")
-    return {"id": str(meta["id"]).strip(), "board": meta["board"], "author": meta["author"], "title": str(meta["title"]).strip(),
+    images = meta.get("images")
+    if images is not None:
+        if not isinstance(images, list) or not all(isinstance(x, str) and x.strip() for x in images):
+            raise ValueError("images 는 파일 이름 목록이어야 한다")
+        if len(images) > COMMUNITY_IMAGE_MAX_PER_POST:
+            raise ValueError(f"이미지는 글당 최대 {COMMUNITY_IMAGE_MAX_PER_POST}장이다")
+        images = [x.strip() for x in images]
+    return {"images": images, "id": str(meta["id"]).strip(), "board": meta["board"], "author": meta["author"], "title": str(meta["title"]).strip(),
             "is_example": bool(meta.get("is_example", False)), "tags": [str(t) for t in (meta.get("tags") or [])],
             "products": products, "body": body}
 
@@ -96,6 +111,38 @@ def _author_id(conn, code: str) -> "object":
         "INSERT INTO identity.app_user (email_normalized, auth_subject, display_name, status) VALUES (%s, %s, %s, 'active') RETURNING id",
         (email, f"example:{code}", AUTHORS[code])).fetchone()
     return row[0] if not isinstance(row, dict) else row["id"]
+
+
+def _load_images(path: Path, names: list[str]) -> list:
+    """머리말의 이미지 파일을 읽고 검증·가공한다(글 파일이 있는 폴더 밖은 읽지 않는다)."""
+    base = path.parent.resolve()
+    processed = []
+    for name in names:
+        file = (base / name).resolve()
+        if base != file and base not in file.parents:
+            raise ValueError(f"이미지 '{name}' 이(가) 글 폴더 밖에 있다")
+        if not file.is_file():
+            raise ValueError(f"이미지 '{name}' 파일이 없다")
+        raw = file.read_bytes()
+        if len(raw) > COMMUNITY_IMAGE_MAX_BYTES:
+            raise ValueError(f"이미지 '{name}' 이(가) {COMMUNITY_IMAGE_MAX_BYTES // (1024 * 1024)}MB 를 넘는다")
+        try:
+            processed.append(process_image(raw, max_side=COMMUNITY_IMAGE_MAX_SIDE_PX))
+        except InvalidImage as exc:
+            raise ValueError(f"이미지 '{name}': {exc}") from exc
+    return processed
+
+
+def _attach_images(repo: CommunityRepo, report: Report, post_id, owner_id, images: list) -> None:
+    store = _store()
+    ids = []
+    for item in images:
+        key = store.new_key(item.content_type)
+        store.save(key, item.data)
+        report.saved_keys.append(key)
+        ids.append(repo.insert_image(owner_id=owner_id, storage_key=key, content_type=item.content_type, width=item.width,
+                                     height=item.height, byte_size=len(item.data))["id"])
+    report.stale_keys.extend(repo.attach_images(post_id, ids))
 
 
 def _resolve_products(repo: CommunityRepo, items: list) -> list[dict]:
@@ -128,6 +175,7 @@ def load_examples(conn, files: list[Path], *, apply: bool, update: bool = False,
                 raise ValueError(f"같은 id 가 두 번 나온다: {post['id']}")
             seen.add(post["id"])
             products = _resolve_products(repo, post["products"])
+            images = _load_images(path, post["images"]) if post["images"] is not None else None
             existing = repo.get_post_by_external_id(post["id"])
             if existing is not None and not update:
                 report.skipped.append(post["id"])
@@ -138,12 +186,14 @@ def load_examples(conn, files: list[Path], *, apply: bool, update: bool = False,
             published_at = base - timedelta(minutes=index)
             if existing is None:
                 author = _author_id(conn, post["author"])
+                owner = author
                 post_id = repo.create_post(author_id=author, board_type=post["board"], title=post["title"], body=post["body"],
                                            tags=post["tags"], status="published", is_example=post["is_example"],
                                            external_id=post["id"], published_at=published_at)
                 report.created.append(post["id"])
             else:
                 post_id = existing["id"]
+                owner = existing["author_user_id"]
                 repo.update_post(post_id, expected_version=None,
                                  fields={"board_type": post["board"], "title": post["title"], "body": post["body"],
                                          "tags": post["tags"], "is_example": post["is_example"]})
@@ -151,6 +201,8 @@ def load_examples(conn, files: list[Path], *, apply: bool, update: bool = False,
                 report.updated.append(post["id"])
             for item in products:
                 repo.add_product(post_id, **item)
+            if images is not None:
+                _attach_images(repo, report, post_id, owner, images)
         except Exception as exc:  # noqa: BLE001 — 글 하나의 문제가 나머지 적재를 막지 않게 한다
             report.errors.append((path.name, str(exc)))
     return report
@@ -177,7 +229,11 @@ def main() -> int:
                 raise _Abort()                        # 트랜잭션을 되돌린다 — 오류가 있으면 아무것도 저장하지 않는다
     except _Abort:
         print("오류가 있어 적재를 취소한다(아무것도 저장하지 않았다).")
+        assert report is not None
+        _remove_files(report.saved_keys)                  # 롤백된 글의 이미지 파일도 지운다
+        report.stale_keys.clear()
     assert report is not None
+    _remove_files(report.stale_keys)                      # 커밋된 뒤에 교체돼 빠진 파일을 지운다
     mode = "적재" if args.apply else "점검(dry-run)"
     print(f"{mode}: 새 글 {len(report.created)} · 갱신 {len(report.updated)} · 건너뜀 {len(report.skipped)} · 오류 {len(report.errors)}")
     for name, message in report.errors:
