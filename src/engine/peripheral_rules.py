@@ -33,7 +33,7 @@ class PeripheralRuleError(ValueError):
 _REQUIRED_TOP_KEYS = {"schema_version", "rule_set_version", "kinds", "ranking"}
 _KNOWN_TOP_KEYS = _REQUIRED_TOP_KEYS | {
     "requirements", "hard_filters", "preferences", "verify", "parsing",
-    "spec_conditions", "purposes", "situations", "pc_purpose_map", "interpretation", "adjust_chips",
+    "spec_conditions", "purposes", "situations", "pc_purpose_map", "interpretation", "adjust_chips", "feel",
 }
 
 _KINDS = ("monitor", "keyboard", "mouse", "speaker")
@@ -116,8 +116,6 @@ def _check_weights(kind: str, weights: Any) -> None:
     for axis, value in weights.items():
         if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
             raise PeripheralRuleError(f"주변기기 랭킹 가중치 음수/타입 오류: {kind}.{axis}")
-    if weights["리뷰"] != 0:
-        raise PeripheralRuleError(f"주변기기 리뷰축 가중치는 항상 0이어야 함(대조군=PC 부품): {kind}")
     if abs(sum(weights.values()) - 1) > 1e-9:
         raise PeripheralRuleError(f"주변기기 랭킹 가중치 합계가 1이 아님: {kind}")
 
@@ -356,6 +354,77 @@ def _check_adjust_chips(data: dict) -> None:
                     raise PeripheralRuleError(f"주변기기 {where}.{chip['id']}.add.{key} 에 목록에 없는 이름: {unknown}")
 
 
+_FEEL_SCALARS = {"k", "kb", "k0_default", "default_m", "purpose_boost", "split_ratio", "neutral_taste"}
+_FEEL_GROUPS = {"hand", "quiet", "bright", "none", "purpose"}
+_FEEL_TYPES = {"rating", "taste"}
+_FEEL_TAGS = {"sound"}
+_FEEL_ONLY_WHEN = {"design"}
+
+
+def _check_feel(data: dict) -> None:
+    feel = data.get("feel")
+    if feel is None:
+        return
+    if "purposes" not in data:
+        raise PeripheralRuleError("주변기기 feel 은 purposes 절이 있어야 함")
+    if not isinstance(feel, dict) or set(feel) != _FEEL_SCALARS | {"k0", "attributes"}:
+        raise PeripheralRuleError(f"주변기기 feel 키 오류: {sorted(_FEEL_SCALARS | {'k0', 'attributes'})}")
+    for key in _FEEL_SCALARS:
+        value = feel[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
+            raise PeripheralRuleError(f"주변기기 feel.{key} 는 양수여야 함")
+    for key in ("default_m", "split_ratio", "neutral_taste"):
+        if not 0 < feel[key] < 1:
+            raise PeripheralRuleError(f"주변기기 feel.{key} 는 0과 1 사이여야 함")
+    if feel["purpose_boost"] < 1:
+        raise PeripheralRuleError("주변기기 feel.purpose_boost 는 1 이상이어야 함")
+
+    attributes = feel["attributes"]
+    if not isinstance(attributes, dict) or set(attributes) != set(_KINDS):
+        raise PeripheralRuleError(f"주변기기 feel.attributes 는 정확히 {_KINDS} 네 종류여야 함")
+    k0 = feel["k0"]
+    if not isinstance(k0, dict) or set(k0) - set(_KINDS):
+        raise PeripheralRuleError("주변기기 feel.k0 종류 키 오류")
+    for kind, table in k0.items():
+        if not isinstance(table, dict) or any(
+            isinstance(v, bool) or not isinstance(v, (int, float)) or v <= 0 for v in table.values()
+        ):
+            raise PeripheralRuleError(f"주변기기 feel.k0.{kind} 값은 양수여야 함")
+
+    for kind, table in attributes.items():
+        if not isinstance(table, dict) or not table:
+            raise PeripheralRuleError(f"주변기기 feel.attributes.{kind} 는 비지 않은 표여야 함")
+        for code, entry in table.items():
+            where = f"feel.attributes.{kind}.{code}"
+            if not isinstance(entry, dict):
+                raise PeripheralRuleError(f"주변기기 {where} 형식 오류")
+            required = {"label", "type", "group", "aliases"} | ({"external"} if entry.get("type") == "rating" else {"sides", "taste_labels"})
+            optional = {"tags", "only_when"}
+            if not required <= set(entry) or set(entry) - required - optional:
+                raise PeripheralRuleError(f"주변기기 {where} 키 오류(필수 {sorted(required)})")
+            if not isinstance(entry["label"], str) or not entry["label"].strip():
+                raise PeripheralRuleError(_LABEL_MSG.format(where=where))
+            if entry["type"] not in _FEEL_TYPES or entry["group"] not in _FEEL_GROUPS:
+                raise PeripheralRuleError(f"주변기기 {where} type/group 값 오류")
+            _check_name_list(f"{where}.aliases", entry["aliases"], allow_empty=True)
+            if set(entry.get("tags", [])) - _FEEL_TAGS:
+                raise PeripheralRuleError(f"주변기기 {where}.tags 값 오류")
+            if "only_when" in entry and entry["only_when"] not in _FEEL_ONLY_WHEN:
+                raise PeripheralRuleError(f"주변기기 {where}.only_when 값 오류")
+            if entry["type"] == "rating":
+                if entry["external"] is not None and not isinstance(entry["external"], str):
+                    raise PeripheralRuleError(f"주변기기 {where}.external 형식 오류")
+            else:
+                sides = entry["sides"]
+                if not isinstance(sides, dict) or len(sides) != 2 or any(
+                    not isinstance(v, str) or not v for v in sides.values()
+                ):
+                    raise PeripheralRuleError(f"주변기기 {where}.sides 는 쪽 두 개여야 함")
+                labels = entry["taste_labels"]
+                if not isinstance(labels, dict) or any(v not in sides for v in labels.values()):
+                    raise PeripheralRuleError(f"주변기기 {where}.taste_labels 가 sides 에 없는 쪽을 가리킴")
+
+
 _INTERPRETATION_KEYS = {"max_chars", "cache_size", "per_minute"}
 
 
@@ -445,6 +514,7 @@ def _load_peripheral_rules(path: Path) -> dict:
     _check_situations(data)
     _check_pc_purpose_map(data)
     _check_adjust_chips(data)
+    _check_feel(data)
     _check_interpretation(data)
 
     if "verify" in data:
@@ -550,3 +620,15 @@ def adjust_chips(kind: str, rules: dict | None = None) -> list[dict]:
     """종류의 "더 맞추기" 칩 후보 [{id, label, add}]. 절이 없으면 빈 목록."""
     rules = rules or load_peripheral_rules()
     return (rules.get("adjust_chips") or {}).get(kind, [])
+
+
+def feel_config(rules: dict | None = None) -> dict | None:
+    """체감 점수 설정(없으면 None — 체감 점수를 계산하지 않는다)."""
+    rules = rules or load_peripheral_rules()
+    return rules.get("feel")
+
+
+def feel_attributes(kind: str, rules: dict | None = None) -> dict[str, dict]:
+    """종류의 세부 속성·성향 축 {코드: 정의}. 절이 없으면 빈 표."""
+    feel = feel_config(rules)
+    return (feel or {}).get("attributes", {}).get(kind, {})

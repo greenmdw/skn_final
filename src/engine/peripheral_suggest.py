@@ -67,7 +67,8 @@ def suggest_chips(
             if _already_said(chip["add"], interp, kind):
                 continue
             trial = _with_chip(interp, kind, chip["add"], rules)
-            trial_values = {**values, "peripheral_resolved": peripheral_intent.resolve(trial, rules)}
+            trial_values = {**values, "peripheral_intent": trial,
+                            "peripheral_resolved": peripheral_intent.resolve(trial, rules)}
             result = run_peripherals(trial_values, candidates, lambda *_: None, pc_context=pc_context,
                                      require_review_details=require_review_details)
             after = next((p for p in result.picks if p.kind == kind), None)

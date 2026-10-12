@@ -49,11 +49,11 @@ def test_default_yaml_loads_four_kinds():
     assert peripheral_rules.peripheral_kinds(rules) == ["keyboard", "monitor", "mouse", "speaker"]
 
 
-def test_review_axis_weight_is_zero_and_weights_sum_to_one():
+def test_review_axis_weight_is_not_negative_and_weights_sum_to_one():
     rules = peripheral_rules.load_peripheral_rules()
     for kind in peripheral_rules.peripheral_kinds(rules):
         weights = rules["ranking"][kind]["weights"]
-        assert weights["리뷰"] == 0
+        assert weights["리뷰"] >= 0
         assert abs(sum(weights.values()) - 1) < 1e-9
 
 
@@ -113,14 +113,23 @@ def test_weights_sum_not_one_raises(tmp_path):
         peripheral_rules.load_peripheral_rules(path)
 
 
-def test_review_weight_nonzero_raises(tmp_path):
+def test_review_axis_weight_may_be_nonzero_when_weights_sum_to_one(tmp_path):
+    """"리뷰" 축은 체감 적합도 R 이다. 가중치를 올려 순위에 반영할 수 있고, 합이 1 이어야 하는 규칙은 그대로다."""
     rules = deepcopy(peripheral_rules.load_peripheral_rules())
     weights = rules["ranking"]["monitor"]["weights"]
     weights["리뷰"] = 0.1
     weights["가격"] -= 0.1
-    path = _write(tmp_path, rules)
-    with pytest.raises(peripheral_rules.PeripheralRuleError, match="리뷰축"):
-        peripheral_rules.load_peripheral_rules(path)
+    loaded = peripheral_rules.load_peripheral_rules(_write(tmp_path, rules))
+    assert loaded["ranking"]["monitor"]["weights"]["리뷰"] == 0.1
+
+
+def test_negative_review_axis_weight_raises(tmp_path):
+    rules = deepcopy(peripheral_rules.load_peripheral_rules())
+    weights = rules["ranking"]["monitor"]["weights"]
+    weights["리뷰"] = -0.1
+    weights["가격"] += 0.1
+    with pytest.raises(peripheral_rules.PeripheralRuleError, match="음수"):
+        peripheral_rules.load_peripheral_rules(_write(tmp_path, rules))
 
 
 def test_duplicate_engine_key_raises(tmp_path):

@@ -12,7 +12,9 @@ pref 목록으로 바꿔 Fail만 제외한다. **조건을 완화하지 않는�
 
 ## [3-B] rank_candidates
 
-축 넷(가격/선호적합/데이터충실/리뷰) 중 리뷰 가중치는 계속 0이다. 주변기기 R과 근거는
+축 넷(가격/선호적합/데이터충실/리뷰) 중 "리뷰" 축의 값은 체감 적합도 R(`peripheral_feel`, 개발_확정사양 6장)이다.
+사용기 근거가 없으면 외부 리뷰 점수로 계산한 R이다. 그 축의 가중치는 `config/peripherals.yaml` `ranking` 이 정한다(0이면 R은
+설명용이고 순위에 영향을 주지 않는다). 예전 문구: 주변기기 R과 근거는
 설명용으로 전달하되 현재 순위 점수에는 반영하지 않는다.
 
 ## 조합(choose)
@@ -40,6 +42,7 @@ from typing import Any
 from src.config import PENDING_SCORE_PENALTY
 from src.dto import Candidate, PeripheralPick, PeripheralRequirement, PeripheralResult
 from src.engine import LogFn, spec_rules
+from src.engine.peripheral_feel import attach_feel
 from src.engine.peripheral_requirement import build_requirements
 from src.engine.peripheral_rules import kind_def, load_peripheral_rules, requested_kinds
 
@@ -112,6 +115,13 @@ def _preference_axis(cand: Candidate, prefs: list[dict[str, Any]]) -> float:
     return sum(values) / len(values)
 
 
+def _feel_axis(cand: Candidate) -> float:
+    """리뷰 축 값. 체감 적합도 R(`feel_detail`)이 있으면 그것을, 없으면 외부 리뷰 점수를 쓴다(근거가 없으면 중립)."""
+    if cand.feel_detail is not None:
+        return cand.feel_detail.value
+    return cand.review_detail.value if cand.review_detail else 0.5
+
+
 def _fullness_axis(cand: Candidate, judged_keys: list[str]) -> float:
     """판정에 실제로 쓰인 키(hard ∪ soft) 중 값이 있는 비율. 판정용 키가 아예 없으면
     (하드도 소프트도 매칭 안 됨) 결손을 논할 대상이 없으므로 1.0."""
@@ -150,7 +160,7 @@ def rank_candidates(
             "선호적합": round(_preference_axis(cand, soft_prefs), 3),
             "데이터충실": round(_fullness_axis(cand, judged_keys), 3),
             # R/상세는 표시하되 peripheral_rules가 보장하는 외부 가중치 0을 유지한다.
-            "리뷰": cand.review_detail.value if cand.review_detail else 0.5,
+            "리뷰": _feel_axis(cand),
         }
         raw = sum(weights.get(axis, 0.0) * value for axis, value in breakdown.items())
         if cand.verdict == "Pending":
@@ -275,13 +285,14 @@ def run_peripherals(
             log(f"      [P] {label}: 조건에 맞는 후보 0건 — {reason}")
             continue
         weights = rules["ranking"][kind]["weights"]
+        kept = attach_feel(kind, cands, kept, values, rules)
         ranked = rank_candidates(
             kind, req, kept, weights, budget=values.get("peripheral_budget_max"),
             require_review_details=require_review_details,
         )
         kinds_ranked[kind] = ranked
         log(f"      [P] {label}: {stats['pool']} → 유지 {len(kept)}"
-            f" (Pass {stats['pass']}/Pending {stats['pending']}/Fail {stats['fail']}) · 리뷰 R은 참고값, 가중치 0")
+            f" (Pass {stats['pass']}/Pending {stats['pending']}/Fail {stats['fail']}) · 체감 R 가중치 {weights.get('리뷰', 0)}")
 
     if not kinds_ranked:
         log("[P] 주변기기: 요청한 종류 전부 조건에 맞는 후보가 없습니다")

@@ -102,10 +102,11 @@ kinds:
       size_mm: size_mm_raw
       connectivity_interface: connectivity_interface
 
-# 종류별 랭킹 가중치. 축은 가격/선호적합/데이터충실/리뷰 넷으로 고정.
-# 리뷰축은 항상 0 — 대조군이 PC 부품(REVIEW_RISK_CONTROL_SCOPE)이라 주변기기 관측은
-# 영구히 "모름"이기 때문이다(계획 E11, 현황 문서 §4.2). 나머지 세 축의 합은 1.
-# 값은 전부 잠정치다 — 실측 근거 없이 임의로 배분했고, R-2(데이터 보강) 이후 재조정 대상이다.
+# 종류별 랭킹 가중치. 축은 가격/선호적합/데이터충실/리뷰 넷으로 고정하고 합은 1이다.
+# "리뷰" 축의 값은 체감 적합도 R 이다(src/engine/peripheral_feel.py, 개발_확정사양 6장). 사용기 근거가 없으면 외부 리뷰
+# 점수로 계산한 R 이고, 목적·상황에 따라 속성별 중요도가 달라진다. 이 축의 가중치가 0이면 R 은 설명용이고 순위에 영향을
+# 주지 않는다 — 지금은 0 이다(예전 순위와 같다). 순위에 반영하려면 이 값을 올리고 다른 축을 줄여 합을 1로 맞춘다.
+# 값은 전부 잠정치다 — 실측 근거 없이 임의로 배분했고, 데이터 보강 이후 재조정 대상이다.
 ranking:
   monitor:
     weights: {가격: 0.35, 선호적합: 0.35, 데이터충실: 0.30, 리뷰: 0.0}   # 잠정값
@@ -422,6 +423,94 @@ pc_purpose_map:
   creation: [creative]
   office: [office, docs]
   study: [docs]
+
+# feel: 체감 점수 계산(개발_확정사양.md 4~6장). 코드는 src/engine/peripheral_feel.py.
+# 외부 리뷰의 큰 속성(종류당 5개)에서 출발값을 가져오고, 커뮤니티 사용기의 세부 속성 표로 보정해 체감 적합도 R 을 만든다.
+# 숫자는 확정 사양 11장의 **잠정값**이다. 예시 글로는 식이 의도대로 움직이는지만 확인하고 값은 실제 사용기가 쌓인 뒤 정한다.
+#
+#   k           — 같은 조건 묶음과 나머지 묶음을 섞는 강도(평가·성향 공통)           (사양 6.2, 6.3)
+#   kb          — 커뮤니티 전체 평균(기준 높이 B)을 외부 평균 m 쪽으로 당기는 강도       (사양 6.1)
+#   k0_default  — 외부 점수를 m 쪽으로 당기는 강도. 종류·속성별 추정값은 k0 표         (사양 6.1)
+#   default_m   — 외부 리뷰와 연결되지 않는 속성의 m(중립)
+#   purpose_boost — 목적·상황이 가리키는 체감 속성의 중요도 배수. 목적이 여럿이어도 한 번만 곱한다(합치는 방식 미정)
+#   split_ratio — 두 쪽 이상에 작성자가 있고 적은 쪽이 이 비율 이상이면 "갈린다"          (사양 6.3)
+#   neutral_taste — 근거 없는 성향 적합도, 성향 두 단계 계산의 출발값                     (사양 6.3, 6.4)
+feel:
+  k: 4
+  kb: 20
+  k0_default: 8
+  default_m: 0.5
+  purpose_boost: 2.0
+  split_ratio: 0.25
+  neutral_taste: 0.5
+  # 외부 큰 속성별 k0 추정값(재현: docs/local/k_추정_스크립트.py). 표에 없는 속성은 k0_default.
+  k0:
+    keyboard:
+      typing_feel: 12.8
+      typing_noise: 5.0
+      physical_usability: 5.2
+      controls_usability: 3.5
+      connection_stability: 2.5
+  # 세부 속성(사양 4.2)과 성향 축(사양 4.3). 코드는 사용기 저장·분석(구현 순서 5)과 맞춘다.
+  #   type      — rating(좋음/아쉬움) | taste(어느 쪽인가)
+  #   external  — 출발값을 가져올 외부 큰 속성(config/review_aspect_profiles.yaml 의 aspect_code). 없으면 null(대응표 잠정)
+  #   group     — 같은 조건 묶음의 기준(사양 6.2): hand 손 크기 · quiet 조용해야 함/마이크 · bright 밝은 방 ·
+  #               none 묶지 않음 · purpose 요청자와 같은 목적
+  #   aliases   — purposes 표의 feel 이름이 이 속성을 가리키는 말(견적 입력 설계 5장). 목록에 없는 이름은 가리키는 속성이 없다
+  #   tags      — sound: 조용해야 함·마이크 상황에서 중요도가 오르는 소리 속성
+  #   only_when — design: 요청자가 디자인을 말했을 때만 점수에 넣는다(사양 4.2)
+  #   sides / taste_labels — 성향 축의 쪽 이름, purposes 표의 taste 이름이 가리키는 쪽
+  attributes:
+    mouse:
+      grip:        {label: 그립 안정감, type: rating, external: ergonomics, group: hand, aliases: [그립 안정감, 그립]}
+      click:       {label: 클릭, type: rating, external: controls_usability, group: purpose, aliases: [클릭]}
+      wheel:       {label: 휠, type: rating, external: controls_usability, group: purpose, aliases: [휠]}
+      side_button: {label: 사이드 버튼, type: rating, external: controls_usability, group: purpose, aliases: [사이드 버튼]}
+      wireless:    {label: 무선 안정성, type: rating, external: connection_stability, group: none, aliases: [연결 안정성, 연결 안정성·전환]}
+      battery:     {label: 배터리, type: rating, external: battery_runtime, group: none, aliases: [배터리]}
+      wrist:       {label: 손목 피로, type: rating, external: ergonomics, group: purpose, aliases: [손목 피로]}
+      software:    {label: 설정 프로그램, type: rating, external: controls_usability, group: none, aliases: []}
+      durability:  {label: 내구성, type: rating, external: null, group: none, aliases: []}
+      build:       {label: 마감·만듦새, type: rating, external: null, group: none, aliases: []}
+      looks:       {label: 외관 만족, type: rating, external: null, group: none, aliases: [], only_when: design}
+      size_feel:   {label: 크기 체감, type: taste, group: hand, aliases: [], sides: {small: 작은 편, big: 큰 편}, taste_labels: {크기 작은 쪽: small}}
+      weight_feel: {label: 무게 체감, type: taste, group: purpose, aliases: [], sides: {light: 가벼운 편, heavy: 묵직한 편}, taste_labels: {무게 가벼운 쪽: light}}
+      click_sound: {label: 클릭 소리, type: taste, group: quiet, aliases: [], tags: [sound], sides: {quiet: 조용한 편, loud: 또렷한 편}, taste_labels: {클릭 조용한 쪽: quiet}}
+      glide:       {label: 미끄러짐, type: taste, group: purpose, aliases: [미끄러짐], sides: {fast: 빠른 편, brake: 제동이 있는 편}, taste_labels: {}}
+    keyboard:
+      key_noise:   {label: 큰 키 잡음, type: rating, external: typing_noise, group: quiet, aliases: [큰 키 잡음, 타건 소리], tags: [sound]}
+      hollow:      {label: 통울림, type: rating, external: typing_noise, group: quiet, aliases: [타건 소리], tags: [sound]}
+      wireless:    {label: 무선 안정성·전환, type: rating, external: connection_stability, group: none, aliases: [연결 안정성·전환]}
+      wrist:       {label: 손목 피로, type: rating, external: physical_usability, group: purpose, aliases: [손목 피로]}
+      layout:      {label: 배열 적응, type: rating, external: physical_usability, group: purpose, aliases: [배열 적응]}
+      software:    {label: 설정 프로그램, type: rating, external: controls_usability, group: none, aliases: [설정 편의]}
+      durability:  {label: 내구성, type: rating, external: null, group: none, aliases: []}
+      build:       {label: 마감·만듦새, type: rating, external: null, group: none, aliases: []}
+      looks:       {label: 외관 만족, type: rating, external: null, group: none, aliases: [], only_when: design}
+      key_force:   {label: 키압 체감, type: taste, group: purpose, aliases: [], sides: {light: 가벼운 편, heavy: 묵직한 편}, taste_labels: {키압 가벼운 쪽: light}}
+      sound_volume: {label: 소리 크기, type: taste, group: quiet, aliases: [], tags: [sound], sides: {quiet: 조용한 편, loud: 큰 편}, taste_labels: {소리 조용한 쪽: quiet}}
+      sound_tone:  {label: 소리 톤, type: taste, group: quiet, aliases: [], tags: [sound], sides: {low: 낮은 편, high: 높은 편}, taste_labels: {}}
+      rebound:     {label: 반발감, type: taste, group: purpose, aliases: [], sides: {soft: 부드러운 편, firm: 단단한 편}, taste_labels: {}}
+    monitor:
+      light_bleed: {label: 빛샘·균일도, type: rating, external: image_quality, group: purpose, aliases: [빛샘, 균일도]}
+      ghosting:    {label: 잔상, type: rating, external: motion_response, group: purpose, aliases: [잔상]}
+      readability: {label: 글자 가독성, type: rating, external: image_quality, group: purpose, aliases: [글자 가독성]}
+      stand:       {label: 스탠드, type: rating, external: controls_ergonomics, group: none, aliases: [스탠드]}
+      eye_strain:  {label: 눈 피로, type: rating, external: image_quality, group: bright, aliases: [눈 피로]}
+      initial_quality: {label: 초기 품질, type: rating, external: functional_reliability, group: none, aliases: []}
+      durability:  {label: 내구성, type: rating, external: functional_reliability, group: none, aliases: []}
+      build:       {label: 마감·만듦새, type: rating, external: null, group: none, aliases: []}
+      looks:       {label: 외관 만족, type: rating, external: null, group: none, aliases: [], only_when: design}
+      color:       {label: 색감, type: taste, group: purpose, aliases: [], sides: {natural: 자연스러운 편, vivid: 선명한 편}, taste_labels: {색감 자연스러운 쪽: natural, 색감 선명한 쪽: vivid}}
+    speaker:
+      noise:       {label: 잡음, type: rating, external: unwanted_noise, group: quiet, aliases: [잡음], tags: [sound]}
+      volume_headroom: {label: 음량 여유, type: rating, external: output_level, group: purpose, aliases: [음량 여유]}
+      connection:  {label: 연결 안정성, type: rating, external: connection_controls, group: none, aliases: [연결 안정성]}
+      controls:    {label: 조작 편의, type: rating, external: connection_controls, group: none, aliases: [조작 편의]}
+      durability:  {label: 내구성, type: rating, external: functional_reliability, group: none, aliases: []}
+      build:       {label: 마감·만듦새, type: rating, external: null, group: none, aliases: []}
+      looks:       {label: 외관 만족, type: rating, external: null, group: none, aliases: [], only_when: design}
+      balance:     {label: 소리 밸런스, type: taste, group: purpose, aliases: [], sides: {bass: 저음 쪽, treble: 고음 쪽}, taste_labels: {저음 넉넉한 쪽: bass}}
 
 # adjust_chips: 추천 결과 아래 "더 맞추기" 칩의 후보(견적 입력 설계 6.2, 5장의 칩 목록).
 # 칩 하나 = 눌렀을 때 입력에 더해지는 값(add). 서버는 후보마다 "더했을 때 지금 보이는 순서(1위와 대안 2개)가

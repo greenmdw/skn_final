@@ -257,11 +257,24 @@ def _checks_for_pick(kind: str, pick: PeripheralPick, verification) -> list[dict
     return checks
 
 
-def _alternatives(pick: PeripheralPick) -> list[dict[str, Any]]:
+_REVIEW_NOTE_UNUSED = "요청 조건과 연결한 참고 적합도이며 주변기기 점수와 순위에는 반영되지 않았습니다."
+_REVIEW_NOTE_USED = "요청 조건과 연결한 체감 적합도이며 주변기기 점수와 순위에 반영되었습니다."
+
+
+def _review_weight(kind: str, rules: dict) -> float:
+    """순위의 "리뷰" 축 가중치(config/peripherals.yaml ranking). 응답이 순위에 실제로 쓴 값과 같은 값이어야 한다."""
+    return float(rules["ranking"][kind]["weights"].get("리뷰", 0.0))
+
+
+def _review_note(weight: float) -> str:
+    return _REVIEW_NOTE_USED if weight > 0 else _REVIEW_NOTE_UNUSED
+
+
+def _alternatives(pick: PeripheralPick, rules: dict) -> list[dict[str, Any]]:
+    weight = _review_weight(pick.kind, rules)
     return [{"name": alt.name, "price": alt.price, "diff": alt.price - pick.candidate.price,
              "review": alt.review_detail.model_dump(mode="json") if alt.review_detail else None,
-             "review_weight": 0.0,
-             "review_note": "요청 조건과 연결한 참고 적합도이며 주변기기 점수와 순위에는 반영되지 않았습니다."}
+             "review_weight": weight, "review_note": _review_note(weight)}
             for alt in pick.alternatives]
 
 
@@ -289,11 +302,11 @@ def _item_dict(kind: str, pick: PeripheralPick, req: PeripheralRequirement,
         "requirement": _requirement_rows(req),
         "checks": _checks_for_pick(kind, pick, verification),
         "reason": {"status": "ready", "text": _reason_text(kdef["label"], req, cand, stats)},
-        "alternatives": _alternatives(pick),
+        "alternatives": _alternatives(pick, rules),
         "guide": _guide_for_kind(kind),
         "review": cand.review_detail.model_dump(mode="json") if cand.review_detail else None,
-        "review_weight": 0.0,
-        "review_note": "요청 조건과 연결한 참고 적합도이며 주변기기 점수와 순위에는 반영되지 않았습니다.",
+        "review_weight": _review_weight(kind, rules),
+        "review_note": _review_note(_review_weight(kind, rules)),
     }
 
 

@@ -87,6 +87,7 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
         "peripherals": body.kinds,
         "peripheral_budget_max": body.budget_max,
         "peripheral_kind_budget": interp.budget,
+        "peripheral_intent": interp,
         "peripheral_resolved": peripheral_intent.resolve(interp),
         # purpose 는 monitor.hard 의 주사율 상향(4K+game)과 리뷰 점수가, priority·noise_sensitive 는 리뷰 점수가 읽는
         # PC 견적 조건이다. 주변기기 목적(peripheral_resolved)과는 다른 말이라 그대로 넘긴다.

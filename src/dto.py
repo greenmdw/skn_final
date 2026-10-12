@@ -114,6 +114,35 @@ class ReviewScoreDetail(BaseModel):
     readiness: dict[str, Any] = Field(default_factory=dict)
 
 
+class FeelAttributeDetail(BaseModel):
+    """체감 적합도(R)에 들어간 속성 하나. 성향 축이면 good/bad 는 요청자가 고른 쪽과 같은/다른 쪽 표의 수다."""
+
+    code: str
+    label: str
+    type: Literal["rating", "taste"]
+    alpha: float
+    value: float
+    state: Literal["same_condition", "other_condition", "external_only", "no_evidence"]
+    same_good: int = 0
+    same_bad: int = 0
+    rest_good: int = 0
+    rest_bad: int = 0
+    external_p: int | None = None
+    external_n: int | None = None
+    external_score: float | None = None
+    split: bool = False          # 의견(또는 쪽)이 갈린다
+    mismatch: bool = False       # 성향이 한쪽으로 모였는데 요청자가 고른 쪽과 다르다
+    situational: int = 0         # 상황에 따라 다르다고 해서 표로 세지 않은 작성자 수
+
+
+class FeelDetail(BaseModel):
+    """체감 적합도 R(개발_확정사양.md 6장). 사용기 근거가 없으면 외부 리뷰 출발값만으로 계산한 값이다."""
+
+    value: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    attributes: list[FeelAttributeDetail] = Field(default_factory=list)
+    basis: Literal["community", "example", "external_only"] = "external_only"
+
+
 # ── [3-0]~[3-B] 후보 ────────────────────────────────────────────────────
 class Candidate(BaseModel):
     product_key: str
@@ -137,6 +166,7 @@ class Candidate(BaseModel):
     score: float = 0.0
     breakdown: dict[str, float] = Field(default_factory=dict)
     review_detail: ReviewScoreDetail | None = None
+    feel_detail: FeelDetail | None = None     # 주변기기 체감 적합도(R). 순위의 "리뷰" 축 값이 된다
     rank: int = 0
     # E8/E9 — 가격 출처. PC 후보는 기존대로 offer_observation 기반 "observed"(기본값,
     # 동작 불변). 주변기기 로더(E9)는 peripheral_price_snapshot만 있어 "reference_snapshot"을
