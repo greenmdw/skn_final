@@ -213,6 +213,12 @@ verification:
       keys: [{slot: RAM, key: speed_mts, as: ram, parse: number}, {slot: 메인보드, key: max_memory_speed_mts, as: board, parse: number},
              {slot: CPU, key: max_memory_speed_mts, as: cpu, parse: number}]
   balance_max_tier_gap: 3
+  # 조합 여유 평가(engine/build_margins.py) 설정 — 기록용이며 점수·적격성에 쓰지 않는다.
+  # other_load: 기타 구성품(메인보드·RAM·저장장치·팬 등)의 예상 부하 W 와 그 근거. 근거가 없으면 null(전체 전력 여유는 '확인 불가').
+  # 값을 넣을 때는 {watts: 양수, source: 근거 설명}. 요구 산정용 estimated_power_w.other 는 근거가 문서화되지 않아 여기에 옮기지 않는다.
+  margins:
+    power:
+      other_load: null
 
 ranking:
   impact_slots: [GPU, CPU]

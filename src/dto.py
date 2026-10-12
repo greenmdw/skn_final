@@ -58,6 +58,9 @@ class RequirementSpec(BaseModel):
     # E7 — 인식된 게임 제목별 출처·승인 상태. 항목: {"key", "label", "status", "source"}.
     # status 는 provisional|approved, source 는 {url, excerpt, checked_at} 또는 None.
     games: list[dict[str, Any]] = Field(default_factory=list)
+    # 2단계 파워 최소 용량 요구 산정의 기록 — {"estimated_power_w": {cpu, gpu, other}, "headroom_multiplier", "required_w"}.
+    # 조합 여유 평가(build_margins)가 "무엇을 했는지"만 적는 데 쓴다. 판정에는 쓰지 않는다.
+    power_sizing: dict[str, Any] = Field(default_factory=dict)
 
 
 class ReviewRequirementAttribute(BaseModel):
@@ -191,6 +194,8 @@ class BuildResult(BaseModel):
     round: int = 1
     # 정상 추천 가능 여부 — 신뢰도와 별개다. {"status": "recommendable"|"not_recommendable", "reasons": [{"code", "axes", "missing"?}]}
     eligibility: dict[str, Any] = Field(default_factory=lambda: {"status": "recommendable", "reasons": []})
+    # 조합의 전력·냉각·크기 여유 기록(engine/build_margins.evaluate_margins) — 점수·적격성과 무관한 기록. 계산 전이면 빈 dict.
+    margins: dict[str, Any] = Field(default_factory=dict)
 
 
 class BasketLine(BaseModel):

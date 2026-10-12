@@ -1231,6 +1231,10 @@ def build_computer(
     eligibility = elig.make_eligibility(elig.blocking_entries(
         link_check, required_info_findings(selected, spec, rules, detail=False), budget_exceeded=link_check.get("budget") == "fail"))
 
+    from src.engine import build_margins    # build_margins 가 이 모듈의 읽기 함수를 쓰므로 순환을 피해 늦게 가져온다
+    # 전력·크기·냉각 여유는 최종 세트(정상·진단 모두)에 한 번만 기록한다 — 탐색 루프 안에서는 계산하지 않고, 판정에는 쓰지 않는다.
+    margins = build_margins.evaluate_margins(selected, spec, rules)
+
     return BuildResult(
         list_id=spec.list_id,
         items=picked,
@@ -1245,6 +1249,7 @@ def build_computer(
         alternatives=search,
         round=round_no,
         eligibility=eligibility,
+        margins=margins,
     )
 
 

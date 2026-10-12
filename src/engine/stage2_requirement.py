@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import math
 import re
 import uuid
 from functools import lru_cache
@@ -93,6 +94,28 @@ def _check_required_checks(verification: dict) -> None:
                 raise RequirementRuleError(f"{where}알 수 없는 해석 방식 {entry['parse']!r}")
             if entry.get("any_of") is not None and not (isinstance(entry["any_of"], str) and entry["any_of"].strip()):
                 raise RequirementRuleError(f"{where}any_of 오류")
+
+
+def _check_margins(verification: dict) -> None:
+    """verification.margins(조합 여유 평가 설정, 선택 절) 검증. 기타 구성품 부하의 근거는 기본 null — 값을 넣으면 {watts: 양수, source: 문자열}."""
+    margins = verification.get("margins")
+    if margins is None:
+        return
+    power = margins.get("power") if isinstance(margins, dict) else None
+    if not isinstance(margins, dict) or set(margins) - {"power"} or not (power is None or isinstance(power, dict)):
+        raise RequirementRuleError("PC 조합 여유 규칙(margins) 형식 오류")
+    if power is None:
+        return
+    if set(power) - {"other_load"}:
+        raise RequirementRuleError("PC 조합 여유 규칙(margins.power) 알 수 없는 키")
+    other = power.get("other_load")
+    if other is None:
+        return
+    watts = other.get("watts") if isinstance(other, dict) else None
+    if (not isinstance(other, dict) or set(other) != {"watts", "source"}
+            or not isinstance(watts, (int, float)) or isinstance(watts, bool) or not math.isfinite(watts) or watts <= 0
+            or not isinstance(other["source"], str) or not other["source"].strip()):
+        raise RequirementRuleError("PC 조합 여유 규칙 오류: margins.power.other_load 는 {watts: 양수, source: 비어 있지 않은 문자열}")
 
 
 _TIER_KEYS = ("gpu", "cpu", "ram_gb", "vram_gb")
@@ -213,6 +236,7 @@ def _load_computer_rules(path: Path) -> dict:
         raise RequirementRuleError("PC 호환성 규칙 오류")
     _check_power_and_budget(req)
     _check_required_checks(verification)
+    _check_margins(verification)
     _check_ranking_priority(ranking)
     for part, table in (req.get("lineup_perf_tier") or {}).items():
         if part not in ("cpu", "gpu") or not isinstance(table, dict) or not table or not all(
@@ -401,6 +425,8 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
         flags=flags,
         unresolved=unresolved,
         games=games_list,
+        power_sizing={"estimated_power_w": dict(power), "headroom_multiplier": req["psu_headroom_multiplier"],
+                      "required_w": required_w},
     )
 
 

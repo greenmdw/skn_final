@@ -18,6 +18,7 @@ from psycopg_pool import PoolTimeout
 
 from src.categories import load_category
 from src.dto import PipelineResult, RequirementSpec
+from src.engine import build_margins
 from src.engine import eligibility as elig
 from src.engine import ram_config
 from src.engine.brands import SLOT_SYNONYMS
@@ -409,6 +410,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
 
             _store_validations(erepo, run_id, verification)
             erepo.upsert_run_step(run_id, eligibility_step)
+            erepo.upsert_run_step(run_id, _margins_step(build.margins))
 
             erepo.complete_run(run_id)
 
@@ -606,6 +608,12 @@ def _eligibility_step(eligibility: dict, enrichment: dict | None) -> dict:
             "status": eligibility["status"], "reasons": eligibility["reasons"], "enrichment": enrichment}
 
 
+def _margins_step(margins: dict) -> dict:
+    """reasoning_log 의 "조합 여유" 단계 — 새 컬럼 없이 전력·크기·냉각 여유 기록(입력·출처·계산식 포함)을 남긴다."""
+    return {"step": build_margins.MARGINS_STEP, "title": build_margins.MARGINS_STEP,
+            "detail": build_margins.margins_summary_text(margins), "margins": margins}
+
+
 def _replaced_since_build(erepo, run_id: UUID, candidate_id_by_slot: dict[str, UUID],
                           variant_id_by_slot: dict[str, UUID]) -> list[dict]:
     """엔진이 고른 상품에서 지금은 다른 상품으로 바뀐 후보 행들 — 설명 단계가 도는 동안 사용자가 교체한 부품."""
@@ -729,6 +737,14 @@ def reverify_set(conn, revision_id: UUID, run: dict) -> None:
     if target is not None:
         previous = erepo.get_run_step(run["id"], elig.ELIGIBILITY_STEP) or {}
         erepo.upsert_run_step(run["id"], _eligibility_step(elig.make_eligibility(target.blocking), previous.get("enrichment")))
+    # 여유 기록도 지금 선택된 부품·유지 부품으로 다시 계산해 같은 방식으로 교체한다(점수·적격성에는 쓰지 않는다).
+    margins = build_margins.evaluate_margins(chosen, spec, load_computer_rules()["verification"])
+    # 요구 산정(2단계)은 이 경로에서 다시 만들지 않는다 — 처음 추천이 남긴 기록을 그대로 이어 둔다.
+    sizing = ((((erepo.get_run_step(run["id"], build_margins.MARGINS_STEP) or {}).get("margins") or {}).get("power") or {})
+              .get("requirement_sizing"))
+    if sizing:
+        margins["power"]["requirement_sizing"] = sizing
+    erepo.upsert_run_step(run["id"], _margins_step(margins))
 
 
 def _conditions_summary(cat_def: dict, values: dict) -> str:

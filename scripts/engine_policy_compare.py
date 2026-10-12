@@ -85,12 +85,22 @@ def _item(i) -> dict:
     return d
 
 
+def _margins_summary(margins) -> dict | None:
+    """조합 여유는 항목별 status·value·사유(없으면 생략)만 덤프한다 — 입력·출처 전체는 서비스 trace 에 있다."""
+    if not margins:
+        return None
+    from src.engine.build_margins import margin_items
+    return {name: {k: item[k] for k in ("status", "value", "reason") if item.get(k) is not None or k == "status"}
+            | ({"missing": [f"{m['slot']}.{m['key']}" for m in item["missing"]]} if item.get("missing") else {})
+            for name, item in margin_items(margins).items()}
+
+
 def _build(b) -> dict:
     return {
         "items": sorted((_item(i) for i in b.items), key=lambda d: d["slot"]),
         "totals": b.totals, "budget": b.budget, "link_check": dict(sorted(b.link_check.items())),
         "alternatives": dict(sorted(b.alternatives.items())),
-        "eligibility": getattr(b, "eligibility", None), "margins": getattr(b, "margins", None),
+        "eligibility": getattr(b, "eligibility", None), "margins": _margins_summary(getattr(b, "margins", None)),
     }
 
 
