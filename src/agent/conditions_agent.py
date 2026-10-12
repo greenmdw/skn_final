@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from src.engine.brands import canonical_slot, cpu_brand_pref
 from src.config import CONDITIONS_AGENT, LLM_MODEL, LLM_PROVIDER, LLM_TIMEOUT_SECONDS, MOCK_MODE, OPENAI_API_KEY
-from src.engine.slot_rules import _parse_won
+from src.engine.slot_rules import BUDGET_RANGE_MESSAGE, _parse_won, normalize_budget
 from src.clients.llm_guard import llm_call_slot
 from src.errors import ServiceUnavailable
 
@@ -101,6 +101,10 @@ class ConditionDraft:
             value = _parse_amount(raw)
             if value is None or value <= 0:
                 return self._record(call, f"오류: {key} — 0보다 큰 금액으로 (예: 1500000 · 150만원)")
+            try:
+                normalize_budget(value)
+            except ValueError:
+                return self._record(call, f"오류: {key} — {BUDGET_RANGE_MESSAGE} 반영하지 않았으니 사용자에게 범위를 다시 안내하세요.")
         else:
             try:
                 value = _coerce(meta, raw)

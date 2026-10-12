@@ -83,6 +83,31 @@ def _parse_korean_number(text: str) -> int | None:
 _CORRECTION = re.compile(r"아니고|아니라고|아니라|아니야|아냐|말고")
 
 
+BUDGET_MIN = 100_000
+BUDGET_MAX = 20_000_000
+BUDGET_RANGE_MESSAGE = "예산은 10만원에서 2천만원 사이로 입력해 주세요."
+
+
+def normalize_budget(value) -> int | None:
+    """예산 값을 정수 원으로 정규화한다. 범위(10만~2천만원)를 벗어나거나 숫자가 아니면 ValueError.
+    None 은 '비움'이므로 그대로 None."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(BUDGET_RANGE_MESSAGE)
+    if isinstance(value, str):
+        text = value.strip().replace(",", "")
+        if not re.fullmatch(r"\d+(\.\d+)?", text):
+            raise ValueError(BUDGET_RANGE_MESSAGE)
+        value = float(text)
+    if not isinstance(value, (int, float)) or value != value or value in (float("inf"), float("-inf")):
+        raise ValueError(BUDGET_RANGE_MESSAGE)
+    won = int(value)
+    if won != value or not BUDGET_MIN <= won <= BUDGET_MAX:
+        raise ValueError(BUDGET_RANGE_MESSAGE)
+    return won
+
+
 def _parse_won(text: str) -> int | None:
     """'150만원', '₩1,500,000', '1.5 million won', '삼백만원' 같은 표현 → 정수 원. 정정 표현이 있으면 그 뒤의 금액을 우선한다."""
     parts = _CORRECTION.split(text)
@@ -146,7 +171,7 @@ def _first_match(text: str, table: list[tuple[str, list[str]]]) -> str | None:
 def extract_computer(text: str) -> dict:
     out: dict = {}
     budget = _parse_won(text)
-    if budget:
+    if budget and BUDGET_MIN <= budget <= BUDGET_MAX:
         out["budget_max"] = budget
     purpose = _first_match(text, _PURPOSE)
     if purpose:
