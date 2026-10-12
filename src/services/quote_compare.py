@@ -65,7 +65,10 @@ def _recommend(conditions: dict, budget: int, by_slot: dict[str, list[Candidate]
     feasibility = feasibility_engine.assess(spec, pool)
     spec.budget["feasibility"] = feasibility["level"]
     spec.budget["feasibility_detail"] = feasibility
-    hf = stage3a_hardfilter.run(spec, pool, _noop)
+    try:
+        hf = stage3a_hardfilter.run(spec, pool, _noop)
+    except stage3a_hardfilter.CandidateShortage as exc:
+        raise LookupError(exc.summary()) from exc
     from src.services.review_ranking import rank_with_review_aspects
     rank, _profiles = rank_with_review_aspects(hf, spec, slots, _noop)
     return spec, stage4_optimize.run(rank, spec, _noop), feasibility

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import math
 
-from src.config import PENDING_SCORE_PENALTY, TOP_N_DEFAULT, TOP_N_IMPACT
+from src.config import TOP_N_DEFAULT, TOP_N_IMPACT
 from src.dto import Candidate, HardFilterResult, RankResult, RequirementSpec, ReviewScoreDetail, Slots
 from src.engine import LogFn
 from src.engine.score_policy import AXES, ScoreInputError, clip01, price_axis, validate_axis_weights
@@ -86,8 +86,6 @@ def _score(cand: Candidate, ref_budget: float, slot: str, target: dict,
     validate_axis_weights(weights, "점수 계산 가중치")
     base = clip01(math.fsum(weights[a] * b[a] for a in AXES))
     score = base
-    if cand.verdict == "Pending":
-        score -= PENDING_SCORE_PENALTY   # 임시: 2단계에서 제거
     score -= gap_penalty   # 임시: 4단계에서 제거
     score += _ram_dual_channel_bonus(cand, slot, target, ranking)   # 임시: 3단계에서 제거
     return cand.model_copy(update={"score": score, "breakdown": b, "score_notes": notes,
@@ -101,6 +99,9 @@ def run(hf: HardFilterResult, spec: RequirementSpec, slots: Slots, log: LogFn, *
         missing = [c.product_key for cands in hf.slots.values() for c in cands if c.review_detail is None]
         if missing:
             raise ValueError(f"review score is missing for {len(missing)} ranked candidates")
+    not_pass = [c.product_key for cands in hf.slots.values() for c in cands if c.verdict != "Pass"]
+    if not_pass:
+        raise ScoreInputError(f"Pass가 아닌 후보는 점수를 계산하지 않습니다: {', '.join(not_pass[:5])}")
     ranking = load_computer_rules()["ranking"]
     weights, notes = _weights_for(slots.values, ranking)
     rr = RankResult(weights_used=weights, weight_adjustments=notes)

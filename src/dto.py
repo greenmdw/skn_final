@@ -148,8 +148,12 @@ class Candidate(BaseModel):
 
 
 class HardFilterResult(BaseModel):
-    slots: dict[str, list[Candidate]] = Field(default_factory=dict)          # Pass + 승격 Pending
-    stats: dict[str, dict[str, int]] = Field(default_factory=dict)           # slot -> pool/pass/fail/pending
+    slots: dict[str, list[Candidate]] = Field(default_factory=dict)          # Pass만 (보완 뒤 재판정 포함)
+    held: dict[str, list[Candidate]] = Field(default_factory=dict)           # 보완 뒤에도 Pending인 후보(평가 제외)
+    # slot -> pool/pass/fail/pending 개수 + pending_reasons({사유: 개수}) / fail_reasons({사유 접두어: 개수})
+    stats: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # 보완 시도 기록: slot, product_key, missing_keys, source, status(filled/not_found/no_path/failed), detail
+    enrichment: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RankResult(BaseModel):

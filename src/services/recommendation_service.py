@@ -168,15 +168,60 @@ def _retry_on_pool_timeout(fn, attempts: int = 6, wait: float = 1.0):
             time.sleep(wait)
 
 
-def _mark_run_failed(run_id: UUID) -> None:
+INSUFFICIENT_STEP = "추천 불가"          # reasoning_log 에 남기는 실패 사유 단계 이름(컬럼을 새로 만들지 않는다)
+INSUFFICIENT_CODE = "candidates_insufficient"
+
+
+def _mark_run_failed(run_id: UUID, reason: dict | None = None) -> None:
+    """run 을 failed 로 끝낸다. reason 이 있으면 reasoning_log 에 한 단계로 덧붙인다(상태 API 가 읽는다)."""
+    from psycopg.types.json import Jsonb
     from src.db import get_background_conn as get_conn
 
     with get_conn() as fail_conn:
+        if reason is not None:
+            fail_conn.execute(
+                "UPDATE engine.recommendation_run SET reasoning_log=reasoning_log || %s::jsonb "
+                "WHERE id=%s AND status='running'",
+                (Jsonb([reason]), run_id),
+            )
         fail_conn.execute(
             "UPDATE engine.recommendation_run SET status='failed', completed_at=now(), updated_at=now() "
             "WHERE id=%s AND status='running'",
             (run_id,),
         )
+
+
+def _shortage_reason(exc) -> dict:
+    return {"step": INSUFFICIENT_STEP, "title": INSUFFICIENT_STEP, "code": INSUFFICIENT_CODE,
+            "detail": exc.summary(), "slots": exc.slots, "enrichment": exc.enrichment}
+
+
+def _failure_error(erepo, run_id: UUID) -> dict:
+    """failed run 의 API error — 후보 부족 사유가 저장돼 있으면 그것, 아니면 일반 실패."""
+    step = erepo.get_run_step(run_id, INSUFFICIENT_STEP)
+    if step is not None:
+        return {"code": INSUFFICIENT_CODE, "message": step.get("detail") or "추천할 수 있는 후보가 부족해요.",
+                "slots": step.get("slots") or {}}
+    return {"code": "recommend_failed", "message": "추천을 만드는 중 오류가 발생했어요."}
+
+
+_ENRICH_STATUS_LABEL = {"filled": "보완됨", "not_found": "근거 없음", "no_path": "보완 경로 없음", "failed": "보완 실패"}
+
+
+def _hold_trace_detail(hf) -> str | None:
+    """사전 필터에서 보류한 후보 수·사유와 보완 시도 결과(후보 수집 단계 trace 에 덧붙인다). 보류·시도가 없으면 None."""
+    held = {slot: cands for slot, cands in hf.held.items() if cands}
+    if not held and not hf.enrichment:
+        return None
+    parts = []
+    if held:
+        parts.append("평가 제외(정보 부족) " + ", ".join(f"{slot} {len(c)}개" for slot, c in held.items()))
+    if hf.enrichment:
+        counts: dict[str, int] = {}
+        for a in hf.enrichment:
+            counts[a["status"]] = counts.get(a["status"], 0) + 1
+        parts.append("보완 시도 " + ", ".join(f"{_ENRICH_STATUS_LABEL.get(k, k)} {n}" for k, n in counts.items()))
+    return " · ".join(parts)
 
 
 def reap_stale_runs(older_than_seconds: int) -> dict[str, int]:
@@ -216,9 +261,11 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
     from src.engine import feasibility as feasibility_engine
     from src.engine import stage2_requirement, stage3a_hardfilter, stage3c_verify, stage4_optimize, stage5_explain
     from src.engine import research_loop
+    from src.engine.stage3a_hardfilter import CandidateShortage
     from src.repo.catalog_repo import load_candidates_by_slot_from_db
     from src.repo.engine_repo import EngineRepo
     from src.repo.plan_repo import PlanRepo
+    from src.services.catalog_enrichment import make_enricher
     from src.config import MOCK_MODE
     from src.rag.care_guides import search_care_guides
     from src.engine.owned_parts import upgrade_tier_notes
@@ -283,7 +330,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
             feasibility = feasibility_engine.assess(spec, by_slot)
             spec.budget["feasibility"] = feasibility["level"]
             spec.budget["feasibility_detail"] = feasibility
-            hf = stage3a_hardfilter.run(spec, by_slot, noop)
+            hf = stage3a_hardfilter.run(spec, by_slot, noop, enrich=make_enricher(conn))
             from src.services.review_ranking import rank_with_review_aspects
             rank, _review_profiles = rank_with_review_aspects(
                 hf, spec, slots, noop, conn=conn, run_id=run_id, catalog_source="db",
@@ -314,6 +361,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
                 base_exclude=frozenset(already_owned),
             )
             build.list_id = str(revision_id)
+            hold_detail = _hold_trace_detail(hf)
 
             from src.services.recommendation_review_snapshot import snapshot_step
             erepo.store_review_snapshot(run_id, snapshot_step(rank, build, run_id, values))
@@ -349,6 +397,11 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
                 version=full["lock_version"],
             )
         # ↑ with 블록이 끝나며 여기서 커밋된다 — 부품·가격·검증이 done으로 확정.
+    except CandidateShortage as exc:
+        # 예상된 결과다 — 사유를 run 에 남기고 failed 로 끝낸다. 오류가 아니므로 다시 던지지 않는다(작업자가 예외 로그를 찍지 않게).
+        log.info("recommendation insufficient run_id=%s slots=%s", run_id, ",".join(exc.slots))
+        _retry_on_pool_timeout(lambda: _mark_run_failed(run_id, _shortage_reason(exc)))
+        return
     except Exception:  # noqa: BLE001 — 실패해도 running으로 영원히 남지 않게 별도 커넥션으로 failed 처리
         log.warning("recommendation failed run_id=%s stage=core elapsed_ms=%.0f", run_id, (time.perf_counter() - started) * 1000)
         _retry_on_pool_timeout(lambda: _mark_run_failed(run_id))
@@ -417,7 +470,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
                     # 여기서 안 실으면 [3-B] 감점은 되는데 "왜" 가 화면에 안 간다 (review_service 주석 참고).
                     trace_rows = [
                         ("조건 정리", f"카테고리 {category}, 예산 {fmt_money(values.get('budget_max'))}" if values.get("budget_max") else "조건 정리"),
-                        ("후보 수집", f"세트 {len(build.items)}개 부품"),
+                        ("후보 수집", " · ".join(filter(None, [f"세트 {len(build.items)}개 부품", hold_detail]))),
                         ("설명 생성", explanation.headline),
                     ]
                     games_row = _games_trace_row(spec)
@@ -733,7 +786,7 @@ def get_result_status(conn, revision_id: UUID) -> dict | None:
     out = {"run_id": str(run["id"]), "status": status, "explanation_status": run["explanation_status"],
            "postprocess_pending": pending, "result_version": result_version(run, rows)}
     if status == "failed":
-        out["error"] = {"code": "recommend_failed", "message": "추천을 만드는 중 오류가 발생했어요."}
+        out["error"] = _failure_error(erepo, run["id"])
     return out
 
 
@@ -786,7 +839,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
             if category == "computer" else "상품·가격·리뷰는 합성 데이터입니다."),
     }
     if status == "failed":
-        result["error"] = {"code": "recommend_failed", "message": "추천을 만드는 중 오류가 발생했어요."}
+        result["error"] = _failure_error(erepo, run["id"])
         result["result_version"] = result_version(run, [])
         return result
     if status == "running":

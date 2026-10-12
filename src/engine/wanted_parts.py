@@ -102,4 +102,52 @@ def apply_wanted_constraints(spec, wanted: Any, by_slot: dict[str, list]) -> lis
                 spec.targets["메인보드"]["mem_type"] = mem
         notes.append("원하는 미보유 부품 기준으로 나머지 부품의 호환 조건을 걸었습니다: "
                      + describe_hints({slot: v["specs"] for slot, v in survivors.items()}))
+        notes.extend(_follow_platform(spec, by_slot, hinted_socket=bool(cpu.get("socket") or board.get("socket")),
+                                      hinted_mem=bool(ram.get("mem_type") or board.get("mem_type"))))
     return notes
+
+
+def _socket_vendor(socket: str) -> str | None:
+    text = str(socket).upper()
+    if text.startswith("LGA"):
+        return "intel"
+    if text.startswith(("AM", "STR", "TR")):
+        return "amd"
+    return None
+
+
+def _follow_platform(spec, by_slot: dict[str, list], *, hinted_socket: bool, hinted_mem: bool) -> list[str]:
+    """한쪽 값(소켓 또는 메모리 규격)만 원했는데 기본 조건의 다른 쪽이 그 값의 보드와 어긋나 보드 후보가 0이 되면,
+    다른 쪽을 카탈로그 보드가 실제로 쓰는 값으로 맞춘다(사전 필터가 Pass 0이면 추천이 후보 부족으로 끝나므로)."""
+    target = spec.targets.get("메인보드")
+    if not target or hinted_socket == hinted_mem:
+        return []
+    boards = by_slot.get("메인보드", [])
+    forms, sockets, mem = target.get("form_in"), target.get("socket_in"), target.get("mem_type")
+
+    def fits(c, *, sock, mem_type) -> bool:
+        return ((not sock or c.specs.get("socket") in sock) and (not mem_type or c.specs.get("mem_type") == mem_type)
+                and (not forms or c.specs.get("form_factor") in forms))
+
+    if any(fits(c, sock=sockets, mem_type=mem) for c in boards):
+        return []
+    if hinted_socket:        # 소켓이 정해졌다 → 그 소켓 보드가 쓰는 메모리 규격이 하나면 그것으로
+        kinds = {c.specs.get("mem_type") for c in boards if fits(c, sock=sockets, mem_type=None)} - {None}
+        if len(kinds) != 1:
+            return []
+        (kind,) = kinds
+        target["mem_type"] = kind
+        if "RAM" in spec.targets:
+            spec.targets["RAM"]["type"] = kind
+        return [f"소켓에 맞는 메인보드가 모두 {kind}라 메모리 규격을 {kind}로 맞췄습니다."]
+    sock_kinds = sorted({c.specs.get("socket") for c in boards if fits(c, sock=None, mem_type=mem)} - {None})
+    # 기본 소켓 목록은 사용자가 고른 브랜드(brand_pref)에서 왔다 — 그 제조사를 벗어나는 소켓으로는 바꾸지 않는다.
+    vendors = {_socket_vendor(s) for s in sockets or []}
+    if vendors and None not in vendors:
+        sock_kinds = [s for s in sock_kinds if _socket_vendor(s) in vendors]
+    if not sock_kinds:
+        return []
+    target["socket_in"] = sock_kinds
+    if "CPU" in spec.targets:
+        spec.targets["CPU"]["socket_in"] = sock_kinds
+    return [f"{mem} 메인보드의 소켓({', '.join(sock_kinds)})에 맞춰 소켓 조건을 정했습니다."]

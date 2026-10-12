@@ -67,7 +67,7 @@ def _mock_tier(product_key: str) -> int:
 
 
 def _compat_specs(product_key: str) -> dict:
-    """override 표의 socket/mem_type/form_factor/supports_form_factors — 있는 것만.
+    """override 표의 socket/mem_type/form_factor/supports_form_factors/vram_gb/capacity_gb/protocol/wattage_w/efficiency_rating — 있는 것만.
 
     [4] 세트 최적화가 이 값으로 소켓·메모리 타입·폼팩터 호환을 비교한다(요청 R1).
     override 에 없는 부품은 빈 dict — "호환 정보 없음"이지 "호환 안 됨"이 아니다.
@@ -85,6 +85,13 @@ def _compat_specs(product_key: str) -> dict:
     supports = (override.get("supports_form_factors") or "").strip()
     if supports:
         out["supports_form_factors"] = [x.strip() for x in supports.split(",") if x.strip()]
+    # 사전 필터(Pending 은 평가에서 빠진다)가 읽는 값 — 용량·VRAM·정격 출력·프로토콜·효율 등급
+    for k in ("vram_gb", "capacity_gb", "wattage_w"):
+        if (override.get(k) or "").strip():
+            out[k] = int(override[k])
+    for k in ("protocol", "efficiency_rating"):
+        if (override.get(k) or "").strip():
+            out[k] = override[k].strip()
     return out
 
 

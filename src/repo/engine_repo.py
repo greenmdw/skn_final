@@ -130,6 +130,13 @@ class EngineRepo(Repo):
             "WHERE r.id=%s AND e->>'step' <> %s", (run_id, SNAPSHOT_STEP))
         return list(row["steps"] or [])
 
+    def get_run_step(self, run_id: UUID, step: str) -> dict | None:
+        """reasoning_log 에서 이름이 같은 단계 하나만 읽는다(실패 사유처럼 작은 항목용 — 큰 snapshot 은 SQL 에서 걸러 앱으로 오지 않는다)."""
+        row = self._one(
+            "SELECT e AS step FROM engine.recommendation_run r, jsonb_array_elements(r.reasoning_log) e "
+            "WHERE r.id=%s AND e->>'step' = %s LIMIT 1", (run_id, step))
+        return row["step"] if row else None
+
     def get_run_snapshot_steps(self, run_id: UUID) -> list[dict]:
         from src.services.recommendation_review_snapshot import SNAPSHOT_STEP
         row = self._one(
