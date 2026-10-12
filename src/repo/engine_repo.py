@@ -162,6 +162,11 @@ class EngineRepo(Repo):
         row = self._one("SELECT 1 FROM engine.recommendation_run WHERE revision_id=%s AND status='running' LIMIT 1", (revision_id,))
         return row is not None
     def get_candidates(self, run_id: UUID) -> list[dict]:
+        """후보 행(결과 품목). 순서는 결정적이다 — plan_node.position·created_at 은 한 run 안에서 대개 같으므로, 엔진이 품목을 만드는
+        순서(카테고리 slot_structure)를 다음 기준으로 쓰고 목록에 없는 슬롯은 뒤에서 이름순으로 둔다. 마지막 기준은 후보 id 다.
+        행이 UPDATE(교체·수량·이유)로 물리적으로 옮겨져도, 개정을 복제해도 같은 순서를 낸다."""
+        from src.categories import load_category
+        slot_order = list(load_category("computer").get("slot_structure") or [])
         return self._all("""
         SELECT c.*, p.id AS product_id, p.model AS product_key, p.product_type, v.id AS variant_id, v.variant_key,
                p.name AS product_name, p.brand, p.attributes, p.image_url,
@@ -174,7 +179,9 @@ class EngineRepo(Repo):
         LEFT JOIN catalog.offer of ON of.id=o.offer_id
         JOIN planning.requirement r2 ON r2.id=c.requirement_id
         JOIN planning.plan_node n ON n.id=r2.node_id
-        WHERE c.run_id=%s ORDER BY n.position, c.created_at""", (run_id,))
+        WHERE c.run_id=%s
+        ORDER BY n.position, COALESCE(array_position(%s::text[], n.template_key), 1000), n.template_key, c.created_at, c.id""",
+            (run_id, slot_order))
     def get_validations(self, run_id: UUID) -> list[dict]:
         return self._all("SELECT * FROM engine.validation_result WHERE run_id=%s ORDER BY created_at", (run_id,))
     def update_candidate_state(self, candidate_id: UUID, *, selected: bool | None = None,
