@@ -906,6 +906,8 @@ class PeripheralItemOut(BaseModel):
     review: ReviewScoreDetailDTO | None = None
     review_weight: float = 0.0
     review_note: str
+    feel: dict[str, Any] | None = None       # 체감 근거 블록. None 이면 보여 줄 근거가 없다
+    feel_note: str | None = None             # feel 이 None 일 때만 있다("스펙과 가격 기준 추천")
 
 
 class PeripheralEmptyOut(BaseModel):

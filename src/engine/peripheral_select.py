@@ -171,6 +171,26 @@ def rank_candidates(
     return [c.model_copy(update={"rank": i + 1}) for i, c in enumerate(ranked)]
 
 
+def apply_trending(ranked: list[Candidate], margin: float) -> list[Candidate]:
+    """"요즘 많이 쓰는"을 말했을 때: 점수는 바꾸지 않고, 1위와의 점수 차가 `margin` 이내인 후보들 안에서만 최근 사용기를
+    쓴 작성자 수가 많은 순으로 앞에 놓는다(개발_확정사양 6.6). 최근 글이 하나도 없으면 순서를 그대로 둔다."""
+    if len(ranked) < 2:
+        return ranked
+    top = ranked[0].score
+    head = [c for c in ranked if top - c.score <= margin + 1e-9]
+    if len(head) < 2:
+        return ranked
+
+    def _recent(c: Candidate) -> int:
+        return c.feel_detail.recent_authors if c.feel_detail else 0
+
+    if not any(_recent(c) for c in head):
+        return ranked
+    reordered = sorted(head, key=lambda c: -_recent(c))          # sorted 는 안정 정렬: 같으면 원래 순위
+    out = [*reordered, *ranked[len(head):]]
+    return [c.model_copy(update={"rank": i + 1}) for i, c in enumerate(out)]
+
+
 def choose(
     kinds_ranked: dict[str, list[Candidate]], budget_max: int | None, top_n: int = 5,
 ) -> tuple[dict[str, Candidate], dict[str, Any]]:
@@ -244,6 +264,21 @@ def _empty_reason(
     return f"조건에 맞는 {label}가 카탈로그에 없습니다"
 
 
+def _feel_blocks(picks: list[PeripheralPick], values: dict, rules: dict) -> dict[str, Any]:
+    """고른 제품마다 체감 근거 블록(화면에 보여 줄 문구와 인용 문장). 근거가 없으면 그 종류는 넣지 않는다."""
+    from src.engine.peripheral_evidence import build_feel_block
+    from src.engine.peripheral_intent import Interpretation
+
+    interp = values.get("peripheral_intent") or Interpretation()
+    out: dict[str, Any] = {}
+    for pick in picks:
+        resolved = (values.get("peripheral_resolved") or {}).get(pick.kind)
+        block = build_feel_block(pick.candidate.feel_detail, interp, resolved, pick.kind, rules)
+        if block is not None:
+            out[pick.kind] = block
+    return out
+
+
 def run_peripherals(
     values: dict, candidates: dict[str, list[Candidate]], log: LogFn, *, pc_context: dict | None = None,
     require_review_details: bool = False,
@@ -290,6 +325,9 @@ def run_peripherals(
             kind, req, kept, weights, budget=values.get("peripheral_budget_max"),
             require_review_details=require_review_details,
         )
+        interp = values.get("peripheral_intent")
+        if interp is not None and "trending" in interp.situations and rules.get("feel"):
+            ranked = apply_trending(ranked, rules["feel"]["trending_margin"])
         kinds_ranked[kind] = ranked
         log(f"      [P] {label}: {stats['pool']} → 유지 {len(kept)}"
             f" (Pass {stats['pass']}/Pending {stats['pending']}/Fail {stats['fail']}) · 체감 R 가중치 {weights.get('리뷰', 0)}")
@@ -340,5 +378,7 @@ def run_peripherals(
 
     log(f"[P] 주변기기 결과: {len(picks)}건 선정" + (f", 미충족 {len(empty)}건" if empty else ""))
     picked_requirements = {kind: requirements[kind] for kind in picks_by_kind if kind in requirements}
+    feel_blocks = _feel_blocks(picks, values, rules)
     return PeripheralResult(status="ready", picks=picks, empty=empty, counts=counts,
-                             budget=budget_info, verification=verification, requirements=picked_requirements)
+                             budget=budget_info, verification=verification, requirements=picked_requirements,
+                             feel=feel_blocks)

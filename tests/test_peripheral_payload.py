@@ -30,7 +30,7 @@ _NOLOG = lambda _m: None  # noqa: E731
 _TOP_KEYS = {"status", "items", "empty", "totals"}
 _ITEM_KEYS = {"kind", "kind_label", "product", "price", "price_source", "price_note",
               "requirement", "checks", "reason", "alternatives", "guide", "review",
-              "review_weight", "review_note"}
+              "review_weight", "review_note", "feel", "feel_note"}
 _PRODUCT_KEYS = {"name", "brand", "variant_id", "product_url", "image_url"}
 
 

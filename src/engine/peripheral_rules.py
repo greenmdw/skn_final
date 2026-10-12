@@ -357,6 +357,7 @@ def _check_adjust_chips(data: dict) -> None:
 _FEEL_SCALARS = {
     "k", "kb", "k0_default", "default_m", "purpose_boost", "split_ratio", "neutral_taste",
     "durability_min_months", "hand_small_below_cm", "hand_large_above_cm",
+    "same_condition_many", "recent_months", "trending_margin", "quotes_per_attribute", "rrf_k", "search_limit",
 }
 _FEEL_GROUPS = {"hand", "quiet", "bright", "none", "purpose"}
 _FEEL_TYPES = {"rating", "taste"}
@@ -376,7 +377,7 @@ def _check_feel(data: dict) -> None:
         value = feel[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
             raise PeripheralRuleError(f"주변기기 feel.{key} 는 양수여야 함")
-    for key in ("default_m", "split_ratio", "neutral_taste"):
+    for key in ("default_m", "split_ratio", "neutral_taste", "trending_margin"):
         if not 0 < feel[key] < 1:
             raise PeripheralRuleError(f"주변기기 feel.{key} 는 0과 1 사이여야 함")
     if feel["purpose_boost"] < 1:

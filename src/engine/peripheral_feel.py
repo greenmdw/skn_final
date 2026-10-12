@@ -31,10 +31,10 @@ R      = Σ α·값        α 합 1. 요청자가 취향을 고르지 않은 성
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Iterable
 
-from src.dto import Candidate, FeelAttributeDetail, FeelDetail
+from src.dto import Candidate, FeelAttributeDetail, FeelDetail, FeelQuote
 from src.engine.peripheral_intent import Interpretation, ResolvedKind
 from src.engine.peripheral_rules import feel_attributes, feel_config, load_peripheral_rules, situations
 
@@ -59,6 +59,11 @@ class FeelObservation:
     evaluated_in: frozenset[str] = frozenset()
     written_at: datetime | None = None
     is_example: bool = False
+    # 근거 표시용(점수 계산에는 쓰지 않는다)
+    post_id: str | None = None
+    quote_id: str | None = None
+    sentence: str | None = None
+    photo_url: str | None = None
 
 
 @dataclass
@@ -107,6 +112,29 @@ def _requester(kind: str, interp: Interpretation, resolved: ResolvedKind | None,
         boosted.add("build")
     return _Requester(tags=tags, quiet_flags=quiet_flags, bright="bright_room" in interp.purposes,
                       hand_size=interp.hand_size, design=design, sides=sides, boosted=boosted)
+
+
+_HAND_PHRASE = {"small": "손이 작은 사용자", "medium": "손 크기가 보통인 사용자", "large": "손이 큰 사용자"}
+
+
+def feel_group_phrase(group: str, interp: Interpretation, resolved: ResolvedKind | None, rules: dict) -> str | None:
+    """요청자가 이 속성의 같은 조건 묶음을 정할 만큼 밝힌 조건을 사람이 읽는 말로. 밝히지 않았으면 None."""
+    if group == "hand":
+        return _HAND_PHRASE.get(interp.hand_size or "")
+    if group == "quiet":
+        parts = [text for flag, text in (("quiet_place", "조용한 곳에서 쓰는"), ("mic", "마이크를 쓰는"))
+                 if flag in interp.situations]
+        return f"{' · '.join(parts)} 사용자" if parts else None
+    if group == "bright":
+        return "밝은 방에서 쓰는 사용자" if "bright_room" in interp.purposes else None
+    if group == "purpose":
+        if resolved is not None and resolved.purposes:
+            return f"'{resolved.purposes[0]['label']}' 목적의 사용자"
+        sit = situations(rules)
+        for code in interp.situations:
+            if sit.get(code, {}).get("same_condition_group"):
+                return f"'{sit[code]['label']}' 상황의 사용자"
+    return None
 
 
 def _alphas(kind: str, req: _Requester, cfg: dict, rules: dict) -> dict[str, float]:
@@ -232,6 +260,7 @@ def _pooled_m(pool: list[Candidate], cfg: dict) -> dict[str, float]:
 def compute_feel(
     kind: str, pool: list[Candidate], targets: list[Candidate], interp: Interpretation,
     resolved: ResolvedKind | None, observations: Iterable[FeelObservation], rules: dict | None = None,
+    *, now: datetime | None = None,
 ) -> dict[str, FeelDetail]:
     """`targets` 각각의 체감 적합도 {product_key: FeelDetail}. `pool` 은 m(외부 평균)을 구하는 그 종류의 전체 후보다."""
     rules = rules or load_peripheral_rules()
@@ -246,6 +275,11 @@ def compute_feel(
     votes, situational = _dedupe(corpus, req)
     m_by_aspect = _pooled_m(pool, cfg)
     k, kb, ratio = cfg["k"], cfg["kb"], cfg["split_ratio"]
+    since = (now or datetime.now()).replace(tzinfo=None) - timedelta(days=30.4375 * cfg["recent_months"])
+    recent_authors: dict[str, set[str]] = {}
+    for o in corpus:
+        if o.written_at is not None and o.written_at.replace(tzinfo=None) >= since:
+            recent_authors.setdefault(o.product_id, set()).add(o.author_id)
 
     def _m(attr: dict) -> float:
         return m_by_aspect.get(attr.get("external") or "", cfg["default_m"])
@@ -335,20 +369,34 @@ def compute_feel(
             else:
                 state = "no_evidence"
             used_community = used_community or bool(same.total or rest.total)
+            quotes = _quotes(attr_votes, group, use_groups, req, cfg["quotes_per_attribute"])
             details.append(FeelAttributeDetail(
                 code=code, label=entry["label"], type=entry["type"], alpha=round(alpha, 4), value=round(value, 4),
                 state=state, same_good=same.good, same_bad=same.bad, rest_good=rest.good, rest_bad=rest.bad,
                 external_p=ext_p, external_n=ext_n,
                 external_score=None if ext_score is None else round(ext_score, 4),
                 split=split, mismatch=mismatch,
-                situational=situational.get((cand.product_id or "", code), 0),
+                situational=situational.get((cand.product_id or "", code), 0), quotes=quotes,
+                side_counts=dict(counts if entry["type"] == "taste" else counts_dir),
             ))
         r_value = sum(d.alpha * d.value for d in details)
         out[cand.product_key] = FeelDetail(
             value=round(min(1.0, max(0.0, r_value)), 4), attributes=details,
             basis=basis if used_community else "external_only",
+            recent_authors=len(recent_authors.get(cand.product_id or "", ())),
         )
     return out
+
+
+def _quotes(votes: list[FeelObservation], group: str, use_groups: bool, req: _Requester, limit: int) -> list[FeelQuote]:
+    """속성의 표 가운데 문장이 있는 것을 같은 조건 먼저, 최근 순으로 `limit` 개."""
+    usable = [o for o in votes if o.sentence and o.quote_id and o.post_id]
+    def _recency(o: FeelObservation) -> float:
+        return -o.written_at.replace(tzinfo=None).timestamp() if o.written_at else 0.0
+
+    usable.sort(key=lambda o: (not (use_groups and _same_condition(group, o, req)), _recency(o)))
+    return [FeelQuote(quote_id=o.quote_id, post_id=o.post_id, sentence=o.sentence, is_example=o.is_example,
+                      photo_url=o.photo_url) for o in usable[:limit]]
 
 
 def _merge(a: _Tally, b: _Tally) -> _Tally:
@@ -369,6 +417,6 @@ def attach_feel(
     interp = values.get("peripheral_intent") or Interpretation()
     resolved = (values.get("peripheral_resolved") or {}).get(kind)
     observations = (values.get("peripheral_feel_observations") or {}).get(kind, [])
-    details = compute_feel(kind, pool, kept, interp, resolved, observations, rules)
+    details = compute_feel(kind, pool, kept, interp, resolved, observations, rules, now=values.get("peripheral_now"))
     return [c.model_copy(update={"feel_detail": details[c.product_key]}) if c.product_key in details else c
             for c in kept]

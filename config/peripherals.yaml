@@ -436,6 +436,7 @@ pc_purpose_map:
 #   default_m   — 외부 리뷰와 연결되지 않는 속성의 m(중립)
 #   purpose_boost — 목적·상황이 가리키는 체감 속성의 중요도 배수. 목적이 여럿이어도 한 번만 곱한다(합치는 방식 미정)
 #   split_ratio — 두 쪽 이상에 작성자가 있고 적은 쪽이 이 비율 이상이면 "갈린다"          (사양 6.3)
+#   same_condition_many·recent_months·trending_margin·quotes_per_attribute·rrf_k·search_limit — 근거 표시(사양 6.6, 7장)
 #   neutral_taste — 근거 없는 성향 적합도, 성향 두 단계 계산의 출발값                     (사양 6.3, 6.4)
 feel:
   k: 4
@@ -445,6 +446,12 @@ feel:
   purpose_boost: 2.0
   split_ratio: 0.25
   neutral_taste: 0.5
+  same_condition_many: 3        # 같은 조건의 글이 이 편수 이상이면 "여럿"으로 보고 사람 수를 그대로 보여 준다(사양 7장)
+  recent_months: 3              # "최근 사용기 수"를 세는 기간(개월)
+  trending_margin: 0.02         # "요즘 많이 쓰는" 을 말했을 때 1위와 점수 차가 이 안인 후보끼리만 최근 글 수로 순서를 바꾼다
+  quotes_per_attribute: 2       # 속성마다 보여 줄 인용 문장 수의 상한
+  rrf_k: 60                     # 문장 검색에서 단어 일치와 임베딩 순위를 합치는 상수: 1 / (rrf_k + 순위)
+  search_limit: 5               # 문장 검색 결과 수의 상한
   durability_min_months: 6      # 내구성은 사용 기간이 이 개월 수 이상이라고 밝힌 글의 문장만 센다(사양 4.2)
   hand_small_below_cm: 17.5     # 손 길이 cm 가 이보다 작으면 작은 편(사양 4.1)
   hand_large_above_cm: 19       # 이보다 크면 큰 편

@@ -27,6 +27,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 from datetime import datetime
@@ -67,6 +68,7 @@ class PostInput(BaseModel):
     status: PostStatus = "published"
     is_example: bool = False
     written_at: datetime | None = None
+    photo_url: str | None = None                # 글의 대표 사진 주소(요청서 B-3). 인용 문장 옆에 작게 보여 준다
 
 
 # ── 출력: 추출 결과(언어 모델이 채우는 모양) ───────────────────────────────────
@@ -108,6 +110,7 @@ class AnalyzedItem(BaseModel):
     product_id: str | None = None
     status: ItemStatus
     reasons: list[str] = Field(default_factory=list)       # held·excluded 의 이유 코드
+    quote_id: str | None = None                            # 글 안에서 이 문장을 가리키는 안정적인 id(작업지시서 W-3)
 
     @property
     def scorable(self) -> bool:
@@ -137,6 +140,8 @@ class PostAnalysis(BaseModel):
                 purposes=frozenset(author.purposes), situations=frozenset(author.situations),
                 hand_size=author.hand_size, evaluated_in=frozenset(item.evaluated_in),
                 written_at=post.written_at, is_example=post.is_example,
+                post_id=post.post_id, quote_id=analyzed.quote_id, sentence=item.sentence.strip(),
+                photo_url=post.photo_url,
             ))
         return out
 
@@ -175,6 +180,11 @@ def _value_matches(attr: dict, item: ExtractedItem) -> bool:
     return item.side in attr["sides"] and item.direction is None
 
 
+def quote_id_for(post_id: str, sentence: str) -> str:
+    """문장 식별자. 글 id 와 문장 내용으로 정해져서, 글이 수정돼도 같은 문장은 같은 id 를 갖는다."""
+    return hashlib.sha1(f"{post_id}|{_squash(sentence)}".encode("utf-8")).hexdigest()[:16]
+
+
 def analyze_post(post: PostInput, extraction: PostExtraction, rules: dict | None = None) -> PostAnalysis:
     """추출 결과를 확인 여섯 가지로 걸러 `PostAnalysis` 를 만든다. 글이 점수에 쓰일 수 없는 경우(게시되지 않음,
     사용기 아님, 점수를 낼 수 있는 연결 제품 없음)는 `analyzable=False` 와 이유만 남긴다."""
@@ -200,6 +210,7 @@ def analyze_post(post: PostInput, extraction: PostExtraction, rules: dict | None
     for item in extraction.items:
         product = products.get(item.product_index)
         reasons: list[str] = []
+        quote_id = quote_id_for(post.post_id, item.sentence)
         kind = product.kind if product else None
         product_id = product.product_id if product else None
 
@@ -225,12 +236,14 @@ def analyze_post(post: PostInput, extraction: PostExtraction, rules: dict | None
             reasons.append("durability_period_short")
 
         if reasons:
-            items.append(AnalyzedItem(item=item, kind=kind, product_id=product_id, status="excluded", reasons=reasons))
+            items.append(AnalyzedItem(item=item, kind=kind, product_id=product_id, status="excluded", reasons=reasons,
+                                      quote_id=quote_id))
         elif injected or item.confidence == "low":
             held = ["instruction_in_body"] if injected else ["low_confidence"]
-            items.append(AnalyzedItem(item=item, kind=kind, product_id=product_id, status="held", reasons=held))
+            items.append(AnalyzedItem(item=item, kind=kind, product_id=product_id, status="held", reasons=held,
+                                      quote_id=quote_id))
         else:
-            items.append(AnalyzedItem(item=item, kind=kind, product_id=product_id, status="confirmed"))
+            items.append(AnalyzedItem(item=item, kind=kind, product_id=product_id, status="confirmed", quote_id=quote_id))
     return PostAnalysis(post_id=post.post_id, analyzable=True, author=author, items=items)
 
 

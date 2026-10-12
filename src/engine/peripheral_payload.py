@@ -74,6 +74,7 @@ from typing import Any
 from src.dto import Candidate, PeripheralPick, PeripheralRequirement, PeripheralResult
 from src.engine import spec_rules
 from src.engine.peripheral_catalog import PRICE_NOTE
+from src.engine.peripheral_evidence import NO_EVIDENCE_NOTE
 from src.engine.peripheral_rules import kind_def, load_peripheral_rules
 from src.engine.stage3c_verify import axis_label
 from src.rag.care_guides import SLOT_GUIDE_IDS, search_care_guide
@@ -291,7 +292,7 @@ def _guide_for_kind(kind: str) -> dict[str, str]:
 
 
 def _item_dict(kind: str, pick: PeripheralPick, req: PeripheralRequirement,
-               stats: dict[str, Any], verification, rules: dict) -> dict[str, Any]:
+               stats: dict[str, Any], verification, rules: dict, feel: dict[str, Any] | None = None) -> dict[str, Any]:
     cand = pick.candidate
     kdef = kind_def(kind, rules)
     return {
@@ -307,6 +308,9 @@ def _item_dict(kind: str, pick: PeripheralPick, req: PeripheralRequirement,
         "review": cand.review_detail.model_dump(mode="json") if cand.review_detail else None,
         "review_weight": _review_weight(kind, rules),
         "review_note": _review_note(_review_weight(kind, rules)),
+        # 체감 근거(사용기·외부 리뷰). None 이면 보여 줄 근거가 없다 — 화면은 feel_note 만 쓴다.
+        "feel": feel,
+        "feel_note": None if feel else NO_EVIDENCE_NOTE,
     }
 
 
@@ -332,7 +336,8 @@ def peripheral_payload(result: PeripheralResult, rules: dict | None = None) -> d
     for pick in result.picks:
         req = requirements.get(pick.kind) or PeripheralRequirement(kind=pick.kind)
         stats = (result.counts or {}).get(pick.kind) or {}
-        items.append(_item_dict(pick.kind, pick, req, stats, result.verification, rules))
+        items.append(_item_dict(pick.kind, pick, req, stats, result.verification, rules,
+                                (result.feel or {}).get(pick.kind)))
 
     return {
         "status": "ready", "items": items,
