@@ -189,6 +189,14 @@ SCENARIOS: list[Scenario] = [
         Q("upgrade", "남은 돈으로 할 만한 업그레이드 있어?", tools=("upgrade_options",)),
         Q("change", "영상 편집이니까 그래픽카드를 한 단계 좋은 걸로 바꿔줘", change=True, tools=("swap",)),
     )),
+    # 10/12 말 분류 점검 — 동의 낱말로 시작하는 질문·감상("응 근데 왜?", "좋아 보이네")이 문장 앞만 보던 규칙에서
+    # 바꾸라는 말이 됐다. 바로 앞 답이 교체를 제안한 뒤라 원치 않는 교체가 될 수 있는 자리
+    Scenario("E", "게임 150만·가성비 — 제안 뒤 동의 낱말로 시작하는 질문", "(10/12 점검, 리허설 대본 아님)",
+             {"purpose": "game", "budget_max": 1_500_000, "priority": "value"}, (
+        Q("whatif", "그래픽카드 한 단계 올리면 어때?", tools=("preview_swap",)),
+        Q("info", "응 근데 왜 이거야?", note="앞 답이 교체를 제안했어도 바꾸지 않는다 — 지금 그래픽카드의 근거를 묻는 말"),
+        Q("info", "좋아 보이네", note="감상 — 바꾸지 않는다. 바꾸면 실패"),
+    )),
     Scenario("D", "오버워치 300만·성능 (즉흥)", "e56c685c",
              {"purpose": "game", "games": ["오버워치"], "budget_max": 3_000_000, "priority": "performance"}, (
         Q("failure", "가격에 맞게 예산 줄여줘",

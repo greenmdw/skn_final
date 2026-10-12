@@ -305,7 +305,9 @@ _CHANGE = ("CPU 한 단계 좋은 걸로 바꿔줘", "그래픽카드도 바꿔�
            # 반말 명령 (10/8 팀 시연 — '줘'가 없어 other 로 빠지던 것)
            "GPU 바꿔", "그래픽카드 더 좋은 걸로 바꿔", "쿨러 빼", "램 32기가로 올려!", "모든걸 더 비싼걸로 바꿔",
            # 같은 부품을 더 다는 말 (10/12 — '달아줘'·'추가해줘'가 other 로 빠져 수량 변경이 막히던 것)
-           "SSD 하나 더 달아줘", "SSD 1개 더 추가해줘", "램 하나 더 꽂아줘", "SSD 추가해 주세요", "SSD 하나 더 달아")
+           "SSD 하나 더 달아줘", "SSD 1개 더 추가해줘", "램 하나 더 꽂아줘", "SSD 추가해 주세요", "SSD 하나 더 달아",
+           # 앞 제안을 받는 말 — 동의 낱말만이거나 "그렇게/그걸로 + 해/부탁"까지
+           "네 부탁해요", "좋아 그걸로 해", "ㅇㅋ 고고", "그래 그걸로", "좋아요", "네네", "그렇게 해 주세요", "넵!")
 _OTHER = ("돈 남았는데 바꿀 거 추천해 줄 수 있나?", "왜 이 그래픽카드 골랐어?", "이 구성 괜찮아?", "파워 용량 충분해?",
           "이 글카 ㄱㅊ?", "쿨러 꼭 사야 돼?", "인텔이랑 AMD 차이가 뭐야?", "남는돈으로 머 올리지",
           # 10/3 리허설 대본 — "그대로 두고"·거절·가정 질문은 구성표를 바꾸지 않는다
@@ -315,7 +317,9 @@ _OTHER = ("돈 남았는데 바꿀 거 추천해 줄 수 있나?", "왜 이 그�
           # 잘못된 전제 (P1-5) — 없던 약속을 근거로 바꾸게 하지 않는다
           "아까 쿨러 빼 준다고 했잖아, 왜 아직 있어?",
           # 반말이어도 물음표로 끝나면 묻는 말 — 바꾸지 않는다
-          "GPU 바꿔?", "이거 왜 빼?")
+          "GPU 바꿔?", "이거 왜 빼?",
+          # 동의 낱말로 시작해도 뒤에 다른 말이 오면 받는 말이 아니다(10/12 — 문장 앞만 보던 때는 change 였다)
+          "응 근데 왜 이거야?", "좋아 보이네", "좋아 근데 파워는 괜찮아?", "그래 고마워", "응 그럼 GPU는?", "좋아?")
 
 
 @pytest.mark.parametrize("text", _ASK)
@@ -499,3 +503,22 @@ def test_guard_rejects_a_summed_remaining_told_as_over_budget():
     over = {"budget_max": 1_950_000, "totals": {"selected_price": 1_907_128}}
     assert ra.swap_arithmetic_sign_errors("27,528원이 남습니다.", over, [listing]) == ["27,528원 남"]
     assert ra.swap_arithmetic_sign_errors("예산을 27,528원 초과합니다.", over, [listing]) == []
+
+
+def test_prompt_tells_the_model_when_the_turn_is_not_a_change_request():
+    """"좋아 보이네"에 모델이 swap 을 불렀다(10/12 시나리오 E 3/3, 코드가 거절) — 코드 판정을 프롬프트에도 싣는다."""
+    r = _result()
+    assert "구성표를 바꾸라는 요청이 아닙니다" in ra.system_prompt(r, "좋아 보이네", [], read_only=True)
+    assert "구성표를 바꾸라는 요청이 아닙니다" not in ra.system_prompt(r, "GPU 바꿔줘", [])
+
+
+def test_previous_outputs_come_from_the_last_answer_turn_log():
+    msgs = [{"role": "user", "content": "올리면?"},
+            {"role": "assistant", "content": "…", "metadata": {"turn": {"outputs": ["바꾼 뒤 총액 1,530,828원"]}}},
+            {"role": "user", "content": "좋아 보이네"}]
+    assert ra.previous_outputs(msgs) == ["바꾼 뒤 총액 1,530,828원"]
+    assert ra.previous_outputs([]) == []
+    more = [*msgs, {"role": "assistant", "content": "…", "metadata": {"turn": {"outputs": ["explain"]}}}]
+    assert ra.previous_outputs(more) == ["explain"]
+    assert ra.previous_outputs(more, turns=2) == ["바꾼 뒤 총액 1,530,828원", "explain"]
+    assert ra.previous_outputs(more, turns=0) == []

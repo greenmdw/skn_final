@@ -604,11 +604,18 @@ _IMPERATIVE = (r"(?:바꿔|교체해|변경해|빼|넣어|담아|달아|추가�
                r"\s*(?:줘|주세요|줄래|주라|줄\s*수|주셈|주삼|주쇼|쥬|줭|봐|요|라)")
 _IMPERATIVE_RE = re.compile(_IMPERATIVE)
 _CLAUSE_SPLIT = re.compile(r"[,.!?\n]+")
+_AGREE = r"(?:응|ㅇㅇ|ㅇㅋ|오케이|ok|okay|네|넵|예|그래|좋아|콜|ㄱㄱ|고고|부탁해|그렇게\s*해(?:\s*(?:줘|주세요|줄래))?)(?:요)?"
 _CHANGE_RE = re.compile(
     _IMPERATIVE
     + r"|(?:로\s*해|로\s*할게|로\s*갈게|로\s*가자)\b"
     r"|(?:으)?로\s*[요.!~]*\s*$"                              # "7600X로", "SSD 2개로", "더 싼 걸로" — 말줄임 요청
-    r"|^\s*(?:응|ㅇㅇ|ㅇㅋ|오케이|ok|okay|네|넵|예|그래|좋아|콜|ㄱㄱ|고고|부탁해|그렇게\s*해)(?:\s|[.!~,]|$)"
+    # 앞 제안을 받는 말("응", "네 부탁해요", "좋아 그걸로 해") — 동의 낱말 뒤에 다른 말이 오면 받는 말이 아니다.
+    # 문장 앞만 보던 때는 "응 근데 왜 이거야?", "좋아 보이네", "좋아 근데 파워는 괜찮아?"도 바꾸라는 말이 돼서,
+    # 바로 앞 답이 교체를 제안했다면 원치 않는 교체가 될 수 있었다(10/12 말 분류 점검)
+    + r"|^\s*" + _AGREE + r"(?:[\s.!~,]*" + _AGREE + r")*[\s.!~,]*"
+    r"(?:(?:그렇게|그걸로|그거로|그걸|그거|그대로)\s*)?"
+    r"(?:해\s*(?:줘|주세요|줄래|요|봐)?|진행해?\s*(?:줘|주세요)?|ㄱㄱ|고고|가자|부탁(?:해|해요|드려요|합니다|드립니다)?)?"
+    r"[\s.!~,]*$"
     r"|ㄱㄱ(?!\s*\?)"
     # 반말 명령("GPU 바꿔", "그래픽카드 더 좋은 걸로 바꿔") — '줘'가 없어 other 로 빠져 "원하시면 '바꿔줘'라고 말씀해
     # 주세요"로 되묻던 것(10/8 팀 시연·회의). 말 끝에 올 때만 — "바꿔?"·"바꿔도 돼"는 묻는 말이다
@@ -710,7 +717,8 @@ def _budget_rounded(budget: int | None, t: dict) -> str:
     return " (어림: " + " · ".join(parts) + ")"
 
 
-def system_prompt(result: dict, user_text: str, history: list[dict], prefetched: str = "", previous: str = "") -> str:
+def system_prompt(result: dict, user_text: str, history: list[dict], prefetched: str = "", previous: str = "",
+                  read_only: bool = False) -> str:
     t = result.get("totals") or {}
     v = result.get("verification") or {}
     issues = " | ".join(f"[{i['axis']}] {i['text']}" for i in (v.get("issues") or [])) or "없음"
@@ -728,6 +736,11 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "이 화면의 대화 기록: " + ("없음 — 이번이 첫 질문이라 당신이 이전에 한 말이나 약속은 없습니다." if not history
                               else f"최근 {len(history)}턴만 보입니다(앞의 메시지들)." if len(history) >= _HISTORY_TURNS
                               else f"{len(history)}턴 전부(앞의 메시지들). 그 밖에 당신이 한 말이나 약속은 없습니다."),
+        # 코드가 '바꾸라는 말이 아님'으로 판정해 바꾸는 도구를 막아도 모델은 그걸 모르고 "좋아 보이네"에 swap 을 불렀다
+        # (10/12 시나리오 E 3/3 — 코드가 거절해 구성표는 그대로) — 판정을 프롬프트에도 알린다
+        *(["이번 말 판정(코드): 구성표를 바꾸라는 요청이 아닙니다 — swap·set_qty·remove_or_restore 는 거절됩니다. "
+           "앞 답이 교체를 제안했고 사용자가 '좋아 보이네', '응 근데 …?'처럼 반응하거나 되물었다면 그 말에 답하고, "
+           "바꿀지는 '바꿔 드릴까요?'로 다시 묻습니다."] if read_only else []),
         "",
         "규칙:",
         "1. '바꿔줘', '로 해줘', '바꿔 주세요'처럼 바꾸라고 하면 되묻지 말고 바로 swap 합니다. candidate_id 는 list_alternatives·upgrade_options·savings_options·preview_swap 결과에서만 가져오고, 지어내거나 답변에 보여 주지 않습니다.",
@@ -799,14 +812,19 @@ def _run_messages(conn, revision_id: UUID, run_id: str) -> list[dict]:
 _PREVIOUS_CANDIDATE_LINES = 12
 
 
+def previous_outputs(messages: list[dict], turns: int = 1) -> list[str]:
+    """최근 `turns` 개 답의 도구 결과 원문(턴 기록) — 후보 줄 뽑기(직전 답만)와 수치 가드의 허용 근거(모델이 보는
+    대화 기록 범위)가 같이 쓴다."""
+    answers = [m for m in messages if m["role"] == "assistant"][-turns:] if turns > 0 else []
+    return [out for m in answers for out in (((m.get("metadata") or {}).get("turn") or {}).get("outputs") or [])]
+
+
 def previous_candidates(messages: list[dict]) -> str:
     """직전 답의 근거가 된 도구 결과 중 candidate_id 가 있는 줄 — 답 메시지의 턴 기록(metadata["turn"]["outputs"])에서.
     이력에는 답 문장만 남아 "응 그렇게 바꿔줘"에 모델이 id 를 몰라 후보 목록을 다시 뒤지다 실패했다 — 제안한 4060 Ti 는
     list_alternatives 목록에 없다(10/8 A-6 6/10, 10/10 평가 0/3). 앞 답이 실제로 제안한 후보를 그대로 넘긴다."""
-    last = next((m for m in reversed(messages) if m["role"] == "assistant"), None)
-    outputs = (((last or {}).get("metadata") or {}).get("turn") or {}).get("outputs") or []
     lines: list[str] = []
-    for out in outputs:
+    for out in previous_outputs(messages):
         for line in out.splitlines():
             line = line.strip()
             if "candidate_id=" in line and not re.match(r"\d+\. candidate_id=", line) and line not in lines:
@@ -996,7 +1014,12 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
 
     run_id = result["run_id"]
     pairs = _db_history(conn, revision_id, run_id)
-    previous = previous_candidates(_run_messages(conn, revision_id, run_id)) if pairs else ""
+    messages = _run_messages(conn, revision_id, run_id) if pairs else []
+    previous = previous_candidates(messages)
+    # 앞 답이 전한 가정 계산("바꾸면 총액 1,530,828원")을 이번 답이 다시 말하면 이번 턴 도구 결과에는 없어 가드가 답을
+    # 버렸다(10/12 시나리오 E "좋아 보이네" 3/3) — 모델이 보는 대화 기록 범위의 도구 결과도 코드가 낸 사실이라 허용한다.
+    # 그사이 구성표가 바뀌었으면 옛 숫자일 수 있지만, 이 가드는 지어낸 숫자를 막는 것이고 그 숫자는 지어낸 게 아니다
+    earlier = previous_outputs(messages, turns=len(pairs))
     hist_rows = [{"role": "user", "content": u} for u, _ in pairs]
     intent = classify_intent(text)
     session = ResultSession(conn=conn, revision_id=revision_id, result=result, user_id=user_id,
@@ -1004,7 +1027,7 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
                             search_confirmed=_search_confirmed(pairs, text))
     prefetched = _prefetch_explanations(session, text)
     session.previous = previous
-    prompt = system_prompt(result, text, hist_rows, prefetched, previous)
+    prompt = system_prompt(result, text, hist_rows, prefetched, previous, read_only=session.read_only)
     agent = Agent(
         model=_model(),
         system_prompt=prompt,
@@ -1026,7 +1049,7 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
         error = type(exc).__name__
     else:
         # 수치 가드 — 답변의 숫자는 전부 입력에 있던 것이어야 한다. 아니면 LLM 문장을 버리고 코드 문장으로.
-        ok, outside = _reply_within(reply, [prompt, text, *session.outputs,
+        ok, outside = _reply_within(reply, [prompt, text, *session.outputs, *earlier,
                                             swap_arithmetic(session.result, session.outputs)])
         bad_words = evaluative_words(reply, text) + swap_arithmetic_sign_errors(reply, session.result, session.outputs)
         if not ok or bad_words:
