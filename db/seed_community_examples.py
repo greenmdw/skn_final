@@ -12,6 +12,8 @@
       - brand: Logitech     # catalog.product.brand, model 과 글자까지 같아야 연결된다(모호하면 건너뛴다)
         model: G PRO X SUPERLIGHT 2
         option:             # 키보드 스위치 등(선택)
+      - custom: Slate 75    # 카탈로그에 없는 제품은 brand/model 대신 custom(제품명)과 kind(제품 종류)로 직접 입력한다
+        kind: 키보드
     title: "[4주 사용] 클로 그립으로 써본 G PRO X SUPERLIGHT 2"
     tags: [마우스, FPS]     # 선택
     images: [a1-1_1.jpg, a1-1_2.png]   # 선택 — 글 파일과 같은 폴더(하위 폴더 가능)의 이미지, 첫 장이 대표. 최대 5장, 장당 5MB
@@ -45,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.config import COMMUNITY_IMAGE_MAX_BYTES, COMMUNITY_IMAGE_MAX_PER_POST, COMMUNITY_IMAGE_MAX_SIDE_PX  # noqa: E402
 from src.db import get_conn  # noqa: E402
 from src.repo.community_repo import CommunityRepo  # noqa: E402
-from src.services.community_service import BOARD_TYPES, KIND_TO_TYPE, TYPE_TO_KIND, _remove_files, _store  # noqa: E402
+from src.services.community_service import BOARD_TYPES, KIND_TO_TYPE, TYPE_TO_KIND, _remove_files, _store, kind_to_type  # noqa: E402
 from src.storage.community_images import InvalidImage, process_image  # noqa: E402
 
 # 예시 글 작성자 20명(닉네임은 예시_사용기_작성_기획.md 4장). 로그인할 수 없는 계정(비밀번호 없음)으로 만든다.
@@ -149,6 +151,16 @@ def _resolve_products(repo: CommunityRepo, items: list) -> list[dict]:
     """머리말의 제품(brand + model)을 카탈로그에서 정확히 하나 찾는다. 없거나 여러 개면 ValueError."""
     resolved = []
     for order, item in enumerate(items):
+        custom = str((item or {}).get("custom") or "").strip()
+        if custom:                                                  # 카탈로그에 없는 제품 — 화면의 "목록에 없는 제품"과 같은 처리
+            ptype = kind_to_type(str((item or {}).get("kind") or "").strip())
+            if ptype is None:
+                raise ValueError(f"제품 {order + 1}: custom 제품은 kind(제품 종류)가 필요하다")
+            option = str((item or {}).get("option") or "").strip() or None
+            similar = repo.similar_catalog_product(ptype, custom)
+            resolved.append(dict(product_id=None, product_kind=TYPE_TO_KIND[ptype], custom_product_name=custom[:120], selected_option=option,
+                                 match_status="review_needed" if similar else "unmatched", display_order=order))
+            continue
         brand, model = str((item or {}).get("brand") or "").strip(), str((item or {}).get("model") or "").strip()
         if not brand or not model:
             raise ValueError(f"제품 {order + 1}: brand 와 model 이 필요하다")

@@ -186,3 +186,18 @@ def test_update_replaces_images_and_failed_apply_leaves_no_files(tmp_path, uploa
     with get_conn() as conn:
         seed.load_examples(conn, [path], apply=True, update=True)
     assert TestClient(app).get("/community/posts", params={"q": tag}).json()["items"][0]["image_count"] == 1
+
+
+def test_custom_products_not_in_the_catalog_are_linked_as_unmatched(tmp_path):
+    tag = f"T{os.urandom(3).hex()}"
+    path = _write(tmp_path, f"{tag}-1.md", f"id: {tag}-1\nboard: review\nauthor: P02\ntitle: {tag} 직접 입력\n"
+                  "products:\n  - custom: 이세상에없는키보드 Z9\n    kind: 키보드\n    option: 45g 리니어")
+    bad = _write(tmp_path, f"{tag}-2.md", f"id: {tag}-2\nboard: review\nauthor: P02\ntitle: {tag} 종류없음\n"
+                 "products:\n  - custom: 뭔가")
+    with get_conn() as conn:
+        report = seed.load_examples(conn, [path, bad], apply=True)
+    assert report.created == [f"{tag}-1"] and [n for n, _ in report.errors] == [f"{tag}-2.md"]
+    item = TestClient(app).get("/community/posts", params={"q": tag}).json()["items"][0]
+    product = item["products"][0]
+    assert product["product_id"] is None and product["name"] == "이세상에없는키보드 Z9" and product["match_status"] == "unmatched"
+    assert product["product_kind"] == "키보드" and product["selected_option"] == "45g 리니어"
