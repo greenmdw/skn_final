@@ -24,6 +24,7 @@ def _loose_limits(monkeypatch):
     monkeypatch.setattr(router_module, "COMMUNITY_POST_LIMIT_PER_MIN", 1000)
     monkeypatch.setattr(router_module, "COMMUNITY_COMMENT_LIMIT_PER_MIN", 1000)
     monkeypatch.setattr(router_module, "COMMUNITY_LIKE_LIMIT_PER_MIN", 1000)
+    monkeypatch.setattr(router_module, "COMMUNITY_UPLOAD_LIMIT_PER_MIN", 1000)
 
 
 def _signup(name: str) -> tuple[TestClient, str]:
@@ -42,6 +43,12 @@ def alice():
 @pytest.fixture()
 def bob():
     return _signup("밥")
+
+
+@pytest.fixture(autouse=True)
+def _upload_dir(monkeypatch, tmp_path):
+    """업로드 이미지는 시험마다 임시 폴더에 저장한다."""
+    monkeypatch.setattr(svc, "COMMUNITY_UPLOAD_DIR", str(tmp_path / "uploads"))
 
 
 def _post(c: TestClient, **kwargs) -> dict:
@@ -366,3 +373,114 @@ def test_writing_is_rate_limited_per_user(alice, monkeypatch):
     codes = [c.post("/community/posts", json={"board_type": "free", "title": f"t{i}", "body": "b", "publish": True}).status_code
              for i in range(3)]
     assert codes == [201, 201, 429]
+
+
+# ── 이미지 첨부 ──────────────────────────────────────────────────────────────────────
+def _png(size=(40, 30), color=(200, 30, 30)) -> bytes:
+    import io
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", size, color).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def _upload(c: TestClient, data: bytes, name: str = "a.png", ctype: str = "image/png"):
+    return c.post("/community/uploads", files={"file": (name, data, ctype)})
+
+
+def test_image_upload_attach_and_serve(alice, bob):
+    a, _ = alice
+    b, _ = bob
+    r = _upload(a, _png())
+    assert r.status_code == 201, r.text
+    img = r.json()
+    assert img["url"] == f"/community/images/{img['id']}" and (img["width"], img["height"]) == (40, 30)
+    served = a.get(img["url"])
+    assert served.status_code == 200 and served.headers["content-type"] == "image/png"
+    assert served.headers["cache-control"] == "private, no-store"
+    assert TestClient(app).get(img["url"]).status_code == 404 and b.get(img["url"]).status_code == 404   # 임시 이미지는 올린 사람만
+    img2 = _upload(a, _png(color=(0, 200, 0))).json()
+    post = _post(a, title="사진 글", image_ids=[img2["id"], img["id"]])
+    assert [i["id"] for i in post["images"]] == [img2["id"], img["id"]] and [i["order"] for i in post["images"]] == [0, 1]
+    listed = TestClient(app).get("/community/posts", params={"q": "사진 글"}).json()["items"][0]
+    assert listed["image_count"] == 2 and listed["cover_image_url"] == img2["url"]
+    anon = TestClient(app).get(img["url"])
+    assert anon.status_code == 200 and anon.headers["cache-control"] == "public, max-age=86400"
+
+
+def test_draft_images_are_private_until_published(alice):
+    a, _ = alice
+    img = _upload(a, _png()).json()
+    draft = a.post("/community/posts", json={"board_type": "free", "title": "t", "body": "b", "image_ids": [img["id"]]}).json()
+    assert TestClient(app).get(img["url"]).status_code == 404
+    assert a.post(f"/community/posts/{draft['id']}/publish").status_code == 200
+    assert TestClient(app).get(img["url"]).status_code == 200
+
+
+def test_upload_rejects_non_images_oversize_and_animated(alice, monkeypatch):
+    import io
+    from PIL import Image
+    a, _ = alice
+    assert _upload(a, b"not an image", "a.png").status_code == 422
+    assert _upload(a, b"").status_code == 422
+    buf = io.BytesIO()
+    Image.new("P", (10, 10)).save(buf, "GIF")
+    assert _upload(a, buf.getvalue(), "a.gif", "image/gif").status_code == 422        # GIF 는 허용하지 않는다
+    assert _upload(a, b"<svg xmlns='http://www.w3.org/2000/svg'/>", "a.svg", "image/svg+xml").status_code == 422
+    monkeypatch.setattr(svc, "COMMUNITY_IMAGE_MAX_BYTES", 100)
+    r = _upload(a, _png((200, 200)))
+    assert r.status_code == 413 and r.json()["error"]["code"] == "file_too_large"
+    assert TestClient(app).post("/community/uploads", files={"file": ("a.png", _png(), "image/png")}).status_code == 401
+
+
+def test_upload_resizes_and_strips_metadata(alice):
+    import io
+    from PIL import Image
+    a, _ = alice
+    src = Image.new("RGB", (3000, 2000), (10, 20, 30))
+    exif = Image.Exif()
+    exif[0x010F] = "SecretCamera"
+    buf = io.BytesIO()
+    src.save(buf, "JPEG", exif=exif)
+    img = _upload(a, buf.getvalue(), "big.jpg", "image/jpeg").json()
+    assert max(img["width"], img["height"]) == 1600 and img["width"] > img["height"]
+    out = Image.open(io.BytesIO(a.get(img["url"]).content))
+    assert out.format == "JPEG" and out.size == (img["width"], img["height"]) and not out.getexif()
+
+
+def test_image_permissions_limits_and_replacement(alice, bob):
+    a, _ = alice
+    b, _ = bob
+    mine = [_upload(a, _png(color=(i * 30, 0, 0))).json() for i in range(6)]
+    assert a.post("/community/posts", json={"board_type": "free", "title": "t", "body": "b", "publish": True,
+                                            "image_ids": [i["id"] for i in mine]}).status_code == 422       # 글당 5장
+    assert b.post("/community/posts", json={"board_type": "free", "title": "t", "body": "b", "image_ids": [mine[0]["id"]]}).status_code == 422
+    assert b.delete(f"/community/uploads/{mine[0]['id']}").status_code == 404
+    post = _post(a, title="교체 글", image_ids=[mine[0]["id"], mine[1]["id"]])
+    assert a.delete(f"/community/uploads/{mine[0]['id']}").status_code == 409                        # 붙은 이미지는 글을 고쳐서 뺀다
+    again = a.patch(f"/community/posts/{post['id']}", json={"image_ids": [mine[1]["id"], mine[2]["id"]], "version": post["version"]})
+    assert again.status_code == 200 and [i["id"] for i in again.json()["images"]] == [mine[1]["id"], mine[2]["id"]]
+    assert a.get(mine[0]["url"]).status_code == 404                                                  # 빠진 이미지는 지워졌다
+    assert a.post(f"/community/posts", json={"board_type": "free", "title": "t", "body": "b", "image_ids": [mine[1]["id"]]}).status_code == 422
+    assert a.delete(f"/community/uploads/{mine[3]['id']}").status_code == 204                        # 임시 이미지는 지울 수 있다
+    assert a.get(mine[3]["url"]).status_code == 404
+
+
+def test_deleting_a_post_removes_its_images_and_orphans_are_cleaned(alice):
+    from src.db import get_conn
+    a, _ = alice
+    kept = _upload(a, _png()).json()
+    post = _post(a, title="지울 글", image_ids=[kept["id"]])
+    assert a.delete(f"/community/posts/{post['id']}").status_code == 204
+    assert a.get(kept["url"]).status_code == 404
+    stray = _upload(a, _png()).json()
+    with get_conn() as conn:
+        assert svc.cleanup_orphan_images(conn, hours=0) >= 1
+    assert a.get(stray["url"]).status_code == 404
+
+
+def test_orphan_quota(alice, monkeypatch):
+    a, _ = alice
+    monkeypatch.setattr(svc, "ORPHAN_QUOTA", 2)
+    assert _upload(a, _png()).status_code == 201 and _upload(a, _png()).status_code == 201
+    assert _upload(a, _png()).status_code == 422

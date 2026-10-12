@@ -12,9 +12,13 @@ import math
 import re
 from uuid import UUID
 
-from src.config import COMMUNITY_ADMIN_USER_IDS, COMMUNITY_BANNED_WORDS
-from src.errors import Conflict, Forbidden, NotFound, Unauthorized, ValidationFailed
+from src.config import (
+    COMMUNITY_ADMIN_USER_IDS, COMMUNITY_BANNED_WORDS, COMMUNITY_IMAGE_MAX_BYTES, COMMUNITY_IMAGE_MAX_PER_POST,
+    COMMUNITY_IMAGE_MAX_SIDE_PX, COMMUNITY_IMAGE_ORPHAN_HOURS, COMMUNITY_UPLOAD_DIR,
+)
+from src.errors import Conflict, FileTooLarge, Forbidden, NotFound, Unauthorized, ValidationFailed
 from src.repo.community_repo import CommunityRepo
+from src.storage.community_images import InvalidImage, LocalImageStore, process_image
 
 BOARD_TYPES = ("question", "review", "tip", "free")
 SORTS = ("latest", "popular", "views", "recommend")
@@ -126,14 +130,24 @@ def _item(row: dict, products: list[dict]) -> dict:
         "liked_by_me": bool(row["liked_by_me"]), "tags": list(row["tags"] or []),
         "products": [_product_out(p) for p in products],
         "published_at": row["published_at"].isoformat() if row["published_at"] else None,
+        "image_count": int(row.get("image_count") or 0),
+        "cover_image_url": image_url(row["cover_image_id"]) if row.get("cover_image_id") else None,
     }
 
 
-def _detail(row: dict, products: list[dict], me: UUID | None) -> dict:
+def image_url(image_id) -> str:
+    return f"/community/images/{image_id}"
+
+
+def _image_out(row: dict) -> dict:
+    return {"id": str(row["id"]), "url": image_url(row["id"]), "width": row["width"], "height": row["height"], "order": row["display_order"]}
+
+
+def _detail(row: dict, products: list[dict], me: UUID | None, images: list[dict] | None = None) -> dict:
     out = _item(row, products)
     mine = me is not None and row["author_user_id"] == me
     out.update(
-        body=row["body"], version=row["version"], images=[],            # 이미지 첨부(2.6)는 아직 없다
+        body=row["body"], version=row["version"], images=[_image_out(i) for i in images or []],
         created_at=row["created_at"].isoformat(), updated_at=row["updated_at"].isoformat(),
         can_edit=bool(mine and row["status"] != "deleted"), can_delete=bool((mine or is_admin(me)) and row["status"] != "deleted"),
         is_mine=mine)
@@ -217,7 +231,7 @@ def get_post(conn, me: UUID | None, post_id: UUID, *, view_key: str | None = Non
     if view_key and row["status"] == "published":
         if repo.record_view(post_id, view_key):
             row = repo.get_post(post_id, me=me)
-    return _detail(row, repo.products_for([post_id]).get(post_id, []), me)
+    return _detail(row, repo.products_for([post_id]).get(post_id, []), me, repo.images_for([post_id]).get(post_id, []))
 
 
 def _prepare_products(repo: CommunityRepo, items) -> list[dict]:
@@ -260,6 +274,102 @@ def _validate_publishable(repo: CommunityRepo, row: dict, *, board_type: str, ti
         raise ValidationFailed("사용기 · 리뷰는 제품을 1개 이상 연결해 주세요.", field="products")
 
 
+# ── 이미지 첨부 ─────────────────────────────────────────────────────────────────────
+ORPHAN_QUOTA = 10                # 사용자당 글에 붙이지 않은 임시 이미지 최대 수
+
+
+def _store() -> LocalImageStore:
+    return LocalImageStore(COMMUNITY_UPLOAD_DIR)
+
+
+def _remove_files(keys: list[str]) -> None:
+    store = _store()
+    for key in keys:
+        store.delete(key)
+
+
+def cleanup_orphan_images(conn, *, hours: int | None = None, limit: int = 200) -> int:
+    """글에 붙지 않은 채 오래된 임시 이미지를 지운다(올릴 때마다 조금씩 돌고, 스크립트로도 부를 수 있다)."""
+    keys = CommunityRepo(conn).delete_orphans(older_than_hours=COMMUNITY_IMAGE_ORPHAN_HOURS if hours is None else hours, limit=limit)
+    _remove_files(keys)
+    return len(keys)
+
+
+def upload_image(conn, me: UUID | None, raw: bytes) -> dict:
+    user = _require_user(me)
+    if not raw:
+        raise ValidationFailed("빈 파일입니다.", field="file")
+    if len(raw) > COMMUNITY_IMAGE_MAX_BYTES:
+        raise FileTooLarge(f"이미지는 {COMMUNITY_IMAGE_MAX_BYTES // (1024 * 1024)}MB 이하만 올릴 수 있습니다.", field="file")
+    repo = CommunityRepo(conn)
+    cleanup_orphan_images(conn, limit=50)
+    if repo.count_orphans(user) >= ORPHAN_QUOTA:
+        raise ValidationFailed("글에 붙이지 않은 이미지가 너무 많습니다. 글을 저장하거나 이미지를 지운 뒤 다시 올려 주세요.", field="file")
+    try:
+        processed = process_image(raw, max_side=COMMUNITY_IMAGE_MAX_SIDE_PX)
+    except InvalidImage as exc:
+        raise ValidationFailed(str(exc), field="file") from exc
+    store = _store()
+    key = store.new_key(processed.content_type)
+    store.save(key, processed.data)
+    try:
+        row = repo.insert_image(owner_id=user, storage_key=key, content_type=processed.content_type,
+                                width=processed.width, height=processed.height, byte_size=len(processed.data))
+    except Exception:
+        store.delete(key)
+        raise
+    return _image_out(row)
+
+
+def delete_upload(conn, me: UUID | None, image_id: UUID) -> None:
+    user = _require_user(me)
+    repo = CommunityRepo(conn)
+    row = repo.get_image(image_id)
+    if row is None or row["owner_user_id"] != user:
+        raise NotFound("이미지를 찾을 수 없습니다.")
+    if row["post_id"] is not None:
+        raise Conflict("글에 붙은 이미지는 글을 수정해서 뺄 수 있습니다.", code="image_attached")
+    repo.delete_image(image_id)
+    _remove_files([row["storage_key"]])
+
+
+def read_image(conn, me: UUID | None, image_id: UUID) -> tuple[bytes, str, bool]:
+    """(바이트, 형식, 공개 여부). 글에 붙은 이미지는 그 글을 볼 수 있는 사람만, 임시 이미지는 올린 사람만 본다."""
+    repo = CommunityRepo(conn)
+    row = repo.get_image(image_id)
+    if row is None:
+        raise NotFound("이미지를 찾을 수 없습니다.")
+    if row["post_id"] is None:
+        if me is None or row["owner_user_id"] != me:
+            raise NotFound("이미지를 찾을 수 없습니다.")
+        public = False
+    else:
+        if not _visible(repo.get_post(row["post_id"], me=me), me):
+            raise NotFound("이미지를 찾을 수 없습니다.")
+        public = True
+    data = _store().read(row["storage_key"])
+    if data is None:
+        raise NotFound("이미지를 찾을 수 없습니다.")
+    return data, row["content_type"], public
+
+
+def _apply_images(repo: CommunityRepo, user: UUID, post_id: UUID, raw_ids) -> None:
+    """글의 이미지를 image_ids 순서대로 정한다. 내가 올린 이미지(임시이거나 이 글에 붙은 것)만 쓸 수 있다."""
+    try:
+        ids = [UUID(str(x)) for x in (raw_ids or [])]
+    except ValueError:
+        raise ValidationFailed("이미지 id 형식이 올바르지 않습니다.", field="image_ids") from None
+    if len(set(ids)) != len(ids):
+        raise ValidationFailed("같은 이미지를 두 번 넣을 수 없습니다.", field="image_ids")
+    if len(ids) > COMMUNITY_IMAGE_MAX_PER_POST:
+        raise ValidationFailed(f"이미지는 글당 최대 {COMMUNITY_IMAGE_MAX_PER_POST}장까지 붙일 수 있습니다.", field="image_ids")
+    for image_id in ids:
+        row = repo.get_image(image_id)
+        if row is None or row["owner_user_id"] != user or row["post_id"] not in (None, post_id):
+            raise ValidationFailed("사용할 수 없는 이미지입니다.", field="image_ids")
+    _remove_files(repo.attach_images(post_id, ids))
+
+
 def create_post(conn, me: UUID | None, data: dict) -> dict:
     user = _require_user(me)
     repo = CommunityRepo(conn)
@@ -274,6 +384,8 @@ def create_post(conn, me: UUID | None, data: dict) -> dict:
     post_id = repo.create_post(author_id=user, board_type=board_type, title=title, body=body, tags=tags, is_example=is_example)
     for item in prepared:
         repo.add_product(post_id, **item)
+    if data.get("image_ids") is not None:
+        _apply_images(repo, user, post_id, data["image_ids"])
     if publish:
         row = repo.get_post(post_id, me=user)
         _validate_publishable(repo, row, board_type=board_type, title=title, body=body)
@@ -327,6 +439,8 @@ def update_post(conn, me: UUID | None, post_id: UUID, data: dict) -> dict:
         repo.delete_all_products(post_id)
         for item in prepared:
             repo.add_product(post_id, **item)
+    if data.get("image_ids") is not None:
+        _apply_images(repo, user, post_id, data["image_ids"])
     if row["status"] in ("published", "hidden"):
         current = repo.get_post(post_id, me=user)
         _validate_publishable(repo, current, board_type=board_type, title=title, body=body)
@@ -350,6 +464,7 @@ def delete_post(conn, me: UUID | None, post_id: UUID) -> None:
     repo = CommunityRepo(conn)
     _load_owned(repo, post_id, me, allow_admin=True)
     repo.set_status(post_id, "deleted")
+    _remove_files(repo.delete_post_images(post_id))
 
 
 def hide_post(conn, me: UUID | None, post_id: UUID) -> dict:

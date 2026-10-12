@@ -142,9 +142,10 @@ function PostCard({ post, reaction, onOpen, onLike }: { post: CommunityPost; rea
         <div className="cm-post-category">{post.boardLabel}</div>
         <button type="button" className="cm-post-title" onClick={onOpen}>{post.title}</button>
         <p>{post.excerpt}</p>
-        {!!post.mediaCount && (
-          <div className={'cm-media-grid count-' + post.mediaCount} aria-label={`첨부 이미지 ${post.mediaCount}장`}>
-            {Array.from({ length: post.mediaCount }, (_, index) => <span key={index}>이미지 {index + 1}</span>)}
+        {post.coverUrl && (
+          <div className="cm-cover" style={{ position: 'relative' }}>
+            <img src={post.coverUrl} alt="" loading="lazy" onClick={onOpen} style={{ width: '100%', maxHeight: 320, objectFit: 'cover', borderRadius: 12, cursor: 'pointer', display: 'block' }} />
+            {!!post.mediaCount && post.mediaCount > 1 && <span className="cm-badge" style={{ position: 'absolute', right: 8, bottom: 8 }}>+{post.mediaCount - 1}</span>}
           </div>
         )}
         {post.specs && <div className="cm-spec-row">{post.specs.map(spec => <div key={spec.label}><small>{spec.label}</small><strong>{spec.value}</strong></div>)}</div>}
@@ -452,6 +453,7 @@ function PostView({ postId, user, reactionOf, onBack, onBoard, onPost, onWrite, 
             {post.is_example && <div className="review-disclosure" role="note"><strong>예시 리뷰</strong><span>서비스 구성을 보여주기 위해 팀이 작성한 글입니다. 실제 구매·사용 후기가 아닙니다.</span></div>}
             <div className="cm-article-body">
               {wire.body.split(/\n{2,}/).map((paragraph, index) => <p key={index} style={{ whiteSpace: 'pre-wrap' }}>{paragraph}</p>)}
+              {wire.images.map(image => <img key={image.id} src={image.url} width={image.width} height={image.height} alt="첨부 이미지" loading="lazy" style={{ maxWidth: '100%', height: 'auto', borderRadius: 12, display: 'block', margin: '12px 0' }} />)}
             </div>
             <div className="cm-article-actions"><button type="button" className={reaction.liked ? 'active' : ''} onClick={() => onLike(post)}>♡ 추천 {reaction.likes}</button><button type="button" onClick={() => navigator.clipboard?.writeText(window.location.href)}>공유</button>{wire.can_delete && <button type="button" onClick={removePost}>삭제</button>}</div>
           </article>
@@ -504,6 +506,8 @@ function WriteView({ userName, onCancel, onPublished }: { userName: string | nul
   const [results, setResults] = useState<CatalogProduct[]>([])
   const [draft, setDraft] = useState<{ id: string; version: number } | null>(null)
   const [saving, setSaving] = useState(false)
+  const [images, setImages] = useState<Array<{ id: string; url: string }>>([])
+  const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
     const query = productQuery.trim()
@@ -538,7 +542,31 @@ function WriteView({ userName, onCancel, onPublished }: { userName: string | nul
     tags: tags.split(',').map(tag => tag.replace(/^#/, '').trim()).filter(Boolean).slice(0, 5),
     products: selected.map(item => ({ product_id: item.productId, product_kind: item.kind, custom_product_name: item.productId ? null : item.name, selected_option: item.option.trim() || null })),
     publish,
+    image_ids: images.map(image => image.id),
   })
+  const addImages = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    if (!userName) { showToast('이미지 첨부는 로그인 후 이용할 수 있어요.'); return }
+    setUploading(true)
+    try {
+      let count = images.length
+      for (const file of Array.from(files)) {
+        if (count >= 5) { showToast('이미지는 최대 5장까지 첨부할 수 있습니다.'); break }
+        const uploaded = await communityApi.uploadImage(file)
+        setImages(current => [...current, { id: uploaded.id, url: uploaded.url }])
+        count += 1
+      }
+    } catch (error) {
+      showToast(messageOf(error))
+    } finally {
+      setUploading(false)
+    }
+  }
+  const removeImage = (id: string) => {
+    setImages(current => current.filter(image => image.id !== id))
+    // 아직 글에 붙지 않은 임시 이미지는 바로 지운다(임시 저장된 글에 붙은 것은 저장할 때 빠진다).
+    if (!draft) communityApi.removeUpload(id).catch(() => undefined)
+  }
   const guard = () => {
     if (!userName) { showToast('글 작성은 로그인 후 이용할 수 있어요.'); return false }
     if (!category) { showToast('게시판을 선택해 주세요.'); return false }
@@ -590,6 +618,7 @@ function WriteView({ userName, onCancel, onPublished }: { userName: string | nul
         <label className="full">제목<input required maxLength={80} value={title} onChange={event => setTitle(event.target.value)} placeholder="내용을 구체적으로 알 수 있는 제목을 입력하세요" /></label>
         <label className="full">내용<textarea required value={body} onChange={event => setBody(event.target.value)} placeholder="질문이라면 사용 환경, 예산, 시도한 방법을 함께 적어주세요." /></label>
         <label className="full">태그 <small>(선택)</small><input value={tags} onChange={event => setTags(event.target.value)} placeholder="예: 영상편집, 200만원견적, 조립초보" /></label>
+        <div className="full"><label>이미지 <small>(선택 · 최대 5장, JPEG·PNG·WebP, 장당 5MB · 첫 장이 대표 이미지)</small><input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={uploading || images.length >= 5} onChange={event => { addImages(event.target.files); event.target.value = '' }} /></label>{uploading && <p className="cm-product-help">이미지를 올리는 중…</p>}{images.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>{images.map((image, index) => <div key={image.id} style={{ position: 'relative' }}><img src={image.url} alt={`첨부 ${index + 1}`} style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 8, display: 'block' }} /><button type="button" className="cm-btn" onClick={() => removeImage(image.id)} style={{ position: 'absolute', top: 2, right: 2, padding: '0 6px' }} aria-label={`첨부 ${index + 1} 삭제`}>×</button></div>)}</div>}</div>
         <div className="cm-form-actions full"><button type="button" className="cm-btn" disabled={saving} onClick={saveDraft}>{draft ? '임시 저장 갱신' : '임시 저장'}</button><button type="button" className="cm-btn" onClick={onCancel}>취소</button><button type="submit" className="cm-btn primary" disabled={saving}>게시하기</button></div>
       </form>
     </>

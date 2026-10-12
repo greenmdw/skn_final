@@ -10,6 +10,6 @@ const backend = process.env.BACKEND_URL ?? 'http://127.0.0.1:8000'
 export default defineConfig({
   plugins: [react()],
   server: {
-    proxy: Object.fromEntries(['/auth', '/session', '/lists', '/reviews', '/health', '/pc', '/catalog', '/community/posts', '/community/comments', '/community/search'].map(path => [path, backend])),
+    proxy: Object.fromEntries(['/auth', '/session', '/lists', '/reviews', '/health', '/pc', '/catalog', '/community/posts', '/community/comments', '/community/search', '/community/uploads', '/community/images'].map(path => [path, backend])),
   },
 })

@@ -1,4 +1,4 @@
-import { request } from './client'
+import { request, requestForm } from './client'
 
 // 커뮤니티 백엔드(/community/*, /catalog/products) 호출. 읽기(목록·상세·검색·댓글)는 로그인 없이 되고, 쓰기는 로그인이 필요하다
 // (서버가 401 → ApiError('로그인이 필요합니다.', 'unauthorized') 로 돌려준다). CommunityPage 는 아직 정적 데이터를 쓰고 있다 —
@@ -19,6 +19,14 @@ export interface WireCommunityProduct {
   display_order: number
 }
 
+export interface WireCommunityImage {
+  id: string
+  url: string
+  width: number
+  height: number
+  order: number
+}
+
 export interface WireCommunityItem {
   id: string
   board_type: CommunityBoardType
@@ -35,12 +43,14 @@ export interface WireCommunityItem {
   tags: string[]
   products: WireCommunityProduct[]
   published_at: string | null
+  image_count: number
+  cover_image_url: string | null
 }
 
 export interface WireCommunityDetail extends WireCommunityItem {
   body: string
   version: number
-  images: unknown[]
+  images: WireCommunityImage[]
   created_at: string
   updated_at: string
   can_edit: boolean
@@ -83,6 +93,7 @@ export interface CommunityPostInput {
   tags?: string[]
   products?: CommunityProductInput[]
   publish?: boolean
+  image_ids?: string[]
 }
 
 export interface CommunityListQuery {
@@ -146,6 +157,8 @@ export function mapCommunityItem(item: WireCommunityItem) {
     likes: item.like_count,
     views: item.view_count,
     is_example: item.is_example,
+    mediaCount: item.image_count,
+    coverUrl: item.cover_image_url,
     likedByMe: item.liked_by_me,
     products: item.products.map(product => ({
       kind: product.product_kind,
@@ -178,6 +191,14 @@ export const communityApi = {
 
   like: (postId: string) => request<{ post_id: string; like_count: number; liked_by_me: boolean }>('POST', `/community/posts/${postId}/likes`),
   unlike: (postId: string) => request<{ post_id: string; like_count: number; liked_by_me: boolean }>('DELETE', `/community/posts/${postId}/likes`),
+
+  /** 이미지 한 장을 올려 임시로 저장한다(글에 붙이려면 create/update 의 image_ids 에 넣는다). */
+  uploadImage: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return requestForm<WireCommunityImage>('/community/uploads', form)
+  },
+  removeUpload: (imageId: string) => request<void>('DELETE', `/community/uploads/${imageId}`),
 
   catalogProducts: (kind: string, q = '', limit = 20) =>
     request<{ items: CatalogProduct[] }>('GET', '/catalog/products' + query({ kind, q, limit })),

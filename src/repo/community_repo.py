@@ -25,7 +25,9 @@ _POST_COLUMNS = """
     (SELECT count(*) FROM community.post_comment c WHERE c.post_id = p.id AND c.status = 'published') AS comment_count,
     EXISTS (SELECT 1 FROM community.post_like l WHERE l.post_id = p.id AND l.user_id = %(me)s) AS liked_by_me,
     (SELECT count(*) FROM community.post_view v WHERE v.post_id = p.id AND v.bucket > now() - interval '7 days') AS recent_views,
-    (SELECT pp.product_kind FROM community.post_product pp WHERE pp.post_id = p.id ORDER BY pp.display_order LIMIT 1) AS first_product_kind
+    (SELECT pp.product_kind FROM community.post_product pp WHERE pp.post_id = p.id ORDER BY pp.display_order LIMIT 1) AS first_product_kind,
+    (SELECT count(*) FROM community.post_image i WHERE i.post_id = p.id) AS image_count,
+    (SELECT i.id FROM community.post_image i WHERE i.post_id = p.id ORDER BY i.display_order, i.created_at LIMIT 1) AS cover_image_id
 """
 _POST_FROM = "FROM community.post p JOIN identity.app_user u ON u.id = p.author_user_id"
 
@@ -229,3 +231,53 @@ class CommunityRepo(Repo):
             return False
         self._exec("UPDATE community.post SET view_count = view_count + 1 WHERE id = %s", (post_id,))
         return True
+
+    # ── 이미지 ──────────────────────────────────────────────────────────────────────
+    def insert_image(self, *, owner_id: UUID, storage_key: str, content_type: str, width: int, height: int, byte_size: int) -> dict:
+        return self._one(
+            """INSERT INTO community.post_image (owner_user_id, storage_key, content_type, width, height, byte_size)
+               VALUES (%s, %s, %s, %s, %s, %s)
+               RETURNING id, owner_user_id, post_id, storage_key, content_type, width, height, byte_size, display_order, created_at""",
+            (owner_id, storage_key, content_type, width, height, byte_size))
+
+    def get_image(self, image_id: UUID) -> dict | None:
+        return self._one(
+            "SELECT id, owner_user_id, post_id, storage_key, content_type, width, height, byte_size, display_order, created_at "
+            "FROM community.post_image WHERE id = %s", (image_id,))
+
+    def images_for(self, post_ids: Sequence[UUID]) -> dict[UUID, list[dict]]:
+        if not post_ids:
+            return {}
+        rows = self._all(
+            "SELECT id, post_id, width, height, display_order FROM community.post_image WHERE post_id = ANY(%s) "
+            "ORDER BY post_id, display_order, created_at", (list(post_ids),))
+        out: dict[UUID, list[dict]] = {}
+        for r in rows:
+            out.setdefault(r["post_id"], []).append(r)
+        return out
+
+    def count_orphans(self, owner_id: UUID) -> int:
+        return int(self._one("SELECT count(*) AS n FROM community.post_image WHERE owner_user_id = %s AND post_id IS NULL", (owner_id,))["n"])
+
+    def attach_images(self, post_id: UUID, image_ids: Sequence[UUID]) -> list[str]:
+        """image_ids 순서대로 글에 붙이고, 이 글에 붙어 있던 나머지는 지운다(지운 행의 storage_key 를 돌려준다)."""
+        for order, image_id in enumerate(image_ids):
+            self._exec("UPDATE community.post_image SET post_id = %s, display_order = %s WHERE id = %s", (post_id, order, image_id))
+        rows = self._all("DELETE FROM community.post_image WHERE post_id = %s AND NOT (id = ANY(%s)) RETURNING storage_key",
+                         (post_id, list(image_ids)))
+        return [r["storage_key"] for r in rows]
+
+    def delete_image(self, image_id: UUID) -> str | None:
+        row = self._one("DELETE FROM community.post_image WHERE id = %s RETURNING storage_key", (image_id,))
+        return row["storage_key"] if row else None
+
+    def delete_post_images(self, post_id: UUID) -> list[str]:
+        return [r["storage_key"] for r in self._all("DELETE FROM community.post_image WHERE post_id = %s RETURNING storage_key", (post_id,))]
+
+    def delete_orphans(self, *, older_than_hours: int, limit: int) -> list[str]:
+        rows = self._all(
+            """DELETE FROM community.post_image WHERE id IN (
+                   SELECT id FROM community.post_image WHERE post_id IS NULL
+                   AND created_at < now() - make_interval(hours => %s) ORDER BY created_at LIMIT %s) RETURNING storage_key""",
+            (older_than_hours, limit))
+        return [r["storage_key"] for r in rows]

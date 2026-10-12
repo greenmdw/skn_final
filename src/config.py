@@ -252,3 +252,10 @@ COMMUNITY_BANNED_WORDS: tuple[str, ...] = tuple(
 COMMUNITY_POST_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_POST_LIMIT_PER_MIN", "5"))
 COMMUNITY_COMMENT_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_COMMENT_LIMIT_PER_MIN", "20"))
 COMMUNITY_LIKE_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_LIKE_LIMIT_PER_MIN", "60"))
+# 이미지 첨부: 저장 폴더(배포 폴더 밖 볼륨 권장), 파일당 최대 바이트, 글당 최대 장수, 긴 변 최대 px, 연결 안 된 임시 이미지 보관 시간
+COMMUNITY_UPLOAD_DIR: str = os.getenv("COMMUNITY_UPLOAD_DIR", "data/uploads/community")
+COMMUNITY_IMAGE_MAX_BYTES: int = int(os.getenv("COMMUNITY_IMAGE_MAX_BYTES", str(5 * 1024 * 1024)))
+COMMUNITY_IMAGE_MAX_PER_POST: int = int(os.getenv("COMMUNITY_IMAGE_MAX_PER_POST", "5"))
+COMMUNITY_IMAGE_MAX_SIDE_PX: int = int(os.getenv("COMMUNITY_IMAGE_MAX_SIDE_PX", "1600"))
+COMMUNITY_IMAGE_ORPHAN_HOURS: int = int(os.getenv("COMMUNITY_IMAGE_ORPHAN_HOURS", "24"))
+COMMUNITY_UPLOAD_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_UPLOAD_LIMIT_PER_MIN", "10"))

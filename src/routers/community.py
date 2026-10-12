@@ -7,12 +7,15 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from src.auth import ratelimit
 from src.auth.deps import Principal, optional_principal
-from src.config import COMMUNITY_COMMENT_LIMIT_PER_MIN, COMMUNITY_LIKE_LIMIT_PER_MIN, COMMUNITY_POST_LIMIT_PER_MIN
+from src.config import (
+    COMMUNITY_COMMENT_LIMIT_PER_MIN, COMMUNITY_IMAGE_MAX_BYTES, COMMUNITY_LIKE_LIMIT_PER_MIN, COMMUNITY_POST_LIMIT_PER_MIN,
+    COMMUNITY_UPLOAD_LIMIT_PER_MIN,
+)
 from src.db import get_conn
 from src.errors import RateLimited
 from src.services import community_service as svc
@@ -35,6 +38,7 @@ class PostCreateIn(BaseModel):
     tags: list[str] = Field(default_factory=list, max_length=20)
     products: list[ProductLinkIn] = Field(default_factory=list, max_length=20)
     publish: bool = False                              # true 면 만들면서 바로 게시, false 면 초안(임시 저장)
+    image_ids: list[UUID] | None = Field(default=None, max_length=20)   # POST /community/uploads 로 올린 이미지, 순서대로(첫 장이 대표)
     is_example: bool | None = None                     # 관리자만 true 를 줄 수 있다
 
 
@@ -45,6 +49,7 @@ class PostUpdateIn(BaseModel):
     tags: list[str] | None = Field(default=None, max_length=20)
     products: list[ProductLinkIn] | None = Field(default=None, max_length=20)
     is_example: bool | None = None
+    image_ids: list[UUID] | None = Field(default=None, max_length=20)   # 주면 이 목록으로 교체(빠진 이미지는 삭제)
     version: int | None = None                         # 읽을 때 받은 version — 다르면 409(version_conflict)
 
 
@@ -140,6 +145,29 @@ def hide_post(post_id: UUID, principal: Principal = Depends(optional_principal))
 def restore_post(post_id: UUID, principal: Principal = Depends(optional_principal)) -> dict:
     with get_conn() as conn:
         return svc.restore_post(conn, principal.user_id, post_id)
+
+
+@router.post("/uploads", status_code=status.HTTP_201_CREATED)
+def upload_image(file: UploadFile = File(...), principal: Principal = Depends(optional_principal)) -> dict:
+    _limit(principal.user_id, "upload", COMMUNITY_UPLOAD_LIMIT_PER_MIN)
+    raw = file.file.read(COMMUNITY_IMAGE_MAX_BYTES + 1)
+    with get_conn() as conn:
+        return svc.upload_image(conn, principal.user_id, raw)
+
+
+@router.delete("/uploads/{image_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_upload(image_id: UUID, principal: Principal = Depends(optional_principal)) -> Response:
+    with get_conn() as conn:
+        svc.delete_upload(conn, principal.user_id, image_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/images/{image_id}")
+def get_image(image_id: UUID, principal: Principal = Depends(optional_principal)) -> Response:
+    with get_conn() as conn:
+        data, content_type, public = svc.read_image(conn, principal.user_id, image_id)
+    cache = "public, max-age=86400" if public else "private, no-store"
+    return Response(content=data, media_type=content_type, headers={"Cache-Control": cache, "X-Content-Type-Options": "nosniff"})
 
 
 @router.post("/posts/{post_id}/products", status_code=status.HTTP_201_CREATED)
