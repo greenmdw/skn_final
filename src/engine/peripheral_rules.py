@@ -358,6 +358,7 @@ _FEEL_SCALARS = {
     "k", "kb", "k0_default", "default_m", "purpose_boost", "split_ratio", "neutral_taste",
     "durability_min_months", "hand_small_below_cm", "hand_large_above_cm",
     "same_condition_many", "recent_months", "trending_margin", "quotes_per_attribute", "rrf_k", "search_limit",
+    "post_max_chars", "post_max_items",
 }
 _FEEL_GROUPS = {"hand", "quiet", "bright", "none", "purpose"}
 _FEEL_TYPES = {"rating", "taste"}

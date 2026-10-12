@@ -452,6 +452,8 @@ feel:
   quotes_per_attribute: 2       # 속성마다 보여 줄 인용 문장 수의 상한
   rrf_k: 60                     # 문장 검색에서 단어 일치와 임베딩 순위를 합치는 상수: 1 / (rrf_k + 순위)
   search_limit: 5               # 문장 검색 결과 수의 상한
+  post_max_chars: 4000          # 사용기 분석에 쓰는 본문의 길이 상한(넘으면 앞부분만 분석하고 잘랐다고 기록한다)
+  post_max_items: 40            # 글 하나에서 받는 근거 문장 수의 상한
   durability_min_months: 6      # 내구성은 사용 기간이 이 개월 수 이상이라고 밝힌 글의 문장만 센다(사양 4.2)
   hand_small_below_cm: 17.5     # 손 길이 cm 가 이보다 작으면 작은 편(사양 4.1)
   hand_large_above_cm: 19       # 이보다 크면 큰 편
