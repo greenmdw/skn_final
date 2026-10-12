@@ -1,0 +1,407 @@
+{
+  "_meta": {
+    "purpose": "게임별 공식 최소·권장 사양 원문. config/computer_verification_rules.yaml 의 game_titles(1~10 등급으로 옮긴 잠정값)를 사람이 검증·승인할 때 쓰는 근거 자료.",
+    "status": "수집본 — 아직 엔진이 읽지 않는다. 등급 환산과 승인(approved)은 사람이 한다(기획서 ENG-05).",
+    "collected_at": "2026-10-12",
+    "how": "Steam 10개는 Steam 상점 API(appdetails, 한국어)의 pc_requirements 를 그대로 나눠 담았고, 발로란트·리그 오브 레전드·로스트아크·메이플스토리는 공식 페이지 원문에서, 마인크래프트는 공식 안내 문서에서, 오버워치 2 는 공식 사이트 화면 캡처에서 옮겼다. 값은 원문 표현을 바꾸지 않았다.",
+    "caveat": "배급사가 페이지를 바꾸면 값이 달라질 수 있다. checked_at 이 확인한 날이다."
+  },
+  "games": {
+    "valorant": {
+      "label": "발로란트",
+      "min": {
+        "os": "Windows 10 (Build 19041+) 64-bit 또는 Windows 11 64-bit",
+        "cpu": "Intel i3-540 / AMD Athlon 200GE",
+        "gpu": "Intel HD 4000 / AMD Radeon R5 220",
+        "ram_gb": 4,
+        "vram": "1GB 이상(외장 그래픽 사용 시)",
+        "target": "30 FPS"
+      },
+      "rec": {
+        "os": "Windows 10 (Build 19041+) 64-bit 또는 Windows 11 64-bit",
+        "cpu": "Intel i3-4150 / AMD Ryzen 3 1200",
+        "gpu": "NVIDIA Geforce GT 730 / AMD Radeon R7 240",
+        "ram_gb": 4,
+        "vram": "1GB 이상(외장 그래픽 사용 시)",
+        "target": "60 FPS"
+      },
+      "source": {
+        "type": "라이엇 게임즈 공식 지원 페이지",
+        "url": "https://support.riotgames.com/en-us/valorant/support-tools/minimum-recommended-pc-specs",
+        "checked_at": "2026-10-12",
+        "page_updated": "2026-05-21"
+      },
+      "note": "SSE 4.2 또는 AVX 지원 필요, DirectX 11 지원 필요. Windows 11은 TPM 2.0과 UEFI Secure Boot 필요. 저장 공간·해상도 기준은 페이지에 없음."
+    },
+    "lol": {
+      "label": "리그 오브 레전드",
+      "min": {
+        "os": "Win 10(빌드 19041 이상) / Windows 11 (x64)",
+        "cpu": "Intel Core i3-530 / AMD A6-3650",
+        "gpu": "GeForce 400 시리즈 / AMD HD 6570 / Intel HD 4600 (DX11급 하드웨어)",
+        "ram_gb": 2,
+        "vram": "1GB",
+        "storage": "16GB HDD",
+        "target": "해상도 1024x768"
+      },
+      "rec": {
+        "os": "Windows 11 (x64)",
+        "cpu": "Intel Core i5-8250 / AMD Ryzen 3 1200",
+        "gpu": "NVIDIA GeForce 560 / AMD Radeon HD 6950 / Intel UHD 630 (DX11급 하드웨어)",
+        "ram_gb": 4,
+        "vram": "2GB",
+        "storage": "16GB SSD",
+        "target": "해상도 1920x1080"
+      },
+      "source": {
+        "type": "라이엇 게임즈 공식 지원 페이지(한국어)",
+        "url": "https://support.riotgames.com/ko/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends",
+        "checked_at": "2026-10-12",
+        "page_updated": "2026-09-22"
+      }
+    },
+    "overwatch2": {
+      "label": "오버워치 2",
+      "min": {
+        "os": "윈도우 10 64-bit (최신 서비스팩), 32비트 운영체제는 지원하지 않음",
+        "cpu": "Intel Core i3 또는 AMD Phenom X3 8650",
+        "gpu": "NVIDIA GeForce GTX 600 시리즈 / AMD Radeon HD 7000 시리즈",
+        "ram_gb": 6,
+        "storage": "50GB 이상의 하드 드라이브 여유 공간"
+      },
+      "rec": {
+        "os": "윈도우 10 64-bit (최신 서비스팩), 32비트 운영체제는 지원하지 않음",
+        "cpu": "Intel Core i7 또는 AMD Ryzen 5",
+        "gpu": "NVIDIA GeForce GTX 1060 / GTX 1650 또는 AMD R9 380 / RX 6400 또는 Intel Arc A770",
+        "ram_gb": 8,
+        "storage": "50GB 이상의 하드 드라이브 여유 공간"
+      },
+      "source": {
+        "type": "오버워치 공식 사이트(한국어) 시스템 요구사항 표 — 사용자가 제공한 화면 캡처",
+        "url": "https://overwatch.blizzard.com/ko-kr/",
+        "checked_at": "2026-10-12",
+        "url_verified": false
+      },
+      "note": "화면 캡처 기준이라 정확한 페이지 URL을 확인하지 못했다(사이트 첫 주소만 기록). 승인 전에 공식 페이지에서 한 번 더 확인할 것."
+    },
+    "maplestory": {
+      "label": "메이플스토리",
+      "min": null,
+      "rec": {
+        "os": "Windows 10 64비트 이상",
+        "cpu": "Pentium Dual Core급 이상",
+        "gpu": "Geforce GT 430 / Radeon HD 5670 이상 (Shader 3.0 이상 지원 그래픽카드)",
+        "ram_gb": 8,
+        "directx": "11.0 이상",
+        "storage": "하드 디스크 여유공간 35GB 이상"
+      },
+      "source": {
+        "type": "넥슨 공식 사이트 PC 사양검사 페이지",
+        "url": "https://maplestory.nexon.com/Common/PDS/Download/PCCheck",
+        "checked_at": "2026-10-12"
+      },
+      "note": "공식 페이지는 '권장사양' 한 세트만 제시하고 최소 사양은 따로 없다."
+    },
+    "minecraft": {
+      "label": "마인크래프트(Java Edition)",
+      "min": {
+        "os": "64비트 시스템",
+        "cpu": "4코어 프로세서",
+        "gpu": "Vulkan 1.3 지원 GPU, VRAM 2GB 이상",
+        "ram_gb": 8,
+        "ram_note": "외장 GPU면 8GB, 내장 그래픽이면 12GB",
+        "target": "1080p 30 FPS, Fast 프리셋"
+      },
+      "rec": {
+        "cpu": "더 강력한 최신 프로세서(공식 문서에 모델 미기재)",
+        "gpu": "더 강력한 그래픽카드, VRAM 6GB(모델 미기재)",
+        "ram_gb": 16,
+        "target": "1080p 60 FPS, Fancy 프리셋"
+      },
+      "source": {
+        "type": "Minecraft 공식 사이트 Java Edition 시스템 요구사항 안내",
+        "url": "https://www.minecraft.net/en-us/article/minecraft-java-edition-system-requirements",
+        "checked_at": "2026-10-12"
+      },
+      "note": "공식 문서가 CPU·GPU 모델명을 적지 않고 코어 수·VRAM·RAM·목표 프레임만 제시한다. 페이지에 '권장 사양이 7월 21일에 바뀐다'는 안내가 있다(최소는 '기준 미만이면 성능 보장 안 함')."
+    },
+    "lostark": {
+      "label": "로스트아크",
+      "min": {
+        "os": "Windows 10 64bit (Windows 11 64bit 권장)",
+        "cpu": "Intel Core i3-10100 또는 AMD Ryzen3 3100",
+        "gpu": "Nvidia Geforce GTX 1050 Ti / AMD Radeon RX 560",
+        "ram_gb": 16,
+        "directx": "DirectX 11 이상",
+        "storage": "SSD 110GB 이상 여유 공간",
+        "target": "FHD 최소사양"
+      },
+      "rec": {
+        "os": "Windows 10 64bit (Windows 11 64bit 권장)",
+        "cpu": "Intel Core i5-9400 또는 AMD Ryzen5 2600",
+        "gpu": "Nvidia Geforce GTX 1660 Super / AMD Radeon RX 6600",
+        "ram_gb": 16,
+        "directx": "DirectX 11 이상",
+        "storage": "SSD 110GB 이상 여유 공간",
+        "target": "FHD 권장사양"
+      },
+      "rec_variants": {
+        "QHD": {
+          "cpu": "Intel Core i5-11400 또는 AMD Ryzen 5 5600",
+          "gpu": "Nvidia Geforce RTX 3060 / AMD Radeon RX 6600",
+          "ram_gb": 16
+        },
+        "UHD": {
+          "cpu": "Intel Core i5-12400 또는 AMD Ryzen 5 5600X",
+          "gpu": "Nvidia Geforce RTX 3080 / AMD Radeon RX 6800XT",
+          "ram_gb": 32
+        }
+      },
+      "source": {
+        "type": "스토브 로스트아크 공식 클라이언트 다운로드 페이지",
+        "url": "https://lostark.game.onstove.com/Download",
+        "checked_at": "2026-10-12"
+      },
+      "note": "FHD 최소 / FHD·QHD·UHD 권장 4열. min·rec 는 FHD 열이고 QHD·UHD 권장은 rec_variants 에 있다."
+    },
+    "pubg": {
+      "label": "배틀그라운드",
+      "min": {
+        "os": "64-bit Windows 10",
+        "cpu": "Intel Core i5-4430 / AMD FX-6300",
+        "gpu": "NVIDIA GeForce GTX 960 2GB / AMD Radeon R7 370 2GB",
+        "ram_gb": 8,
+        "directx": "버전 11",
+        "storage": "40 GB 사용 가능 공간"
+      },
+      "rec": {
+        "os": "64-bit Windows 10",
+        "cpu": "Intel Core i5-6600K / AMD Ryzen 5 1600",
+        "gpu": "NVIDIA GeForce GTX 1060 3GB / AMD Radeon RX 580 4GB",
+        "ram_gb": 16,
+        "directx": "버전 11",
+        "storage": "50 GB 사용 가능 공간"
+      },
+      "source": {
+        "type": "Steam 상점 시스템 요구사항(배급사 입력값)",
+        "url": "https://store.steampowered.com/app/578080/",
+        "checked_at": "2026-10-12",
+        "locale": "koreana(한국어)"
+      }
+    },
+    "eldenring": {
+      "label": "엘든 링",
+      "min": {
+        "os": "Windows 10",
+        "cpu": "INTEL CORE I5-8400 or AMD RYZEN 3 3300X",
+        "gpu": "NVIDIA GEFORCE GTX 1060 3 GB or AMD RADEON RX 580 4 GB",
+        "ram_gb": 12,
+        "directx": "버전 12",
+        "storage": "60 GB 사용 가능 공간"
+      },
+      "rec": {
+        "os": "Windows 10/11",
+        "cpu": "INTEL CORE I7-8700K or AMD RYZEN 5 3600X",
+        "gpu": "NVIDIA GEFORCE GTX 1070 8 GB or AMD RADEON RX VEGA 56 8 GB",
+        "ram_gb": 16,
+        "directx": "버전 12",
+        "storage": "60 GB 사용 가능 공간"
+      },
+      "source": {
+        "type": "Steam 상점 시스템 요구사항(배급사 입력값)",
+        "url": "https://store.steampowered.com/app/1245620/",
+        "checked_at": "2026-10-12",
+        "locale": "koreana(한국어)"
+      }
+    },
+    "diablo4": {
+      "label": "디아블로 4",
+      "min": {
+        "os": "64비트 Windows® 10 버전 1909 이상",
+        "cpu": "Intel® Core™ i5-2500K 또는 AMD™ FX-8350",
+        "gpu": "NVIDIA® GeForce® GTX 660 또는 Intel® Arc™ A380 또는 AMD Radeon™ R9 280",
+        "ram_gb": 8,
+        "directx": "버전 12",
+        "storage": "90 GB 사용 가능 공간",
+        "note": "*기본 해상도 1080p / 렌더링 해상도 720p, 그래픽 설정 낮음, 30fps, SSD 필요"
+      },
+      "rec": {
+        "os": "64비트 Windows® 10 버전 1909 이상",
+        "cpu": "Intel® Core™ i5-4670K 또는 AMD Ryzen™ 1300X",
+        "gpu": "NVIDIA® GeForce® GTX 970 또는 Intel® Arc™ A750 또는 AMD Radeon™ RX 470",
+        "ram_gb": 16,
+        "directx": "버전 12",
+        "storage": "90 GB 사용 가능 공간",
+        "note": "*해상도 1080p, 그래픽 설정 중간, 60fps, SSD 필요s"
+      },
+      "source": {
+        "type": "Steam 상점 시스템 요구사항(배급사 입력값)",
+        "url": "https://store.steampowered.com/app/2344520/",
+        "checked_at": "2026-10-12",
+        "locale": "koreana(한국어)"
+      }
+    },
+    "warzone": {
+      "label": "콜 오브 듀티 워존",
+      "min": {
+        "os": "Windows® 10 64 Bit (최신 업데이트)",
+        "cpu": "Intel® Core™ i3-6100 / Core™ i5-2500K 또는 AMD Ryzen™ 3 1200",
+        "gpu": "NVIDIA® GeForce® GTX 960 또는 AMD Radeon™ RX 470 - DirectX 12.0 호환 시스템",
+        "ram_gb": 8,
+        "directx": "버전 12",
+        "storage": "125 GB 사용 가능 공간"
+      },
+      "rec": {
+        "os": "Windows® 10 64 Bit (최신 업데이트) 또는 Windows® 11 64 Bit (최신 업데이트)",
+        "cpu": "Intel® Core™ i5-6600K / Core™ i7-4770 또는 AMD Ryzen™ 5 1400",
+        "gpu": "NVIDIA® GeForce® GTX 1060 또는 AMD Radeon™ RX 580 - DirectX 12.0 호환 시스템",
+        "ram_gb": 12,
+        "directx": "버전 12",
+        "storage": "125 GB 사용 가능 공간"
+      },
+      "source": {
+        "type": "Steam 상점 시스템 요구사항(배급사 입력값)",
+        "url": "https://store.steampowered.com/app/1962663/",
+        "checked_at": "2026-10-12",
+        "locale": "koreana(한국어)"
+      }
+    },
+    "bg3": {
+      "label": "발더스 게이트 3",
+      "min": {
+        "os": "Windows 10 64-bit",
+        "cpu": "Intel I5 4690 / AMD FX 8350 / Snapdragon X Elite",
+        "gpu": "Nvidia GTX 970 / RX 480 / Intel Arc A380 / Qualcomm Adreno X1 (4GB+ of VRAM)",
+        "ram_gb": 8,
+        "directx": "버전 11",
+        "storage": "150 GB 사용 가능 공간",
+        "note": "SSD required"
+      },
+      "rec": {
+        "os": "Windows 10 64-bit",
+        "cpu": "Intel i7 8700K / AMD r5 3600",
+        "gpu": "Nvidia 2060 Super / RX 5700 XT / Intel Arc A580 (8GB+ of VRAM)",
+        "ram_gb": 16,
+        "directx": "버전 11",
+        "storage": "150 GB 사용 가능 공간",
+        "note": "SSD required"
+      },
+      "source": {
+        "type": "Steam 상점 시스템 요구사항(배급사 입력값)",
+        "url": "https://store.steampowered.com/app/1086940/",
+        "checked_at": "2026-10-12",
+        "locale": "koreana(한국어)"
+      }
+    },
+    "cyberpunk": {
+      "label": "사이버펑크 2077",
+      "min": {
+        "os": "64-bit Windows 10",
+        "cpu": "Core i7-6700 or Ryzen 5 1600",
+        "gpu": "GeForce GTX 1060 6GB or Radeon RX 580 8GB or Arc A380",
+        "ram_gb": 12,
+        "directx": "버전 12",
+        "storage": "70 GB 사용 가능 공간",
+        "note": "SSD required."
+      },
+      "rec": {
+        "os": "64-bit Windows 10",
+        "cpu": "Core i7-12700 or Ryzen 7 7800X3D",
+        "gpu": "GeForce RTX 2060 SUPER or Radeon RX 5700 XT or Arc A770",
+        "ram_gb": 16,
+        "directx": "버전 12",
+        "storage": "70 GB 사용 가능 공간",
+        "note": "SSD required."
+      },
+      "source": {
+        "type": "Steam 상점 시스템 요구사항(배급사 입력값)",
+        "url": "https://store.steampowered.com/app/1091500/",
+        "checked_at": "2026-10-12",
+        "locale": "koreana(한국어)"
+      }
+    },
+    "wukong": {
+      "label": "검은 신화: 오공",
+      "min": {
+        "os": "Windows 10 64-bit",
+        "cpu": "Intel Core i5-8400 / AMD Ryzen 5 1600",
+        "gpu": "NVIDIA GeForce GTX 1060 6GB / AMD Radeon RX 580 8GB",
+        "ram_gb": 16,
+        "directx": "버전 11",
+        "storage": "130 GB 사용 가능 공간",
+        "note": "HDD Supported, SSD Recommended. The above specifications were tested with DLSS/FSR/XeSS enabled."
+      },
+      "rec": {
+        "os": "Windows 10 64-bit",
+        "cpu": "Intel Core i7-9700 / AMD Ryzen 5 5500",
+        "gpu": "NVIDIA GeForce RTX 2060 / AMD Radeon RX 5700 XT / INTEL Arc A750",
+        "ram_gb": 16,
+        "directx": "버전 12",
+        "storage": "130 GB 사용 가능 공간",
+        "note": "SSD Required. The above specifications were tested with DLSS/FSR/XeSS enabled."
+      },
+      "source": {
+        "type": "Steam 상점 시스템 요구사항(배급사 입력값)",
+        "url": "https://store.steampowered.com/app/2358720/",
+        "checked_at": "2026-10-12",
+        "locale": "koreana(한국어)"
+      },
+      "note": "공식 사양은 DLSS/FSR/XeSS를 켠 상태로 시험한 값이라고 Steam 페이지에 적혀 있다."
+    },
+    "monsterhunter": {
+      "label": "몬스터 헌터 와일즈",
+      "min": {
+        "os": "Windows®10 (64-BIT Required)/Windows®11 (64-BIT Required)",
+        "cpu": "Intel® Core™ i5-10400 or Intel® Core™ i3-12100 or AMD Ryzen™ 5 3600",
+        "gpu": "NVIDIA® GeForce® GTX 1660(VRAM 6GB) or AMD Radeon™ RX 5500 XT(VRAM 8GB)",
+        "ram_gb": 16,
+        "directx": "버전 12",
+        "storage": "75 GB 사용 가능 공간",
+        "note": "SSD(필수)、그래픽 설정 「매우 낮음」을 통해 1080p(업스케일 사용, 네이티브 해상도 720p)/30fps의 게임 플레이가 가능합니다. DirectStorage 지원."
+      },
+      "rec": {
+        "os": "Windows®10 (64-BIT Required)/Windows®11 (64-BIT Required)",
+        "cpu": "Intel® Core™ i5-10400 or Intel® Core™ i3-12100 or AMD Ryzen™ 5 3600",
+        "gpu": "NVIDIA® GeForce® RTX 2060 Super(VRAM 8GB) or　AMD Radeon™  RX 6600(VRAM 8GB)",
+        "ram_gb": 16,
+        "directx": "버전 12",
+        "storage": "75 GB 사용 가능 공간",
+        "note": "SSD(필수), 그래픽 설정 「중간」을 통해 1080p/60fps(프레임 생성 사용)의 게임 플레이가 가능합니다. DirectStorage 지원."
+      },
+      "source": {
+        "type": "Steam 상점 시스템 요구사항(배급사 입력값)",
+        "url": "https://store.steampowered.com/app/2246340/",
+        "checked_at": "2026-10-12",
+        "locale": "koreana(한국어)"
+      },
+      "note": "최소: 그래픽 '매우 낮음' 1080p(업스케일)/30fps, 권장: '중간' 1080p/60fps(프레임 생성). 최소·권장의 CPU가 같다."
+    },
+    "starfield": {
+      "label": "스타필드",
+      "min": {
+        "os": "Windows 10 version 21H1 (10.0.19043)",
+        "cpu": "AMD Ryzen 5 2600X, Intel Core i7-6800K",
+        "gpu": "AMD Radeon RX 5700, NVIDIA GeForce 1070 Ti",
+        "ram_gb": 16,
+        "directx": "버전 12",
+        "storage": "125 GB 사용 가능 공간",
+        "note": "SSD Required"
+      },
+      "rec": {
+        "os": "Windows 10/11 with updates",
+        "cpu": "AMD Ryzen 5 3600X, Intel i5-10600K",
+        "gpu": "AMD Radeon RX 6800 XT, NVIDIA GeForce RTX 2080",
+        "ram_gb": 16,
+        "directx": "버전 12",
+        "storage": "125 GB 사용 가능 공간",
+        "note": "SSD Required"
+      },
+      "source": {
+        "type": "Steam 상점 시스템 요구사항(배급사 입력값)",
+        "url": "https://store.steampowered.com/app/1716740/",
+        "checked_at": "2026-10-12",
+        "locale": "koreana(한국어)"
+      }
+    }
+  }
+}
