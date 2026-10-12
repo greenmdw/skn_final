@@ -1,0 +1,3453 @@
+{
+ "generated_at": "2026-10-12T16:25:51+00:00",
+ "git_commit": "5f88dc5bfa7cdf35ebc0c21d1fb3102f15060b67",
+ "git_dirty": true,
+ "rule_set_version": "computer-rules-v12",
+ "catalog": "in-memory fixed catalog (scripts/engine_policy_scenarios.make_catalog); enrichment = fixed-table stub",
+ "summary": {
+  "scenarios": 16,
+  "cases": 27,
+  "mismatch_cases": 0
+ },
+ "scenarios": [
+  {
+   "id": "01",
+   "title": "일부 후보의 필수 정보 누락",
+   "description": "더 싼 케이스 A 에 허용 파워 길이가 없다. 정보가 있는 케이스 B 로 정상 추천해야 한다.",
+   "tests": [
+    "tests/test_combo_eligibility.py::test_search_skips_combos_missing_required_info_and_counts_the_pruning"
+   ],
+   "cases": [
+    {
+     "name": "케이스 A 만 누락",
+     "expected": {
+      "outcome": "recommendable",
+      "selected_sub": {
+       "케이스": "case:b"
+      },
+      "passes": 1
+     },
+     "actual": {
+      "outcome": "recommendable",
+      "reason_codes": [],
+      "axes": [],
+      "missing": [],
+      "selected": {
+       "CPU": "cpu:r5-7600",
+       "GPU": "gpu:good",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:b",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": null,
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      },
+      "confidence": 100,
+      "passed": true,
+      "eligible": true,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 1,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 9
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 220000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 380000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 70000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 1060000
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "02",
+   "title": "모든 후보의 같은 필수 정보 누락",
+   "description": "모든 케이스에 허용 파워 길이가 없다. 검사를 생략해 추천하지 않고 부적격 사유(필수 정보 누락)를 낸다.",
+   "tests": [
+    "tests/test_combo_eligibility.py::test_required_key_empty_for_every_candidate_is_still_checked",
+    "tests/test_combo_eligibility.py::test_a_slot_blocked_for_every_candidate_skips_the_search_entirely"
+   ],
+   "cases": [
+    {
+     "name": "모든 케이스 누락(보완 값 없음)",
+     "expected": {
+      "outcome": "not_recommendable",
+      "reason_codes_has": [
+       "required_info_missing"
+      ],
+      "axes_has": [
+       "psu_length"
+      ],
+      "missing_has": [
+       "purchase:케이스.max_psu_length_mm"
+      ]
+     },
+     "actual": {
+      "outcome": "not_recommendable",
+      "reason_codes": [
+       "required_info_missing"
+      ],
+      "axes": [
+       "psu_length"
+      ],
+      "missing": [
+       "purchase:케이스.max_psu_length_mm"
+      ],
+      "selected": {
+       "CPU": "cpu:r5-7500f",
+       "GPU": "gpu:entry",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": {
+       "attempted": 2,
+       "filled": 0,
+       "rerun": false
+      },
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 1
+      },
+      "confidence": 100,
+      "passed": false,
+      "eligible": false,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 2,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 0
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "unavailable",
+        "reason": "inputs_missing"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 170000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 200000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 810000
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "03",
+   "title": "Pass 소수",
+   "description": "GPU 3개 중 1개만 요구 등급을 넘는다. Fail 후보를 끌어올리지 않고 그 하나로 추천한다.",
+   "tests": [
+    "tests/test_candidate_eligibility.py::test_single_pass_does_not_promote_pending_into_keep"
+   ],
+   "cases": [
+    {
+     "name": "GPU Pass 1개",
+     "expected": {
+      "outcome": "recommendable",
+      "selected_sub": {
+       "GPU": "gpu:good"
+      },
+      "pass_counts_sub": {
+       "GPU": 1
+      },
+      "fail_counts_sub": {
+       "GPU": 2
+      }
+     },
+     "actual": {
+      "outcome": "recommendable",
+      "reason_codes": [],
+      "axes": [],
+      "missing": [],
+      "selected": {
+       "CPU": "cpu:r5-7600",
+       "GPU": "gpu:good",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 1,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 2,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": null,
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      },
+      "confidence": 100,
+      "passed": true,
+      "eligible": true,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 0,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 8
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 220000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 380000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 1040000
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "04",
+   "title": "전부 Pending",
+   "description": "GPU 모두 성능 등급이 없다. 보완 값이 없으면 승격 없이 후보 부족으로 끝난다.",
+   "tests": [
+    "tests/test_candidate_eligibility.py::test_all_pending_without_enrich_is_shortage_with_no_path_records",
+    "tests/test_candidate_eligibility.py::test_not_found_keeps_candidate_held"
+   ],
+   "cases": [
+    {
+     "name": "보완 조회에 값 없음",
+     "expected": {
+      "outcome": "candidate_shortage",
+      "shortage_sub": {
+       "GPU": {
+        "pending_reasons": {
+         "PENDING_SPEC_MISSING:perf_tier": 3
+        },
+        "fail_reasons": {}
+       }
+      },
+      "prefilter_enrichment": {
+       "not_found": 3
+      }
+     },
+     "actual": {
+      "outcome": "candidate_shortage",
+      "shortage": {
+       "GPU": {
+        "pending_reasons": {
+         "PENDING_SPEC_MISSING:perf_tier": 3
+        },
+        "fail_reasons": {}
+       }
+      },
+      "prefilter_enrichment": {
+       "not_found": 3
+      },
+      "stub_calls": {
+       "prefilter": 1,
+       "combo": 0
+      }
+     },
+     "mismatch": false
+    },
+    {
+     "name": "보완 경로 없음",
+     "expected": {
+      "outcome": "candidate_shortage",
+      "shortage_sub": {
+       "GPU": {
+        "pending_reasons": {
+         "PENDING_SPEC_MISSING:perf_tier": 3
+        },
+        "fail_reasons": {}
+       }
+      },
+      "prefilter_enrichment": {
+       "no_path": 3
+      }
+     },
+     "actual": {
+      "outcome": "candidate_shortage",
+      "shortage": {
+       "GPU": {
+        "pending_reasons": {
+         "PENDING_SPEC_MISSING:perf_tier": 3
+        },
+        "fail_reasons": {}
+       }
+      },
+      "prefilter_enrichment": {
+       "no_path": 3
+      },
+      "stub_calls": null
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "05",
+   "title": "전부 Fail",
+   "description": "GPU 모두 요구 등급 미달이다. 승격 없이 후보 부족이고 보완 호출도 없다.",
+   "tests": [
+    "tests/test_candidate_eligibility.py::test_all_fail_is_shortage_without_promotion_and_counts_fail_prefixes"
+   ],
+   "cases": [
+    {
+     "name": "GPU 전부 등급 미달",
+     "expected": {
+      "outcome": "candidate_shortage",
+      "shortage_sub": {
+       "GPU": {
+        "pending_reasons": {},
+        "fail_reasons": {
+         "FAIL_PERF_BELOW": 3
+        }
+       }
+      },
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      }
+     },
+     "actual": {
+      "outcome": "candidate_shortage",
+      "shortage": {
+       "GPU": {
+        "pending_reasons": {},
+        "fail_reasons": {
+         "FAIL_PERF_BELOW": 3
+        }
+       }
+      },
+      "prefilter_enrichment": {},
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      }
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "06",
+   "title": "선택적 정보만 부족",
+   "description": "CPU 최대 전력이 없어 TDP 로 대체한다. 기타 부하 근거·냉각 시험 자료가 없어 전체 전력·냉각 여유는 확인 불가이지만 적격이다.",
+   "tests": [
+    "tests/test_build_margins.py::test_missing_max_power_falls_back_to_tdp_and_records_the_limit",
+    "tests/test_build_margins.py::test_total_is_unavailable_without_a_documented_other_load_and_keeps_the_known_load",
+    "tests/test_build_margins.py::test_cooling_is_always_unavailable_with_inputs_and_no_tdp_difference_value"
+   ],
+   "cases": [
+    {
+     "name": "TDP 대체·여유 확인 불가",
+     "expected": {
+      "outcome": "recommendable",
+      "margins_sub": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "tdp_fallback"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      }
+     },
+     "actual": {
+      "outcome": "recommendable",
+      "reason_codes": [],
+      "axes": [],
+      "missing": [],
+      "selected": {
+       "CPU": "cpu:r5-7600",
+       "GPU": "gpu:good",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": null,
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      },
+      "confidence": 100,
+      "passed": true,
+      "eligible": true,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 0,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 10
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "tdp_fallback"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 220000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 380000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 1040000
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "07",
+   "title": "조합 필수 정보만 부족",
+   "description": "사전 필터는 모든 쿨러를 통과시키지만(냉각 방식은 필터 조건이 아님) 조합에서 공랭/수랭을 알 수 없어 필수 정보 누락이다. 보완은 한 번 시도하고 값이 없으면 다시 돌지 않는다.",
+   "tests": [
+    "tests/test_combo_eligibility.py::test_cooling_type_unknown_is_itself_the_missing_key",
+    "tests/test_combo_eligibility.py::test_unfillable_missing_info_is_saved_as_a_diagnostic_result_without_a_second_run"
+   ],
+   "cases": [
+    {
+     "name": "쿨러 냉각 방식 누락",
+     "expected": {
+      "outcome": "not_recommendable",
+      "reason_codes_has": [
+       "required_info_missing"
+      ],
+      "pass_counts_sub": {
+       "쿨러": 2
+      },
+      "passes": 1,
+      "combo_sub": {
+       "filled": 0,
+       "rerun": false
+      }
+     },
+     "actual": {
+      "outcome": "not_recommendable",
+      "reason_codes": [
+       "required_info_missing"
+      ],
+      "axes": [
+       "cooler_height",
+       "radiator"
+      ],
+      "missing": [
+       "purchase:쿨러.cooling_type"
+      ],
+      "selected": {
+       "CPU": "cpu:r5-7500f",
+       "GPU": "gpu:entry",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": {
+       "attempted": 2,
+       "filled": 0,
+       "rerun": false
+      },
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 1
+      },
+      "confidence": 100,
+      "passed": false,
+      "eligible": false,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 2,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 0
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "unavailable",
+        "reason": "inputs_missing"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "unavailable",
+        "reason": "inputs_missing"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 170000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 200000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 810000
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "08",
+   "title": "검증 신뢰도 통과지만 필수 호환 미확인",
+   "description": "신뢰도는 기준(80) 이상인데 필수 호환 정보가 빠져 적격이 아니다. passed 는 거짓이다.",
+   "tests": [
+    "tests/test_combo_eligibility.py::test_required_missing_blocks_even_when_the_penalty_accounting_is_quiet",
+    "tests/test_combo_eligibility.py::test_single_violation_at_confidence_80_is_not_passed_and_not_eligible"
+   ],
+   "cases": [
+    {
+     "name": "신뢰도 ≥ 80, 부적격",
+     "expected": {
+      "outcome": "not_recommendable",
+      "confidence_min": 80,
+      "passed": false,
+      "eligible": false
+     },
+     "actual": {
+      "outcome": "not_recommendable",
+      "reason_codes": [
+       "required_info_missing"
+      ],
+      "axes": [
+       "psu_length"
+      ],
+      "missing": [
+       "purchase:케이스.max_psu_length_mm"
+      ],
+      "selected": {
+       "CPU": "cpu:r5-7500f",
+       "GPU": "gpu:entry",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": {
+       "attempted": 2,
+       "filled": 0,
+       "rerun": false
+      },
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 1
+      },
+      "confidence": 100,
+      "passed": false,
+      "eligible": false,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 2,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 0
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "unavailable",
+        "reason": "inputs_missing"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 170000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 200000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 810000
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "09",
+   "title": "정보 보완 후 복귀",
+   "description": "(a) 사전 필터: Pending GPU 의 성능 등급을 대체 조회가 채워 Pass 로 복귀한다(GPU Entry 는 채워진 등급 4가 요구 3 이상). (b) 조합: 허용 파워 길이를 채운 뒤 한 번 다시 돌아 적격이 된다.",
+   "tests": [
+    "tests/test_candidate_eligibility.py::test_enrichment_that_fills_the_missing_key_returns_the_candidate_to_pass_and_it_is_scored",
+    "tests/test_combo_eligibility.py::test_filled_missing_info_reruns_once_and_becomes_eligible"
+   ],
+   "cases": [
+    {
+     "name": "사전 필터 보완 복귀",
+     "expected": {
+      "outcome": "recommendable",
+      "prefilter_enrichment": {
+       "filled": 3
+      },
+      "returned_to_pass": 3,
+      "pass_counts_sub": {
+       "GPU": 3
+      },
+      "pending_counts_sub": {
+       "GPU": 0
+      }
+     },
+     "actual": {
+      "outcome": "recommendable",
+      "reason_codes": [],
+      "axes": [],
+      "missing": [],
+      "selected": {
+       "CPU": "cpu:r5-7600",
+       "GPU": "gpu:good",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {
+       "filled": 3
+      },
+      "returned_to_pass": 3,
+      "combo": null,
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 1,
+       "combo": 0
+      },
+      "confidence": 100,
+      "passed": true,
+      "eligible": true,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 0,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 10
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 220000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 380000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 1040000
+     },
+     "mismatch": false
+    },
+    {
+     "name": "조합 보완 뒤 재실행",
+     "expected": {
+      "outcome": "recommendable",
+      "passes": 2,
+      "combo_sub": {
+       "filled": 2,
+       "rerun": true
+      }
+     },
+     "actual": {
+      "outcome": "recommendable",
+      "reason_codes": [],
+      "axes": [],
+      "missing": [],
+      "selected": {
+       "CPU": "cpu:r5-7600",
+       "GPU": "gpu:good",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": {
+       "attempted": 2,
+       "filled": 2,
+       "rerun": true
+      },
+      "passes": 2,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 1
+      },
+      "confidence": 100,
+      "passed": true,
+      "eligible": true,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 0,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 10
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 220000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 380000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 1040000
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "10",
+   "title": "보완 실패(not_found)",
+   "description": "(a) 사전 필터에서 값을 못 찾으면 보류가 유지되어 후보 부족. (b) 조회가 예외를 내도 추천 전체가 죽지 않고 failed 로 기록한 뒤 후보 부족. (c) 조합 단계에서 값을 못 찾으면 다시 돌지 않고 진단 결과만 낸다.",
+   "tests": [
+    "tests/test_candidate_eligibility.py::test_not_found_keeps_candidate_held",
+    "tests/test_candidate_eligibility.py::test_enrich_exception_is_recorded_as_failed_and_not_retried",
+    "tests/test_combo_eligibility.py::test_unfillable_missing_info_is_saved_as_a_diagnostic_result_without_a_second_run"
+   ],
+   "cases": [
+    {
+     "name": "사전 필터 not_found",
+     "expected": {
+      "outcome": "candidate_shortage",
+      "prefilter_enrichment": {
+       "not_found": 3
+      }
+     },
+     "actual": {
+      "outcome": "candidate_shortage",
+      "shortage": {
+       "GPU": {
+        "pending_reasons": {
+         "PENDING_SPEC_MISSING:perf_tier": 3
+        },
+        "fail_reasons": {}
+       }
+      },
+      "prefilter_enrichment": {
+       "not_found": 3
+      },
+      "stub_calls": {
+       "prefilter": 1,
+       "combo": 0
+      }
+     },
+     "mismatch": false
+    },
+    {
+     "name": "조회 예외",
+     "expected": {
+      "outcome": "candidate_shortage",
+      "prefilter_enrichment": {
+       "failed": 3
+      },
+      "stub_calls": {
+       "prefilter": 1,
+       "combo": 0
+      }
+     },
+     "actual": {
+      "outcome": "candidate_shortage",
+      "shortage": {
+       "GPU": {
+        "pending_reasons": {
+         "PENDING_SPEC_MISSING:perf_tier": 3
+        },
+        "fail_reasons": {}
+       }
+      },
+      "prefilter_enrichment": {
+       "failed": 3
+      },
+      "stub_calls": {
+       "prefilter": 1,
+       "combo": 0
+      }
+     },
+     "mismatch": false
+    },
+    {
+     "name": "조합 not_found",
+     "expected": {
+      "outcome": "not_recommendable",
+      "passes": 1,
+      "combo_sub": {
+       "filled": 0,
+       "rerun": false
+      }
+     },
+     "actual": {
+      "outcome": "not_recommendable",
+      "reason_codes": [
+       "required_info_missing"
+      ],
+      "axes": [
+       "psu_length"
+      ],
+      "missing": [
+       "purchase:케이스.max_psu_length_mm"
+      ],
+      "selected": {
+       "CPU": "cpu:r5-7500f",
+       "GPU": "gpu:entry",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": {
+       "attempted": 2,
+       "filled": 0,
+       "rerun": false
+      },
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 1
+      },
+      "confidence": 100,
+      "passed": false,
+      "eligible": false,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 2,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 0
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "unavailable",
+        "reason": "inputs_missing"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 170000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 200000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 810000
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "11",
+   "title": "보완 한도(조합 재실행 1회)",
+   "description": "조합 보완은 한 번만 시도하고, 채워진 값이 있어 한 번 다시 돈다. 재실행 뒤에도 남은 누락(확장 슬롯 수)은 더 시도하지 않고 부적격으로 끝난다.",
+   "tests": [
+    "tests/test_combo_eligibility.py::test_filled_missing_info_reruns_once_and_becomes_eligible",
+    "tests/test_combo_eligibility.py::test_unfillable_missing_info_is_saved_as_a_diagnostic_result_without_a_second_run"
+   ],
+   "cases": [
+    {
+     "name": "부분 보완 뒤에도 누락",
+     "expected": {
+      "outcome": "not_recommendable",
+      "passes": 2,
+      "combo_sub": {
+       "rerun": true
+      },
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 1
+      },
+      "missing_has": [
+       "purchase:케이스.expansion_slots"
+      ]
+     },
+     "actual": {
+      "outcome": "not_recommendable",
+      "reason_codes": [
+       "required_info_missing"
+      ],
+      "axes": [
+       "gpu_slots"
+      ],
+      "missing": [
+       "purchase:케이스.expansion_slots"
+      ],
+      "selected": {
+       "CPU": "cpu:r5-7500f",
+       "GPU": "gpu:entry",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": {
+       "attempted": 2,
+       "filled": 2,
+       "rerun": true
+      },
+      "passes": 2,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 1
+      },
+      "confidence": 100,
+      "passed": false,
+      "eligible": false,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 2,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 0
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "unavailable",
+        "reason": "inputs_missing"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 170000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 200000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 810000
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "12",
+   "title": "업그레이드 유지 부품 필수 누락(D2)",
+   "description": "GPU 만 바꾸는 업그레이드에서 유지 파워의 정격 출력·유지 케이스의 GPU 허용 길이가 없으면 구매 부품과 같은 기준으로 보류한다(유지 부품은 입력 때 이미 확인한 값이라 조합 단계에서 다시 보완하지 않는다).",
+   "tests": [
+    "tests/test_combo_eligibility.py::test_upgrade_kept_psu_without_wattage_holds_the_combo_and_names_the_owned_part",
+    "tests/test_combo_eligibility.py::test_upgrade_kept_case_without_gpu_length_holds_but_a_known_length_is_fine",
+    "tests/test_combo_eligibility.py::test_upgrade_with_every_needed_kept_part_value_is_eligible"
+   ],
+   "cases": [
+    {
+     "name": "유지 부품 정보 완전",
+     "expected": {
+      "outcome": "recommendable"
+     },
+     "actual": {
+      "outcome": "recommendable",
+      "reason_codes": [],
+      "axes": [],
+      "missing": [],
+      "selected": {
+       "GPU": "gpu:good"
+      },
+      "pass_counts": {
+       "GPU": 2
+      },
+      "fail_counts": {
+       "GPU": 1
+      },
+      "pending_counts": {
+       "GPU": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": null,
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      },
+      "confidence": 100,
+      "passed": true,
+      "eligible": true,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 0,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 1
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "not_applicable",
+        "reason": "power_not_in_scope"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "not_applicable",
+        "reason": "no_purchased_part"
+       },
+       "size.psu_length": {
+        "status": "not_applicable",
+        "reason": "no_purchased_part"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "no_purchased_part"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "GPU": {
+        "price": 380000,
+        "qty": 1
+       }
+      },
+      "totals_price": 380000
+     },
+     "mismatch": false
+    },
+    {
+     "name": "유지 파워 정격 출력 없음",
+     "expected": {
+      "outcome": "not_recommendable",
+      "missing_has": [
+       "owned:파워.wattage_w"
+      ],
+      "combo_sub": {
+       "filled": 0,
+       "rerun": false
+      }
+     },
+     "actual": {
+      "outcome": "not_recommendable",
+      "reason_codes": [
+       "required_info_missing"
+      ],
+      "axes": [
+       "power"
+      ],
+      "missing": [
+       "owned:파워.wattage_w"
+      ],
+      "selected": {
+       "GPU": "gpu:mid"
+      },
+      "pass_counts": {
+       "GPU": 2
+      },
+      "fail_counts": {
+       "GPU": 1
+      },
+      "pending_counts": {
+       "GPU": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": {
+       "attempted": 1,
+       "filled": 0,
+       "rerun": false
+      },
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      },
+      "confidence": 94,
+      "passed": false,
+      "eligible": false,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 2,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 0
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "unavailable",
+        "reason": "inputs_missing"
+       },
+       "power.requirement_sizing": {
+        "status": "not_applicable",
+        "reason": "power_not_in_scope"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "not_applicable",
+        "reason": "no_purchased_part"
+       },
+       "size.psu_length": {
+        "status": "not_applicable",
+        "reason": "no_purchased_part"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "no_purchased_part"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "GPU": {
+        "price": 280000,
+        "qty": 1
+       }
+      },
+      "totals_price": 280000
+     },
+     "mismatch": false
+    },
+    {
+     "name": "유지 케이스 GPU 허용 길이 없음",
+     "expected": {
+      "outcome": "not_recommendable",
+      "missing_has": [
+       "owned:케이스.max_gpu_len_mm"
+      ]
+     },
+     "actual": {
+      "outcome": "not_recommendable",
+      "reason_codes": [
+       "required_info_missing"
+      ],
+      "axes": [
+       "gpu_len"
+      ],
+      "missing": [
+       "owned:케이스.max_gpu_len_mm"
+      ],
+      "selected": {
+       "GPU": "gpu:mid"
+      },
+      "pass_counts": {
+       "GPU": 2
+      },
+      "fail_counts": {
+       "GPU": 1
+      },
+      "pending_counts": {
+       "GPU": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": {
+       "attempted": 1,
+       "filled": 0,
+       "rerun": false
+      },
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      },
+      "confidence": 94,
+      "passed": false,
+      "eligible": false,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 2,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 0
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "not_applicable",
+        "reason": "power_not_in_scope"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "unavailable",
+        "reason": "inputs_missing"
+       },
+       "size.cooler_height": {
+        "status": "not_applicable",
+        "reason": "no_purchased_part"
+       },
+       "size.psu_length": {
+        "status": "not_applicable",
+        "reason": "no_purchased_part"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "no_purchased_part"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "GPU": {
+        "price": 280000,
+        "qty": 1
+       }
+      },
+      "totals_price": 280000
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "13",
+   "title": "GPU 커넥터 개수",
+   "description": "실제 연결 경로(2× 8-pin)에 필요한 개수 정보가 없으면 보류, 확인된 개수 부족은 호환 위반, 보조 전원이 필요 없으면 종류·개수 정보 없이도 적격이다.",
+   "tests": [
+    "tests/test_combo_eligibility.py::test_connector_count_missing_on_the_needed_path_is_required_missing",
+    "tests/test_combo_eligibility.py::test_confirmed_connector_shortage_is_a_violation_not_a_gap",
+    "tests/test_combo_eligibility.py::test_gpu_without_aux_power_makes_connector_checks_not_applicable"
+   ],
+   "cases": [
+    {
+     "name": "필요 개수 정보 누락(보류)",
+     "expected": {
+      "outcome": "not_recommendable",
+      "reason_codes_has": [
+       "required_info_missing"
+      ],
+      "missing_has": [
+       "purchase:파워.pcie_8pin_count"
+      ]
+     },
+     "actual": {
+      "outcome": "not_recommendable",
+      "reason_codes": [
+       "required_info_missing"
+      ],
+      "axes": [
+       "gpu_connector"
+      ],
+      "missing": [
+       "purchase:파워.pcie_8pin_count"
+      ],
+      "selected": {
+       "CPU": "cpu:r5-7500f",
+       "GPU": "gpu:entry",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": {
+       "attempted": 2,
+       "filled": 0,
+       "rerun": false
+      },
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 1
+      },
+      "confidence": 100,
+      "passed": false,
+      "eligible": false,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 288,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 0
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 170000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 200000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 810000
+     },
+     "mismatch": false
+    },
+    {
+     "name": "확인된 부족(탈락)",
+     "expected": {
+      "outcome": "not_recommendable",
+      "reason_codes_has": [
+       "compat_violation"
+      ],
+      "axes_has": [
+       "gpu_connector"
+      ]
+     },
+     "actual": {
+      "outcome": "not_recommendable",
+      "reason_codes": [
+       "compat_violation",
+       "no_compatible_set"
+      ],
+      "axes": [
+       "gpu_connector",
+       "set"
+      ],
+      "missing": [],
+      "selected": {
+       "CPU": "cpu:r5-7600",
+       "GPU": "gpu:good",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": null,
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      },
+      "confidence": 60,
+      "passed": false,
+      "eligible": false,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 288,
+       "pruned_required_missing": 0,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 0
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 220000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 380000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 1040000
+     },
+     "mismatch": false
+    },
+    {
+     "name": "보조 전원 불필요(비적용)",
+     "expected": {
+      "outcome": "recommendable"
+     },
+     "actual": {
+      "outcome": "recommendable",
+      "reason_codes": [],
+      "axes": [],
+      "missing": [],
+      "selected": {
+       "CPU": "cpu:r5-7600",
+       "GPU": "gpu:good",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": null,
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      },
+      "confidence": 100,
+      "passed": true,
+      "eligible": true,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 0,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 10
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 220000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 380000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 1040000
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "14",
+   "title": "사용자 필수 RAM 속도",
+   "description": "사용자가 RAM 속도 6000 이상을 요구하면 CPU·보드·RAM 지원 속도의 근거가 필요하다: 미확인은 보류, 확인된 미달은 요구 미충족, 충족은 적격. 요구가 없으면 속도 정보 없음이 필수 누락이 아니다.",
+   "tests": [
+    "tests/test_combo_eligibility.py::test_ram_speed_user_requirement_needs_cpu_supported_speed",
+    "tests/test_combo_eligibility.py::test_ram_speed_confirmed_shortfall_is_requirement_unmet_even_if_something_else_is_missing",
+    "tests/test_combo_eligibility.py::test_ram_speed_user_requirement_met_when_all_three_support_it",
+    "tests/test_combo_eligibility.py::test_ram_speed_without_user_requirement_keeps_the_existing_caution_and_is_not_required"
+   ],
+   "cases": [
+    {
+     "name": "CPU 지원 속도 미확인(보류)",
+     "expected": {
+      "outcome": "not_recommendable",
+      "reason_codes_has": [
+       "required_info_missing"
+      ],
+      "axes_has": [
+       "ram_speed"
+      ],
+      "missing_has": [
+       "purchase:CPU.max_memory_speed_mts"
+      ]
+     },
+     "actual": {
+      "outcome": "not_recommendable",
+      "reason_codes": [
+       "required_info_missing"
+      ],
+      "axes": [
+       "ram_speed"
+      ],
+      "missing": [
+       "purchase:CPU.max_memory_speed_mts"
+      ],
+      "selected": {
+       "CPU": "cpu:r5-7500f",
+       "GPU": "gpu:entry",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": {
+       "attempted": 3,
+       "filled": 0,
+       "rerun": false
+      },
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 1
+      },
+      "confidence": 100,
+      "passed": false,
+      "eligible": false,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 3,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 0
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 170000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 200000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 810000
+     },
+     "mismatch": false
+    },
+    {
+     "name": "RAM 속도 미달",
+     "expected": {
+      "outcome": "not_recommendable",
+      "reason_codes_has": [
+       "requirement_unmet"
+      ]
+     },
+     "actual": {
+      "outcome": "not_recommendable",
+      "reason_codes": [
+       "requirement_unmet"
+      ],
+      "axes": [
+       "ram_speed"
+      ],
+      "missing": [],
+      "selected": {
+       "CPU": "cpu:r5-7500f",
+       "GPU": "gpu:entry",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": null,
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      },
+      "confidence": 100,
+      "passed": false,
+      "eligible": false,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 0,
+       "pruned_requirement_unmet": 2,
+       "pruned_score": 0
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 170000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 200000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 810000
+     },
+     "mismatch": false
+    },
+    {
+     "name": "충족",
+     "expected": {
+      "outcome": "recommendable"
+     },
+     "actual": {
+      "outcome": "recommendable",
+      "reason_codes": [],
+      "axes": [],
+      "missing": [],
+      "selected": {
+       "CPU": "cpu:r5-7600",
+       "GPU": "gpu:good",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": null,
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      },
+      "confidence": 100,
+      "passed": true,
+      "eligible": true,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 0,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 10
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 220000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 380000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 1040000
+     },
+     "mismatch": false
+    },
+    {
+     "name": "요구 없음(CPU 속도 미확인)",
+     "expected": {
+      "outcome": "recommendable"
+     },
+     "actual": {
+      "outcome": "recommendable",
+      "reason_codes": [],
+      "axes": [],
+      "missing": [],
+      "selected": {
+       "CPU": "cpu:r5-7600",
+       "GPU": "gpu:good",
+       "RAM": "ram:kit-8x2",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": null,
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      },
+      "confidence": 100,
+      "passed": true,
+      "eligible": true,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 0,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 10
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 220000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 380000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 90000,
+        "qty": 1,
+        "unit_price": 90000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 1040000
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "15",
+   "title": "원본 점수 저장·표시 경계",
+   "description": "원본 0.66449 는 66.4점으로 한 번만 반올림한다. DB 네 자리 값 0.6645 로 66.5점을 만들지 않는다(참고로 저장값을 표시 원본으로 쓰면 66.5가 된다). snapshot 이 없으면 unavailable, 옛 방식 run 은 legacy_method.",
+   "tests": [
+    "tests/test_fit_score.py::test_display_points_boundaries",
+    "tests/test_fit_score.py::test_raw_066449_shows_664_in_api_and_explanation_never_665",
+    "tests/test_fit_score.py::test_snapshot_missing_or_invalid_is_unavailable_never_the_stored_score"
+   ],
+   "cases": [
+    {
+     "name": "0.66449 경계",
+     "expected": {
+      "display_from_raw": 66.4,
+      "avg_fit": 66.4,
+      "stored_four_digits": 0.6645,
+      "display_from_stored_value_would_be": 66.5,
+      "status_without_snapshot": "unavailable",
+      "status_legacy_run": "legacy_method",
+      "policy_examples_sub": {
+       "0.665": 66.5,
+       "0.605": 60.5
+      }
+     },
+     "actual": {
+      "raw": 0.66449,
+      "stored_four_digits": 0.6645,
+      "display_from_raw": 66.4,
+      "avg_fit": 66.4,
+      "display_from_stored_value_would_be": 66.5,
+      "status_without_snapshot": "unavailable",
+      "status_legacy_run": "legacy_method",
+      "policy_examples": {
+       "0.665": 66.5,
+       "0.605": 60.5
+      }
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  },
+  {
+   "id": "16",
+   "title": "RAM 단품 2개 구성 가격·용량",
+   "description": "단품 16GB(6만 원)는 2개 구성으로 12만 원·32GB 로 판정되어 14만 원 키트보다 싸다. 선택되면 가격은 구성 전체(12만 원)로 한 번만 합산되고 qty=2·개당 6만 원이 남는다. 키트에 2를 곱하지 않는다.",
+   "tests": [
+    "tests/test_ram_pair_config.py::test_single_module_becomes_two_modules_without_touching_the_original",
+    "tests/test_ram_pair_config.py::test_as_pair_is_idempotent_so_price_and_capacity_are_never_summed_twice",
+    "tests/test_ram_pair_config.py::test_stage4_items_carry_qty_and_unit_price_and_totals_sum_the_pair_price"
+   ],
+   "cases": [
+    {
+     "name": "단품 선택·중복 합산 없음",
+     "expected": {
+      "outcome": "recommendable",
+      "selected_sub": {
+       "RAM": "ram:single-16"
+      },
+      "ram_pass_pool_sub": {
+       "ram:single-16": {
+        "price": 120000,
+        "capacity_gb": 32,
+        "purchase_qty": 2,
+        "unit_price": 60000
+       },
+       "ram:kit-16x2": {
+        "price": 140000,
+        "capacity_gb": 32,
+        "purchase_qty": 1,
+        "unit_price": 140000
+       }
+      },
+      "ram_item_sub": {
+       "price": 120000,
+       "qty": 2,
+       "unit_price": 60000
+      },
+      "totals_price": 1070000
+     },
+     "actual": {
+      "outcome": "recommendable",
+      "reason_codes": [],
+      "axes": [],
+      "missing": [],
+      "selected": {
+       "CPU": "cpu:r5-7600",
+       "GPU": "gpu:good",
+       "RAM": "ram:single-16",
+       "메인보드": "mb:a620",
+       "저장장치": "ssd:1tb",
+       "케이스": "case:a",
+       "쿨러": "cooler:a",
+       "파워": "psu:750"
+      },
+      "pass_counts": {
+       "CPU": 3,
+       "GPU": 3,
+       "RAM": 2,
+       "메인보드": 2,
+       "저장장치": 2,
+       "케이스": 2,
+       "쿨러": 2,
+       "파워": 2
+      },
+      "fail_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "pending_counts": {
+       "CPU": 0,
+       "GPU": 0,
+       "RAM": 0,
+       "메인보드": 0,
+       "저장장치": 0,
+       "케이스": 0,
+       "쿨러": 0,
+       "파워": 0
+      },
+      "prefilter_enrichment": {},
+      "returned_to_pass": 0,
+      "combo": null,
+      "passes": 1,
+      "stub_calls": {
+       "prefilter": 0,
+       "combo": 0
+      },
+      "confidence": 100,
+      "passed": true,
+      "eligible": true,
+      "counters": {
+       "pruned_budget": 0,
+       "pruned_compat": 0,
+       "pruned_required_missing": 0,
+       "pruned_requirement_unmet": 0,
+       "pruned_score": 10
+      },
+      "margins": {
+       "power.compat_check": {
+        "status": "available",
+        "cpu_basis": "max_power"
+       },
+       "power.requirement_sizing": {
+        "status": "available"
+       },
+       "power.total": {
+        "status": "unavailable",
+        "reason": "other_load_basis_missing"
+       },
+       "size.gpu_length": {
+        "status": "available"
+       },
+       "size.cooler_height": {
+        "status": "available"
+       },
+       "size.psu_length": {
+        "status": "available"
+       },
+       "size.gpu_slots": {
+        "status": "available"
+       },
+       "size.radiator": {
+        "status": "not_applicable",
+        "reason": "air_cooler"
+       },
+       "cooling": {
+        "status": "unavailable",
+        "reason": "no_comparable_thermal_test"
+       }
+      },
+      "items": {
+       "CPU": {
+        "price": 220000,
+        "qty": 1
+       },
+       "GPU": {
+        "price": 380000,
+        "qty": 1
+       },
+       "RAM": {
+        "price": 120000,
+        "qty": 2,
+        "unit_price": 60000
+       },
+       "메인보드": {
+        "price": 90000,
+        "qty": 1
+       },
+       "저장장치": {
+        "price": 80000,
+        "qty": 1
+       },
+       "케이스": {
+        "price": 50000,
+        "qty": 1
+       },
+       "쿨러": {
+        "price": 40000,
+        "qty": 1
+       },
+       "파워": {
+        "price": 90000,
+        "qty": 1
+       }
+      },
+      "totals_price": 1070000,
+      "ram_pass_pool": {
+       "ram:kit-16x2": {
+        "price": 140000,
+        "capacity_gb": 32,
+        "purchase_qty": 1,
+        "unit_price": 140000
+       },
+       "ram:single-16": {
+        "price": 120000,
+        "capacity_gb": 32,
+        "purchase_qty": 2,
+        "unit_price": 60000
+       }
+      },
+      "ram_item": {
+       "price": 120000,
+       "qty": 2,
+       "unit_price": 60000
+      },
+      "items_price_sum": 1070000
+     },
+     "mismatch": false
+    }
+   ],
+   "mismatch": false
+  }
+ ]
+}
