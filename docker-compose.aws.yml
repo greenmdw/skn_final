@@ -14,6 +14,8 @@ services:
     volumes:
       # 비공개 시드 데이터(data/peripherals, data/review_seed 등 git 에 없는 파일)는 서버의 ./data 에 올려 두고 마운트한다 — 올릴 때 다시 빌드하지 않아도 된다.
       - ./data:/app/data:ro
+      # 커뮤니티 첨부 이미지 — 서버의 ./uploads 에 저장돼 재배포해도 남는다(쓰기 가능해야 하므로 data 와 따로 둔다).
+      - ./uploads:/app/uploads
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status == 200 else 1)"]

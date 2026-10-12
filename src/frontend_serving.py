@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 # API 가 쓰는 최상위 경로. SPA 폴백이 가로채지 않는다(라우터가 먼저 등록되므로 실제 API 는 영향 없고,
 # 없는 하위 경로만 404 로 남는다).
-API_PREFIXES = frozenset({"auth", "session", "lists", "reviews", "pc", "dev", "docs", "redoc", "openapi.json", "health"})
+API_PREFIXES = frozenset({"auth", "session", "lists", "reviews", "pc", "dev", "docs", "redoc", "openapi.json", "health", "catalog"})
 
 
 def _mount_spa(app: FastAPI, web_dist: Path) -> None:
@@ -28,7 +28,8 @@ def _mount_spa(app: FastAPI, web_dist: Path) -> None:
     @app.api_route("/{route_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     def spa_fallback(route_path: str) -> FileResponse:
         parts = route_path.split("/")
-        if parts[0] in API_PREFIXES or "." in parts[-1]:
+        # /community 는 React 화면 경로이면서 API 접두사다 — 화면(/community 와 쿼리)은 폴백하고 하위 경로(/community/posts …)는 API 라 폴백하지 않는다.
+        if parts[0] in API_PREFIXES or "." in parts[-1] or (parts[0] == "community" and len(parts) > 1):
             raise HTTPException(status_code=404, detail="Not Found")
         return FileResponse(index, headers=no_cache)
 

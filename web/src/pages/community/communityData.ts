@@ -14,6 +14,8 @@ export interface CommunityPost {
   likes: number
   views: number
   is_example: boolean
+  likedByMe?: boolean
+  coverUrl?: string | null
   mediaCount?: number
   badge?: string
   specs?: Array<{ label: string; value: string }>

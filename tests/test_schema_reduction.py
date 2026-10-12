@@ -25,7 +25,7 @@ EXPECTED_CHAIN = [
     "0004_notification_events.sql", "0005_preference_signal.sql", "0006_report_soft_delete.sql",
     "0007_peripheral_line.sql", "0008_review_aspect.sql", "0009_live_spec_lookup_cache.sql",
     "0010_live_spec_lookup_store.sql", "0011_message_metadata.sql",
-    "0012_review_embedding_invalidate.sql",
+    "0012_review_embedding_invalidate.sql", "0013_community_post.sql", "0014_community_post_image.sql",
 ]
 # 현재 baseline의 명시적 계약. 같은 개수의 다른 테이블로 바뀌어도 실패해야 한다.
 EXPECTED_TABLES = {
@@ -57,6 +57,12 @@ EXPECTED_TABLES = {
     "community.pc_build",
     "community.pc_build_component",
     "community.pc_build_version",
+    "community.post",
+    "community.post_comment",
+    "community.post_image",
+    "community.post_like",
+    "community.post_product",
+    "community.post_view",
     "community.review",
     "community.review_revision",
     "config.domain",

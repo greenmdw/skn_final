@@ -1,14 +1,22 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type DependencyList, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { ApiError } from '../../api/types'
+import {
+  communityApi,
+  mapCommunityItem,
+  relativeTime,
+  type CatalogProduct,
+  type CommunityBoardType,
+  type CommunityPostInput,
+  type WireCommunityComment,
+} from '../../api/http/community'
 import MarketingHeader from '../../components/MarketingHeader'
 import { useAuthUser } from '../../state/authStore'
 import { usePlan } from '../../state/PlanContext'
 import { useToast } from '../../state/ToastContext'
 import {
   boardInfo,
-  communityPosts,
   deals,
-  productCatalog,
   type CommunityBoard,
   type CommunityPost,
   type CommunityView,
@@ -19,12 +27,59 @@ const validViews: CommunityView[] = ['home', 'board', 'post', 'write', 'deals', 
 const boardOrder: CommunityBoard[] = ['all', 'question', 'review', 'tip', 'free']
 const validBoards: CommunityBoard[] = ['all', 'popular', 'question', 'review', 'tip', 'free']
 
-interface CommunityComment {
-  id: string
-  author: string
-  body: string
-  time: string
-  replies: Array<{ id: string; author: string; body: string; time: string }>
+type Reaction = { liked: boolean; likes: number }
+type ReactionOf = (post: Pick<CommunityPost, 'id' | 'likes' | 'likedByMe'>) => Reaction
+
+const messageOf = (error: unknown) => (error instanceof ApiError ? error.message : '불러오지 못했습니다. 잠시 후 다시 시도해주세요.')
+
+/** 서버에서 한 번 읽어 오는 값. deps 가 바뀌면 다시 읽고, 읽는 동안에는 이전 값을 그대로 둔다(화면이 깜빡이지 않게). */
+function useAsync<T>(load: () => Promise<T>, deps: DependencyList) {
+  const [state, setState] = useState<{ data: T | null; loading: boolean; error: string | null }>({ data: null, loading: true, error: null })
+  useEffect(() => {
+    let alive = true
+    setState(current => ({ ...current, loading: true, error: null }))
+    load().then(
+      data => { if (alive) setState({ data, loading: false, error: null }) },
+      error => { if (alive) setState({ data: null, loading: false, error: messageOf(error) }) },
+    )
+    return () => { alive = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps)
+  return state
+}
+
+function useDebounced<T>(value: T, delay = 300) {
+  const [debounced, setDebounced] = useState(value)
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(value), delay)
+    return () => window.clearTimeout(timer)
+  }, [value, delay])
+  return debounced
+}
+
+/** 좌측 메뉴의 게시판별 글 수 — 서버 목록의 total 을 쓴다. */
+function useBoardCounts(version: number) {
+  const [counts, setCounts] = useState<Record<string, number>>({})
+  useEffect(() => {
+    let alive = true
+    Promise.all(boardOrder.map(board => communityApi.list({ boardType: board === 'all' ? undefined : (board as CommunityBoardType), pageSize: 1 }).then(result => [board, result.total] as const)))
+      .then(entries => { if (alive) setCounts(Object.fromEntries(entries)) })
+      .catch(() => undefined)
+    return () => { alive = false }
+  }, [version])
+  return counts
+}
+
+const boardOfCategory: Record<string, CommunityBoardType> = { '질문 · Q&A': 'question', '사용기 · 리뷰': 'review', '정보 · 팁': 'tip', '자유 게시판': 'free' }
+
+interface SelectedProduct {
+  key: string
+  productId: string | null
+  kind: string
+  name: string
+  detail: string
+  options: string[]
+  option: string
 }
 
 function SearchIcon() {
@@ -35,16 +90,17 @@ function Avatar({ name }: { name: string }) {
   return <span className="cm-avatar" aria-hidden="true">{name.slice(0, 1)}</span>
 }
 
+
 function ExampleNotice() {
   return (
     <div className="cm-example-notice" role="note">
       <span>프론트 예시</span>
-      게시글·댓글·추천 데이터는 화면 구조 확인용이며 아직 서버에 저장되지 않습니다.
+      프로모션 목록은 화면 구조 확인용이며 아직 서버와 연결되지 않았습니다.
     </div>
   )
 }
 
-function CategoryMenu({ current, onSelect }: { current: CommunityBoard; onSelect: (board: CommunityBoard) => void }) {
+function CategoryMenu({ current, counts, onSelect }: { current: CommunityBoard; counts: Record<string, number>; onSelect: (board: CommunityBoard) => void }) {
   const routerNavigate = useNavigate()
   const { resetPlan } = usePlan()
   const startFreshBuild = () => {
@@ -58,7 +114,7 @@ function CategoryMenu({ current, onSelect }: { current: CommunityBoard; onSelect
         {boardOrder.map(board => (
           <button key={board} type="button" className={'cm-side-link' + (current === board ? ' active' : '')} onClick={() => onSelect(board)}>
             <span>{boardInfo[board].label}</span>
-            <small>{board === 'all' ? communityPosts.length : communityPosts.filter(post => post.board === board).length}</small>
+            <small>{counts[board] ?? 0}</small>
           </button>
         ))}
       </section>
@@ -71,13 +127,13 @@ function CategoryMenu({ current, onSelect }: { current: CommunityBoard; onSelect
   )
 }
 
-function PostCard({ post, liked, onOpen, onLike }: { post: CommunityPost; liked: boolean; onOpen: () => void; onLike: () => void }) {
+function PostCard({ post, reaction, onOpen, onLike }: { post: CommunityPost; reaction: Reaction; onOpen: () => void; onLike: () => void }) {
   return (
     <article className="cm-post-row">
       <Avatar name={post.author} />
       <div className="cm-post-content">
         <div className="cm-post-head">
-          <strong>{post.author}</strong><span>{post.handle}</span><span>·</span><span>{post.time}</span>
+          <strong>{post.author}</strong>{post.handle && <span>{post.handle}</span>}<span>·</span><span>{post.time}</span>
           <span className="cm-post-badges">
             {post.is_example && <span className="cm-badge example">예시</span>}
             {post.badge && <span className="cm-badge accent">{post.badge}</span>}
@@ -86,16 +142,17 @@ function PostCard({ post, liked, onOpen, onLike }: { post: CommunityPost; liked:
         <div className="cm-post-category">{post.boardLabel}</div>
         <button type="button" className="cm-post-title" onClick={onOpen}>{post.title}</button>
         <p>{post.excerpt}</p>
-        {!!post.mediaCount && (
-          <div className={'cm-media-grid count-' + post.mediaCount} aria-label={`첨부 이미지 ${post.mediaCount}장`}>
-            {Array.from({ length: post.mediaCount }, (_, index) => <span key={index}>이미지 {index + 1}</span>)}
+        {post.coverUrl && (
+          <div className="cm-cover" style={{ position: 'relative' }}>
+            <img src={post.coverUrl} alt="" loading="lazy" onClick={onOpen} style={{ width: '100%', maxHeight: 320, objectFit: 'cover', borderRadius: 12, cursor: 'pointer', display: 'block' }} />
+            {!!post.mediaCount && post.mediaCount > 1 && <span className="cm-badge" style={{ position: 'absolute', right: 8, bottom: 8 }}>+{post.mediaCount - 1}</span>}
           </div>
         )}
         {post.specs && <div className="cm-spec-row">{post.specs.map(spec => <div key={spec.label}><small>{spec.label}</small><strong>{spec.value}</strong></div>)}</div>}
-        {post.products && <div className="cm-linked-products">{post.products.map(product => <span key={product.name}>{product.kind} · {product.name}</span>)}</div>}
+        {!!post.products?.length && <div className="cm-linked-products">{post.products.map((product, index) => <span key={product.name + index}>{product.kind} · {product.name}</span>)}</div>}
         <div className="cm-post-actions">
           <button type="button" onClick={onOpen}>댓글 {post.comments}</button>
-          <button type="button" className={liked ? 'liked' : ''} onClick={onLike} aria-pressed={liked}>♡ 추천 {post.likes + (liked ? 1 : 0)}</button>
+          <button type="button" className={reaction.liked ? 'liked' : ''} onClick={onLike} aria-pressed={reaction.liked}>♡ 추천 {reaction.likes}</button>
           <span>조회 {post.views}</span>
         </div>
       </div>
@@ -140,24 +197,16 @@ export default function CommunityPage() {
   const view: CommunityView = rawView && validViews.includes(rawView) ? rawView : 'home'
   const rawBoard = params.get('board') as CommunityBoard | null
   const board: CommunityBoard = rawBoard && validBoards.includes(rawBoard) ? rawBoard : 'all'
-  const postId = params.get('post') ?? communityPosts[0].id
+  const postId = params.get('post') ?? ''
   const keyword = params.get('q') ?? ''
   const [searchText, setSearchText] = useState(keyword)
   const [feedMode, setFeedMode] = useState<'latest' | 'popular'>('latest')
   const [feedPage, setFeedPage] = useState(1)
-  const [liked, setLiked] = useState<Set<string>>(() => new Set())
+  const [reactions, setReactions] = useState<Record<string, Reaction>>({})
   const [boardQuery, setBoardQuery] = useState('')
   const [boardPage, setBoardPage] = useState(1)
-  const [comments, setComments] = useState<CommunityComment[]>([
-    { id: 'comment-1', author: '렌더팜', body: '편집 비중이 높다면 메모리 64GB는 유지하는 편이 좋습니다. 파워는 GPU 제조사 권장 용량도 같이 확인하세요.', time: '12분 전', replies: [] },
-    { id: 'comment-2', author: '조립도우미', body: '케이스의 CPU 쿨러 높이 제한과 메모리 간섭 여부를 먼저 확인해보세요.', time: '7분 전', replies: [{ id: 'reply-1', author: '쿨링연구소', body: '메모리 방열판 높이도 함께 보면 좋습니다.', time: '4분 전' }] },
-  ])
-  const [commentText, setCommentText] = useState('')
-  const [writeCategory, setWriteCategory] = useState('')
-  const [writeTitle, setWriteTitle] = useState('')
-  const [writeBody, setWriteBody] = useState('')
-  const [productQuery, setProductQuery] = useState('')
-  const [selectedProducts, setSelectedProducts] = useState<string[]>([])
+  const [dataVersion, setDataVersion] = useState(0)
+  const counts = useBoardCounts(dataVersion)
 
   const navigate = (nextView: CommunityView, next?: { board?: CommunityBoard; post?: string; q?: string }) => {
     const nextParams = new URLSearchParams()
@@ -170,14 +219,15 @@ export default function CommunityPage() {
   }
   const openBoard = (nextBoard: CommunityBoard) => navigate('board', { board: nextBoard })
   const openPost = (id: string) => navigate('post', { post: id })
-  const toggleLike = (id: string) => {
-    setLiked(current => {
-      const next = new Set(current)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-    showToast('추천 상태는 이 브라우저 화면에서만 유지됩니다.')
+  const reactionOf: ReactionOf = post => reactions[post.id] ?? { liked: post.likedByMe ?? false, likes: post.likes }
+  const toggleLike = async (post: Pick<CommunityPost, 'id' | 'likes' | 'likedByMe'>) => {
+    if (!user) { showToast('추천은 로그인 후 이용할 수 있어요.'); return }
+    try {
+      const result = reactionOf(post).liked ? await communityApi.unlike(post.id) : await communityApi.like(post.id)
+      setReactions(current => ({ ...current, [post.id]: { liked: result.liked_by_me, likes: result.like_count } }))
+    } catch (error) {
+      showToast(messageOf(error))
+    }
   }
   const submitSearch = (event: FormEvent) => {
     event.preventDefault()
@@ -201,37 +251,16 @@ export default function CommunityPage() {
       </div>
       <main className="cm-main">
         {view === 'home' && (
-          <HomeView feedMode={feedMode} feedPage={feedPage} liked={liked} onFeedMode={mode => { setFeedMode(mode); setFeedPage(1) }} onFeedPage={setFeedPage} onBoard={openBoard} onPost={openPost} onLike={toggleLike} onWrite={() => navigate('write')} onDeals={() => navigate('deals')} />
+          <HomeView counts={counts} feedMode={feedMode} feedPage={feedPage} reactionOf={reactionOf} onFeedMode={mode => { setFeedMode(mode); setFeedPage(1) }} onFeedPage={setFeedPage} onBoard={openBoard} onPost={openPost} onLike={toggleLike} onWrite={() => navigate('write')} onDeals={() => navigate('deals')} />
         )}
         {view === 'board' && (
-          <BoardView board={board} query={boardQuery} page={boardPage} onQuery={setBoardQuery} onPage={setBoardPage} onBoard={value => { setBoardPage(1); openBoard(value) }} onPost={openPost} onWrite={() => navigate('write')} />
+          <BoardView counts={counts} board={board} query={boardQuery} page={boardPage} onQuery={setBoardQuery} onPage={setBoardPage} onBoard={value => { setBoardPage(1); openBoard(value) }} onPost={openPost} onWrite={() => navigate('write')} />
         )}
-        {view === 'post' && (
-          <PostView postId={postId} liked={liked.has(postId)} comments={comments} commentText={commentText} userName={user?.name ?? null} onBack={() => openBoard('all')} onBoard={openBoard} onPost={openPost} onWrite={() => navigate('write')} onLike={() => toggleLike(postId)} onCommentText={setCommentText} onComment={event => {
-            event.preventDefault()
-            if (!user) { showToast('댓글 작성은 로그인 후 이용할 수 있어요.'); return }
-            if (!commentText.trim()) return
-            setComments(current => [...current, { id: `comment-${Date.now()}`, author: user.name, body: commentText.trim(), time: '방금', replies: [] }])
-            setCommentText('')
-            showToast('댓글은 현재 화면에서만 추가되었습니다.')
-          }} onReply={(commentId, text) => {
-            if (!user) { showToast('답글 작성은 로그인 후 이용할 수 있어요.'); return false }
-            setComments(current => current.map(comment => comment.id === commentId ? { ...comment, replies: [...comment.replies, { id: `reply-${Date.now()}`, author: user.name, body: text, time: '방금' }] } : comment))
-            showToast('답글은 현재 화면에서만 추가되었습니다.')
-            return true
-          }} />
-        )}
+        {view === 'post' && (postId
+          ? <PostView postId={postId} user={user ? { name: user.name } : null} reactionOf={reactionOf} onBack={() => openBoard('all')} onBoard={openBoard} onPost={openPost} onWrite={() => navigate('write')} onLike={toggleLike} onDeleted={() => { setDataVersion(value => value + 1); showToast('게시글을 삭제했습니다.'); openBoard('all') }} />
+          : <p className="cm-empty">게시글을 선택해 주세요.</p>)}
         {view === 'write' && (
-          <WriteView userName={user?.name ?? null} category={writeCategory} title={writeTitle} body={writeBody} productQuery={productQuery} selectedProducts={selectedProducts} onCategory={setWriteCategory} onTitle={setWriteTitle} onBody={setWriteBody} onProductQuery={setProductQuery} onToggleProduct={id => setSelectedProducts(current => {
-            if (current.includes(id)) return current.filter(value => value !== id)
-            if (current.length >= 5) { showToast('제품은 최대 5개까지 추가할 수 있습니다.'); return current }
-            return [...current, id]
-          })} onDraft={() => showToast('임시 저장 API가 없어 현재 화면에만 유지됩니다.')} onCancel={() => navigate('home')} onSubmit={event => {
-            event.preventDefault()
-            if (!user) { showToast('글 작성은 로그인 후 이용할 수 있어요.'); return }
-            if (writeCategory === '사용기 · 리뷰' && selectedProducts.length === 0) { showToast('사용기 · 리뷰는 제품을 1개 이상 추가해 주세요.'); return }
-            showToast('게시글 저장 API가 없어 아직 게시할 수 없습니다.')
-          }} />
+          <WriteView userName={user?.name ?? null} onCancel={() => navigate('home')} onPublished={id => { setDataVersion(value => value + 1); showToast('게시했습니다.'); openPost(id) }} />
         )}
         {view === 'deals' && <DealsView onWrite={() => navigate('write')} onUnavailable={() => showToast('프로모션 상세 API는 아직 연결되지 않았습니다.')} />}
         {view === 'search' && <SearchView keyword={keyword} onPost={openPost} onHome={() => navigate('home')} />}
@@ -247,20 +276,13 @@ export default function CommunityPage() {
   )
 }
 
-function HomeView({ feedMode, feedPage, liked, onFeedMode, onFeedPage, onBoard, onPost, onLike, onWrite, onDeals }: {
-  feedMode: 'latest' | 'popular'; feedPage: number; liked: Set<string>; onFeedMode: (mode: 'latest' | 'popular') => void; onFeedPage: (page: number) => void; onBoard: (board: CommunityBoard) => void; onPost: (id: string) => void; onLike: (id: string) => void; onWrite: () => void; onDeals: () => void
+function HomeView({ counts, feedMode, feedPage, reactionOf, onFeedMode, onFeedPage, onBoard, onPost, onLike, onWrite, onDeals }: {
+  counts: Record<string, number>; feedMode: 'latest' | 'popular'; feedPage: number; reactionOf: ReactionOf; onFeedMode: (mode: 'latest' | 'popular') => void; onFeedPage: (page: number) => void; onBoard: (board: CommunityBoard) => void; onPost: (id: string) => void; onLike: (post: CommunityPost) => void; onWrite: () => void; onDeals: () => void
 }) {
-  const latestOrder = ['mouse-review', 'keyboard-review', 'build-check-200', 'mini-pc-review', 'cooling-tip', 'white-setup', 'gpu-game', 'qhd-monitor']
-  const latest = [...communityPosts].sort((a, b) => {
-    const aIndex = latestOrder.indexOf(a.id)
-    const bIndex = latestOrder.indexOf(b.id)
-    return (aIndex < 0 ? 999 : aIndex) - (bIndex < 0 ? 999 : bIndex)
-  })
-  const ordered = feedMode === 'popular' ? [...communityPosts].sort((a, b) => b.likes - a.likes) : latest
-  const pageSize = 10
-  const pageCount = Math.max(1, Math.ceil(ordered.length / pageSize))
-  const page = Math.min(feedPage, pageCount)
-  const posts = ordered.slice((page - 1) * pageSize, page * pageSize)
+  const feed = useAsync(() => communityApi.list({ sort: feedMode, page: feedPage, pageSize: 10 }), [feedMode, feedPage])
+  const posts = useMemo<CommunityPost[]>(() => feed.data?.items.map(mapCommunityItem) ?? [], [feed.data])
+  const pageCount = Math.max(1, feed.data?.total_pages ?? 1)
+  const page = feed.data?.page ?? feedPage
   const [activeId, setActiveId] = useState(posts[0]?.id ?? '')
   useEffect(() => {
     setActiveId(posts[0]?.id ?? '')
@@ -296,12 +318,11 @@ function HomeView({ feedMode, feedPage, liked, onFeedMode, onFeedPage, onBoard, 
       window.removeEventListener('resize', queueUpdate)
       if (frame) window.cancelAnimationFrame(frame)
     }
-  }, [feedMode, page])
+  }, [posts])
   return (
     <>
-      <ExampleNotice />
       <div className="cm-layout">
-        <CategoryMenu current="all" onSelect={onBoard} />
+        <CategoryMenu current="all" counts={counts} onSelect={onBoard} />
         <div className="cm-stack">
           <section className="cm-card cm-intro">
             <div><span>오늘의 커뮤니티</span><h1>고민은 짧게, 좋은 선택은 함께.</h1><p>실사용자의 경험부터 최저가 정보까지 한곳에서 확인하세요.</p></div>
@@ -310,7 +331,10 @@ function HomeView({ feedMode, feedPage, liked, onFeedMode, onFeedPage, onBoard, 
           <section className="cm-card cm-feed">
             <div className="cm-feed-tabs"><button type="button" className={feedMode === 'latest' ? 'active' : ''} onClick={() => onFeedMode('latest')}>최신 글</button><button type="button" className={feedMode === 'popular' ? 'active' : ''} onClick={() => onFeedMode('popular')}>인기 글</button></div>
             <button type="button" className="cm-composer" onClick={onWrite}><Avatar name="나" /><span>궁금한 점이나 사용 경험을 공유해보세요.</span><b>글쓰기</b></button>
-            {posts.map(post => <div id={`cm-post-${post.id}`} className={'cm-feed-post-anchor' + (activeId === post.id ? ' current' : '')} key={post.id}><PostCard post={post} liked={liked.has(post.id)} onOpen={() => onPost(post.id)} onLike={() => onLike(post.id)} /></div>)}
+            {feed.error && <p className="cm-empty">{feed.error}</p>}
+            {!feed.error && !feed.loading && posts.length === 0 && <p className="cm-empty">아직 게시글이 없습니다. 첫 글을 남겨보세요.</p>}
+            {!feed.error && feed.loading && posts.length === 0 && <p className="cm-empty">불러오는 중…</p>}
+            {posts.map(post => <div id={`cm-post-${post.id}`} className={'cm-feed-post-anchor' + (activeId === post.id ? ' current' : '')} key={post.id}><PostCard post={post} reaction={reactionOf(post)} onOpen={() => onPost(post.id)} onLike={() => onLike(post)} /></div>)}
             <Pagination page={page} pageCount={pageCount} onPage={next => { onFeedPage(next); document.querySelector('.cm-feed')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }} />
           </section>
         </div>
@@ -320,25 +344,30 @@ function HomeView({ feedMode, feedPage, liked, onFeedMode, onFeedPage, onBoard, 
   )
 }
 
-function BoardView({ board, query, page, onQuery, onPage, onBoard, onPost, onWrite }: {
-  board: CommunityBoard; query: string; page: number; onQuery: (value: string) => void; onPage: (page: number) => void; onBoard: (board: CommunityBoard) => void; onPost: (id: string) => void; onWrite: () => void
+function BoardView({ counts, board, query, page, onQuery, onPage, onBoard, onPost, onWrite }: {
+  counts: Record<string, number>; board: CommunityBoard; query: string; page: number; onQuery: (value: string) => void; onPage: (page: number) => void; onBoard: (board: CommunityBoard) => void; onPost: (id: string) => void; onWrite: () => void
 }) {
-  const boardPosts = board === 'popular' ? [...communityPosts].sort((a, b) => b.likes - a.likes).slice(0, 12) : communityPosts.filter(post => board === 'all' || post.board === board)
-  const filtered = boardPosts.filter(post => !query.trim() || `${post.title} ${post.author}`.toLowerCase().includes(query.trim().toLowerCase()))
-  const pageSize = 6
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
-  const rows = filtered.slice((page - 1) * pageSize, page * pageSize)
+  const debounced = useDebounced(query.trim())
+  const list = useAsync(() => communityApi.list({
+    boardType: board === 'all' || board === 'popular' ? undefined : (board as CommunityBoardType),
+    sort: board === 'popular' ? 'popular' : 'latest',
+    q: debounced || undefined,
+    page,
+    pageSize: 6,
+  }), [board, debounced, page])
+  const rows = useMemo<CommunityPost[]>(() => list.data?.items.map(mapCommunityItem) ?? [], [list.data])
+  const total = list.data?.total ?? 0
+  const pageCount = Math.max(1, list.data?.total_pages ?? 1)
   return (
     <>
       <header className="cm-page-head"><div><span>Community Board</span><h1>{boardInfo[board].label}</h1><p>{boardInfo[board].description}</p></div><div><button type="button" className="cm-btn" onClick={() => onBoard('all')}>전체 피드</button><button type="button" className="cm-btn primary" onClick={onWrite}>글쓰기</button></div></header>
-      <ExampleNotice />
       <div className="cm-mobile-chips">{boardOrder.map(value => <button key={value} type="button" className={board === value ? 'active' : ''} onClick={() => onBoard(value)}>{boardInfo[value].label}</button>)}</div>
       <div className="cm-layout cm-board-layout">
-        <CategoryMenu current={board} onSelect={onBoard} />
+        <CategoryMenu current={board} counts={counts} onSelect={onBoard} />
         <section className="cm-card cm-board-card">
-          <div className="cm-filter"><strong>{boardInfo[board].label} <small>{filtered.length}개</small></strong><label><SearchIcon /><input value={query} onChange={event => { onQuery(event.target.value); onPage(1) }} placeholder="게시판 내 검색" /></label></div>
+          <div className="cm-filter"><strong>{boardInfo[board].label} <small>{total}개</small></strong><label><SearchIcon /><input value={query} onChange={event => { onQuery(event.target.value); onPage(1) }} placeholder="게시판 내 검색" /></label></div>
           <div className="cm-table-head"><span>분류</span><span>제목</span><span>작성자</span><span>조회</span><span>추천</span></div>
-          {rows.length ? rows.map(post => <button type="button" className="cm-board-row" key={post.id} onClick={() => onPost(post.id)}><span>{post.boardLabel}</span><span><span className="cm-board-title-line"><strong>{post.title}</strong>{post.is_example && <span className="cm-badge example">예시</span>}</span><small>{post.excerpt}</small></span><span>{post.author}</span><span>{post.views}</span><span>{post.likes}</span></button>) : <p className="cm-empty">검색 결과가 없습니다.</p>}
+          {list.error ? <p className="cm-empty">{list.error}</p> : rows.length ? rows.map(post => <button type="button" className="cm-board-row" key={post.id} onClick={() => onPost(post.id)}><span>{post.boardLabel}</span><span><span className="cm-board-title-line"><strong>{post.title}</strong>{post.is_example && <span className="cm-badge example">예시</span>}</span><small>{post.excerpt}</small></span><span>{post.author}</span><span>{post.views}</span><span>{post.likes}</span></button>) : <p className="cm-empty">{list.loading ? '불러오는 중…' : '검색 결과가 없습니다.'}</p>}
           <Pagination page={Math.min(page, pageCount)} pageCount={pageCount} onPage={onPage} />
         </section>
         <aside className="cm-right-rail"><section className="cm-card cm-card-pad"><div className="cm-card-head"><h2>게시판 안내</h2></div><p>{boardInfo[board].description}</p><button type="button" className="cm-btn primary block" onClick={onWrite}>새 글 작성</button></section></aside>
@@ -347,12 +376,71 @@ function BoardView({ board, query, page, onQuery, onPage, onBoard, onPost, onWri
   )
 }
 
-function PostView({ postId, liked, comments, commentText, userName, onBack, onBoard, onPost, onWrite, onLike, onCommentText, onComment, onReply }: {
-  postId: string; liked: boolean; comments: CommunityComment[]; commentText: string; userName: string | null; onBack: () => void; onBoard: (board: CommunityBoard) => void; onPost: (id: string) => void; onWrite: () => void; onLike: () => void; onCommentText: (value: string) => void; onComment: (event: FormEvent) => void; onReply: (commentId: string, text: string) => boolean
+function PostView({ postId, user, reactionOf, onBack, onBoard, onPost, onWrite, onLike, onDeleted }: {
+  postId: string; user: { name: string } | null; reactionOf: ReactionOf; onBack: () => void; onBoard: (board: CommunityBoard) => void; onPost: (id: string) => void; onWrite: () => void; onLike: (post: CommunityPost) => void; onDeleted: () => void
 }) {
-  const post = communityPosts.find(item => item.id === postId) ?? communityPosts[0]
+  const { showToast } = useToast()
+  const detail = useAsync(() => communityApi.get(postId), [postId])
+  const [comments, setComments] = useState<WireCommunityComment[]>([])
+  const [commentText, setCommentText] = useState('')
   const [replyTo, setReplyTo] = useState<string | null>(null)
   const [replyText, setReplyText] = useState('')
+  const loadComments = () => communityApi.comments(postId).then(result => setComments(result.items)).catch(error => showToast(messageOf(error)))
+  useEffect(() => {
+    setComments([])
+    setReplyTo(null)
+    loadComments()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [postId])
+
+  const wire = detail.data
+  const post = useMemo(() => (wire ? mapCommunityItem(wire) : null), [wire])
+  const nameOf = (comment: WireCommunityComment) => comment.author?.name ?? '알 수 없음'
+  const commentTotal = comments.reduce((sum, comment) => sum + (comment.is_deleted ? 0 : 1) + (comment.replies ?? []).filter(reply => !reply.is_deleted).length, 0)
+  const run = async (action: () => Promise<unknown>, failure?: () => void) => {
+    try { await action(); return true } catch (error) { showToast(messageOf(error)); failure?.(); return false }
+  }
+  const submitComment = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!user) { showToast('댓글 작성은 로그인 후 이용할 수 있어요.'); return }
+    const text = commentText.trim()
+    if (!text) return
+    if (await run(() => communityApi.addComment(postId, text))) { setCommentText(''); await loadComments() }
+  }
+  const submitReply = async (commentId: string) => {
+    if (!user) { showToast('답글 작성은 로그인 후 이용할 수 있어요.'); return }
+    const text = replyText.trim()
+    if (!text) return
+    if (await run(() => communityApi.addReply(commentId, text))) { setReplyText(''); setReplyTo(null); await loadComments() }
+  }
+  const removeComment = async (commentId: string) => {
+    if (await run(() => communityApi.removeComment(commentId))) await loadComments()
+  }
+  const removePost = async () => {
+    if (!window.confirm('이 게시글을 삭제할까요?')) return
+    if (await run(() => communityApi.remove(postId))) onDeleted()
+  }
+
+  if (!wire || !post) {
+    return (
+      <>
+        <header className="cm-page-head"><div><span>Community</span><h1>게시글 상세</h1></div><div><button type="button" className="cm-btn" onClick={onBack}>목록으로</button></div></header>
+        <p className="cm-empty">{detail.error ?? '불러오는 중…'}</p>
+      </>
+    )
+  }
+  const reaction = reactionOf(post)
+  const renderComment = (comment: WireCommunityComment, reply = false, parent?: WireCommunityComment) => (
+    <article className={reply ? 'cm-reply' : undefined} key={comment.id}>
+      <Avatar name={nameOf(comment)} />
+      <div>
+        <strong>{nameOf(comment)}</strong><small>{relativeTime(comment.created_at)}{comment.edited ? ' · 수정됨' : ''}</small>
+        <p>{reply && parent && <b>@{nameOf(parent)} </b>}{comment.body}</p>
+        {!reply && !comment.is_deleted && <button type="button" className="cm-reply-button" onClick={() => { setReplyTo(current => current === comment.id ? null : comment.id); setReplyText('') }}>답글</button>}
+        {comment.is_mine && !comment.is_deleted && <button type="button" className="cm-reply-button" onClick={() => removeComment(comment.id)}>삭제</button>}
+      </div>
+    </article>
+  )
   return (
     <>
       <header className="cm-page-head"><div><span>{post.boardLabel}</span><h1>게시글 상세</h1><p>본문과 댓글에 집중하는 읽기 화면입니다.</p></div><div><button type="button" className="cm-btn" onClick={onBack}>목록으로</button><button type="button" className="cm-btn primary" onClick={onWrite}>글쓰기</button></div></header>
@@ -360,25 +448,23 @@ function PostView({ postId, liked, comments, commentText, userName, onBack, onBo
         <div className="cm-stack">
           <article className="cm-card cm-article">
             <span className="cm-badge accent">{post.boardLabel}</span><h1>{post.title}</h1>
-            {post.products && <section className="cm-product-cards"><h2>연결 제품</h2>{post.products.map(product => <div key={product.name} className="cm-product-card"><span>{product.kind}</span><div><strong>{product.name}</strong><small>{product.detail}</small></div></div>)}</section>}
-            <div className="cm-article-meta"><span><Avatar name={post.author} /><span><strong>{post.author}</strong><small>{post.time}</small></span></span><span>조회 {post.views} · 댓글 {post.comments}</span></div>
+            {!!post.products?.length && <section className="cm-product-cards"><h2>연결 제품</h2>{post.products.map((product, index) => <div key={product.name + index} className="cm-product-card"><span>{product.kind}</span><div><strong>{product.name}</strong><small>{product.detail}</small></div></div>)}</section>}
+            <div className="cm-article-meta"><span><Avatar name={post.author} /><span><strong>{post.author}</strong><small>{post.time}</small></span></span><span>조회 {wire.view_count} · 댓글 {commentTotal}</span></div>
             {post.is_example && <div className="review-disclosure" role="note"><strong>예시 리뷰</strong><span>서비스 구성을 보여주기 위해 팀이 작성한 글입니다. 실제 구매·사용 후기가 아닙니다.</span></div>}
             <div className="cm-article-body">
-              <p>{post.excerpt}</p>
-              {post.mediaCount && <div className="cm-article-photo">게시글 이미지 영역</div>}
-              {post.specs && <div className="cm-spec-box">{post.specs.map(spec => <div key={spec.label}><small>{spec.label}</small><strong>{spec.value}</strong></div>)}</div>}
-              {post.board === 'question' ? <><p>예산과 사용 목적을 기준으로 호환성과 비용 배분을 함께 확인하고 싶습니다. 교체가 필요한 부품이 있다면 이유도 알려주세요.</p><blockquote>사용 목적과 실제 제품 모델에 따라 답변이 달라질 수 있습니다.</blockquote></> : <p>직접 사용하며 확인한 내용과 장단점을 정리했습니다. 다른 환경에서의 경험도 댓글로 공유해주세요.</p>}
+              {wire.body.split(/\n{2,}/).map((paragraph, index) => <p key={index} style={{ whiteSpace: 'pre-wrap' }}>{paragraph}</p>)}
+              {wire.images.map(image => <img key={image.id} src={image.url} width={image.width} height={image.height} alt="첨부 이미지" loading="lazy" style={{ maxWidth: '100%', height: 'auto', borderRadius: 12, display: 'block', margin: '12px 0' }} />)}
             </div>
-            <div className="cm-article-actions"><button type="button" className={liked ? 'active' : ''} onClick={onLike}>♡ 추천 {post.likes + (liked ? 1 : 0)}</button><button type="button" onClick={() => navigator.clipboard?.writeText(window.location.href)}>공유</button></div>
+            <div className="cm-article-actions"><button type="button" className={reaction.liked ? 'active' : ''} onClick={() => onLike(post)}>♡ 추천 {reaction.likes}</button><button type="button" onClick={() => navigator.clipboard?.writeText(window.location.href)}>공유</button>{wire.can_delete && <button type="button" onClick={removePost}>삭제</button>}</div>
           </article>
           <section className="cm-card cm-comments">
-            <h2>댓글 <span>{comments.length + comments.reduce((sum, comment) => sum + comment.replies.length, 0)}</span></h2>
-            {comments.map(comment => <div className="cm-comment-thread" key={comment.id}><article><Avatar name={comment.author} /><div><strong>{comment.author}</strong><small>{comment.time}</small><p>{comment.body}</p><button type="button" className="cm-reply-button" onClick={() => { setReplyTo(current => current === comment.id ? null : comment.id); setReplyText('') }}>답글</button></div></article>{comment.replies.map(reply => <article className="cm-reply" key={reply.id}><Avatar name={reply.author} /><div><strong>{reply.author}</strong><small>{reply.time}</small><p><b>@{comment.author}</b> {reply.body}</p></div></article>)}{replyTo === comment.id && <form className="cm-reply-form" onSubmit={event => { event.preventDefault(); if (replyText.trim() && onReply(comment.id, replyText.trim())) { setReplyText(''); setReplyTo(null) } }}><Avatar name={userName ?? '나'} /><div><textarea value={replyText} onChange={event => setReplyText(event.target.value)} placeholder={`${comment.author}님에게 답글 남기기`} /><span><button type="button" className="cm-btn" onClick={() => setReplyTo(null)}>취소</button><button type="submit" className="cm-btn primary">답글 등록</button></span></div></form>}</div>)}
-            <form onSubmit={onComment}><Avatar name={userName ?? '나'} /><div><textarea value={commentText} onChange={event => onCommentText(event.target.value)} placeholder={userName ? '댓글을 남겨보세요' : '로그인 후 댓글을 작성할 수 있어요'} /><button type="submit" className="cm-btn primary">댓글 등록</button></div></form>
+            <h2>댓글 <span>{commentTotal}</span></h2>
+            {comments.map(comment => <div className="cm-comment-thread" key={comment.id}>{renderComment(comment)}{(comment.replies ?? []).map(reply => renderComment(reply, true, comment))}{replyTo === comment.id && <form className="cm-reply-form" onSubmit={event => { event.preventDefault(); submitReply(comment.id) }}><Avatar name={user?.name ?? '나'} /><div><textarea value={replyText} onChange={event => setReplyText(event.target.value)} placeholder={`${nameOf(comment)}님에게 답글 남기기`} /><span><button type="button" className="cm-btn" onClick={() => setReplyTo(null)}>취소</button><button type="submit" className="cm-btn primary">답글 등록</button></span></div></form>}</div>)}
+            <form onSubmit={submitComment}><Avatar name={user?.name ?? '나'} /><div><textarea value={commentText} onChange={event => setCommentText(event.target.value)} placeholder={user ? '댓글을 남겨보세요' : '로그인 후 댓글을 작성할 수 있어요'} /><button type="submit" className="cm-btn primary">댓글 등록</button></div></form>
           </section>
           <PostBoardList currentPostId={post.id} initialBoard={post.board} onPost={onPost} onBoard={onBoard} onWrite={onWrite} />
         </div>
-        <aside className="cm-right-rail"><section className="cm-card cm-card-pad"><div className="cm-card-head"><h2>게시글 요약</h2></div><dl className="cm-summary"><div><dt>분류</dt><dd>{post.boardLabel}</dd></div><div><dt>작성자</dt><dd>{post.author}</dd></div><div><dt>상태</dt><dd>{post.badge ?? '의견 모집 중'}</dd></div></dl></section></aside>
+        <aside className="cm-right-rail"><section className="cm-card cm-card-pad"><div className="cm-card-head"><h2>게시글 요약</h2></div><dl className="cm-summary"><div><dt>분류</dt><dd>{post.boardLabel}</dd></div><div><dt>작성자</dt><dd>{post.author}</dd></div><div><dt>추천 · 조회</dt><dd>{reaction.likes} · {wire.view_count}</dd></div></dl></section></aside>
       </div>
     </>
   )
@@ -387,57 +473,153 @@ function PostView({ postId, liked, comments, commentText, userName, onBack, onBo
 function PostBoardList({ currentPostId, initialBoard, onPost, onBoard, onWrite }: { currentPostId: string; initialBoard: CommunityBoard; onPost: (id: string) => void; onBoard: (board: CommunityBoard) => void; onWrite: () => void }) {
   const [activeBoard, setActiveBoard] = useState<CommunityBoard>(initialBoard)
   const [sort, setSort] = useState<'latest' | 'views' | 'recommend'>('latest')
-  const [searchField, setSearchField] = useState<'title' | 'author'>('title')
   const [draftQuery, setDraftQuery] = useState('')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(1)
   const tabs: Array<{ key: CommunityBoard; label: string }> = [{ key: 'all', label: '전체' }, { key: 'question', label: '질문' }, { key: 'free', label: '잡담' }, { key: 'tip', label: '정보' }, { key: 'review', label: '구매인증' }]
-  let rows = communityPosts.filter(post => activeBoard === 'all' || post.board === activeBoard).filter(post => !query || (searchField === 'author' ? post.author : post.title).toLowerCase().includes(query.toLowerCase()))
-  if (sort === 'views') rows = [...rows].sort((a, b) => b.views - a.views)
-  if (sort === 'recommend') rows = [...rows].sort((a, b) => b.likes - a.likes)
-  const pageSize = 6
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize))
+  const list = useAsync(() => communityApi.list({ boardType: activeBoard === 'all' ? undefined : (activeBoard as CommunityBoardType), sort, q: query || undefined, page, pageSize: 6 }), [activeBoard, sort, query, page])
+  const pageRows = useMemo<CommunityPost[]>(() => list.data?.items.map(mapCommunityItem) ?? [], [list.data])
+  const pageCount = Math.max(1, list.data?.total_pages ?? 1)
   const currentPage = Math.min(page, pageCount)
-  const pageRows = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize)
   return (
     <section className="cm-card cm-post-board">
       <div className="cm-post-board-tabs">{tabs.map(tab => <button type="button" key={tab.key} className={activeBoard === tab.key ? 'active' : ''} onClick={() => { setActiveBoard(tab.key); setPage(1); setQuery(''); setDraftQuery('') }}>{tab.label}</button>)}</div>
       <div className="cm-post-board-head"><div><h2>{boardInfo[activeBoard].label} 글 목록</h2><p>{boardInfo[activeBoard].description}</p></div><button type="button" className="cm-btn" onClick={() => onBoard(activeBoard)}>전체 목록</button></div>
       <div className="cm-table-head"><span>분류</span><span>제목</span><span>작성자</span><span>조회</span><span>추천</span></div>
-      {pageRows.length ? pageRows.map(item => <button type="button" key={item.id} className={'cm-board-row' + (item.id === currentPostId ? ' current' : '')} onClick={() => onPost(item.id)}><span>{item.boardLabel}</span><span><span className="cm-board-title-line"><strong>{item.title}</strong>{item.is_example && <span className="cm-badge example">예시</span>}</span><small>댓글 [{item.comments}]</small></span><span>{item.author}</span><span>{item.views}</span><span>{item.likes}</span></button>) : <p className="cm-empty">검색 결과가 없습니다.</p>}
+      {list.error ? <p className="cm-empty">{list.error}</p> : pageRows.length ? pageRows.map(item => <button type="button" key={item.id} className={'cm-board-row' + (item.id === currentPostId ? ' current' : '')} onClick={() => onPost(item.id)}><span>{item.boardLabel}</span><span><span className="cm-board-title-line"><strong>{item.title}</strong>{item.is_example && <span className="cm-badge example">예시</span>}</span><small>댓글 [{item.comments}]</small></span><span>{item.author}</span><span>{item.views}</span><span>{item.likes}</span></button>) : <p className="cm-empty">{list.loading ? '불러오는 중…' : '검색 결과가 없습니다.'}</p>}
       <div className="cm-post-board-tools"><select value={sort} onChange={event => { setSort(event.target.value as typeof sort); setPage(1) }}><option value="latest">등록일 순</option><option value="views">조회 순</option><option value="recommend">추천 순</option></select><button type="button" className="cm-btn primary" onClick={onWrite}>✎ 글쓰기</button></div>
-      <div className="cm-post-board-footer"><Pagination page={currentPage} pageCount={pageCount} onPage={setPage} /><form onSubmit={event => { event.preventDefault(); setQuery(draftQuery.trim()); setPage(1) }}><select value={searchField} onChange={event => setSearchField(event.target.value as typeof searchField)}><option value="title">제목검색</option><option value="author">작성자검색</option></select><input value={draftQuery} onChange={event => setDraftQuery(event.target.value)} placeholder="검색어를 입력해주세요." /><button type="submit" className="cm-btn">검색</button></form></div>
+      <div className="cm-post-board-footer"><Pagination page={currentPage} pageCount={pageCount} onPage={setPage} /><form onSubmit={event => { event.preventDefault(); setQuery(draftQuery.trim()); setPage(1) }}><input value={draftQuery} onChange={event => setDraftQuery(event.target.value)} placeholder="제목·내용·작성자 검색" /><button type="submit" className="cm-btn">검색</button></form></div>
     </section>
   )
 }
 
-function WriteView({ userName, category, title, body, productQuery, selectedProducts, onCategory, onTitle, onBody, onProductQuery, onToggleProduct, onDraft, onCancel, onSubmit }: {
-  userName: string | null; category: string; title: string; body: string; productQuery: string; selectedProducts: string[]; onCategory: (value: string) => void; onTitle: (value: string) => void; onBody: (value: string) => void; onProductQuery: (value: string) => void; onToggleProduct: (id: string) => void; onDraft: () => void; onCancel: () => void; onSubmit: (event: FormEvent) => void
-}) {
-  const [productKind, setProductKind] = useState('모니터')
-  const [unlistedName, setUnlistedName] = useState('')
-  const [options, setOptions] = useState<Record<string, string>>({})
+function WriteView({ userName, onCancel, onPublished }: { userName: string | null; onCancel: () => void; onPublished: (id: string) => void }) {
+  const { showToast } = useToast()
+  const [category, setCategory] = useState('')
+  const [title, setTitle] = useState('')
+  const [body, setBody] = useState('')
   const [tags, setTags] = useState('')
-  const matchingProducts = productCatalog.filter(product => product.kind === productKind && `${product.maker} ${product.name}`.toLowerCase().includes(productQuery.trim().toLowerCase()))
+  const [productKind, setProductKind] = useState('모니터')
+  const [productQuery, setProductQuery] = useState('')
+  const [unlistedName, setUnlistedName] = useState('')
+  const [selected, setSelected] = useState<SelectedProduct[]>([])
+  const [results, setResults] = useState<CatalogProduct[]>([])
+  const [draft, setDraft] = useState<{ id: string; version: number } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [images, setImages] = useState<Array<{ id: string; url: string }>>([])
+  const [uploading, setUploading] = useState(false)
+
+  useEffect(() => {
+    const query = productQuery.trim()
+    if (!query) { setResults([]); return }
+    let alive = true
+    const timer = window.setTimeout(() => {
+      communityApi.catalogProducts(productKind, query, 20).then(result => { if (alive) setResults(result.items) }).catch(() => { if (alive) setResults([]) })
+    }, 250)
+    return () => { alive = false; window.clearTimeout(timer) }
+  }, [productQuery, productKind])
+
+  const add = (item: SelectedProduct) => {
+    setSelected(current => {
+      if (current.some(value => value.key === item.key)) return current.filter(value => value.key !== item.key)
+      if (current.length >= 5) { showToast('제품은 최대 5개까지 추가할 수 있습니다.'); return current }
+      return [...current, item]
+    })
+  }
+  const toggleCatalog = (product: CatalogProduct) => add({ key: product.id, productId: product.id, kind: productKind, name: product.name, detail: `${product.maker} · ${product.detail}`, options: product.options, option: '' })
   const addUnlisted = () => {
     const name = unlistedName.trim()
     if (!name) return
-    onToggleProduct(`custom:${productKind}:${name}`)
+    add({ key: `custom:${productKind}:${name}`, productId: null, kind: productKind, name, detail: `${productKind} · 목록에 없는 제품`, options: [], option: '' })
     setUnlistedName('')
+  }
+  const setOption = (key: string, option: string) => setSelected(current => current.map(item => item.key === key ? { ...item, option } : item))
+
+  const buildInput = (publish: boolean): CommunityPostInput => ({
+    board_type: boardOfCategory[category],
+    title: title.trim(),
+    body: body.trim(),
+    tags: tags.split(',').map(tag => tag.replace(/^#/, '').trim()).filter(Boolean).slice(0, 5),
+    products: selected.map(item => ({ product_id: item.productId, product_kind: item.kind, custom_product_name: item.productId ? null : item.name, selected_option: item.option.trim() || null })),
+    publish,
+    image_ids: images.map(image => image.id),
+  })
+  const addImages = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    if (!userName) { showToast('이미지 첨부는 로그인 후 이용할 수 있어요.'); return }
+    setUploading(true)
+    try {
+      let count = images.length
+      for (const file of Array.from(files)) {
+        if (count >= 5) { showToast('이미지는 최대 5장까지 첨부할 수 있습니다.'); break }
+        const uploaded = await communityApi.uploadImage(file)
+        setImages(current => [...current, { id: uploaded.id, url: uploaded.url }])
+        count += 1
+      }
+    } catch (error) {
+      showToast(messageOf(error))
+    } finally {
+      setUploading(false)
+    }
+  }
+  const removeImage = (id: string) => {
+    setImages(current => current.filter(image => image.id !== id))
+    // 아직 글에 붙지 않은 임시 이미지는 바로 지운다(임시 저장된 글에 붙은 것은 저장할 때 빠진다).
+    if (!draft) communityApi.removeUpload(id).catch(() => undefined)
+  }
+  const guard = () => {
+    if (!userName) { showToast('글 작성은 로그인 후 이용할 수 있어요.'); return false }
+    if (!category) { showToast('게시판을 선택해 주세요.'); return false }
+    return true
+  }
+  const saveDraft = async () => {
+    if (!guard()) return
+    setSaving(true)
+    try {
+      const { publish: _publish, ...input } = buildInput(false)
+      const saved = draft ? await communityApi.update(draft.id, { ...input, version: draft.version }) : await communityApi.create(buildInput(false))
+      setDraft({ id: saved.id, version: saved.version })
+      showToast('임시 저장했습니다. 이 화면에서 이어서 게시할 수 있어요.')
+    } catch (error) {
+      showToast(messageOf(error))
+    } finally {
+      setSaving(false)
+    }
+  }
+  const submit = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!guard()) return
+    if (category === '사용기 · 리뷰' && selected.length === 0) { showToast('사용기 · 리뷰는 제품을 1개 이상 추가해 주세요.'); return }
+    setSaving(true)
+    try {
+      if (draft) {
+        const { publish: _publish, ...input } = buildInput(true)
+        const updated = await communityApi.update(draft.id, { ...input, version: draft.version })
+        const published = await communityApi.publish(draft.id, updated.version)
+        onPublished(published.id)
+      } else {
+        const created = await communityApi.create(buildInput(true))
+        onPublished(created.id)
+      }
+    } catch (error) {
+      showToast(messageOf(error))
+    } finally {
+      setSaving(false)
+    }
   }
   return (
     <>
       <header className="cm-page-head"><div><span>Create</span><h1>새 글 작성</h1><p>필수 입력만 남겨 작성 부담을 낮췄습니다.</p></div><button type="button" className="cm-btn" onClick={onCancel}>취소</button></header>
-      <ExampleNotice />
       {!userName && <div className="cm-login-callout">게시 기능은 로그인이 필요합니다. <Link to="/login">로그인하기</Link></div>}
-      <form className="cm-card cm-write-form" onSubmit={onSubmit}>
-        <label>게시판<select required value={category} onChange={event => onCategory(event.target.value)}><option value="">게시판 선택</option><option>질문 · Q&A</option><option>사용기 · 리뷰</option><option>정보 · 팁</option><option>자유 게시판</option></select></label>
-        <label>제품 종류<select value={productKind} onChange={event => { setProductKind(event.target.value); onProductQuery('') }}><option>모니터</option><option>키보드</option><option>마우스</option><option>스피커</option></select></label>
-        <fieldset className="full"><legend>연결 제품 <small>{category === '사용기 · 리뷰' ? '1개 이상 필수' : '선택'} · {selectedProducts.length} / 5개</small></legend><div className="cm-product-entry"><label>제품 검색<input value={productQuery} onChange={event => onProductQuery(event.target.value)} placeholder="제조사 또는 모델명 입력" /></label><label>목록에 없는 제품<span><input value={unlistedName} onChange={event => setUnlistedName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addUnlisted() } }} placeholder="제조사와 모델명을 입력하세요" /><button type="button" className="cm-btn" onClick={addUnlisted}>추가</button></span></label></div>{productQuery ? <div className="cm-product-results">{matchingProducts.length ? matchingProducts.map(product => <button type="button" key={product.id} className={selectedProducts.includes(product.id) ? 'selected' : ''} onClick={() => onToggleProduct(product.id)}><span><strong>{product.name}</strong><small>{product.maker} · {product.detail}</small></span><b>{selectedProducts.includes(product.id) ? '추가됨' : '추가'}</b></button>) : <p>검색 결과가 없습니다. 목록에 없는 제품으로 추가할 수 있습니다.</p>}</div> : <p className="cm-product-help">검색어를 입력하면 선택한 제품 종류의 카탈로그가 표시됩니다.</p>}<div className="cm-selected-product-cards">{selectedProducts.map(id => { const product = productCatalog.find(item => item.id === id); const custom = id.startsWith('custom:') ? id.split(':').slice(2).join(':') : ''; const name = product?.name ?? custom; const optionList = product?.options ?? []; return <div key={id}><span><strong>{name}</strong><small>{product ? `${product.kind} · 예시 카탈로그 제품` : `${productKind} · 목록에 없는 제품`}</small></span><label>옵션 (선택)<input value={options[id] ?? ''} list={optionList.length ? `options-${id}` : undefined} onChange={event => setOptions(current => ({ ...current, [id]: event.target.value }))} placeholder="예: 저소음 적축, 색상" />{optionList.length > 0 && <datalist id={`options-${id}`}>{optionList.map(option => <option value={option} key={option} />)}</datalist>}</label><button type="button" className="cm-btn" onClick={() => onToggleProduct(id)}>삭제</button></div> })}</div>{category === '사용기 · 리뷰' && <p className="cm-review-notice">사용기 글의 내용은 제품 추천에 참고 자료로 활용될 수 있습니다.</p>}</fieldset>
-        <label className="full">제목<input required maxLength={80} value={title} onChange={event => onTitle(event.target.value)} placeholder="내용을 구체적으로 알 수 있는 제목을 입력하세요" /></label>
-        <label className="full">내용<textarea required value={body} onChange={event => onBody(event.target.value)} placeholder="질문이라면 사용 환경, 예산, 시도한 방법을 함께 적어주세요." /></label>
+      <form className="cm-card cm-write-form" onSubmit={submit}>
+        <label>게시판<select required value={category} onChange={event => setCategory(event.target.value)}><option value="">게시판 선택</option><option>질문 · Q&A</option><option>사용기 · 리뷰</option><option>정보 · 팁</option><option>자유 게시판</option></select></label>
+        <label>제품 종류<select value={productKind} onChange={event => { setProductKind(event.target.value); setProductQuery('') }}><option>모니터</option><option>키보드</option><option>마우스</option><option>스피커</option></select></label>
+        <fieldset className="full"><legend>연결 제품 <small>{category === '사용기 · 리뷰' ? '1개 이상 필수' : '선택'} · {selected.length} / 5개</small></legend><div className="cm-product-entry"><label>제품 검색<input value={productQuery} onChange={event => setProductQuery(event.target.value)} placeholder="제조사 또는 모델명 입력" /></label><label>목록에 없는 제품<span><input value={unlistedName} onChange={event => setUnlistedName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addUnlisted() } }} placeholder="제조사와 모델명을 입력하세요" /><button type="button" className="cm-btn" onClick={addUnlisted}>추가</button></span></label></div>{productQuery ? <div className="cm-product-results">{results.length ? results.map(product => { const on = selected.some(item => item.key === product.id); return <button type="button" key={product.id} className={on ? 'selected' : ''} onClick={() => toggleCatalog(product)}><span><strong>{product.name}</strong><small>{product.maker} · {product.detail}</small></span><b>{on ? '추가됨' : '추가'}</b></button> }) : <p>검색 결과가 없습니다. 목록에 없는 제품으로 추가할 수 있습니다.</p>}</div> : <p className="cm-product-help">검색어를 입력하면 선택한 제품 종류의 카탈로그가 표시됩니다.</p>}<div className="cm-selected-product-cards">{selected.map(item => <div key={item.key}><span><strong>{item.name}</strong><small>{item.productId ? `${item.kind} · ${item.detail}` : item.detail}</small></span><label>옵션 (선택)<input value={item.option} list={item.options.length ? `options-${item.key}` : undefined} onChange={event => setOption(item.key, event.target.value)} placeholder="예: 저소음 적축, 색상" />{item.options.length > 0 && <datalist id={`options-${item.key}`}>{item.options.map(option => <option value={option} key={option} />)}</datalist>}</label><button type="button" className="cm-btn" onClick={() => add(item)}>삭제</button></div>)}</div>{category === '사용기 · 리뷰' && <p className="cm-review-notice">사용기 글의 내용은 제품 추천에 참고 자료로 활용될 수 있습니다.</p>}</fieldset>
+        <label className="full">제목<input required maxLength={80} value={title} onChange={event => setTitle(event.target.value)} placeholder="내용을 구체적으로 알 수 있는 제목을 입력하세요" /></label>
+        <label className="full">내용<textarea required value={body} onChange={event => setBody(event.target.value)} placeholder="질문이라면 사용 환경, 예산, 시도한 방법을 함께 적어주세요." /></label>
         <label className="full">태그 <small>(선택)</small><input value={tags} onChange={event => setTags(event.target.value)} placeholder="예: 영상편집, 200만원견적, 조립초보" /></label>
-        <div className="cm-form-actions full"><button type="button" className="cm-btn" onClick={onDraft}>임시 저장</button><button type="button" className="cm-btn" onClick={onCancel}>취소</button><button type="submit" className="cm-btn primary">게시하기</button></div>
+        <div className="full"><label>이미지 <small>(선택 · 최대 5장, JPEG·PNG·WebP, 장당 5MB · 첫 장이 대표 이미지)</small><input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={uploading || images.length >= 5} onChange={event => { addImages(event.target.files); event.target.value = '' }} /></label>{uploading && <p className="cm-product-help">이미지를 올리는 중…</p>}{images.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>{images.map((image, index) => <div key={image.id} style={{ position: 'relative' }}><img src={image.url} alt={`첨부 ${index + 1}`} style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 8, display: 'block' }} /><button type="button" className="cm-btn" onClick={() => removeImage(image.id)} style={{ position: 'absolute', top: 2, right: 2, padding: '0 6px' }} aria-label={`첨부 ${index + 1} 삭제`}>×</button></div>)}</div>}</div>
+        <div className="cm-form-actions full"><button type="button" className="cm-btn" disabled={saving} onClick={saveDraft}>{draft ? '임시 저장 갱신' : '임시 저장'}</button><button type="button" className="cm-btn" onClick={onCancel}>취소</button><button type="submit" className="cm-btn primary" disabled={saving}>게시하기</button></div>
       </form>
     </>
   )
@@ -462,8 +644,10 @@ function DealsView({ onWrite, onUnavailable }: { onWrite: () => void; onUnavaila
 }
 
 function SearchView({ keyword, onPost, onHome }: { keyword: string; onPost: (id: string) => void; onHome: () => void }) {
-  const results = useMemo(() => communityPosts.filter(post => `${post.title} ${post.excerpt} ${post.author}`.toLowerCase().includes(keyword.toLowerCase())), [keyword])
+  const search = useAsync(() => (keyword.trim() ? communityApi.search(keyword.trim(), 1, 30) : Promise.resolve(null)), [keyword])
+  const results = useMemo<CommunityPost[]>(() => search.data?.items.map(mapCommunityItem) ?? [], [search.data])
+  const total = search.data?.total ?? 0
   return (
-    <><header className="cm-page-head"><div><span>Search</span><h1>통합 검색</h1><p>커뮤니티 게시글을 제목, 내용, 작성자로 찾습니다.</p></div></header><ExampleNotice /><section className="cm-card cm-search-results"><h2>‘{keyword || '검색어'}’ 검색 결과 <small>{results.length}개</small></h2>{results.length ? results.map(post => <button type="button" key={post.id} onClick={() => onPost(post.id)}><span>{post.boardLabel}</span><strong>{post.title}</strong><small>{post.excerpt}</small></button>) : <div className="cm-empty"><b>검색 결과가 없습니다.</b><p>다른 키워드로 다시 검색해보세요.</p><button type="button" className="cm-btn primary" onClick={onHome}>홈으로 돌아가기</button></div>}</section></>
+    <><header className="cm-page-head"><div><span>Search</span><h1>통합 검색</h1><p>커뮤니티 게시글을 제목, 내용, 작성자, 태그, 연결 제품으로 찾습니다.</p></div></header><section className="cm-card cm-search-results"><h2>‘{keyword || '검색어'}’ 검색 결과 <small>{total}개</small></h2>{search.error ? <p className="cm-empty">{search.error}</p> : results.length ? results.map(post => <button type="button" key={post.id} onClick={() => onPost(post.id)}><span>{post.boardLabel}</span><strong>{post.title}</strong><small>{post.excerpt}</small></button>) : search.loading ? <p className="cm-empty">불러오는 중…</p> : <div className="cm-empty"><b>검색 결과가 없습니다.</b><p>다른 키워드로 다시 검색해보세요.</p><button type="button" className="cm-btn primary" onClick={onHome}>홈으로 돌아가기</button></div>}</section></>
   )
 }
