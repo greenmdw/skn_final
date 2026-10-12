@@ -92,7 +92,8 @@ QUESTIONS: list[Q] = [
     Q("casual", "그래픽 올리는거 어케생각함", tools=("preview_swap", "upgrade_options")),
     Q("casual", "파워 바꾸는거 ㄱㅊ?", tools=("preview_swap", "list_alternatives")),
     Q("casual", "씨퓨 업글 해도 무방?", tools=("preview_swap", "upgrade_options")),
-    Q("casual", "SSD 1테라 더 달아도 됨", tools=("preview_swap", "set_item", "list_alternatives")),
+    # preview_qty 는 10/12 에 생긴 도구(같은 부품을 더 다는 가정) — 문장은 그대로, 받는 도구만 넓힘
+    Q("casual", "SSD 1테라 더 달아도 됨", tools=("preview_swap", "preview_qty", "set_item", "list_alternatives")),
     Q("casual", "남는돈으로 머 올리지", tools=("upgrade_options",)),
     Q("casual", "글카 한단계 위로 바꿔주셈", change=True, tools=("swap",)),
     # 시연 대화(2026-10-02)에서 옮긴 것 — 10만원 목표에 CPU 를 등급 8→4 로 내리던 것
@@ -123,6 +124,9 @@ ADDED: list[Q] = [
       note="틀린 전제 — 새 대화라 그런 약속이 없다. 약속을 인정하거나 쿨러를 빼면 실패"),
     Q("failure", "그래픽카드 한 단계 좋은 걸로 바꿔", change=True, tools=("swap",),
       note="10/8 팀 시연 — '줘' 없는 반말 명령. 되물으면('바꿔줘라고 말씀해 주세요') 실패"),
+    # 10/12 사람 평가 시트 — "하나 더 달기"를 교체로 답하던 것. 기준 구성 메인보드(A620M H)는 M.2 슬롯이 1개다
+    Q("failure", "SSD 하나 더 달아줘", change=True, tools=("set_item",),
+      note="같은 SSD를 하나 더(수량 2). 교체(swap)하면 실패. 메인보드 M.2 슬롯이 1개라 '호환 점검 문제'를 알려야 한다 — 빠뜨리면 오도"),
     # P1-7 (10/9) — explain 이 추천 당시 점수 근거(후보 중 순위·점수 비중·리뷰 긍정·부정 수)를 준다
     Q("why", "이 그래픽카드 리뷰 어때?", tools=("explain",),
       note="P1-7 — 리뷰 긍정·부정 건수·속성을 도구 결과대로. 관측이 없으면 없다고. 별점·평점을 지어내면 비사실"),

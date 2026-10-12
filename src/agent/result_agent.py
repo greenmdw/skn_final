@@ -83,8 +83,10 @@ class ResultSession:
         2로 바꿔 버렸다(2026-10-02 실측). 모델이 이 문장을 보고 가정 결과(preview_swap)로 답하게 한다."""
         if not self.read_only:
             return None
+        # 수량 변경을 거절당하면 모델이 preview_swap(교체)으로 넘어가 "하나 더 달기"를 교체로 답했다(10/12 평가 시트 3/3)
+        tool = "preview_qty(같은 부품을 더 다는 가정)" if "qty=" in call and "qty=''" not in call else "preview_swap"
         return self._record(call, "거절: 이번 말에는 바꾸라는 요청(바꿔줘·해줘·~로·응)이 없어 구성표를 바꾸지 않았습니다. "
-                                  "preview_swap 으로 가정 결과를 확인해 전하고, 바꿀지 사용자에게 물으세요.")
+                                  f"{tool} 으로 가정 결과를 확인해 전하고, 바꿀지 사용자에게 물으세요.")
 
     def refresh(self) -> None:
         from src.services.recommendation_service import get_stored_result
@@ -322,6 +324,18 @@ class ResultSession:
         return self._record(call, result_advice.preview_swap(self.conn, self.revision_id, it["slot"],
                                                              candidate_id.strip() or None, direction.strip().lower() or None))
 
+    def preview_qty(self, slot: str, qty: str) -> str:
+        from src.services import result_advice
+        call = f"preview_qty({slot!r}, {qty!r})"
+        if (no := self._pc_only(call)) is not None:
+            return no
+        it = self.item(slot)
+        if it is None:
+            return self._record(call, f"오류: '{slot}' 슬롯이 없습니다.")
+        if not qty.strip().isdigit() or not 1 <= int(qty) <= 99:
+            return self._record(call, "오류: qty 는 1~99 정수")
+        return self._record(call, result_advice.preview_qty(self.conn, self.revision_id, it["slot"], int(qty)))
+
     def check_build(self) -> str:
         from src.services import result_advice
         call = "check_build()"
@@ -437,7 +451,7 @@ def make_tools(s: ResultSession) -> list:
 
     @tool
     def set_qty(slot: str, qty: str) -> str:
-        """부품의 수량만 바꾼다 ("SSD 2개로").
+        """부품의 수량만 바꾼다 ("SSD 2개로", "SSD 하나 더 달아줘" → 지금 수량+1). 같은 제품을 더 담는 것이라 교체가 아니다.
 
         Args:
             slot: 슬롯 이름
@@ -480,6 +494,17 @@ def make_tools(s: ResultSession) -> list:
             direction: "up" 또는 "down" (candidate_id 를 쓰면 비움)
         """
         return s.preview_swap(slot, candidate_id, direction)
+
+    @tool
+    def preview_qty(slot: str, qty: str) -> str:
+        """같은 부품의 수량을 바꾸면 어떻게 되는지 *바꾸지 않고* 계산한다 — "SSD 하나 더 달아도 돼?", "램 하나 더 꽂으면?".
+        차액·바꾼 뒤 총액·예산, 수량을 반영한 호환 점검(M.2 SSD 개수·RAM 모듈 수 ↔ 메인보드 슬롯). 교체가 아니다.
+
+        Args:
+            slot: 슬롯 이름
+            qty: 바꾼 뒤 수량 1~99 (하나 더면 지금 수량+1)
+        """
+        return s.preview_qty(slot, qty)
 
     @tool
     def upgrade_options(extra: str = "", new_budget: str = "") -> str:
@@ -541,7 +566,7 @@ def make_tools(s: ResultSession) -> list:
         return s.search_unavailable_part(slot, product_text)
 
     return [list_alternatives, swap, set_qty, remove_or_restore, explain,
-            preview_swap, upgrade_options, savings_options, check_build, game_check,
+            preview_swap, preview_qty, upgrade_options, savings_options, check_build, game_check,
             search_unavailable_part]
 
 
@@ -566,7 +591,7 @@ _WHY = ("왜", "이유", "근거", "괜찮", "믿을", "어때", "리뷰", "총�
 # "씨퓨 업글 해도 무방?")는 7개 중 1개만 걸렸다(2026-10-02) — 표현은 끝이 없어서 놓치면 구성표가 바뀐다.
 # 그래서 거꾸로, **바꾸라는 표시가 있을 때만** 바꾸는 도구를 연다(허용 목록). 놓쳤을 때의 피해가 "잘못 바뀜"에서
 # "한 번 더 물어봄"으로 줄어든다. 묻는 말 표시가 같이 있으면 묻는 말이 이긴다.
-_CHANGE_VERB = r"(?:바꾸|바꿔|바꿀|갈아|올리|올려|올릴|늘리|늘려|늘릴|업글|업그레이드|교체|변경|빼|뺄|넣|담|달아|내리|내려|줄이|줄여|가면)"
+_CHANGE_VERB = r"(?:바꾸|바꿔|바꿀|갈아|올리|올려|올릴|늘리|늘려|늘릴|업글|업그레이드|교체|변경|빼|뺄|넣|담|달아|달면|추가|꽂|장착|내리|내려|줄이|줄여|가면)"
 _ASK_RE = re.compile(
     r"도\s*(?:돼|되나|될까|되려나|되겠|되냐|되남|됨|괜찮|괜춘|문제|상관|무방|ok|ㄱㅊ)"
     r"|면\s*.{0,15}?(?:어때|어떨|어떻|괜찮|문제|될까|되나|돼\?|충분|부족)"
@@ -575,7 +600,7 @@ _ASK_RE = re.compile(
     r"|ㄱㄱ\s*\?"
 )
 _ASK_LOOSE_RE = re.compile(r"ㄱㅊ|괜찮음|괜춘|무방|어케\s*생각|어떻게\s*생각|어떰|어떨까|나을까|낫나|좋을까")
-_IMPERATIVE = (r"(?:바꿔|교체해|변경해|빼|넣어|담아|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해|로\s*해|로\s*가자|로\s*할게|로\s*갈게)"
+_IMPERATIVE = (r"(?:바꿔|교체해|변경해|빼|넣어|담아|달아|추가해|꽂아|장착해|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해|로\s*해|로\s*가자|로\s*할게|로\s*갈게)"
                r"\s*(?:줘|주세요|줄래|주라|줄\s*수|주셈|주삼|주쇼|쥬|줭|봐|요|라)")
 _IMPERATIVE_RE = re.compile(_IMPERATIVE)
 _CLAUSE_SPLIT = re.compile(r"[,.!?\n]+")
@@ -587,7 +612,7 @@ _CHANGE_RE = re.compile(
     r"|ㄱㄱ(?!\s*\?)"
     # 반말 명령("GPU 바꿔", "그래픽카드 더 좋은 걸로 바꿔") — '줘'가 없어 other 로 빠져 "원하시면 '바꿔줘'라고 말씀해
     # 주세요"로 되묻던 것(10/8 팀 시연·회의). 말 끝에 올 때만 — "바꿔?"·"바꿔도 돼"는 묻는 말이다
-    r"|(?:바꿔|교체해|변경해|빼|넣어|담아|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해)\s*[.!~]*\s*$"
+    r"|(?:바꿔|교체해|변경해|빼|넣어|담아|달아|추가해|꽂아|장착해|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해)\s*[.!~]*\s*$"
 )
 
 
@@ -708,14 +733,17 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "1. '바꿔줘', '로 해줘', '바꿔 주세요'처럼 바꾸라고 하면 되묻지 말고 바로 swap 합니다. candidate_id 는 list_alternatives·upgrade_options·savings_options·preview_swap 결과에서만 가져오고, 지어내거나 답변에 보여 주지 않습니다.",
         "2. 방향만 말하면('한 단계 좋은 걸로 바꿔줘', '더 싼 걸로') preview_swap(direction='up'/'down') 으로 바로 다음 단계 후보를 찾아 그 candidate_id 로 swap 합니다. "
         "'⚠ 요구 사양' 표시가 있는 후보는 바꾸지 말고 그 사실을 알립니다. 사용자가 고른 이름이 여럿에 해당하면 이름·가격을 나열하고 고르게 합니다.",
-        "3. '빼줘/필요 없어' → remove_or_restore(false). '2개로' → set_qty. "
+        "3. '빼줘/필요 없어' → remove_or_restore(false). '2개로' → set_qty. '하나 더 달아줘', 'SSD 1개 더 추가해줘'처럼 같은 부품을 더 달라는 말은 "
+        "교체가 아니라 수량 추가라 set_qty(지금 수량 + 더할 개수) — swap 하지 않습니다. "
         "한 문장에 부품 여러 개가 나오면 각 부품에 그 부품 앞뒤에 붙은 요청만 적용하고 도구를 따로 부릅니다.",
         "4. '왜 이거?', '이유가 뭐야?', '이거 괜찮아?', '믿을 만해?' 처럼 지금 부품의 근거를 묻는 말에는 **반드시 explain 을 먼저 부르고** 그 내용만 전합니다. "
         "저장된 추천 이유가 없어도 explain 이 준 가격·예산 비중·검증 쟁점·리뷰 관측은 전합니다. "
         "'추천 당시 점수 근거'가 있으면 후보 중 순위와 리뷰에서 긍정·부정이 몇 건이었는지를 쉬운 말로 전하고(리뷰 문장은 짧게 하나), "
         "가격·성능·밸런스 점수가 몇 점이었는지는 도구 결과에 없으므로 지어내지 않습니다.",
         "5. '바꿔도 돼?', '바꾸면 괜찮을까?', '올려도 문제없어?', '32기가로 늘려도 돼?' 처럼 **바꿔도 되는지 묻는 말은 교체 요청이 아닙니다**. "
-        "preview_swap(특정 제품이면 candidate_id, '더 좋은 걸로/한 단계 올리면'이면 direction='up')으로 가정 결과만 확인해 차액·예산 초과 여부·요구 사양·호환 점검(전력 포함) 결과를 전한 뒤 '바꿔 드릴까요?'로 묻습니다. swap·set_qty 를 부르지 않습니다.",
+        "preview_swap(특정 제품이면 candidate_id, '더 좋은 걸로/한 단계 올리면'이면 direction='up')으로 가정 결과만 확인해 차액·예산 초과 여부·요구 사양·호환 점검(전력 포함) 결과를 전한 뒤 '바꿔 드릴까요?'로 묻습니다. swap·set_qty 를 부르지 않습니다. "
+        "'하나 더 달아도 돼?', 'SSD 1테라 더 달아도 됨'처럼 같은 부품을 더 달아도 되는지 묻는 말은 교체가 아니라 수량 추가라 "
+        "preview_qty(slot, 지금 수량 + 1)로 차액·예산·슬롯 점검을 전한 뒤 '추가해 드릴까요?'로 묻습니다.",
         "6. '돈 남았는데 뭐 바꿀까', '남은 예산으로 업그레이드', 'N만원 더 쓰면' → upgrade_options. '예산을 N원으로 늘려줘'처럼 새 총예산을 말하면 upgrade_options(new_budget=N) — "
         "조건의 예산 자체는 이 화면에서 못 바꾸고 화면의 '조건 바꾸기'에서 바꾼다고 한 번 말하고 그 금액 기준 후보를 보여 줍니다. 결과의 순서와 후보를 그대로 전하고, 사용자가 고르기 전에는 바꾸지 않습니다.",
         # 6번 문장 뒤에 이어 붙였더니 "가격에 맞게 예산 줄여줘"에 RAM 을 바꾸는 일이 생겼다(10/8 평가 D-1 2/4) — 따로 둔다
@@ -906,7 +934,7 @@ def swap_arithmetic_sign_errors(reply: str, result: dict, outputs: list[str]) ->
     return bad
 
 
-_READ_TOOLS = ("preview_swap(", "upgrade_options(", "budget_reason(", "savings_options(", "check_build(", "game_check(",
+_READ_TOOLS = ("preview_swap(", "preview_qty(", "upgrade_options(", "budget_reason(", "savings_options(", "check_build(", "game_check(",
               "search_unavailable_part(")
 
 

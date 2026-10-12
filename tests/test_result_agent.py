@@ -160,7 +160,7 @@ def test_strands_registers_change_and_question_tools():
     tools = ra.make_tools(_session())
     assert [t.tool_name for t in tools] == [
         "list_alternatives", "swap", "set_qty", "remove_or_restore", "explain",
-        "preview_swap", "upgrade_options", "savings_options", "check_build", "game_check",
+        "preview_swap", "preview_qty", "upgrade_options", "savings_options", "check_build", "game_check",
         "search_unavailable_part"]
     swap_spec = next(t for t in tools if t.tool_name == "swap").tool_spec
     assert set(swap_spec["inputSchema"]["json"]["required"]) == {"slot", "candidate_id"}
@@ -295,14 +295,17 @@ _ASK = ("CPU 더 성능 좋은 걸로 바꿔도 문제없을까?", "램 32기가
         "그래픽카드 한 단계 올리면 파워는 괜찮아?",
         # 실제 말투 (2026-10-02 — 예전 정규식은 이 7개 중 1개만 잡았다)
         "글카 갈아타도됨?", "cpu 7600x로 가면 괜찮음?", "램 32로 ㄱㄱ?", "그래픽 올리는거 어케생각함",
-        "파워 바꾸는거 ㄱㅊ?", "씨퓨 업글 해도 무방?", "SSD 1테라 더 달아도 됨")
+        "파워 바꾸는거 ㄱㅊ?", "씨퓨 업글 해도 무방?", "SSD 1테라 더 달아도 됨", "SSD 하나 더 달아도 돼?",
+        "SSD 추가하면 어때?")
 _CHANGE = ("CPU 한 단계 좋은 걸로 바꿔줘", "그래픽카드도 바꿔줘", "SSD 2개로", "SSD 2개로 해줘", "쿨러 빼줘",
            "그래픽카드 더 싼 걸로 바꿔줄래?", "응 그걸로 바꿔줘", "ㅇㅇ", "응", "네", "7600X로", "그걸로 ㄱㄱ",
            "예산 200만원으로 늘려줘", "그래픽카드 더 저렴한 걸로", "글카 4060ti로 바꿔주세요", "글카 한단계 위로 바꿔주셈",
            # 10/3 리허설 대본 (P1-5 여러 턴 회귀 — 앞 턴 제안을 받는 말, 방향만 말하는 교체)
            "응 그렇게 바꿔줘", "그걸로 바꿔줘", "램이 너무 비싼데 좀 더 싼 걸로 바꿔줘", "CPU를 7600X로 바꿔줘",
            # 반말 명령 (10/8 팀 시연 — '줘'가 없어 other 로 빠지던 것)
-           "GPU 바꿔", "그래픽카드 더 좋은 걸로 바꿔", "쿨러 빼", "램 32기가로 올려!", "모든걸 더 비싼걸로 바꿔")
+           "GPU 바꿔", "그래픽카드 더 좋은 걸로 바꿔", "쿨러 빼", "램 32기가로 올려!", "모든걸 더 비싼걸로 바꿔",
+           # 같은 부품을 더 다는 말 (10/12 — '달아줘'·'추가해줘'가 other 로 빠져 수량 변경이 막히던 것)
+           "SSD 하나 더 달아줘", "SSD 1개 더 추가해줘", "램 하나 더 꽂아줘", "SSD 추가해 주세요", "SSD 하나 더 달아")
 _OTHER = ("돈 남았는데 바꿀 거 추천해 줄 수 있나?", "왜 이 그래픽카드 골랐어?", "이 구성 괜찮아?", "파워 용량 충분해?",
           "이 글카 ㄱㅊ?", "쿨러 꼭 사야 돼?", "인텔이랑 AMD 차이가 뭐야?", "남는돈으로 머 올리지",
           # 10/3 리허설 대본 — "그대로 두고"·거절·가정 질문은 구성표를 바꾸지 않는다
@@ -353,6 +356,8 @@ def test_read_only_turn_refuses_writes_without_touching_db():
     assert s.set_item("RAM", qty="2").startswith("거절")
     assert s.swap("GPU", str(uuid4())).startswith("거절")
     assert not s.changed and len(s.outputs) == 2
+    # 수량 변경을 거절당하면 교체 가정(preview_swap)으로 넘어가 "하나 더 달기"를 교체로 답했다(10/12 평가 시트 3/3)
+    assert "preview_qty" in s.outputs[0] and "preview_qty" not in s.outputs[1]
 
 
 def test_whatif_question_skips_why_prefetch(monkeypatch):
