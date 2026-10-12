@@ -17,6 +17,7 @@ export default function PlannerShell({ chatTitle, placeholder, sidebar, children
           <NavLink to="/start" className={pcActive}>새 컴퓨터 본체</NavLink>
           <NavLink to="/check" className={pcActive}>받은 견적 점검</NavLink>
           <NavLink to="/peripherals" className={pcActive}>주변기기 견적</NavLink>
+          <NavLink to="/community" className={pcActive}>커뮤니티</NavLink>
         </nav>
         <div className="pl-spacer" />
         <ThemeToggle />

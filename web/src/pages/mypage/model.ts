@@ -10,11 +10,6 @@ export const PC_FIELDS = [
 export type PcKey = typeof PC_FIELDS[number][0]
 export type PcParts = Partial<Record<PcKey, string>>
 
-export const PC_PLACEHOLDERS: Record<PcKey, string> = {
-  cpu: 'Ryzen 5 5600', gpu: 'RTX 3060 12GB', ram: 'DDR4 16GB', storage: 'NVMe SSD 500GB',
-  board: 'B550M', psu: '650W 80PLUS Bronze', cooler: '기본 쿨러', case: '미들타워',
-}
-
 export interface MyPc { parts: PcParts; source: string; title: string; savedAt: string }
 
 /** 부품 이름표("CPU 쿨러", "그래픽카드"…)를 칸으로 옮긴다. "CPU 쿨러"는 CPU 보다 먼저 본다. */
