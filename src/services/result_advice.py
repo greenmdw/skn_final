@@ -642,7 +642,9 @@ def pick_basis(conn, revision_id: UUID, slot: str, variant_id) -> list[str]:
     조회하거나 다른 축(가격·성능)을 다시 채점하지는 않는다 — snapshot 에 없는 값이라 지어내게 된다.
     전에는 explain 이 상품 단위 리뷰 요약만 읽어 "저장된 추천 이유와 리뷰 관측은 없습니다"로 답했다(실패 9, 10/2)."""
     from src.engine.stage2_requirement import load_computer_rules
+    from src.engine.score_policy import ScoreInputError, validate_axis_weights
     from src.engine.stage3b_rank import _weights_for
+    from src.services import fit_score
     from src.services.recommendation_review_snapshot import cached_snapshot
     from src.services.recommendation_service import _require_done_run
 
@@ -655,18 +657,38 @@ def pick_basis(conn, revision_id: UUID, slot: str, variant_id) -> list[str]:
     if me is None:
         return ["추천 당시 점수 근거: 이 부품은 추천 당시 후보에 없던 부품이라 점수가 없음"]
     lines = []
-    weights, _ = _weights_for(snap.get("request_conditions") or {}, load_computer_rules()["ranking"])
+    versions = run.get("engine_versions")
+    # 점수 비중은 추천 당시 snapshot 에 저장된 가중치를 쓴다(현재 규칙으로 다시 계산하지 않는다). 옛 snapshot 에는 없어 그때만 기존 계산.
+    weights = me.get("rank_weights")
+    try:
+        validate_axis_weights(weights, "snapshot 가중치")
+    except ScoreInputError:
+        weights = None
+    if weights is None:
+        weights, _ = _weights_for(snap.get("request_conditions") or {}, load_computer_rules()["ranking"])
     shares = " · ".join(f"{axis} {round(w * 100)}%" for axis, w in sorted(weights.items(), key=lambda kv: -kv[1]) if w)
     lines.append(f"추천 엔진 점수 비중: {shares}")
+
+    def fit_of(c: dict) -> dict:
+        return fit_score.fit_for_item(snap, versions, variant_id=c["variant_id"], product_id=c["product_id"], slot=c["slot"])
+
+    def total_text(c: dict) -> str:
+        fit = fit_of(c)
+        if fit["status"] == "scored":
+            return f"총점 {fit['score']:.1f}점(100점 만점)"
+        if fit["status"] == "legacy_method":
+            return "총점은 옛 점수 방식이라 100점으로 표시하지 않음"
+        return "총점은 추천 당시 점수 기록이 유효하지 않아 표시하지 못함"
+
     pool = sorted((c for c in cands.values() if c.get("slot") == me.get("slot")), key=lambda c: -c["rank_score"])
     rank = next(i for i, c in enumerate(pool, 1) if c is me)
-    line = f"이 슬롯 후보 {len(pool)}개 중 점수 {rank}위(총점 {me['rank_score']:.3f})"
+    line = f"이 슬롯 후보 {len(pool)}개 중 점수 {rank}위({total_text(me)})"
     if rank > 1:
         top = pool[0]
         name = conn.execute(
             "SELECT p.name FROM catalog.product_variant v JOIN catalog.product p ON p.id=v.product_id WHERE v.id=%s",
             (top["variant_id"],)).fetchone()
-        line += (f" — 1위는 {name[0] if name else '다른 후보'}(총점 {top['rank_score']:.3f}). 엔진은 슬롯마다 1위를 따로 "
+        line += (f" — 1위는 {name[0] if name else '다른 후보'}({total_text(top)}). 엔진은 슬롯마다 1위를 따로 "
                  "고르지 않고 예산·호환을 지키는 조합 가운데 점수 합이 가장 높은 것을 고르므로 1위가 아닌 부품이 들어갈 수 있음")
     if str(variant_id) != (snap.get("selected") or {}).get(slot):
         line += " · 추천 뒤 채팅에서 바꾼 부품"
@@ -676,8 +698,12 @@ def pick_basis(conn, revision_id: UUID, slot: str, variant_id) -> list[str]:
     seen = [c for c in contribs if (c.get("p", 0) + c.get("n", 0) + c.get("mixed", 0)) > 0]
     empty = [c for c in contribs if c not in seen]
     value = float(detail.get("value", 0.5))
+    if fit_of(me)["status"] == "scored":
+        contribution = f"{fit_score.display_points(me['rank_contribution']):.1f}점"
+    else:
+        contribution = f"{me['rank_contribution']:.3f}"          # 옛 방식(0~1) 값은 100점으로 바꾸지 않는다
     lines.append(f"리뷰 점수 {value:.2f}(0~1, 관측이 없으면 중립 0.50) · 비중 {round(me['rank_weight'] * 100)}%라 "
-                 f"총점 기여 {me['rank_contribution']:.3f}")
+                 f"총점 기여 {contribution}")
     for c in seen:
         label = f"{ASPECT_LABEL.get(c['aspect_code'], c['aspect_code'])}({CONTEXT_LABEL.get(c['context_code'], c['context_code'])})"
         counts = f"긍정 {c.get('p', 0)}·부정 {c.get('n', 0)}" + (f"·엇갈림 {c['mixed']}" if c.get("mixed") else "")

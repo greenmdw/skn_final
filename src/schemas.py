@@ -113,7 +113,7 @@ class ResultStatusOut(BaseModel):
     # 부품표는 done 인데 요약·이유·사용 가이드 중 아직 오는 것이 있으면 true
     postprocess_pending: bool = False
     result_version: str
-    error: dict | None = None
+    error: RecommendErrorOut | None = None
 
 
 # ── PC 견적 점검: 사양 텍스트 매칭 미리보기 (세션 없이 호출) ──
@@ -797,6 +797,26 @@ class RecommendationReviewOut(BaseModel):
     detail: ReviewScoreDetailDTO | None = None
 
 
+class FitAxisOut(BaseModel):
+    """축별 추천 적합도(100점 표시). `weighted_points` 는 가중치를 곱한 기여분이며, 합이 100%인 `explanation.contribution` 과 다른 값이다."""
+    axis: str
+    points: float
+    weight: float
+    weighted_points: float
+
+
+class FitOut(BaseModel):
+    """추천 적합도 — 리뷰 계산 snapshot 의 반올림 없는 원본에서 한 번만 반올림한 0~100점. 예산 비중(budget_share)과 별개다.
+
+    scored: score·axes 가 있다 / legacy_method: 옛 방식 run 이라 점수를 100점으로 바꾸지 않는다 /
+    unavailable: 새 방식인데 snapshot 값이 없거나 유효하지 않다(reason 코드)."""
+    status: Literal["scored", "legacy_method", "unavailable"] = "unavailable"
+    score: float | None = None
+    axes: list[FitAxisOut] = Field(default_factory=list)
+    method_version: str | None = None
+    reason: str | None = None       # snapshot_missing | candidate_not_in_snapshot | invalid_snapshot | snapshot_identity_mismatch
+
+
 class ItemOut(BaseModel):
     item_id: str
     slot: str
@@ -811,6 +831,7 @@ class ItemOut(BaseModel):
     review: ReviewBriefOut | None = None
     review_detail: RecommendationReviewOut = Field(default_factory=RecommendationReviewOut)
     original_review_detail: RecommendationReviewOut | None = None
+    fit: FitOut = Field(default_factory=FitOut)
     reason: TextStatusOut
     checks: TextStatusOut
     # 사용 가이드 검색 상태(pending | ready | failed | unavailable). checks.status 는 코드 점검 문구 때문에 항상 ready 다.
@@ -823,6 +844,10 @@ class TotalsOut(BaseModel):
     selected_units: int
     budget_remaining: int | None = None
     over_budget: bool = False
+    # 점수가 있는 선택 부품의 snapshot 원본 점수 평균(100점 표시). of 는 선택된 부품 수, count 는 그중 점수가 있는 수.
+    avg_fit_score: float | None = None
+    avg_fit_score_count: int = 0
+    avg_fit_score_of: int = 0
 
 
 class VerificationIssueOut(BaseModel):
@@ -950,8 +975,30 @@ class SpecFileIn(BaseModel):
 
 
 class RecommendErrorOut(BaseModel):
+    """code: candidates_insufficient(슬롯별 후보 부족 — slots 에 사유·보완 시도) | recommend_failed(일반 실패)."""
     code: str
     message: str
+    slots: dict[str, Any] = Field(default_factory=dict)
+
+
+class EligibilityOut(BaseModel):
+    """추천 적격성(저장된 "추천 적격성" 단계). not_recommendable 이면 정상 추천이 아니라 확인용 구성이다.
+    reasons[].missing 은 필수 호환 정보 미확인(required_info_missing)의 구매·유지 부품 슬롯·키다. 현재 상태의 기준은 이 필드다 —
+    요약 문장(explanation)은 엔진이 처음 고른 구성 기준이라 교체 뒤에도 다시 쓰지 않는다."""
+    status: str                                   # recommendable | not_recommendable
+    detail: str = ""
+    reasons: list[dict[str, Any]] = Field(default_factory=list)   # code, axes, text, missing?
+    enrichment: dict[str, Any] | None = None
+
+
+class MarginsOut(BaseModel):
+    """조합 여유(저장된 "조합 여유" 단계) — 전력·크기·냉각 여유의 수치·단위·계산식·출처. 점수·통과 보장이 아니다."""
+    model_config = ConfigDict(extra="allow")
+    detail: str = ""
+    version: Any = None
+    power: dict[str, Any] = Field(default_factory=dict)
+    size: dict[str, Any] = Field(default_factory=dict)
+    cooling: Any = None
 
 
 class CompatCheckOut(BaseModel):
@@ -992,6 +1039,8 @@ class RecommendResultOut(BaseModel):
     verification: VerificationOut = Field(default_factory=lambda: VerificationOut(status="pending"))
     compat_checks: list[CompatCheckOut] = Field(default_factory=list)     # PC 호환 검사별 상세 (done 일 때만)
     explanation: ExplanationOut = Field(default_factory=lambda: ExplanationOut(status="pending"))
+    eligibility: EligibilityOut | None = None          # PC 추천 적격성 (done 일 때만, 없으면 None)
+    margins: MarginsOut | None = None                  # PC 조합 여유 (done 일 때만, 없으면 None)
     budget_notice: BudgetNoticeOut | None = None       # 예산이 많이 남았고 그 이유가 우선순위일 때만 (done 일 때만)
     reasoning_log: list[dict] = Field(default_factory=list)
     data_notice: str = "상품·가격·리뷰는 합성 데이터입니다."

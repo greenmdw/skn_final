@@ -154,9 +154,20 @@ def start_recommendation(
         input_snapshot=input_snapshot,
         input_hash=input_hash,
         draft_lock_version=revision["lock_version"],
-        engine_versions={"pipeline": "computer-v1"},
+        engine_versions=_engine_versions(category),
     )
     return {"run_id": str(run_id), "status": "running"}
+
+
+def _engine_versions(category: str) -> dict:
+    """run 의 엔진 버전 기록. PC 는 규칙 버전과 점수 방식을 함께 남긴다 — score_method 가 있으면 새 방식 run 이고
+    결과의 부품 적합도(fit)를 snapshot 원본에서 읽는다(없으면 legacy_method)."""
+    versions = {"pipeline": "computer-v1"}
+    if category == "computer":
+        from src.engine.stage2_requirement import load_computer_rules
+        rules = load_computer_rules()
+        versions.update(computer_rules=rules["rule_set_version"], score_method=rules["ranking"]["score_method"])
+    return versions
 
 
 def _retry_on_pool_timeout(fn, attempts: int = 6, wait: float = 1.0):
@@ -403,7 +414,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
                 offer_observation_id = UUID(item.offer_observation_id)
                 candidate_id_by_slot[item.slot] = erepo.add_candidate(
                     run_id, req_id_by_slot[item.slot], variant_id, result="selected",
-                    score=item.score, score_method_version="v1", reason=None,
+                    score=item.score, score_method_version=computer_rules["ranking"]["score_method"], reason=None,
                     offer_observation_id=offer_observation_id, qty=item.qty,
                 )
                 variant_id_by_slot[item.slot] = variant_id
@@ -612,6 +623,22 @@ def _margins_step(margins: dict) -> dict:
     """reasoning_log 의 "조합 여유" 단계 — 새 컬럼 없이 전력·크기·냉각 여유 기록(입력·출처·계산식 포함)을 남긴다."""
     return {"step": build_margins.MARGINS_STEP, "title": build_margins.MARGINS_STEP,
             "detail": build_margins.margins_summary_text(margins), "margins": margins}
+
+
+def _eligibility_out(step: dict | None) -> dict | None:
+    """저장된 "추천 적격성" 단계 → API 모양. 사유마다 사용자 문장(text)을 코드가 붙인다. 단계가 없으면(옛 run) None."""
+    if not isinstance(step, dict) or "status" not in step:
+        return None
+    reasons = [{**r, "text": elig.reason_text(r)} for r in step.get("reasons") or []]
+    return {"status": step["status"], "detail": step.get("detail") or "", "reasons": reasons,
+            "enrichment": step.get("enrichment")}
+
+
+def _margins_out(step: dict | None) -> dict | None:
+    """저장된 "조합 여유" 단계 → API 모양(저장된 값을 그대로 — 다시 계산하지 않는다). 단계가 없으면 None."""
+    if not isinstance(step, dict) or not isinstance(step.get("margins"), dict):
+        return None
+    return {**step["margins"], "detail": step.get("detail") or ""}
 
 
 def _replaced_since_build(erepo, run_id: UUID, candidate_id_by_slot: dict[str, UUID],
@@ -905,6 +932,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
     run = erepo.get_latest_run_light(revision_id)
     if run is None:
         return None
+    from src.services import fit_score
     from src.services.recommendation_review_snapshot import (
         cached_snapshot, original_review, review_for_candidate,
     )
@@ -949,6 +977,13 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
     # 추적 기록(화면용)은 설명이 끝난 뒤에만 있다 — 설명 대기 중 폴링에서는 읽지 않는다. 리뷰 계산 snapshot(약 780KB)은 응답에 싣지 않는다.
     trace = [] if (run.get("explanation_status") or "pending") == "pending" else erepo.get_run_trace(run["id"])
     result["reasoning_log"] = trace
+    # 적격성·여유는 complete_run 전에 저장되므로 설명이 pending 이어도 보여 준다 — trace 를 읽었으면 거기서, 아니면 두 단계만 읽는다.
+    if trace:
+        steps = {step.get("step"): step for step in trace if isinstance(step, dict)}
+    else:
+        steps = erepo.get_run_steps(run["id"], [elig.ELIGIBILITY_STEP, build_margins.MARGINS_STEP])
+    result["eligibility"] = _eligibility_out(steps.get(elig.ELIGIBILITY_STEP))
+    result["margins"] = _margins_out(steps.get(build_margins.MARGINS_STEP))
     candidates_by_slot = prodrepo.candidates_by_slot()
     items = []
     candidate_rows = erepo.get_candidates(run["id"])
@@ -983,6 +1018,10 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
             "original_review_detail": original_review(
                 review_snapshot, slot=row["slot"], current_variant_id=row["variant_id"],
             ),
+            "fit": fit_score.fit_for_item(
+                review_snapshot, run.get("engine_versions"), variant_id=row["variant_id"],
+                product_id=row["product_id"], slot=row["slot"],
+            ),
             "reason": {"status": row["reason_status"], "text": row["reason"]},
             "checks": {"status": row["checks_status"], "text": row["checks"]},
             # 사용 가이드 검색의 진행 상태. checks.status 는 아래 _item_checks 가 코드 점검 문구를 합치며 항상 ready 로 덮으므로
@@ -1002,6 +1041,9 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
         "budget_remaining": (budget_max - selected_price) if budget_max else None,
         "over_budget": bool(budget_max and selected_price > budget_max),
     }
+    avg = fit_score.avg_fit(review_snapshot, run.get("engine_versions"),
+                            [row for row in candidate_rows if row["selected"] is not False])
+    result["totals"].update(avg_fit_score=avg["score"], avg_fit_score_count=avg["count"], avg_fit_score_of=avg["of"])
 
     result["budget_notice"] = budget_notice(result["totals"], values)
 

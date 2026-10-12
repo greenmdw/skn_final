@@ -1,5 +1,6 @@
 """Review API contract, immutable provenance, and frozen report regressions."""
 import copy
+import math
 import os
 from types import SimpleNamespace
 from uuid import uuid4
@@ -33,9 +34,11 @@ def _snapshot(state="observed", p=1, n=0, mixed=0):
                        if p else [],
         }],
     }
-    candidate = {"variant_id": variant, "product_id": product, "score": .7,
-                 "breakdown": {"리뷰": q}, "review_detail": detail}
-    rank = SimpleNamespace(weights_used={"리뷰": .2}, slots={"GPU": {"pool": [candidate]}})
+    weights, breakdown = {"가격": .45, "성능": .35, "리뷰": .2}, {"가격": .8, "성능": .6, "리뷰": q}
+    candidate = {"variant_id": variant, "product_id": product,
+                 "score": math.fsum(weights[a] * breakdown[a] for a in weights),
+                 "breakdown": breakdown, "review_detail": detail}
+    rank = SimpleNamespace(weights_used=weights, slots={"GPU": {"pool": [candidate]}})
     build = SimpleNamespace(items=[SimpleNamespace(slot="GPU", variant_id=variant)])
     step = snapshot_step(rank, build, run, {"purpose": "game", "noise_sensitive": True})
     return snapshot_from_run({"reasoning_log": [step]}), product, variant, run

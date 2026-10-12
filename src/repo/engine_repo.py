@@ -151,6 +151,17 @@ class EngineRepo(Repo):
             "WHERE r.id=%s AND e->>'step' = %s LIMIT 1", (run_id, step))
         return row["step"] if row else None
 
+    def get_run_steps(self, run_id: UUID, names: list[str]) -> dict[str, dict]:
+        """이름이 names 에 있는 단계들만 {이름: 단계}로 읽는다(적격성·여유처럼 설명이 끝나기 전에도 보여 줄 작은 항목용 —
+        큰 snapshot 은 SQL 에서 걸러 앱으로 오지 않는다). 같은 이름이 여럿이면 앞의 것."""
+        rows = self._all(
+            "SELECT e AS step FROM engine.recommendation_run r, jsonb_array_elements(r.reasoning_log) e "
+            "WHERE r.id=%s AND e->>'step' = ANY(%s)", (run_id, list(names)))
+        out: dict[str, dict] = {}
+        for row in rows:
+            out.setdefault(row["step"]["step"], row["step"])
+        return out
+
     def get_run_snapshot_steps(self, run_id: UUID) -> list[dict]:
         from src.services.recommendation_review_snapshot import SNAPSHOT_STEP
         row = self._one(

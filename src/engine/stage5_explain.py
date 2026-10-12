@@ -98,7 +98,8 @@ def explain_manual(service, request):
 
 
 def _contribution(build: BuildResult, rank: RankResult | None) -> dict[str, int]:
-    """고른 구성이 [3-B] 점수를 어느 축에서 얻었는지(%, 합 100).
+    """고른 구성이 [3-B] 점수를 가격·성능·리뷰 세 축 중 어디서 얻었는지(%, 합 100) — 전체 기여분 안의 비중이다.
+    사용자 표시용 축별 점수(100×축 점수)·기여분(100×가중치×축 점수)은 이 값이 아니라 결과 API 의 items[].fit 이다.
 
     후보 점수 = Σ 축 가중치 × 축 값(breakdown). 고른 부품마다 그 항을 축별로 더해 전체 대비 비율로 낸다.
     (축이 아닌 임시 보정 — 검토 보류 감점 등 — 은 여기엔 안 들어간다.)

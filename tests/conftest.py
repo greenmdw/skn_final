@@ -181,7 +181,7 @@ def pytest_terminal_summary(terminalreporter):
 _REVIEW_SUCCESS_MODULES = {
     'test_alternatives_compat', 'test_budget_warning_and_contribution_http',
     'test_chat08_result_history', 'test_confirm_qty_timing_http', 'test_confirm_reason_fallback',
-    'test_feedback_events', 'test_history_journey', 'test_list_history_http',
+    'test_feedback_events', 'test_fit_score', 'test_history_journey', 'test_list_history_http',
     'test_list_revisions_http', 'test_list_service', 'test_notification_acc02',
     'test_peripheral_line_confirm_http', 'test_peripherals_recommend_http',
     'test_pipeline_http_smoke', 'test_postprocess_swap_race', 'test_preference_signal', 'test_quote_apply',

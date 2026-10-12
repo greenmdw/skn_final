@@ -1238,8 +1238,8 @@ def build_computer(
     return BuildResult(
         list_id=spec.list_id,
         items=picked,
-        totals={"price": total, "power_w": (cpu_w + gpu_w) if cpu_w is not None and gpu_w is not None else None, "avg_score": round(
-            sum(i.score for i in picked) / max(1, len(picked)), 3)},
+        totals={"price": total, "power_w": (cpu_w + gpu_w) if cpu_w is not None and gpu_w is not None else None, "avg_score": (
+            math.fsum(i.score for i in picked) / len(picked) if picked else 0.0)},
         budget={"max": budget, "used": total, "used_pct": used_pct,
                 "slack": (budget - total) if budget else 0},
         link_check=link_check,
