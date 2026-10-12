@@ -93,7 +93,7 @@ _TOTALS_NOTE = "PC 예산과 별도"
 _JUDGE_TO_STATE = {"확인 필요": "unknown", "위반": "fail"}
 
 # requirement[].label — hard(resolution_class/refresh_min_hz)와 config/peripherals.yaml
-# requirements.<kind>.soft가 실제로 쓰는 pref 키(계획 §3.3 E10 표)만 담는다. 여기 없는 키는
+# spec_conditions 가 실제로 쓰는 pref 키만 담는다. 여기 없는 키는
 # axis_label과 같은 원칙으로 키 이름을 그대로 라벨로 쓴다(모르는 키를 지어내지 않는다).
 _REQUIREMENT_KEY_LABEL: dict[str, str] = {
     "resolution_class": "요구 해상도 등급",
@@ -106,6 +106,21 @@ _REQUIREMENT_KEY_LABEL: dict[str, str] = {
     "connectivity_wireless": "무선 연결",
     "power_source_raw": "전원 방식",
     "channels": "채널 수",
+    "connectivity_bluetooth": "블루투스 연결",
+    "weight_g": "무게(g)",
+    "size_longest_mm": "가장 긴 변(mm)",
+    "size_height_mm": "높이(mm)",
+    "button_count": "버튼 수",
+    "form_factor_raw": "형태",
+    "resolution_h": "세로 해상도(px)",
+    "refresh_hz": "주사율(Hz)",
+    "response_ms_gtg": "응답속도(ms)",
+    "screen_size_inch": "화면 크기(인치)",
+    "brightness_nit": "밝기(nit)",
+    "usb_c_video": "USB-C 영상 입력",
+    "usb_c_power_w": "USB-C 충전(W)",
+    "output_w": "출력(W)",
+    "speaker_form_raw": "스피커 형태",
 }
 
 
@@ -157,6 +172,11 @@ def _requirement_rows(req: PeripheralRequirement) -> list[dict[str, Any]]:
         rows.append({"key": "refresh_min_hz", "label": _requirement_label("refresh_min_hz"),
                      "value": f"{int(req.hard['refresh_min_hz'])}Hz 이상"})
 
+    # 사용자가 직접 말해서 거르는 조건 → 그다음 목적·상황에서 풀린 선호(중복 제거, 설정 순서 유지)
+    for pref in spec_rules.dedupe_prefs(req.filters or []):
+        rows.append({"key": pref["key"], "label": _requirement_label(pref["key"]),
+                     "value": _fmt_pref_value(pref)})
+
     soft_prefs = spec_rules.dedupe_prefs((req.soft or {}).get("preferences") or [])
     for pref in soft_prefs:
         rows.append({"key": pref["key"], "label": _requirement_label(pref["key"]),
@@ -188,7 +208,7 @@ def _reason_text(kind_label: str, req: PeripheralRequirement, cand: Candidate, s
         parts.append(f"{int(req.hard['refresh_min_hz'])}Hz 이상")
     goal = " ".join(parts)
 
-    has_hard = bool(req.hard)
+    has_hard = bool(req.hard or req.filters)
     has_soft = bool((req.soft or {}).get("preferences"))
     kept = int(stats.get("pass", 0)) + int(stats.get("pending", 0))
 

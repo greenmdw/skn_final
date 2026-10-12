@@ -107,6 +107,9 @@ def build_peripheral_specs(kind: str, row: dict, rules: dict | None = None) -> d
             specs["resolution_w"] = resolution["w"]
             specs["resolution_h"] = resolution["h"]
             specs["resolution_class"] = resolution["class"]
+        usb_c_video = pp.parse_usb_c_video(specs.get("usb_c_video_input_raw"))
+        if usb_c_video is not None:
+            specs["usb_c_video"] = usb_c_video
     elif kind == "mouse":
         dpi_max = pp.parse_dpi_max(specs.get("dpi_range_raw"))
         if dpi_max is not None:
@@ -114,11 +117,17 @@ def build_peripheral_specs(kind: str, row: dict, rules: dict | None = None) -> d
         polling_max = pp.parse_polling_hz_max(specs.get("polling_rate_raw"))
         if polling_max is not None:
             specs["polling_hz_max"] = polling_max
+        button_count = pp.parse_button_count(specs.get("button_count_raw"))
+        if button_count is not None:
+            specs["button_count"] = button_count
     elif kind == "keyboard":
         switch = pp.parse_switch(specs.get("switch_kind_raw"), specs.get("switch_method_raw"))
         for switch_key in ("clicky", "magnetic", "low_profile"):
             if switch[switch_key] is not None:
                 specs[f"switch_{switch_key}"] = switch[switch_key]
+        height = pp.parse_size_height_mm(specs.get("size_mm_raw"))
+        if height is not None:
+            specs["size_height_mm"] = height
     elif kind == "speaker":
         channels = pp.parse_channels(specs.get("channels_raw"))
         if channels is not None:
@@ -128,6 +137,9 @@ def build_peripheral_specs(kind: str, row: dict, rules: dict | None = None) -> d
             specs["output_w"] = output_w
 
     if kind in ("keyboard", "mouse", "speaker"):
+        longest = pp.parse_size_longest_mm(specs.get("size_mm_raw"))
+        if longest is not None:
+            specs["size_longest_mm"] = longest
         connectivity = pp.parse_connectivity(specs.get("connectivity"), specs.get("connectivity_interface"))
         for conn_key in ("wired", "wireless", "bluetooth"):
             if connectivity[conn_key] is not None:

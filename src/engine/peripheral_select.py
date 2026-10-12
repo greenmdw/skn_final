@@ -65,13 +65,17 @@ def _hard_prefs(hard: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def filter_candidates(
-    kind: str, requirement: PeripheralRequirement, cands: list[Candidate],
+    kind: str, requirement: PeripheralRequirement, cands: list[Candidate], *, max_price: int | None = None,
 ) -> tuple[list[Candidate], dict[str, int]]:
-    """[3-A]. hard 조건이 없는 종류(키보드·마우스·스피커)는 전부 Pass다."""
-    prefs = _hard_prefs(requirement.hard)
+    """[3-A]. hard·filters 조건이 없는 종류는 전부 Pass다. `filters`(사용자가 직접 말한 조건)는 hard 와 같이
+    판정한다 — 값이 없으면 Pending 이고 탈락시키지 않는다. `max_price`(종류별 예산)를 넘는 후보는 뺀다."""
+    prefs = _hard_prefs(requirement.hard) + list(requirement.filters)
     kept: list[Candidate] = []
-    counts = {"pool": len(cands), "pass": 0, "fail": 0, "pending": 0}
+    counts = {"pool": len(cands), "pass": 0, "fail": 0, "pending": 0, "over_price": 0}
     for cand in cands:
+        if max_price is not None and cand.price > max_price:
+            counts["over_price"] += 1
+            continue
         if not prefs:
             kept.append(cand.model_copy(update={"verdict": "Pass", "reasons": ["PASS"]}))
             counts["pass"] += 1
@@ -202,12 +206,19 @@ def choose(
     return cheapest[0], counts
 
 
-def _empty_reason(kind: str, requirement: PeripheralRequirement, rules: dict, pool: int) -> str:
-    """필터 후 0건일 때 화면에 보일 이유 문장(계획 §3.3 C6). 후보 자체가 없는 것과 하드
-    조건에 걸려 전부 떨어진 것을 구분한다."""
+def _empty_reason(
+    kind: str, requirement: PeripheralRequirement, rules: dict, stats: dict[str, int], max_price: int | None = None,
+) -> str:
+    """필터 후 0건일 때 화면에 보일 이유 문장(계획 §3.3 C6). 후보 자체가 없는 것, 예산에 걸린 것,
+    하드 조건에 걸려 전부 떨어진 것을 구분한다."""
     label = kind_def(kind, rules)["label"]
+    pool = stats["pool"]
     if pool == 0:
         return f"{label} 후보 자체가 카탈로그에 없습니다"
+    if max_price is not None and stats.get("over_price") == pool:
+        return f"예산 {max_price:,}원 안에 드는 {label}가 카탈로그에 없습니다"
+    if requirement.filters and not requirement.hard:
+        return f"말씀하신 조건에 맞는 {label}가 카탈로그에 없습니다"
     hard = requirement.hard
     if hard:
         classes = hard.get("resolution_class")
@@ -254,11 +265,12 @@ def run_peripherals(
     for kind in kinds:
         cands = candidates.get(kind, [])
         req = requirements[kind]
-        kept, stats = filter_candidates(kind, req, cands)
+        kind_budget = (values.get("peripheral_kind_budget") or {}).get(kind)
+        kept, stats = filter_candidates(kind, req, cands, max_price=kind_budget)
         counts[kind] = stats
         label = kind_def(kind, rules)["label"]
         if not kept:
-            reason = _empty_reason(kind, req, rules, stats["pool"])
+            reason = _empty_reason(kind, req, rules, stats, kind_budget)
             empty.append({"kind": kind, "reason": reason})
             log(f"      [P] {label}: 조건에 맞는 후보 0건 — {reason}")
             continue

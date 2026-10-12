@@ -455,6 +455,54 @@ def load_peripheral_candidates(conn) -> dict[str, list[Candidate]]:
     return out
 
 
+def _like_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def search_peripheral_products(conn, kind: str, q: str | None, limit: int) -> list[dict]:
+    """커뮤니티 글쓰기의 제품 선택용 검색(작업지시서 W-1).
+
+    추천 후보 로더(load_peripheral_candidates)와 달리 가격 스냅샷을 조인하지 않는다 —
+    사용기를 쓸 수 있는 제품은 가격과 무관하다. 제조사+모델명을 공백 없이 이어 붙인 문자열에서
+    검색어의 단어를 모두 찾고(대소문자·공백 무시), 모델명이 검색어로 시작하는 상품을 앞에 둔다.
+    키보드만 switch_kind 를 옵션 제안 목록으로 나눠 낸다.
+    """
+    from psycopg.rows import dict_row
+
+    from src.engine.peripheral_parse import split_switch_options
+    from src.engine.peripheral_rules import kind_def
+
+    product_type = kind_def(kind)["product_type"]
+    tokens = [_like_escape(t) for t in (q or "").lower().split()]
+    haystack = r"lower(regexp_replace(p.brand || p.model, '\s', '', 'g'))"
+    model_key = r"lower(regexp_replace(p.model, '\s', '', 'g'))"
+    where = "".join(f" AND {haystack} LIKE %(t{i})s" for i in range(len(tokens)))
+    params: dict = {"product_type": product_type, "limit": limit}
+    params.update({f"t{i}": f"%{t}%" for i, t in enumerate(tokens)})
+    params["prefix"] = "".join(tokens) + "%"
+    is_keyboard = kind == "keyboard"
+    sql_text = f"""
+        SELECT p.id, p.brand, p.model, p.image_url,
+               {"ks.switch_kind" if is_keyboard else "NULL::text"} AS switch_kind
+        FROM catalog.product p
+        {"LEFT JOIN catalog.keyboard_spec ks ON ks.product_id = p.id" if is_keyboard else ""}
+        WHERE p.product_type = %(product_type)s AND p.status = 'active'{where}
+        ORDER BY ({model_key} LIKE %(prefix)s) DESC, p.brand, p.model
+        LIMIT %(limit)s
+    """
+    with conn.cursor(row_factory=dict_row) as cur:
+        cur.execute(sql_text, params)
+        rows = cur.fetchall()
+    return [{
+        "product_id": str(r["id"]),
+        "kind": kind,
+        "brand": r["brand"],
+        "model": r["model"],
+        "image_url": r["image_url"],
+        "options": split_switch_options(r["switch_kind"]) if is_keyboard else [],
+    } for r in rows]
+
+
 def load_candidates_by_slot_from_db(conn) -> dict[str, list[Candidate]]:
     """실제 수집 카탈로그(0015_pc_parts_category_specs.sql)에서 슬롯별 후보를 읽는다.
     가격 관측이 없는(quality_status='valid' 행이 없는) 상품은 후보에서 빠진다 —

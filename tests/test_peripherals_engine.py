@@ -102,7 +102,7 @@ def test_qhd165_monitor_filter_keeps_only_qhd_165_or_higher():
     # ASUS VA24DQSB(FHD), ProArt PA279CRV(UHD), ProArt PA34VCNV(QHD_WIDE), Apple Studio
     # Display(5120x2880, OTHER)는 등급 불일치로 Fail.
     assert {c.name for c in kept} == {"LG UltraGear 27GP850", "Samsung Odyssey G5 G50F LS27FG504"}
-    assert stats == {"pool": 6, "pass": 2, "fail": 4, "pending": 0}
+    assert stats == {"pool": 6, "pass": 2, "fail": 4, "pending": 0, "over_price": 0}
 
 
 def test_fhd144_monitor_filter_is_empty_and_reason_is_readable():

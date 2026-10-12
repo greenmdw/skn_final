@@ -7,6 +7,7 @@
   /session/*  S1~S3 대화·조건 수집 + [추천 실행]   (인증 불요)
   /lists/*    사이드바 목록(비로그인 가능) · S5-a 확정 · S5-b 리포트 · 알림(로그인 필수)
   /reviews/*  A7 리뷰 작성·게시                     (JWT 필수)
+  /peripherals/*  주변기기 제품 검색(공개 카탈로그)    (인증 불요)
   /dev/*      시나리오 기반 파이프라인 (DB 미사용, 개발용)
 """
 from __future__ import annotations
@@ -28,7 +29,7 @@ from src.config import (
 from src.db import close_pool
 from src.errors import TruefitError
 from src.frontend_serving import mount_frontend
-from src.routers import auth, dev, lists, pc_check, reviews, session
+from src.routers import auth, dev, lists, pc_check, peripherals, reviews, session
 
 
 log = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ app.include_router(session.router)
 app.include_router(lists.router)
 app.include_router(reviews.router)
 app.include_router(pc_check.router)
+app.include_router(peripherals.router)
 # /dev/* 는 DB 없이 파이프라인을 돌리는 개발용 진입점이라 운영(APP_ENV=production)에는 열지 않는다.
 if not IS_PRODUCTION:
     app.include_router(dev.router)

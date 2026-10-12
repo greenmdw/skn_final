@@ -410,7 +410,7 @@ def verify_per_item(
         issues: list[Issue] = []
         penalty = 0
 
-        if req is not None and req.hard and cand.verdict == "Pending":
+        if req is not None and (req.hard or req.filters) and cand.verdict == "Pending":
             text = _peripheral_hard_pending_sentence(label, cand.reasons)
             issues.append(Issue(axis=f"{kind}_hard", text=text, tool_result="; ".join(cand.reasons),
                                 judge="확인 필요", penalty=_PERIPHERAL_ISSUE_PENALTY))

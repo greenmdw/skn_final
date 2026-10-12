@@ -13,13 +13,13 @@ PC의 stage2_requirement.run(슬롯 → RequirementSpec)에 대응하는 주변�
 - **평가를 하지 않는다.** soft 선호는 `{key, op, value}` 형태로만 옮겨 담는다. 후보 스펙과
   비교해 적합/부적합을 매기는 것은 E11의 선언형 평가기가 한다.
 
-## 병합 규칙 (여러 조건이 같은 키를 겨냥할 때)
+## 선호와 거르기 (견적 입력 설계 5.1)
 
-`config/peripherals.yaml`의 `requirements.<kind>.soft`는 `when` 조건이 참일 때 `prefs`를
-결과에 보탠다. **여러 `when`이 동시에 참이면, 뒤 항목이 앞 항목을 덮어쓰지 않고 둘 다
-`preferences` 목록에 쌓인다** — 예를 들어 `priority=quiet`와 `noise_sensitive=true`가
-둘 다 참이면 `switch_clicky: false` 선호가 두 번 들어간다. 이 모듈은 중복을 합치거나
-가중치를 나누지 않는다(그 정책은 E11이 정한다). YAML 순서를 그대로 보존한다.
+선호(`soft`)와 사용자가 직접 말한 거르기 조건(`filters`)은 이 모듈이 정하지 않는다. 문장 해석 결과를
+`peripheral_intent.resolve()` 가 풀어 낸 값을 `values["peripheral_resolved"]`(종류 → `ResolvedKind`)로
+받아 옮겨 담을 뿐이다. 같은 키를 겨냥한 선호가 여럿이어도 합치지 않는다 — 중복 제거는 평가기
+(`spec_rules.dedupe_prefs`)가 한다. 목적에서 풀린 조건은 항상 선호이고, 거르는 것은 `filters` 와 monitor 의
+PC 호환 `hard` 뿐이다.
 
 `monitor.hard`는 PC 조건 `resolution`(및 `4K`+`game`일 때 주사율 하한을 올리는
 `purpose`) 하나로만 결정되고, 그 결과는 항상 최대 한 세트(`resolution_class`,
@@ -71,22 +71,6 @@ def _build_monitor_hard(hard_cfg: dict, resolution: str, purpose: Any) -> dict[s
     return hard
 
 
-def _build_soft(soft_cfg: list, values: dict) -> dict[str, Any]:
-    """requirements.<kind>.soft(when/prefs 목록) + 조건 values -> {"preferences": [...]}.
-
-    when 의 모든 (키, 값) 쌍이 values 와 일치하는 항목만 채택한다(부분 일치 없음, 전부 AND).
-    일치하는 모든 항목의 prefs 를 설정 순서대로 이어 붙인다(위 모듈 docstring의 병합 규칙).
-    맞는 항목이 하나도 없으면 빈 dict — soft 자체가 없다는 뜻과 "조건은 있었지만 해당 없음"을
-    구분하지 않는다(둘 다 랭킹에서 선호 없음으로 같게 취급되므로 구분할 이유가 없다).
-    """
-    preferences: list[dict[str, Any]] = []
-    for entry in soft_cfg:
-        when = entry.get("when") or {}
-        if all(values.get(cond_key) == cond_value for cond_key, cond_value in when.items()):
-            preferences.extend(entry.get("prefs") or [])
-    return {"preferences": preferences} if preferences else {}
-
-
 def build_requirements(
     values: dict, kinds: list[str], rules: dict | None = None, computer_rules: dict | None = None,
 ) -> dict[str, PeripheralRequirement]:
@@ -123,7 +107,12 @@ def build_requirements(
                 assumed.append("resolution")
                 notes.append(f"해상도를 말하지 않아 기본값({_resolution_label(default_resolution)})으로 골랐습니다")
 
-        soft = _build_soft(kind_cfg.get("soft") or [], values)
+        resolved = (values.get("peripheral_resolved") or {}).get(kind)
+        preferences = resolved.preference_prefs() if resolved is not None else []
+        filters = resolved.filter_prefs() if resolved is not None else []
 
-        out[kind] = PeripheralRequirement(kind=kind, hard=hard, soft=soft, assumed=assumed, notes=notes)
+        out[kind] = PeripheralRequirement(
+            kind=kind, hard=hard, soft={"preferences": preferences} if preferences else {},
+            filters=filters, assumed=assumed, notes=notes,
+        )
     return out

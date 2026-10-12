@@ -14,6 +14,7 @@ import pytest
 
 from src.dto import (Candidate, Issue, PeripheralPick, PeripheralRequirement, PeripheralResult,
                      VerificationResult, VerificationTarget)
+from src.engine import peripheral_intent
 from src.engine.peripheral_catalog import load_peripheral_candidates_from_csv
 from src.engine.peripheral_payload import _requirement_rows, peripheral_payload
 from src.engine.peripheral_requirement import build_requirements
@@ -168,7 +169,8 @@ def test_reason_text_no_condition_satisfied_wording_for_kind_without_hard():
 
 
 def test_reason_text_mentions_soft_preferences_briefly_without_naming_spec():
-    result = _ready_result(["keyboard"], priority="quiet")
+    interp = peripheral_intent.sanitize({"kinds": ["keyboard"], "situations": ["quiet_place"]})
+    result = _ready_result(["keyboard"], peripheral_resolved=peripheral_intent.resolve(interp))
     text = peripheral_payload(result)["items"][0]["reason"]["text"]
     assert "조건 충족" not in text
     assert "선호 조건 반영" in text

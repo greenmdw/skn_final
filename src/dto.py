@@ -236,6 +236,7 @@ class PeripheralRequirement(BaseModel):
     kind: PeripheralKind
     hard: dict[str, Any] = Field(default_factory=dict)     # 탈락 가능 조건(예: 모니터 해상도 등급)
     soft: dict[str, Any] = Field(default_factory=dict)     # 랭킹에만 쓰는 선호(예: 패널 종류)
+    filters: list[dict[str, Any]] = Field(default_factory=list)   # 사용자가 직접 말해서 거르는 조건({key, op, value})
     assumed: list[str] = Field(default_factory=list)       # 조건 없이 기본값을 썼다고 표시할 키
     notes: list[str] = Field(default_factory=list)         # 화면 안내용 보조 문구(잠정값 등)
 
