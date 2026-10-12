@@ -117,10 +117,10 @@ def test_review_axis_weight_may_be_nonzero_when_weights_sum_to_one(tmp_path):
     """"리뷰" 축은 체감 적합도 R 이다. 가중치를 올려 순위에 반영할 수 있고, 합이 1 이어야 하는 규칙은 그대로다."""
     rules = deepcopy(peripheral_rules.load_peripheral_rules())
     weights = rules["ranking"]["monitor"]["weights"]
-    weights["리뷰"] = 0.1
+    weights["리뷰"] += 0.1
     weights["가격"] -= 0.1
     loaded = peripheral_rules.load_peripheral_rules(_write(tmp_path, rules))
-    assert loaded["ranking"]["monitor"]["weights"]["리뷰"] == 0.1
+    assert loaded["ranking"]["monitor"]["weights"]["리뷰"] == pytest.approx(weights["리뷰"])
 
 
 def test_negative_review_axis_weight_raises(tmp_path):

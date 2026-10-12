@@ -105,17 +105,19 @@ kinds:
 # 종류별 랭킹 가중치. 축은 가격/선호적합/데이터충실/리뷰 넷으로 고정하고 합은 1이다.
 # "리뷰" 축의 값은 체감 적합도 R 이다(src/engine/peripheral_feel.py, 개발_확정사양 6장). 사용기 근거가 없으면 외부 리뷰
 # 점수로 계산한 R 이고, 목적·상황에 따라 속성별 중요도가 달라진다. 이 축의 가중치가 0이면 R 은 설명용이고 순위에 영향을
-# 주지 않는다 — 지금은 0 이다(예전 순위와 같다). 순위에 반영하려면 이 값을 올리고 다른 축을 줄여 합을 1로 맞춘다.
-# 값은 전부 잠정치다 — 실측 근거 없이 임의로 배분했고, 데이터 보강 이후 재조정 대상이다.
+# 주지 않는다. 이 값을 올리면 다른 축을 줄여 합을 1로 맞춘다.
+# 값은 전부 잠정치다 — 실측 근거 없이 임의로 배분했고, 사용기가 쌓인 뒤 재조정 대상이다. 배분의 생각: 가격과 스펙 선호가
+# 합쳐 55~60% 로 여전히 중심이고, 체감 R 이 25~30% 를 맡는다. 데이터충실(스펙 결손 감점)은 예전 25~30% 에서 15% 로 낮췄다 —
+# 같은 결손이 R 의 출발값(외부 점수)에도 반영되기 때문이다. 옛 배분: 모니터 .35/.35/.30, 키보드·마우스 .40/.35/.25, 스피커 .45/.30/.25.
 ranking:
   monitor:
-    weights: {가격: 0.35, 선호적합: 0.35, 데이터충실: 0.30, 리뷰: 0.0}   # 잠정값
+    weights: {가격: 0.30, 선호적합: 0.30, 데이터충실: 0.15, 리뷰: 0.25}   # 잠정값
   keyboard:
-    weights: {가격: 0.40, 선호적합: 0.35, 데이터충실: 0.25, 리뷰: 0.0}   # 잠정값
+    weights: {가격: 0.30, 선호적합: 0.25, 데이터충실: 0.15, 리뷰: 0.30}   # 잠정값
   mouse:
-    weights: {가격: 0.40, 선호적합: 0.35, 데이터충실: 0.25, 리뷰: 0.0}   # 잠정값
+    weights: {가격: 0.30, 선호적합: 0.25, 데이터충실: 0.15, 리뷰: 0.30}   # 잠정값
   speaker:
-    weights: {가격: 0.45, 선호적합: 0.30, 데이터충실: 0.25, 리뷰: 0.0}   # 잠정값
+    weights: {가격: 0.35, 선호적합: 0.25, 데이터충실: 0.15, 리뷰: 0.25}   # 잠정값
 
 # E9 — 원문 스펙 텍스트 파서(src/engine/peripheral_parse.py)가 쓰는 분류표.
 # resolution_classes: 모니터 해상도 "WxH" → 등급 이름. data/peripherals/monitor_processed.csv
@@ -443,6 +445,9 @@ feel:
   purpose_boost: 2.0
   split_ratio: 0.25
   neutral_taste: 0.5
+  durability_min_months: 6      # 내구성은 사용 기간이 이 개월 수 이상이라고 밝힌 글의 문장만 센다(사양 4.2)
+  hand_small_below_cm: 17.5     # 손 길이 cm 가 이보다 작으면 작은 편(사양 4.1)
+  hand_large_above_cm: 19       # 이보다 크면 큰 편
   # 외부 큰 속성별 k0 추정값(재현: docs/local/k_추정_스크립트.py). 표에 없는 속성은 k0_default.
   k0:
     keyboard:
@@ -469,6 +474,7 @@ feel:
       wireless:    {label: 무선 안정성, type: rating, external: connection_stability, group: none, aliases: [연결 안정성, 연결 안정성·전환]}
       battery:     {label: 배터리, type: rating, external: battery_runtime, group: none, aliases: [배터리]}
       wrist:       {label: 손목 피로, type: rating, external: ergonomics, group: purpose, aliases: [손목 피로]}
+      adaptation:  {label: 적응 기간, type: rating, external: ergonomics, group: purpose, aliases: [적응 기간]}
       software:    {label: 설정 프로그램, type: rating, external: controls_usability, group: none, aliases: []}
       durability:  {label: 내구성, type: rating, external: null, group: none, aliases: []}
       build:       {label: 마감·만듦새, type: rating, external: null, group: none, aliases: []}
@@ -480,6 +486,8 @@ feel:
     keyboard:
       key_noise:   {label: 큰 키 잡음, type: rating, external: typing_noise, group: quiet, aliases: [큰 키 잡음, 타건 소리], tags: [sound]}
       hollow:      {label: 통울림, type: rating, external: typing_noise, group: quiet, aliases: [타건 소리], tags: [sound]}
+      typing_feel: {label: 타건감, type: rating, external: typing_feel, group: purpose, aliases: [타건감]}
+      input_response: {label: 입력 반응, type: rating, external: typing_feel, group: purpose, aliases: [입력 반응]}
       wireless:    {label: 무선 안정성·전환, type: rating, external: connection_stability, group: none, aliases: [연결 안정성·전환]}
       wrist:       {label: 손목 피로, type: rating, external: physical_usability, group: purpose, aliases: [손목 피로]}
       layout:      {label: 배열 적응, type: rating, external: physical_usability, group: purpose, aliases: [배열 적응]}
@@ -497,6 +505,12 @@ feel:
       readability: {label: 글자 가독성, type: rating, external: image_quality, group: purpose, aliases: [글자 가독성]}
       stand:       {label: 스탠드, type: rating, external: controls_ergonomics, group: none, aliases: [스탠드]}
       eye_strain:  {label: 눈 피로, type: rating, external: image_quality, group: bright, aliases: [눈 피로]}
+      image_quality: {label: 화질, type: rating, external: image_quality, group: purpose, aliases: [화질]}
+      black_level: {label: 검은색 표현, type: rating, external: image_quality, group: purpose, aliases: [검은색 표현]}
+      color_accuracy: {label: 색 정확도, type: rating, external: image_quality, group: purpose, aliases: [색 정확도]}
+      brightness_feel: {label: 밝기 체감, type: rating, external: image_quality, group: bright, aliases: [밝기 체감]}
+      reflection:  {label: 반사, type: rating, external: image_quality, group: bright, aliases: [반사]}
+      connection:  {label: 연결 안정성, type: rating, external: connection_stability, group: none, aliases: [연결 안정성]}
       initial_quality: {label: 초기 품질, type: rating, external: functional_reliability, group: none, aliases: []}
       durability:  {label: 내구성, type: rating, external: functional_reliability, group: none, aliases: []}
       build:       {label: 마감·만듦새, type: rating, external: null, group: none, aliases: []}
@@ -504,13 +518,19 @@ feel:
       color:       {label: 색감, type: taste, group: purpose, aliases: [], sides: {natural: 자연스러운 편, vivid: 선명한 편}, taste_labels: {색감 자연스러운 쪽: natural, 색감 선명한 쪽: vivid}}
     speaker:
       noise:       {label: 잡음, type: rating, external: unwanted_noise, group: quiet, aliases: [잡음], tags: [sound]}
-      volume_headroom: {label: 음량 여유, type: rating, external: output_level, group: purpose, aliases: [음량 여유]}
+      volume_headroom: {label: 음량 여유, type: rating, external: output_level, group: purpose, aliases: [음량 여유, 음량]}
+      sound_quality: {label: 음질, type: rating, external: sound_quality, group: purpose, aliases: [음질]}
+      instrument_separation: {label: 악기 구분, type: rating, external: sound_quality, group: purpose, aliases: [악기 구분]}
+      bass:        {label: 저음, type: rating, external: sound_quality, group: purpose, aliases: [저음]}
+      voice_clarity: {label: 목소리 또렷함, type: rating, external: sound_quality, group: purpose, aliases: [목소리 또렷함]}
+      low_volume_sound: {label: 작은 음량에서의 소리, type: rating, external: sound_quality, group: purpose, aliases: [작은 음량에서의 소리]}
       connection:  {label: 연결 안정성, type: rating, external: connection_controls, group: none, aliases: [연결 안정성]}
       controls:    {label: 조작 편의, type: rating, external: connection_controls, group: none, aliases: [조작 편의]}
       durability:  {label: 내구성, type: rating, external: functional_reliability, group: none, aliases: []}
       build:       {label: 마감·만듦새, type: rating, external: null, group: none, aliases: []}
       looks:       {label: 외관 만족, type: rating, external: null, group: none, aliases: [], only_when: design}
       balance:     {label: 소리 밸런스, type: taste, group: purpose, aliases: [], sides: {bass: 저음 쪽, treble: 고음 쪽}, taste_labels: {저음 넉넉한 쪽: bass}}
+      clarity:     {label: 소리 또렷함, type: taste, group: purpose, aliases: [], sides: {clear: 또렷한 편, warm: 부드러운 편}, taste_labels: {소리 또렷한 쪽: clear}}
 
 # adjust_chips: 추천 결과 아래 "더 맞추기" 칩의 후보(견적 입력 설계 6.2, 5장의 칩 목록).
 # 칩 하나 = 눌렀을 때 입력에 더해지는 값(add). 서버는 후보마다 "더했을 때 지금 보이는 순서(1위와 대안 2개)가

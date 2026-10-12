@@ -354,7 +354,10 @@ def _check_adjust_chips(data: dict) -> None:
                     raise PeripheralRuleError(f"주변기기 {where}.{chip['id']}.add.{key} 에 목록에 없는 이름: {unknown}")
 
 
-_FEEL_SCALARS = {"k", "kb", "k0_default", "default_m", "purpose_boost", "split_ratio", "neutral_taste"}
+_FEEL_SCALARS = {
+    "k", "kb", "k0_default", "default_m", "purpose_boost", "split_ratio", "neutral_taste",
+    "durability_min_months", "hand_small_below_cm", "hand_large_above_cm",
+}
 _FEEL_GROUPS = {"hand", "quiet", "bright", "none", "purpose"}
 _FEEL_TYPES = {"rating", "taste"}
 _FEEL_TAGS = {"sound"}
@@ -378,6 +381,8 @@ def _check_feel(data: dict) -> None:
             raise PeripheralRuleError(f"주변기기 feel.{key} 는 0과 1 사이여야 함")
     if feel["purpose_boost"] < 1:
         raise PeripheralRuleError("주변기기 feel.purpose_boost 는 1 이상이어야 함")
+    if feel["hand_small_below_cm"] >= feel["hand_large_above_cm"]:
+        raise PeripheralRuleError("주변기기 feel.hand_small_below_cm 는 hand_large_above_cm 보다 작아야 함")
 
     attributes = feel["attributes"]
     if not isinstance(attributes, dict) or set(attributes) != set(_KINDS):

@@ -300,10 +300,13 @@ def test_payload_reports_the_review_weight_it_actually_used():
     assert "반영되었" in _review_note(0.2)
 
 
-def test_default_review_axis_weight_keeps_current_ranking_unchanged():
-    """체감 값을 순위에 반영할지는 가중치로 정한다. 기본값(0)에서는 순위가 예전과 같다."""
+def test_review_axis_is_on_in_every_kind_and_price_with_preference_stay_central():
+    """체감 R 이 순위에 반영된다(잠정 가중치). 가격과 스펙 선호가 여전히 합쳐 과반을 차지한다."""
     for kind in ("monitor", "keyboard", "mouse", "speaker"):
-        assert RULES["ranking"][kind]["weights"]["리뷰"] == 0
+        weights = RULES["ranking"][kind]["weights"]
+        assert 0 < weights["리뷰"] <= 0.35
+        assert weights["가격"] + weights["선호적합"] > 0.5
+        assert sum(weights.values()) == pytest.approx(1.0)
 
 
 # ── 설정 ──────────────────────────────────────────────────────────────────
@@ -322,21 +325,16 @@ def test_every_external_aspect_exists_in_review_profiles():
         assert set(CFG["k0"].get(kind, {})) <= set(profiles[kind])
 
 
-def test_labels_without_a_matching_attribute_are_the_known_gap():
-    """5장 목적 표의 체감·성향 이름 중 4.2·4.3 속성 목록에 없는 것. 이 목록이 늘면 표와 속성 목록이 어긋난 것이다."""
-    gap = {}
+def test_every_purpose_feel_and_taste_name_points_at_an_attribute():
+    """5장 목적 표가 말하는 체감·성향 이름은 모두 속성(4.2)·성향 축(4.3)을 가리킨다. 가리키지 못하는 이름이 생기면
+    점수에 들어가지 못하고 조용히 사라지므로, 표에 이름을 더할 때 속성도 함께 더해야 한다."""
     for kind, table in CFG["attributes"].items():
         aliases = {a for e in table.values() for a in e["aliases"]}
         tastes = {t for e in table.values() if e["type"] == "taste" for t in e["taste_labels"]}
         feel = {f for p in RULES["purposes"][kind].values() for f in p["feel"]}
         taste = {t for p in RULES["purposes"][kind].values() for t in p["taste"]}
-        gap[kind] = (sorted(feel - aliases), sorted(taste - tastes))
-    assert gap["mouse"] == (["적응 기간"], [])
-    assert gap["keyboard"] == (["입력 반응", "타건감"], [])
-    assert set(gap["monitor"][0]) == {"검은색 표현", "밝기 체감", "반사", "색 정확도", "연결 안정성", "화질"}
-    assert gap["monitor"][1] == []
-    assert set(gap["speaker"][0]) == {"목소리 또렷함", "악기 구분", "음량", "음질", "작은 음량에서의 소리", "저음"}
-    assert gap["speaker"][1] == ["소리 또렷한 쪽"]
+        assert feel - aliases == set(), (kind, feel - aliases)
+        assert taste - tastes == set(), (kind, taste - tastes)
 
 
 @pytest.mark.parametrize("mutate, match", [

@@ -101,7 +101,7 @@ def test_ready_top_and_item_key_sets_are_fixed():
             assert check["state"] in ("ok", "unknown", "fail")
         for alt in item["alternatives"]:
             assert set(alt) == {"name", "price", "diff", "review", "review_weight", "review_note"}
-            assert alt["review_weight"] == 0.0
+            assert alt["review_weight"] == _rules()["ranking"][item["kind"]]["weights"]["리뷰"]
             assert alt["review_note"]
         assert item["guide"].keys() == {"status", "text"}
         PeripheralItemOut.model_validate(item)
