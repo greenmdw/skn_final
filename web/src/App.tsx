@@ -13,6 +13,7 @@ import ReportPage from './pages/ReportPage'
 import CheckPage from './pages/CheckPage'
 import PeripheralsPage from './pages/PeripheralsPage'
 import MyPage from './pages/MyPage'
+import CommunityPage from './pages/community/CommunityPage'
 import './styles/theme.css'
 
 // 모든 화면은 React로 구성하며, 서버 데이터가 필요한 기능은 실제 백엔드 API만 사용한다.
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="/check" element={<CheckPage />} />
             <Route path="/peripherals" element={<PeripheralsPage />} />
             <Route path="/mypage" element={<MyPage />} />
+            <Route path="/community" element={<CommunityPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </PlanProvider>
