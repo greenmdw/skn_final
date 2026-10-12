@@ -1,6 +1,7 @@
 """games 조건 — 게임 제목의 권장 사양이 요구 등급을 올리고, 모르는 게임은 안내로 남는다."""
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 
 import pytest
@@ -22,25 +23,32 @@ def _spec(**values) -> RequirementSpec:
 def test_heavy_game_raises_tier_above_resolution_default():
     base = _spec(purpose="game", resolution="FHD_144")
     heavy = _spec(purpose="game", resolution="FHD_144", games=["사이버펑크 2077"])
-    assert base.targets["GPU"]["perf_tier_min"] == 6
-    assert heavy.targets["GPU"]["perf_tier_min"] == 7
-    assert heavy.targets["CPU"]["perf_tier_min"] == base.targets["CPU"]["perf_tier_min"]   # cpu 6 == 6, 안 내려간다
+    # 2026-10-12: 게임 표를 공식 '권장' 사양(FHD)에서 다시 옮겼다. 사이버펑크의 권장 CPU(Core i7-12700급)만 해상도 기본(6)보다
+    # 높고, 권장 GPU(RTX 2060 Super급, 등급 5)는 기본(6)보다 낮아 GPU 요구는 그대로다.
+    assert base.targets["CPU"]["perf_tier_min"] == 6
+    assert heavy.targets["CPU"]["perf_tier_min"] == 7
+    assert heavy.targets["GPU"]["perf_tier_min"] == base.targets["GPU"]["perf_tier_min"] == 6   # 낮은 값은 요구를 내리지 않는다
     assert "games_applied" in heavy.flags
 
 
 def test_light_game_never_lowers_the_resolution_requirement():
     base = _spec(purpose="game", resolution="QHD_165")
     light = _spec(purpose="game", resolution="QHD_165", games=["발로란트", "롤"])
-    assert light.targets["GPU"] == base.targets["GPU"] and light.targets["RAM"] == base.targets["RAM"]
-    # 발로란트는 GPU 가 가벼워도 높은 프레임을 위해 CPU 등급 6 을 요구 — 해상도 기본(5)보다 올라가는 건 CPU 뿐이다.
-    assert light.targets["CPU"]["perf_tier_min"] == 6 > base.targets["CPU"]["perf_tier_min"]
+    # 발로란트·롤의 공식 권장 사양은 QHD 165Hz 해상도 기본보다 모든 요소가 낮다 — 아무 것도 바뀌지 않는다.
+    assert light.targets == base.targets
     assert "games_applied" in light.flags and not light.unresolved
 
 
-def test_max_is_taken_per_element_across_several_games():
+def test_max_is_taken_per_element_across_several_games(monkeypatch):
+    # 실제 표의 게임은 FHD 기본을 둘 다 넘지 못하므로, 두 게임이 서로 다른 요소를 올리도록 시험용 표를 쓴다.
+    rules = deepcopy(s2.load_computer_rules())
+    titles = rules["requirements"]["game_titles"]
+    titles["starfield"]["tier"] = {"gpu": 8, "cpu": 4, "ram_gb": 16, "vram_gb": 8}
+    titles["valorant"]["tier"] = {"gpu": 3, "cpu": 9, "ram_gb": 8, "vram_gb": 2}
+    monkeypatch.setattr(s2, "load_computer_rules", lambda *a, **k: rules)
     spec = _spec(purpose="game", resolution="FHD_144", games=["스타필드", "발로란트"])
-    assert spec.targets["CPU"]["perf_tier_min"] == 7        # 스타필드 cpu 7 > 해상도 6
-    assert spec.targets["GPU"]["perf_tier_min"] == 7
+    assert spec.targets["GPU"]["perf_tier_min"] == 8        # 스타필드(시험값)
+    assert spec.targets["CPU"]["perf_tier_min"] == 9        # 발로란트(시험값)
 
 
 def test_unknown_game_is_reported_and_changes_nothing():
@@ -59,9 +67,9 @@ def test_games_are_ignored_for_non_game_purposes():
 
 def test_upgrade_mode_only_keeps_requested_slots_but_still_applies_games():
     slots = Slots(category="computer", mode="upgrade", objective_text="",
-                  values={"purpose": "game", "resolution": "FHD_144", "games": ["사이버펑크"], "upgrade_parts": ["GPU"]})
+                  values={"purpose": "game", "resolution": "FHD_144", "games": ["사이버펑크"], "upgrade_parts": ["CPU"]})
     spec = s2.run(slots, {}, _noop)
-    assert set(spec.targets) == {"GPU"} and spec.targets["GPU"]["perf_tier_min"] == 7
+    assert set(spec.targets) == {"CPU"} and spec.targets["CPU"]["perf_tier_min"] == 7
 
 
 @pytest.mark.parametrize("raw, keys, unknown", [
@@ -92,17 +100,20 @@ def test_alias_collision_or_bad_table_is_rejected(tmp_path, monkeypatch):
         s2.load_computer_rules(path)
 
 
-def test_service_surfaces_unknown_games_and_trace_row():
+def test_service_surfaces_unknown_games_and_trace_row(monkeypatch):
     spec = _spec(purpose="game", resolution="FHD_144", games=["사이버펑크 2077", "별게임"])
     extras = svc._explanation_extras(spec)
-    # E7: 인식된 제목(사이버펑크)이 아직 provisional 이라 caveat 이 하나 더 붙는다 — 표에 없는
-    # 게임 caveat("별게임")과는 별개의 문장이라 둘 다 있어야 한다.
-    assert len(extras["extra_caveats"]) == 2
+    # 사이버펑크는 승인(approved)돼 잠정값 caveat 이 없고, 표에 없는 게임("별게임") caveat 만 남는다.
+    assert len(extras["extra_caveats"]) == 1
     assert any("'별게임'" in c for c in extras["extra_caveats"])
-    assert any("잠정값" in c for c in extras["extra_caveats"])
+    assert not any("잠정값" in c for c in extras["extra_caveats"])
+    # provisional 인 게임을 말하면 잠정값 caveat 이 따로 붙는다 — 표에 없는 게임 caveat 과는 별개의 문장이다.
+    _use_provisional(monkeypatch, "overwatch2")
+    held = svc._explanation_extras(_spec(purpose="game", resolution="FHD_144", games=["오버워치", "별게임"]))
+    assert len(held["extra_caveats"]) == 2 and any("잠정값" in c for c in held["extra_caveats"])
     assert "scope_note" not in extras                       # 신규 조립엔 견적 범위 문장이 없다
     step, detail = svc._games_trace_row(spec)
-    assert step == "게임 요구사양" and "GPU 등급 7 이상" in detail and "별게임" in detail
+    assert step == "게임 요구사양" and "CPU 등급 7 이상" in detail and "별게임" in detail
     assert svc._games_trace_row(_spec(purpose="game")) is None
     assert svc._explanation_extras(_spec(purpose="game")) == {}
 
@@ -118,14 +129,14 @@ def _rank(spec: RequirementSpec, slot: str, cands: list[Candidate], **values) ->
     return stage3b_rank.run(HardFilterResult(slots={slot: cands}), spec, slots, _noop)
 
 
-def test_heavy_game_raises_the_gpu_ideal_tier_and_logs_the_bump():
-    # FHD_144 의 ideal GPU(6.0)보다 사이버펑크(gpu tier 7)가 더 무겁다.
+def test_heavy_game_raises_the_cpu_ideal_tier_and_logs_the_bump():
+    # 게임 표의 권장 CPU 등급(사이버펑크 7)이 FHD_144 의 ideal CPU(6.0)보다 높다. (GPU 쪽은 지금 표의 게임이 기본을 못 넘는다)
     spec = _spec(purpose="game", resolution="FHD_144", games=["사이버펑크 2077"])
-    assert spec.targets["GPU"]["perf_tier_min"] == 7 and "games_applied" in spec.flags
-    cands = [_cand("GPU", "mid", 300_000, perf_tier=6), _cand("GPU", "high", 400_000, perf_tier=8)]
-    rr = _rank(spec, "GPU", cands, purpose="game", resolution="FHD_144", games=["사이버펑크 2077"])
-    assert rr.slots["GPU"]["ideal_tier"] == 7.0
-    assert "게임 요구 반영: GPU 이상 등급 6→7" in rr.weight_adjustments
+    assert spec.targets["CPU"]["perf_tier_min"] == 7 and "games_applied" in spec.flags
+    cands = [_cand("CPU", "mid", 200_000, perf_tier=6), _cand("CPU", "high", 300_000, perf_tier=8)]
+    rr = _rank(spec, "CPU", cands, purpose="game", resolution="FHD_144", games=["사이버펑크 2077"])
+    assert rr.slots["CPU"]["ideal_tier"] == 7.0
+    assert "게임 요구 반영: CPU 이상 등급 6→7" in rr.weight_adjustments
 
 
 def test_light_game_does_not_move_the_ideal_tier_or_add_a_note():
@@ -171,14 +182,30 @@ def test_raising_the_ideal_tier_relatively_favors_the_higher_tier_candidate():
 
 # ── E7 — game_titles 출처·승인 상태 스키마 (D의 엔진 쪽, R-11은 범위 밖) ──────────
 
-def test_existing_15_game_titles_load_as_provisional_without_config_changes():
-    """config/computer_verification_rules.yaml 은 이번 작업으로 건드리지 않는다 — 15개 전부
-    status 필드가 없는 채로 provisional 로 해석되고 출처(source)는 None 이어야 한다."""
+# 2026-10-12 사람이 승인한 15개(승인 시트 13개 + 보류 뒤 재승인한 마인크래프트·오버워치 2).
+_APPROVED = {"valorant", "lol", "maplestory", "lostark", "pubg", "eldenring", "diablo4", "warzone", "bg3", "cyberpunk", "wukong",
+             "monsterhunter", "starfield", "minecraft", "overwatch2"}
+
+
+def _use_provisional(monkeypatch, *keys):
+    """지금 표의 게임은 전부 approved 라, 잠정값(provisional) 동작을 보는 시험은 해당 게임만 잠정으로 바꾼 표를 쓴다."""
+    rules = deepcopy(s2.load_computer_rules())
+    for key in keys:
+        rules["requirements"]["game_titles"][key]["status"] = "provisional"
+    monkeypatch.setattr(s2, "load_computer_rules", lambda *a, **k: rules)
+    return rules
+
+
+def test_the_15_game_titles_are_approved_and_carry_a_source():
+    """공식 권장 사양에서 등급을 다시 옮기고 출처(url·발췌·확인일)를 붙여 사람이 승인했다(기획서 ENG-05)."""
     rules = s2.load_computer_rules()
     titles = rules["requirements"]["game_titles"]
-    assert len(titles) == 15
+    assert set(titles) == _APPROVED
     for key in titles:
-        assert s2.game_title_status(key, rules) == {"status": "provisional", "source": None}
+        got = s2.game_title_status(key, rules)
+        assert got["status"] == "approved", key
+        assert got["source"]["url"].startswith("https://") and got["source"]["excerpt"], key
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", got["source"]["checked_at"]), key
 
 
 def _rules_with_lol_status(status: str, *, source: dict | None = None) -> dict:
@@ -273,19 +300,19 @@ def test_games_provisional_flag_absent_when_all_recognized_titles_are_approved(m
 
 
 def test_games_provisional_flag_present_when_any_recognized_title_is_still_provisional(monkeypatch):
-    rules = _rules_with_lol_status("approved", source={"url": "https://example.com/lol", "checked_at": "2024-01-01"})
-    monkeypatch.setattr(s2, "load_computer_rules", lambda path=None: rules)
-    # 롤은 approved 로 바꿨지만 발로란트는 그대로 provisional 이라 섞인 상태다.
-    spec = _spec(purpose="game", games=["롤", "발로란트"])
+    # 롤은 승인됐고 오버워치만 잠정(시험용 표)이라 섞인 상태다.
+    _use_provisional(monkeypatch, "overwatch2")
+    spec = _spec(purpose="game", games=["롤", "오버워치"])
     assert "games_applied" in spec.flags and "games_provisional" in spec.flags
     assert not any(":" in f for f in spec.flags)
     by_key = {g["key"]: g for g in spec.games}
     assert by_key["lol"]["status"] == "approved" and by_key["lol"]["label"] == "리그오브레전드"
-    assert by_key["valorant"]["status"] == "provisional" and by_key["valorant"]["label"] == "발로란트"
+    assert by_key["overwatch2"]["status"] == "provisional" and by_key["overwatch2"]["label"] == "오버워치"
 
 
-def test_games_trace_row_does_not_assert_when_all_recognized_titles_are_provisional():
-    spec = _spec(purpose="game", resolution="FHD_144", games=["발로란트"])
+def test_games_trace_row_does_not_assert_when_all_recognized_titles_are_provisional(monkeypatch):
+    _use_provisional(monkeypatch, "overwatch2")
+    spec = _spec(purpose="game", resolution="FHD_144", games=["오버워치"])
     step, detail = svc._games_trace_row(spec)
     assert step == "게임 요구사양"
     assert "잠정" in detail
@@ -293,15 +320,14 @@ def test_games_trace_row_does_not_assert_when_all_recognized_titles_are_provisio
 
 
 def test_games_trace_row_distinguishes_status_per_title_when_mixed(monkeypatch):
-    rules = _rules_with_lol_status("approved", source={"url": "https://example.com/lol", "checked_at": "2024-01-01"})
-    monkeypatch.setattr(s2, "load_computer_rules", lambda path=None: rules)
-    spec = _spec(purpose="game", games=["롤", "발로란트"])
+    _use_provisional(monkeypatch, "overwatch2")
+    spec = _spec(purpose="game", games=["롤", "오버워치"])
     step, detail = svc._games_trace_row(spec)
     assert step == "게임 요구사양"
-    # 화면에는 내부 키(lol/valorant)가 아니라 표시명이 나간다.
-    assert "리그오브레전드: 배급사 권장 사양 확인(2024-01-01)" in detail
-    assert "발로란트: 잠정값" in detail
-    assert "lol" not in detail and "valorant" not in detail
+    # 화면에는 내부 키(lol/overwatch2)가 아니라 표시명이 나간다.
+    assert "리그오브레전드: 배급사 권장 사양 확인(2026-10-12)" in detail
+    assert "오버워치: 잠정값" in detail
+    assert "lol" not in detail and "overwatch2" not in detail
 
 
 def test_games_trace_row_uses_confirmed_wording_when_all_recognized_titles_are_approved(monkeypatch):
@@ -314,8 +340,9 @@ def test_games_trace_row_uses_confirmed_wording_when_all_recognized_titles_are_a
     assert "확인해 최소 등급을 정했습니다" in detail
 
 
-def test_explanation_extras_has_provisional_caveat_only_when_a_title_is_recognized():
-    with_game = svc._explanation_extras(_spec(purpose="game", games=["발로란트"]))
+def test_explanation_extras_has_provisional_caveat_only_when_a_title_is_recognized(monkeypatch):
+    _use_provisional(monkeypatch, "overwatch2")
+    with_game = svc._explanation_extras(_spec(purpose="game", games=["오버워치"]))
     assert any("잠정값" in c for c in with_game["extra_caveats"])
 
     without_game = svc._explanation_extras(_spec(purpose="game"))
