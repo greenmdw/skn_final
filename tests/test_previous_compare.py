@@ -54,6 +54,18 @@ def test_heavier_game_is_named_as_the_cause_with_its_table_value():
     assert reason["kind"] == "requirement"
     assert reason["evidence"] == ["사이버펑크 추가(CPU 성능 등급 7 요구)"]
     assert not any("오버워치" in e and "추가" in e for e in reason["evidence"])
+    assert c["caveats"] == [], "게임 표가 승인(approved)됐으면 잠정값 안내가 없다"
+
+
+def test_a_provisional_game_table_adds_the_caveat_to_the_comparison(monkeypatch):
+    from copy import deepcopy
+
+    from src.engine import stage2_requirement as s2
+    rules = deepcopy(s2.load_computer_rules())
+    rules["requirements"]["game_titles"]["cyberpunk"]["status"] = "provisional"
+    monkeypatch.setattr(s2, "load_computer_rules", lambda *a, **k: rules)
+    after = _result(GPU=("RTX 4060", 400_000), CPU=("i7-12700", 330_000), RAM=("DDR5 16GB", 60_000))
+    c = compare(BASE, {**BASE, "games": ["오버워치", "사이버펑크"]}, BEFORE, after, "9월 25일")
     assert c["caveats"], "게임 표가 잠정값이면 그렇다고 적는다"
 
 
