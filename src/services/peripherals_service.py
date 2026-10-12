@@ -77,6 +77,7 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
     from src.engine import peripheral_intent
     from src.engine.peripheral_payload import peripheral_payload
     from src.engine.peripheral_select import run_peripherals
+    from src.engine.peripheral_suggest import suggest_chips
     from src.repo.catalog_repo import load_peripheral_candidates
     from src.services.review_ranking import score_peripheral_candidates
 
@@ -103,4 +104,6 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
     )
     payload = peripheral_payload(result)
     payload["ignored_inputs"] = ignored
+    payload["adjust_chips"] = suggest_chips(values, interp, candidates, result, pc_context=pc_context,
+                                          require_review_details=True)
     return payload

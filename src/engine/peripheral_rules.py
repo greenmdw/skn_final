@@ -33,7 +33,7 @@ class PeripheralRuleError(ValueError):
 _REQUIRED_TOP_KEYS = {"schema_version", "rule_set_version", "kinds", "ranking"}
 _KNOWN_TOP_KEYS = _REQUIRED_TOP_KEYS | {
     "requirements", "hard_filters", "preferences", "verify", "parsing",
-    "spec_conditions", "purposes", "situations", "pc_purpose_map", "interpretation",
+    "spec_conditions", "purposes", "situations", "pc_purpose_map", "interpretation", "adjust_chips",
 }
 
 _KINDS = ("monitor", "keyboard", "mouse", "speaker")
@@ -321,6 +321,41 @@ def _check_pc_purpose_map(data: dict) -> None:
             raise PeripheralRuleError(f"주변기기 pc_purpose_map.{pc_purpose} 에 purposes 에 없는 이름: {unknown}")
 
 
+def _check_adjust_chips(data: dict) -> None:
+    section = data.get("adjust_chips")
+    if section is None:
+        return
+    if "purposes" not in data or "situations" not in data:
+        raise PeripheralRuleError("주변기기 adjust_chips 는 purposes·situations 절이 있어야 함")
+    if not isinstance(section, dict) or not section or set(section) - set(_KINDS):
+        raise PeripheralRuleError("주변기기 adjust_chips 종류 키 오류")
+    for kind, chips in section.items():
+        if not isinstance(chips, list) or not chips:
+            raise PeripheralRuleError(f"주변기기 adjust_chips.{kind} 는 비지 않은 목록이어야 함")
+        seen: set[str] = set()
+        for chip in chips:
+            where = f"adjust_chips.{kind}"
+            if not isinstance(chip, dict) or set(chip) != {"id", "label", "add"}:
+                raise PeripheralRuleError(f"주변기기 {where} 항목 키 오류(id, label, add)")
+            if not isinstance(chip["id"], str) or not chip["id"] or chip["id"] in seen:
+                raise PeripheralRuleError(f"주변기기 {where} id 오류(빈 값 또는 중복)")
+            seen.add(chip["id"])
+            if not isinstance(chip["label"], str) or not chip["label"].strip():
+                raise PeripheralRuleError(_LABEL_MSG.format(where=f"{where}.{chip['id']}"))
+            add = chip["add"]
+            if not isinstance(add, dict) or not add or set(add) - {"purposes", "situations", "stated"}:
+                raise PeripheralRuleError(f"주변기기 {where}.{chip['id']}.add 키 오류")
+            purposes_ok = set(data["purposes"][kind])
+            situations_ok = set(data["situations"])
+            allowed = {"purposes": purposes_ok, "situations": situations_ok,
+                       "stated": set(data["spec_conditions"][kind])}
+            for key, names in add.items():
+                listed = _check_name_list(f"{where}.{chip['id']}.add.{key}", names, allow_empty=False)
+                unknown = [n for n in listed if n not in allowed[key]]
+                if unknown:
+                    raise PeripheralRuleError(f"주변기기 {where}.{chip['id']}.add.{key} 에 목록에 없는 이름: {unknown}")
+
+
 _INTERPRETATION_KEYS = {"max_chars", "cache_size", "per_minute"}
 
 
@@ -409,6 +444,7 @@ def _load_peripheral_rules(path: Path) -> dict:
     _check_purposes(data)
     _check_situations(data)
     _check_pc_purpose_map(data)
+    _check_adjust_chips(data)
     _check_interpretation(data)
 
     if "verify" in data:
@@ -508,3 +544,9 @@ def pc_purpose_map(rules: dict | None = None) -> dict[str, list[str]]:
 def interpretation_settings(rules: dict | None = None) -> dict[str, int]:
     rules = rules or load_peripheral_rules()
     return rules.get("interpretation") or {"max_chars": 300, "cache_size": 512, "per_minute": 20}
+
+
+def adjust_chips(kind: str, rules: dict | None = None) -> list[dict]:
+    """종류의 "더 맞추기" 칩 후보 [{id, label, add}]. 절이 없으면 빈 목록."""
+    rules = rules or load_peripheral_rules()
+    return (rules.get("adjust_chips") or {}).get(kind, [])

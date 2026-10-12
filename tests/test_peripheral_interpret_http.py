@@ -181,3 +181,30 @@ def test_recommend_still_passes_pc_conditions_to_review_scoring(monkeypatch):
         peripherals_service.recommend(conn, body, None)
     assert (seen["purpose"], seen["priority"], seen["noise_sensitive"]) == ("game", "quiet", True)
 
+
+@needs_db
+def test_recommend_adjust_chips_reorder_when_pressed():
+    """칩은 눌렀을 때 순서를 바꾸는 것만 나온다. 응답의 add 를 그대로 더해 다시 부르면 실제로 순서가 바뀐다."""
+    c = _signed_up()
+    base = _recommend(c, kinds=["keyboard"])
+    chips = base["adjust_chips"]
+    assert 0 < len(chips) <= 3
+    assert {"kind", "id", "label", "add", "moved"} == set(chips[0])
+
+    def _visible(data):
+        item = data["items"][0]
+        return [item["product"]["name"], *(a["name"] for a in item["alternatives"])]
+
+    chip = chips[0]
+    pressed = _recommend(c, kinds=["keyboard"], purposes=chip["add"]["purposes"],
+                         situations=chip["add"]["situations"], stated=chip["add"]["stated"])
+    assert _visible(pressed) != _visible(base)
+    assert chip["id"] not in [x["id"] for x in pressed["adjust_chips"]]       # 이미 누른 칩은 다시 나오지 않는다
+
+
+@needs_db
+def test_recommend_adjust_chips_empty_when_nothing_to_show():
+    c = _signed_up()
+    data = _recommend(c, kinds=["mouse"], kind_budget={"mouse": 1})
+    assert data["status"] == "empty" and data["adjust_chips"] == []
+

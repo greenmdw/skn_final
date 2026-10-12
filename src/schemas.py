@@ -918,12 +918,24 @@ class PeripheralTotalsOut(BaseModel):
     note: str
 
 
+class PeripheralAdjustChipOut(BaseModel):
+    """"더 맞추기" 칩 하나. 누르면 `add` 를 추천 입력(purposes·situations·stated)에 더해 다시 부르면 된다.
+    눌렀을 때 지금 보이는 순서가 바뀌는 칩만 나온다(`moved` 는 바뀌는 자리 수)."""
+
+    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    id: str
+    label: str
+    add: dict[str, Any]
+    moved: int
+
+
 class PeripheralsOut(BaseModel):
     status: Literal["ready", "empty", "skipped"]
     items: list[PeripheralItemOut] = Field(default_factory=list)
     empty: list[PeripheralEmptyOut] = Field(default_factory=list)
     totals: PeripheralTotalsOut
     ignored_inputs: list[str] = Field(default_factory=list)    # 목록에 없어 반영하지 않은 목적·상황·조건 이름
+    adjust_chips: list[PeripheralAdjustChipOut] = Field(default_factory=list)    # "더 맞추기" 칩(최대 3개)
 
 
 class PeripheralCatalogItemOut(BaseModel):
