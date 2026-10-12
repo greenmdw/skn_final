@@ -103,11 +103,13 @@ def test_alias_collision_or_bad_table_is_rejected(tmp_path, monkeypatch):
 def test_service_surfaces_unknown_games_and_trace_row():
     spec = _spec(purpose="game", resolution="FHD_144", games=["사이버펑크 2077", "별게임"])
     extras = svc._explanation_extras(spec)
-    # E7: 인식된 제목(사이버펑크)이 아직 provisional 이라 caveat 이 하나 더 붙는다 — 표에 없는
-    # 게임 caveat("별게임")과는 별개의 문장이라 둘 다 있어야 한다.
-    assert len(extras["extra_caveats"]) == 2
+    # 사이버펑크는 승인(approved)돼 잠정값 caveat 이 없고, 표에 없는 게임("별게임") caveat 만 남는다.
+    assert len(extras["extra_caveats"]) == 1
     assert any("'별게임'" in c for c in extras["extra_caveats"])
-    assert any("잠정값" in c for c in extras["extra_caveats"])
+    assert not any("잠정값" in c for c in extras["extra_caveats"])
+    # 아직 provisional 인 게임(오버워치)을 말하면 잠정값 caveat 이 따로 붙는다 — 표에 없는 게임 caveat 과는 별개의 문장이다.
+    held = svc._explanation_extras(_spec(purpose="game", resolution="FHD_144", games=["오버워치", "별게임"]))
+    assert len(held["extra_caveats"]) == 2 and any("잠정값" in c for c in held["extra_caveats"])
     assert "scope_note" not in extras                       # 신규 조립엔 견적 범위 문장이 없다
     step, detail = svc._games_trace_row(spec)
     assert step == "게임 요구사양" and "CPU 등급 7 이상" in detail and "별게임" in detail
@@ -179,15 +181,21 @@ def test_raising_the_ideal_tier_relatively_favors_the_higher_tier_candidate():
 
 # ── E7 — game_titles 출처·승인 상태 스키마 (D의 엔진 쪽, R-11은 범위 밖) ──────────
 
-def test_the_15_game_titles_carry_a_source_but_stay_provisional_until_a_person_approves():
-    """2026-10-12: 공식 권장 사양을 수집해 출처(url·발췌·확인일)를 붙이고 등급을 다시 옮겼지만, 사람이 승인하기 전이라
-    status 는 provisional 로 남는다(기획서 ENG-05). approved 가 되려면 승인 단계가 필요하다."""
+# 2026-10-12 승인 시트(docs/게임요구사양_승인시트_20261012.xlsx)에서 사람이 승인한 게임. 보류한 마인크래프트·오버워치 2 는 provisional.
+_APPROVED = {"valorant", "lol", "maplestory", "lostark", "pubg", "eldenring", "diablo4", "warzone", "bg3", "cyberpunk", "wukong",
+             "monsterhunter", "starfield"}
+_ON_HOLD = {"minecraft", "overwatch2"}
+
+
+def test_the_15_game_titles_carry_a_source_and_only_the_person_approved_ones_are_approved():
+    """공식 권장 사양에서 등급을 다시 옮기고 출처(url·발췌·확인일)를 붙였다. approved 는 사람이 승인 시트에서 승인한 13개뿐이고
+    보류한 2개는 provisional 로 남는다(기획서 ENG-05)."""
     rules = s2.load_computer_rules()
     titles = rules["requirements"]["game_titles"]
-    assert len(titles) == 15
+    assert set(titles) == _APPROVED | _ON_HOLD
     for key in titles:
         got = s2.game_title_status(key, rules)
-        assert got["status"] == "provisional", key
+        assert got["status"] == ("approved" if key in _APPROVED else "provisional"), key
         assert got["source"]["url"].startswith("https://") and got["source"]["excerpt"], key
         assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", got["source"]["checked_at"]), key
 
@@ -283,36 +291,32 @@ def test_games_provisional_flag_absent_when_all_recognized_titles_are_approved(m
     assert not any(":" in f for f in spec.flags)   # 제목별 상태는 flags 문자열이 아니라 spec.games 에 싣는다
 
 
-def test_games_provisional_flag_present_when_any_recognized_title_is_still_provisional(monkeypatch):
-    rules = _rules_with_lol_status("approved", source={"url": "https://example.com/lol", "checked_at": "2024-01-01"})
-    monkeypatch.setattr(s2, "load_computer_rules", lambda path=None: rules)
-    # 롤은 approved 로 바꿨지만 발로란트는 그대로 provisional 이라 섞인 상태다.
-    spec = _spec(purpose="game", games=["롤", "발로란트"])
+def test_games_provisional_flag_present_when_any_recognized_title_is_still_provisional():
+    # 롤은 승인됐고 오버워치는 보류(provisional)라 섞인 상태다.
+    spec = _spec(purpose="game", games=["롤", "오버워치"])
     assert "games_applied" in spec.flags and "games_provisional" in spec.flags
     assert not any(":" in f for f in spec.flags)
     by_key = {g["key"]: g for g in spec.games}
     assert by_key["lol"]["status"] == "approved" and by_key["lol"]["label"] == "리그오브레전드"
-    assert by_key["valorant"]["status"] == "provisional" and by_key["valorant"]["label"] == "발로란트"
+    assert by_key["overwatch2"]["status"] == "provisional" and by_key["overwatch2"]["label"] == "오버워치"
 
 
 def test_games_trace_row_does_not_assert_when_all_recognized_titles_are_provisional():
-    spec = _spec(purpose="game", resolution="FHD_144", games=["발로란트"])
+    spec = _spec(purpose="game", resolution="FHD_144", games=["오버워치"])
     step, detail = svc._games_trace_row(spec)
     assert step == "게임 요구사양"
     assert "잠정" in detail
     assert "반영해 최소 등급을 정했습니다" not in detail   # 옛 단정 문구는 남지 않는다
 
 
-def test_games_trace_row_distinguishes_status_per_title_when_mixed(monkeypatch):
-    rules = _rules_with_lol_status("approved", source={"url": "https://example.com/lol", "checked_at": "2024-01-01"})
-    monkeypatch.setattr(s2, "load_computer_rules", lambda path=None: rules)
-    spec = _spec(purpose="game", games=["롤", "발로란트"])
+def test_games_trace_row_distinguishes_status_per_title_when_mixed():
+    spec = _spec(purpose="game", games=["롤", "오버워치"])
     step, detail = svc._games_trace_row(spec)
     assert step == "게임 요구사양"
-    # 화면에는 내부 키(lol/valorant)가 아니라 표시명이 나간다.
-    assert "리그오브레전드: 배급사 권장 사양 확인(2024-01-01)" in detail
-    assert "발로란트: 잠정값" in detail
-    assert "lol" not in detail and "valorant" not in detail
+    # 화면에는 내부 키(lol/overwatch2)가 아니라 표시명이 나간다.
+    assert "리그오브레전드: 배급사 권장 사양 확인(2026-10-12)" in detail
+    assert "오버워치: 잠정값" in detail
+    assert "lol" not in detail and "overwatch2" not in detail
 
 
 def test_games_trace_row_uses_confirmed_wording_when_all_recognized_titles_are_approved(monkeypatch):
@@ -326,7 +330,7 @@ def test_games_trace_row_uses_confirmed_wording_when_all_recognized_titles_are_a
 
 
 def test_explanation_extras_has_provisional_caveat_only_when_a_title_is_recognized():
-    with_game = svc._explanation_extras(_spec(purpose="game", games=["발로란트"]))
+    with_game = svc._explanation_extras(_spec(purpose="game", games=["오버워치"]))
     assert any("잠정값" in c for c in with_game["extra_caveats"])
 
     without_game = svc._explanation_extras(_spec(purpose="game"))
