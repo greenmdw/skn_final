@@ -1,9 +1,9 @@
-import type { Api, PeripheralItem } from '../types'
+import type { Api, PeripheralItem, PeripheralReviewAspect } from '../types'
 import { request } from './client'
-import type { WirePeripheralItem, WirePeripherals } from './wire'
+import type { WirePeripheralItem, WirePeripheralReviewContribution, WirePeripherals } from './wire'
 
-function itemFromWire(item: WirePeripheralItem): PeripheralItem {
-  const aspects = (item.review?.contributions ?? []).map(entry => ({
+function aspectsFromWire(review: { contributions: WirePeripheralReviewContribution[] } | null | undefined): PeripheralReviewAspect[] {
+  return (review?.contributions ?? []).map(entry => ({
     aspectCode: entry.aspect_code,
     state: entry.evidence_state,
     positive: entry.p,
@@ -11,6 +11,10 @@ function itemFromWire(item: WirePeripheralItem): PeripheralItem {
     mixed: entry.mixed,
     quote: entry.members[0]?.observation_text ?? null,
   }))
+}
+
+function itemFromWire(item: WirePeripheralItem): PeripheralItem {
+  const aspects = aspectsFromWire(item.review)
   return {
     kind: item.kind, kindLabel: item.kind_label, name: item.product.name, brand: item.product.brand,
     variantId: item.product.variant_id, productUrl: item.product.product_url, imageUrl: item.product.image_url,
@@ -19,7 +23,10 @@ function itemFromWire(item: WirePeripheralItem): PeripheralItem {
     checks: item.checks.map(check => ({ axis: check.axis, label: check.label, state: check.state === 'ok' || check.state === 'fail' ? check.state : 'unknown', detail: check.detail })),
     reason: item.reason, guide: item.guide,
     reviewAspects: aspects, reviewWeight: item.review_weight, reviewNote: item.review_note,
-    alternatives: item.alternatives,
+    alternatives: item.alternatives.map(alternative => ({
+      name: alternative.name, price: alternative.price, diff: alternative.diff,
+      reviewAspects: aspectsFromWire(alternative.review), reviewNote: alternative.review_note ?? '',
+    })),
   }
 }
 

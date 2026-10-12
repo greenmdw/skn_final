@@ -471,7 +471,8 @@ export interface PeripheralItem {
   reviewAspects: PeripheralReviewAspect[]
   reviewWeight: number
   reviewNote: string
-  alternatives: { name: string; price: number; diff: number }[]
+  /** 다른 선택지. 리뷰 근거는 1위와 같은 형식이고, 서버가 사양 점검·제품 식별자는 주지 않아 담기는 할 수 없다 */
+  alternatives: { name: string; price: number; diff: number; reviewAspects: PeripheralReviewAspect[]; reviewNote: string }[]
 }
 
 export interface PeripheralsResult {
