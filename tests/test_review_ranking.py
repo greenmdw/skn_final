@@ -15,7 +15,7 @@ def _inputs(candidate):
 
 
 def test_explicit_mock_returns_neutral_detail_and_same_profile_without_run():
-    candidate = Candidate(product_key="mock-cpu", slot="CPU", name="demo CPU")
+    candidate = Candidate(product_key="mock-cpu", slot="CPU", name="demo CPU", price=50_000, specs={"perf_tier": 5})
     hf, spec, slots = _inputs(candidate)
     rank, profiles = review_ranking.rank_with_review_aspects(
         hf, spec, slots, lambda _message: None, catalog_source="mock",

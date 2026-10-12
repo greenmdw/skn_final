@@ -465,35 +465,24 @@ def test_raw_observations_rebuild_to_pc_score_and_stage5_trace(review_db, monkey
     assert any(item["evidence_state"] == "mixed_only" for item in detail_before["contributions"])
     assert any(item["evidence_state"] == "no_observations" for item in detail_before["contributions"])
 
-    from src.engine import stage3b_rank
     weights = rank_before.weights_used
-    observed_round_inputs = []
-    builtin_round = round
-
-    def capture_round(value, digits=None):
-        observed_round_inputs.append((value, digits))
-        return builtin_round(value, digits) if digits is not None else builtin_round(value)
-
-    monkeypatch.setattr(stage3b_rank, "round", capture_round, raising=False)
     isolated_actual, _ = rank_with_review_aspects(
         HardFilterResult(slots={"GPU": [candidate]}), spec, slots,
         lambda _message: None, conn=conn, catalog_source="db",
     )
-    raw_with_review = observed_round_inputs[-1][0]
     isolated_actual_candidate = isolated_actual.slots["GPU"]["pool"][0]
-    observed_round_inputs.clear()
     isolated_neutral, _ = rank_with_review_aspects(
         HardFilterResult(slots={"GPU": [neutral_candidate]}), spec, slots,
         lambda _message: None, conn=conn, catalog_source="db",
     )
-    raw_without_review_change = observed_round_inputs[-1][0]
     isolated_neutral_candidate = isolated_neutral.slots["GPU"]["pool"][0]
     assert isolated_neutral_candidate["review_detail"]["value"] == pytest.approx(0.5)
-    assert raw_with_review - raw_without_review_change == pytest.approx(
+    # 점수는 반올림하지 않으므로 리뷰 값 차이가 가중치만큼 그대로 점수 차이가 된다(가격·성능 축이 같을 때).
+    assert isolated_actual_candidate["breakdown"]["가격"] == isolated_neutral_candidate["breakdown"]["가격"]
+    assert isolated_actual_candidate["breakdown"]["성능"] == isolated_neutral_candidate["breakdown"]["성능"]
+    assert isolated_actual_candidate["score"] - isolated_neutral_candidate["score"] == pytest.approx(
         weights["리뷰"] * (detail_before["value"] - 0.5), abs=1e-14,
     )
-    assert isolated_actual_candidate["score"] == round(raw_with_review, 3)
-    assert isolated_neutral_candidate["score"] == round(raw_without_review_change, 3)
     assert isolated_actual_candidate["score"] == ranked_before["score"]
     assert isolated_neutral_candidate["score"] == ranked_neutral["score"]
 

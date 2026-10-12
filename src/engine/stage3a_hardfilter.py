@@ -112,6 +112,8 @@ def run(spec: RequirementSpec, by_slot: dict[str, list[Candidate]], log: LogFn) 
     log("[3-A] 하드 필터 (Pass/Fail/Pending) ...")
     result = HardFilterResult()
     for slot, cands in by_slot.items():
+        if spec.mode == "upgrade" and slot not in spec.targets:
+            continue   # 업그레이드에서 그대로 쓰는 부품은 후보를 고르지 않는다(예산 배분도 대상 슬롯에만 있다)
         target = spec.targets.get(slot, {})
         judged = [_judge_computer(c, target) for c in cands]
         p = [c for c in judged if c.verdict == "Pass"]

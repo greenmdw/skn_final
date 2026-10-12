@@ -548,14 +548,12 @@ def budget_reason(conn, revision_id: UUID) -> str:
         where = "보다 높음" if tier > ideal else ("과 같음" if tier == ideal else "에 못 미침")
         standing.append((slot, tier, ideal))
         lines.append(f"- {slot}: {cur.name} 성능 등급 {tier:g} — {purpose} 용도 기준 등급 {ideal:g}{where}")
-    if ideals:
-        lines.insert(3, f"'밸런스' 점수는 {purpose} 용도 기준 등급에 가까울수록 높고 기준보다 높아도 낮아도 깎이며, "
-                        "'가격' 점수는 비쌀수록 깎입니다.")
+    lines.insert(3, "'성능' 점수는 성능 등급이 높을수록 오르고, '가격' 점수는 슬롯 참고 예산에 비해 비쌀수록 낮아집니다.")
     if priority in ("value", "quiet"):
-        heavy = "가격" if priority == "value" else "가격·소음"
+        heavy = "가격" if priority == "value" else "가격·리뷰(정숙성)"
         lines.append(f"→ {PRIORITY_LABEL[priority]}이라 {heavy} 비중이 커서, 요구 성능을 채우는 범위에서 더 싼 쪽이 점수가 높습니다.")
     elif standing and all(t >= i for _, t, i in standing):
-        lines.append("→ CPU·GPU가 이미 이 용도 기준 등급 이상이라, 더 비싼 부품은 성능 점수가 오르는 만큼 가격·밸런스 점수가 "
+        lines.append("→ CPU·GPU가 이미 이 용도 기준 등급 이상이라, 더 비싼 부품은 성능 점수가 오르는 만큼 가격 점수가 "
                      "깎여 총점이 크게 오르지 않습니다. 리뷰 점수도 부품마다 달라 순위에 영향을 줍니다.")
     elif standing:
         lines.append("→ 기준에 못 미치는 부품이 있는데도 예산이 남은 이유는 이 계산만으로 확정할 수 없습니다"
@@ -598,7 +596,7 @@ def _quote(member: dict, limit: int = 60) -> str:
 def pick_basis(conn, revision_id: UUID, slot: str, variant_id) -> list[str]:
     """'왜 이 CPU야?'의 근거 — 추천 당시 run 에 저장된 리뷰 계산 snapshot(recommendation_review_snapshot)만 읽는다.
     그 슬롯 후보 가운데 총점 순위, 점수 비중, 리뷰 점수와 속성별 긍정·부정 관측 수·인용 한 줄. 지금 리뷰 집계를 다시
-    조회하거나 다른 축(가격·성능·밸런스)을 다시 채점하지는 않는다 — snapshot 에 없는 값이라 지어내게 된다.
+    조회하거나 다른 축(가격·성능)을 다시 채점하지는 않는다 — snapshot 에 없는 값이라 지어내게 된다.
     전에는 explain 이 상품 단위 리뷰 요약만 읽어 "저장된 추천 이유와 리뷰 관측은 없습니다"로 답했다(실패 9, 10/2)."""
     from src.engine.stage2_requirement import load_computer_rules
     from src.engine.stage3b_rank import _weights_for

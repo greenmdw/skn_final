@@ -204,7 +204,7 @@ def test_budget_reason_explains_how_the_set_was_chosen_without_changing_it(conn)
     out = result_advice.budget_reason(conn, revision_id)
     assert f"잔여 {ctx.budget_max - ctx.total():,}원" in out, out
     assert "점수 합이 가장 높은 것" in out and "예산은 넘으면 안 되는 상한" in out
-    assert "(성능 우선): 성능 55%" in out                       # 우선순위별 가중치 표 그대로
+    assert "(성능 우선): 성능 60%" in out                       # 우선순위별 가중치 표 그대로
     assert "사무 용도 기준 등급" in out and "- CPU:" in out and "- GPU:" in out
     assert "\n→ " in out                                         # 결론 줄은 코드가 고른다
     assert _snapshot(conn, revision_id) == before
@@ -213,7 +213,7 @@ def test_budget_reason_explains_how_the_set_was_chosen_without_changing_it(conn)
 def test_budget_reason_for_value_priority_points_at_the_price_weight(conn):
     revision_id = _build(conn, budget=3_000_000)
     out = result_advice.budget_reason(conn, revision_id)
-    assert "(가성비 우선): 가격 50%" in out and "→ 가성비 우선이라 가격 비중이 커서" in out, out
+    assert "(가성비 우선): 가격 55%" in out and "→ 가성비 우선이라 가격 비중이 커서" in out, out
 
 
 def test_pick_basis_reports_rank_weights_and_review_observations_from_the_run_snapshot(conn):
@@ -230,7 +230,7 @@ def test_pick_basis_reports_rank_weights_and_review_observations_from_the_run_sn
         pool = sorted((c for c in snap["candidates"].values() if c["slot"] == slot), key=lambda c: -c["rank_score"])
         rank = [c["variant_id"] for c in pool].index(variant_id) + 1
         assert f"후보 {len(pool)}개 중 점수 {rank}위" in out, out
-        assert "점수 비중: 성능 55%" in out and "리뷰 점수 " in out and "바꾼 부품" not in out
+        assert "점수 비중: 성능 60%" in out and "리뷰 점수 " in out and "바꾼 부품" not in out
         assert ("1위는" in out) == (rank > 1)
         if not any(c["p"] + c["n"] + c["mixed"] for c in snap["candidates"][variant_id]["detail"]["contributions"]):
             assert "리뷰 점수가 순위를 가르지 않았음" in out

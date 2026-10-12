@@ -16,6 +16,7 @@ import yaml
 from src.categories import load_category
 from src.dto import RequirementSpec, Slots
 from src.engine import LogFn
+from src.engine.score_policy import validate_axis_weights
 
 _COMPUTER_RULES_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "computer_verification_rules.yaml"
 _TIMING_RANK = {"now": 0, "soon": 1, "later": 2}
@@ -42,28 +43,22 @@ def _check_power_and_budget(req: dict, where: str = "") -> None:
         raise RequirementRuleError(f"{where}PC 예산 배분 합계가 1이 아님")
 
 
+_REMOVED_RANKING_KEYS = ("noise_proxy", "noise_sensitive_min_weight")
+
+
 def _check_ranking_priority(ranking: dict) -> None:
-    axes = set(ranking.get("weights") or {})
-    for name, weights in (ranking.get("priority_weights") or {}).items():
-        if (not isinstance(weights, dict) or set(weights) != axes
-                or any(not isinstance(v, (int, float)) or isinstance(v, bool) or v < 0 for v in weights.values())
-                or abs(sum(weights.values()) - 1) > 1e-9):
-            raise RequirementRuleError(f"PC 우선순위 가중치 오류: {name}")
-    floor = ranking.get("noise_sensitive_min_weight", 0)
-    if not isinstance(floor, (int, float)) or isinstance(floor, bool) or not 0 <= floor < 1:
-        raise RequirementRuleError("PC 소음 민감 최소 가중치 오류")
-    proxy = ranking.get("noise_proxy") or {}
-    for key in ("cpu_tdp_w", "gpu_power_w"):
-        if key in proxy:
-            bounds = proxy[key]
-            if not (isinstance(bounds, list) and len(bounds) == 2
-                    and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in bounds)
-                    and bounds[0] < bounds[1]):
-                raise RequirementRuleError(f"PC 소음 대용값 범위 오류: {key}")
-    table = proxy.get("cooler_type")
-    if table is not None and (not isinstance(table, dict) or not all(
-            isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 1 for v in table.values())):
-        raise RequirementRuleError("PC 소음 대용값 표 오류: cooler_type")
+    for key in _REMOVED_RANKING_KEYS:
+        if key in ranking:
+            raise RequirementRuleError(f"PC 랭킹 규칙에 제거된 정책 키가 남아 있음: {key}")
+    method = ranking.get("score_method")
+    if not isinstance(method, str) or not method.strip():
+        raise RequirementRuleError("PC 랭킹 score_method 오류")
+    try:
+        validate_axis_weights(ranking.get("weights"), "PC 랭킹 기본 가중치")
+        for name, weights in (ranking.get("priority_weights") or {}).items():
+            validate_axis_weights(weights, f"PC 우선순위 가중치 {name}")
+    except ValueError as exc:
+        raise RequirementRuleError(str(exc)) from exc
 
 
 _TIER_KEYS = ("gpu", "cpu", "ram_gb", "vram_gb")
@@ -183,8 +178,6 @@ def _load_computer_rules(path: Path) -> dict:
     if not verification.get("link_rules") or not 0 < verification.get("power", {}).get("psu_capacity_factor", 0) <= 1:
         raise RequirementRuleError("PC 호환성 규칙 오류")
     _check_power_and_budget(req)
-    if abs(sum((ranking.get("weights") or {}).values()) - 1) > 1e-9:
-        raise RequirementRuleError("PC 랭킹 가중치 합계가 1이 아님")
     _check_ranking_priority(ranking)
     for part, table in (req.get("lineup_perf_tier") or {}).items():
         if part not in ("cpu", "gpu") or not isinstance(table, dict) or not table or not all(

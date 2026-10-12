@@ -44,7 +44,7 @@ COOLER_LGA_BEST = cand("쿨러", "cooler_lga_best", 60, 8, supported_socket="LGA
 def test_stage3b_exposes_the_full_pool_beside_the_top_n():
     cands = [cand("쿨러", f"c{i}", 10 + i, 0.0) for i in range(8)]
     spec = RequirementSpec(list_id="r", category="computer", mode="build",
-                           targets={"쿨러": {}}, budget={"total": 0})
+                           targets={"쿨러": {}}, budget={"total": 1000, "alloc": {"쿨러": 0.1}})
     slots = Slots(category="computer", mode="build", objective_text="", values={"purpose": "game"},
                   assumed_keys=[], missing=[])
     rank = stage3b_rank.run(HardFilterResult(slots={"쿨러": cands}), spec, slots, lambda _: None)

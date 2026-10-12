@@ -1,6 +1,6 @@
 """[5] 설명 생성.
 
-(a) 속성 기여도 — 계산(LLM 아님). [3-B] breakdown 을 세트 단위로 집계 → 축별 비율(가격·성능·밸런스·리뷰·호환여유, 합 100%).
+(a) 속성 기여도 — 계산(LLM 아님). [3-B] breakdown 을 세트 단위로 집계 → 축별 비율(가격·성능·리뷰, 합 100%).
 (b) 문장 — LLM structured output 1회. 수치·부품명·통과여부는 코드가 확정, LLM 은 서술만.
     실패 시 규칙 템플릿 fallback.
 (c) 리뷰 적합도 — [3-B]가 사용한 request profile, R, Q, α, 관측 수/member를 rank에 보존된
@@ -101,7 +101,7 @@ def _contribution(build: BuildResult, rank: RankResult | None) -> dict[str, int]
     """고른 구성이 [3-B] 점수를 어느 축에서 얻었는지(%, 합 100).
 
     후보 점수 = Σ 축 가중치 × 축 값(breakdown). 고른 부품마다 그 항을 축별로 더해 전체 대비 비율로 낸다.
-    (감점 — 검토 보류·검사 스펙 공백 — 은 축이 아니라서 여기엔 안 들어간다.)
+    (축이 아닌 임시 보정 — 검토 보류 감점 등 — 은 여기엔 안 들어간다.)
     rank 가 없으면(옛 호출) 만들 근거가 없으므로 빈 dict — 가짜 값을 대신 채우지 않는다."""
     if rank is None or not rank.weights_used:
         return {}

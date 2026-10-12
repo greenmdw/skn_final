@@ -58,7 +58,7 @@ def test_result_carries_the_real_contribution_not_the_old_mockup_numbers(client)
     contribution = result["explanation"]["contribution"]
     assert contribution, "기여도가 비어 있다"
     assert sum(contribution.values()) == 100
-    assert {"가격", "성능", "밸런스", "리뷰", "호환여유"} <= set(contribution)
+    assert set(contribution) == {"가격", "성능", "리뷰"}
     assert contribution != {"가격": 41, "성능": 33, "호환성": 26}
     # 추적 기록에도 같은 값이 사람이 읽는 문장으로 남는다
     assert any(step.get("step") == "기여도" for step in result["reasoning_log"])

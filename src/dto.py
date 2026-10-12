@@ -126,7 +126,7 @@ class Candidate(BaseModel):
     price: int = 0
     specs: dict[str, Any] = Field(default_factory=dict)
     # E5 — 카탈로그 출처(어느 URL·언제 확인한 값인가). specs 에는 섞지 않는다 — 섞으면
-    # [3-B] data_gap 감점(빈 스펙 카운트)이 메타데이터 키를 스펙으로 셀 수 있다.
+    # 스펙 키를 세는 로직(빈 스펙 카운트 등)이 메타데이터 키를 스펙으로 셀 수 있다.
     # {"spec_url", "checked_at"(ISO 날짜 문자열), "by_key": {엔진 spec 키: 그 값을 뒷받침하는 URL}}.
     # by_key 는 테이블에 전용 출처 컬럼이 있는 키만 담는다(예: gpu.dimension_source_url → length_mm/
     # height_mm/slot_thickness) — 확실하지 않은 키는 넣지 않고 evidence 생성 쪽에서 spec_url로 대체한다.
@@ -136,6 +136,7 @@ class Candidate(BaseModel):
     flags: list[str] = Field(default_factory=list)
     score: float = 0.0
     breakdown: dict[str, float] = Field(default_factory=dict)
+    score_notes: list[str] = Field(default_factory=list)   # 점수 계산 중 남긴 표식(예: neutral:성능)
     review_detail: ReviewScoreDetail | None = None
     rank: int = 0
     # E8/E9 — 가격 출처. PC 후보는 기존대로 offer_observation 기반 "observed"(기본값,
@@ -299,7 +300,7 @@ class Explanation(BaseModel):
     list_id: str
     headline: str = ""
     summary: str = ""          # 03 화면 "추천 요약" 본문. 슬롯별 reason 은 items 에, 여기엔 반복하지 않는다
-    contribution: dict[str, int] = Field(default_factory=dict)   # 축(가격·성능·밸런스·리뷰·호환여유) -> %, 합 100
+    contribution: dict[str, int] = Field(default_factory=dict)   # 축(가격·성능·리뷰) -> %, 합 100
     items: list[ExplanationItem] = Field(default_factory=list)
     caveats: list[str] = Field(default_factory=list)
     review_line_by_slot: dict[str, str] = Field(default_factory=dict)

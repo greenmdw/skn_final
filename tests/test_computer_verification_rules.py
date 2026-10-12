@@ -20,7 +20,7 @@ def _cand(key: str, slot: str, price: int, **specs) -> Candidate:
 
 def test_default_yaml_preserves_pc_requirement_contract():
     rules = stage2_requirement.load_computer_rules()
-    assert rules["rule_set_version"] == "computer-rules-v11"
+    assert rules["rule_set_version"] == "computer-rules-v12"
     spec = stage2_requirement.run(_slots(resolution="QHD_165", brand_pref="amd", budget_max=2_000_000), {}, lambda _: None)
     assert spec.targets["GPU"]["vram_gb_min"] == 12
     assert spec.targets["CPU"]["socket_in"] == ["AM5"]
@@ -59,10 +59,10 @@ def test_efficiency_order_and_rank_weights_come_from_yaml(monkeypatch):
     monkeypatch.setattr(stage3a_hardfilter, "load_computer_rules", lambda: rules)
     assert stage3a_hardfilter._rating_rank("80+ Bronze") > stage3a_hardfilter._rating_rank("Gold")
 
-    rules["ranking"]["weights"] = {"가격": 1.0, "성능": 0.0, "밸런스": 0.0, "리뷰": 0.0, "호환여유": 0.0}
+    rules["ranking"]["weights"] = {"가격": 1.0, "성능": 0.0, "리뷰": 0.0}
     monkeypatch.setattr(stage3b_rank, "load_computer_rules", lambda: rules)
-    scored = stage3b_rank._score(_cand("cpu", "CPU", 100), None, 200, "CPU", {})
-    assert scored.score == 0.5
+    scored = stage3b_rank._score(_cand("cpu", "CPU", 100, perf_tier=5), 100.0, "CPU", {})
+    assert scored.score == 0.5   # 가격 축 B/(B+P) = 100/200
 
 
 def test_psu_capacity_factor_controls_set_verification(monkeypatch):

@@ -15,6 +15,7 @@ _noop = lambda _m: None  # noqa: E731
 
 
 def _spec(**values) -> RequirementSpec:
+    values.setdefault("budget_max", 2_000_000)   # 점수식의 참고 예산(총예산 × 슬롯 배분)에 필요하다
     slots = Slots(category="computer", mode="build", objective_text="", values=values)
     return s2.run(slots, {}, _noop)
 
@@ -125,7 +126,8 @@ def test_heavy_game_raises_the_gpu_ideal_tier_and_logs_the_bump():
     cands = [_cand("GPU", "mid", 300_000, perf_tier=6), _cand("GPU", "high", 400_000, perf_tier=8)]
     rr = _rank(spec, "GPU", cands, purpose="game", resolution="FHD_144", games=["사이버펑크 2077"])
     assert rr.slots["GPU"]["ideal_tier"] == 7.0
-    assert "게임 요구 반영: GPU 이상 등급 6→7" in rr.weight_adjustments
+    assert rr.slots["GPU"]["ideal_note"] == "게임 요구 반영: GPU 이상 등급 6→7"
+    assert rr.weight_adjustments == []                      # 가중치 조정이 아니라 병목 기준 메모다
 
 
 def test_light_game_does_not_move_the_ideal_tier_or_add_a_note():
@@ -135,6 +137,7 @@ def test_light_game_does_not_move_the_ideal_tier_or_add_a_note():
     cands = [_cand("GPU", "mid", 300_000, perf_tier=6)]
     rr = _rank(spec, "GPU", cands, purpose="game", resolution="FHD_144", games=["발로란트"])
     assert rr.slots["GPU"]["ideal_tier"] == 6.0
+    assert rr.slots["GPU"]["ideal_note"] is None
     assert rr.weight_adjustments == []
 
 
@@ -157,16 +160,18 @@ def test_without_games_the_rank_result_is_unchanged_even_if_a_floor_was_raised_s
             == [c["score"] for c in rr_high_floor.slots["GPU"]["ranked"]])
 
 
-def test_raising_the_ideal_tier_relatively_favors_the_higher_tier_candidate():
-    """ideal 이 오르면(게임 요구 반영) 그 위쪽 등급 후보의 밸런스 축 점수가 상대적으로 좋아진다."""
-    weak = _cand("GPU", "weak", 300_000, perf_tier=6)
-    strong = _cand("GPU", "strong", 300_000, perf_tier=9)
-    before_weak = stage3b_rank._score(weak, 6.0, 1_000_000, "GPU", {})
-    before_strong = stage3b_rank._score(strong, 6.0, 1_000_000, "GPU", {})
-    after_weak = stage3b_rank._score(weak, 7.0, 1_000_000, "GPU", {})
-    after_strong = stage3b_rank._score(strong, 7.0, 1_000_000, "GPU", {})
-    assert after_strong.breakdown["밸런스"] > before_strong.breakdown["밸런스"]
-    assert after_weak.breakdown["밸런스"] < before_weak.breakdown["밸런스"]
+def test_raising_the_ideal_tier_only_moves_the_bottleneck_hint_not_the_score():
+    """ideal 은 병목 힌트용이다 — 게임 요구로 올라가도 후보 점수·breakdown 은 그대로고, 최선 후보가 새 ideal 에
+    못 미칠 때 힌트만 새로 생긴다."""
+    cands = [_cand("GPU", "mid", 300_000, perf_tier=6)]
+    plain = _spec(purpose="game", resolution="FHD_144")
+    heavy = _spec(purpose="game", resolution="FHD_144", games=["사이버펑크 2077"])
+    rr_plain = _rank(plain, "GPU", cands, purpose="game", resolution="FHD_144")
+    rr_heavy = _rank(heavy, "GPU", cands, purpose="game", resolution="FHD_144", games=["사이버펑크 2077"])
+    assert rr_plain.slots["GPU"]["ranked"][0]["score"] == rr_heavy.slots["GPU"]["ranked"][0]["score"]
+    assert rr_plain.slots["GPU"]["ranked"][0]["breakdown"] == rr_heavy.slots["GPU"]["ranked"][0]["breakdown"]
+    assert rr_plain.slots["GPU"]["bottleneck_hint"] is None
+    assert rr_heavy.slots["GPU"]["bottleneck_hint"]["gap"] == 1.0
 
 
 # ── E7 — game_titles 출처·승인 상태 스키마 (D의 엔진 쪽, R-11은 범위 밖) ──────────

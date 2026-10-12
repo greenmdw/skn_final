@@ -1,7 +1,7 @@
 # PC requirement, ranking, and set-compatibility policy. Change schema_version when
 # the structure changes; change rule_set_version when policy values change.
 schema_version: 1
-rule_set_version: computer-rules-v11
+rule_set_version: computer-rules-v12
 
 requirements:
   default_resolution: FHD_144
@@ -170,13 +170,15 @@ ranking:
     study: {default: {GPU: 3.0, CPU: 6.0}}
     creation: {default: {GPU: 6.0, CPU: 8.0}}
     other: {default: {GPU: 3.0, CPU: 6.0}}
-  # 소음 축은 기본 가중치 0 — priority/noise_sensitive 를 안 준 요청의 점수는 이전과 같다.
-  weights: {가격: 0.35, 성능: 0.25, 밸런스: 0.15, 리뷰: 0.20, 호환여유: 0.05, 소음: 0.0}
-  # 우선순위(priority)별 가중치 세트. 합계 1. 표에 없는 값/미지정은 위 weights 를 쓴다.
+  # 점수 산식 버전(저장 시 score_method_version). 축은 가격·성능·리뷰 세 개, 가중치는 0.01 단위·합 1.
+  score_method: pc-fit-v2
+  weights: {가격: 0.45, 성능: 0.30, 리뷰: 0.25}
+  # 우선순위(priority)별 가중치 세트. 표에 없는 값/미지정은 위 weights 를 쓴다.
+  # noise_sensitive 는 바깥 가중치를 바꾸지 않는다(리뷰 프로필의 정숙성 중요도가 따로 반영한다).
   priority_weights:
-    performance: {가격: 0.10, 성능: 0.55, 밸런스: 0.10, 리뷰: 0.20, 호환여유: 0.05, 소음: 0.0}
-    value: {가격: 0.50, 성능: 0.15, 밸런스: 0.10, 리뷰: 0.20, 호환여유: 0.05, 소음: 0.0}
-    quiet: {가격: 0.25, 성능: 0.15, 밸런스: 0.10, 리뷰: 0.20, 호환여유: 0.05, 소음: 0.25}
+    performance: {가격: 0.20, 성능: 0.60, 리뷰: 0.20}
+    value: {가격: 0.55, 성능: 0.25, 리뷰: 0.20}
+    quiet: {가격: 0.40, 성능: 0.25, 리뷰: 0.35}
   # 검사에 필요한 스펙이 비어 있는 후보는 점수를 조금 깎는다. "정보 없음"은 비호환이 아니라 통과로 취급하는데(엔진 원칙),
   # 그러면 데이터가 빈 싼 부품이 검사를 피해 계속 뽑힌다(케이스가 늘 가장 싼 한 종으로 고정됐던 원인). 값이 하나라도 채워진
   # 슬롯에서만 적용해서, 아직 아무 값도 없는 카탈로그(합성·시드 전)의 점수는 바뀌지 않는다. 채워지는 만큼 자동으로 사라진다.
@@ -194,17 +196,6 @@ ranking:
   # 우선, 가격 가중치 0.50) 여전히 싼 단일 모듈이 이길 수 있다. breakdown 축이 아니라 gap_penalty처럼
   # 최종 점수에만 더해서 축·가중치 표(우선순위별 weights)를 새로 만들 필요가 없게 했다.
   ram_dual_channel_bonus: 0.05
-  # noise_sensitive=true 이면 소음 가중치를 최소 이만큼 보장한다(나머지 축은 비율대로 줄인다).
-  noise_sensitive_min_weight: 0.15
-  # 소음은 직접 측정값(dBA)도 리뷰 관점 정보도 없어 물리적 대용값으로 잡는다 — 휴리스틱이다.
-  # CPU/GPU 는 소비전력(발열이 적을수록 팬이 덜 돈다)을 [낮음, 높음] 범위에서 1→0 으로,
-  # 쿨러는 유형(큰 방열판·라디에이터는 낮은 회전수로 버틴다)으로 본다. 파워는 효율 등급과
-  # 소음의 연결 근거가 약해 넣지 않았다(넣었더니 저소음 요청이 1300W Titanium 을 골라 견적이
-  # 64만원 뛰었다). 표에 없는 값(Passive 쿨러 등)과 다른 슬롯은 중립 0.5 — 지어내지 않는다.
-  noise_proxy:
-    cpu_tdp_w: [65, 200]
-    gpu_power_w: [75, 450]
-    cooler_type: {"Air (Dual-Tower)": 0.8, "Air (Single-Tower)": 0.6, "Liquid (AIO)": 0.6, "Air (Low-Profile)": 0.2}
 
 # 조건에 맞는 리뷰 축 문장을 먼저 보여주는 정렬 규칙(F-1, src/engine/review_focus.py 가 읽는다).
 # 정렬만 한다 — 점수·랭킹에는 안 쓴다(결정 0001). 축 이름은 data/review_summaries.json 의

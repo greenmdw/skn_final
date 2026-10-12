@@ -704,7 +704,7 @@ class ExplanationOut(BaseModel):
     status: str            # pending | ready | failed
     headline: str | None = None
     text: str | None = None
-    # 추천 당시 구성이 어느 축(가격·성능·밸런스·리뷰·호환여유)에서 점수를 얻었는지, 합 100(%). 교체 뒤에도 그대로다.
+    # 추천 당시 구성이 어느 축(가격·성능·리뷰)에서 점수를 얻었는지, 합 100(%). 교체 뒤에도 그대로다.
     contribution: dict[str, int] | None = None
 
 
