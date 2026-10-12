@@ -426,3 +426,18 @@ def test_qty_past_the_m2_slots_is_flagged_after_the_change(conn):
     assert m2["state"] == "fail", m2
     issue = next(i for i in result["verification"]["issues"] if i["axis"] == "m2")
     assert issue["text"].startswith(f"M.2 SSD와 메인보드 슬롯: M.2 SSD {slots + 1}개 > 메인보드 M.2 슬롯 {slots}개"), issue
+
+
+def test_no_cheaper_cooler_says_why_and_offers_the_box_cooler(conn):
+    """U-04(통합테스트 F-6) — "쿨러 더 저렴한 걸로 바꿔줘"에 "한 단계 아래 후보가 카탈로그에 없습니다"만 돌려줘 모델이
+    이유 없이 "교체하지 않았습니다"로 답했다(10/12 재현 3/3). 지금 쿨러가 카탈로그에서 가장 싼 것이었다."""
+    revision_id = _build(conn)
+    ctx = result_advice._context(conn, revision_id)
+    row = ctx.row("쿨러")
+    cheaper = [c for c in ctx.pool["쿨러"] if c.price is not None and c.price < row["price"]]
+    out = result_advice.preview_swap(conn, revision_id, "쿨러", direction="down")
+    if cheaper:
+        assert "candidate_id=" in out or "호환 점검에서 맞지 않습니다" in out, out
+    else:
+        assert f"카탈로그 쿨러 {len(ctx.pool['쿨러'])}개 중 가장 싼 제품이라 더 싼 후보가 없습니다" in out, out
+        assert "CPU 기본 쿨러(카탈로그 값)" in out and "별도 쿨러가 담겨 있음" in out, out

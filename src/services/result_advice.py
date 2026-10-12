@@ -293,6 +293,29 @@ def step_candidate(ctx: _Ctx, slot: str, direction: str):
     return (min if up else max)(pool, key=_price)
 
 
+def _no_step_text(conn, ctx: _Ctx, slot: str, row: dict, cur, direction: str) -> str:
+    """한 단계 위/아래 후보가 없을 때 그 이유 — "쿨러 더 저렴한 걸로 바꿔줘"에 "한 단계 아래 후보가 카탈로그에
+    없습니다"만 돌려줘, 모델이 이유 없이 "교체하지 않았습니다"로 답했다(통합테스트 F-6 · U-04, 10/12 재현 3/3).
+    실제로는 지금 쿨러가 카탈로그 쿨러 40개 중 가장 싼 것이었다. 성능 값이 없는 슬롯은 가격으로 견준다."""
+    up = direction == "up"
+    word = "위" if up else "아래"
+    head = f"{slot}: 지금 {row['product_name']} {fmt_money(_price(row))}"
+    m0 = _metric(slot, cur.specs) if cur is not None else None
+    if m0 is not None:
+        return f"{head} · {_metric_text(slot, m0)} — 지금 구성과 맞는 한 단계 {word} 후보가 카탈로그에 없습니다."
+    pool = [c for c in ctx.pool.get(slot, []) if cur is None or c.variant_id != cur.variant_id]
+    beyond = [c for c in pool if c.price is not None and (_price(c) > _price(row) if up else _price(c) < _price(row))]
+    if not beyond:
+        lines = [f"{head} — 카탈로그 {slot} {len(pool) + 1}개 중 가장 {'비싼' if up else '싼'} 제품이라 "
+                 f"더 {'비싼' if up else '싼'} 후보가 없습니다."]
+    else:
+        lines = [f"{head} — 더 {'비싼' if up else '싼'} 후보 {len(beyond)}개는 모두 지금 구성과 호환 점검에서 맞지 않습니다."]
+    if slot == "쿨러" and not up:
+        # 더 줄일 길은 쿨러를 빼고 CPU 기본 쿨러를 쓰는 것뿐 — 그 사실(기본 쿨러 포함 여부)을 같이 준다
+        lines += cooler_lines(conn, ctx)
+    return "\n".join(lines)
+
+
 def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = None, direction: str | None = None) -> str:
     """slot 을 variant_id(또는 direction='up'|'down' 이면 한 단계 위/아래 후보)로 바꾼다고 가정한 결과 — 가격·예산,
     성능 등급, 요구 사양, 부품 사이 호환. 구성표는 그대로다."""
@@ -309,9 +332,7 @@ def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = No
     elif direction in ("up", "down"):
         cand = step_candidate(ctx, slot, direction)
         if cand is None:
-            word = "위" if direction == "up" else "아래"
-            return (f"{slot}: 지금 {row['product_name']} {_metric_text(slot, _metric(slot, cur.specs) if cur else None)}"
-                    f" — 지금 구성과 맞는 한 단계 {word} 후보가 카탈로그에 없습니다.")
+            return _no_step_text(conn, ctx, slot, row, cur, direction)
     else:
         return "오류: candidate_id 또는 direction('up'/'down') 중 하나가 필요합니다."
     qty = _qty(row)
