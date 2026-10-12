@@ -97,3 +97,39 @@ def test_the_trace_is_only_read_once_the_explanation_is_finished(monkeypatch):
     assert body["explanation"]["status"] in ("ready", "failed")
     assert calls["n"] == 1
     assert any(step.get("step") == "기여도" or step.get("step") for step in body["reasoning_log"])
+
+
+def test_one_poll_borrows_a_single_pooled_connection(monkeypatch):
+    """U-03 — 폴링이 부품마다 풀에서 연결을 하나씩 더 빌리면(수정 전 9개) 동시 사용자가 늘 때 풀이 먼저 마른다. 요청의 연결 하나만 쓴다."""
+    from psycopg_pool import ConnectionPool
+
+    client = _signed_up()
+    lid, _rev, _data = _recommended_list(client)
+    client.get(f"/session/{lid}/result")                       # 캐시 데우기
+    borrowed = []
+    original = ConnectionPool.connection
+
+    def counting(self, *args, **kwargs):
+        borrowed.append(1)
+        return original(self, *args, **kwargs)
+
+    monkeypatch.setattr(ConnectionPool, "connection", counting)
+    assert client.get(f"/session/{lid}/result").status_code == 200
+    assert len(borrowed) == 1, f"풀에서 {len(borrowed)}번 빌렸다"
+
+
+def test_alternative_counts_come_from_the_light_query_and_match_the_candidate_pools():
+    from src.repo.product_repo import ProductRepo
+
+    client = _signed_up()
+    lid, _rev, _data = _recommended_list(client)
+    with get_conn() as conn:
+        repo = ProductRepo(conn)
+        light = repo.candidate_variant_ids_by_slot()
+        full = {slot: {str(c["variant_id"]) for c in rows} for slot, rows in repo.candidates_by_slot().items()}
+    assert light == full
+    items = client.get(f"/session/{lid}/result").json()["items"]
+    for item in items:
+        pool = light[item["slot"]]
+        # 추천된 후보가 아직 후보 풀 안이면 자기 자신을 뺀 수, 풀에서 빠졌으면 풀 전체 수
+        assert item["alternatives_count"] in (len(pool) - 1, len(pool)), item["slot"]

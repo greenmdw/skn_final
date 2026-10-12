@@ -118,6 +118,24 @@ class ProductRepo(Repo):
             (offer_id,),
         )
 
+    def candidate_variant_ids_by_slot(self) -> dict[str, set[str]]:
+        """슬롯별 후보 variant id 집합 — candidates_by_slot 과 같은 후보 조건이지만 행(속성 JSON·가격)을 싣지 않는다.
+        결과 폴링이 슬롯별 '대안 개수'만 필요해서 후보 전체를 읽던 것을 줄인다(U-03)."""
+        from src.repo.catalog_repo import PC_TYPE_TO_SLOT
+        cases = " ".join(f"WHEN '{t}' THEN '{slot}'" for t, slot in PC_TYPE_TO_SLOT.items())
+        rows = self._all(
+            f"""
+            SELECT COALESCE(p.attributes->>'slot', CASE p.product_type {cases} END) AS slot,
+                   array_agg(v.id) AS variant_ids
+            FROM catalog.product_variant v
+            JOIN catalog.product p ON p.id = v.product_id
+            JOIN catalog.offer o ON o.variant_id = v.id AND o.status = 'active'
+            WHERE EXISTS (SELECT 1 FROM catalog.offer_observation obs WHERE obs.offer_id = o.id AND obs.quality_status = 'valid')
+            GROUP BY 1
+            """
+        )
+        return {r["slot"]: {str(v) for v in r["variant_ids"]} for r in rows if r["slot"]}
+
     def candidates_by_slot(self) -> dict[str, list[dict]]:
         """슬롯별 최신 유효가 후보. 기존 slot 속성과 새 PC product_type을 모두 읽는다."""
         from src.repo.catalog_repo import PC_TYPE_TO_SLOT

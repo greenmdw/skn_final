@@ -53,7 +53,7 @@ def candidate_keys(product_key: str) -> list[str]:
     return keys
 
 
-def _db_backed_analysis(product_key: str) -> dict | None:
+def _db_backed_analysis(product_key: str, conn=None) -> dict | None:
     """P8: evidence.review_aggregate에 검수 승인된 파일 기반 분석이 있으면 그 값을 낸다.
 
     `DATABASE_URL`이 명시적으로 설정된 배포/통합-테스트 환경에서만 시도한다 — 환경변수를
@@ -63,23 +63,31 @@ def _db_backed_analysis(product_key: str) -> dict | None:
     """
     if not os.environ.get("DATABASE_URL"):
         return None
+    def _read(c):
+        subject_id = ReviewSubjectRepo(c).resolve_by_key(product_key)
+        if subject_id is None:
+            return None
+        repo = ReviewRepo(c)
+        aggregate = repo.get_summary(subject_id)
+        if aggregate is None:
+            return None
+        return {"aggregate": aggregate, "summaries": repo.top_summaries(aggregate)}
+
     try:
-        with get_conn() as conn:
-            subject_id = ReviewSubjectRepo(conn).resolve_by_key(product_key)
-            if subject_id is None:
-                return None
-            repo = ReviewRepo(conn)
-            aggregate = repo.get_summary(subject_id)
-            if aggregate is None:
-                return None
-            return {"aggregate": aggregate, "summaries": repo.top_summaries(aggregate)}
+        if conn is not None:
+            # 호출한 요청의 연결을 그대로 쓴다 — 결과 폴링이 부품마다 풀에서 연결을 하나씩 더 빌리던 것을 없앤다(U-03).
+            # 실패해도 호출자의 트랜잭션이 깨지지 않게 세이브포인트 안에서 읽는다.
+            with conn.transaction():
+                return _read(conn)
+        with get_conn() as own:
+            return _read(own)
     except Exception:
         return None
 
 
 
 
-def get_summary(product_key: str) -> ReviewSummaryOut:
+def get_summary(product_key: str, conn=None) -> ReviewSummaryOut:
     """S5 리뷰 상세. 실측(관계·행동 축 관측 + P8 파일 기반 분석)과 합성 데모 블록을 분리해 낸다.
 
     - 관측(관계·행동 축)은 상품 단위이고 점수가 아니다. 개별 리뷰의 진위가 아니다
@@ -94,7 +102,7 @@ def get_summary(product_key: str) -> ReviewSummaryOut:
     key, d, db = product_key, None, None
     for cand in all_keys:
         cand_d = demo.get(cand) if demo else None
-        cand_db = _db_backed_analysis(cand)
+        cand_db = _db_backed_analysis(cand, conn)
         if cand_d is not None or cand_db is not None:
             key, d, db = cand, cand_d, cand_db
             break
@@ -232,7 +240,7 @@ def _cleansing_summary() -> dict:
     return {"status": "ready", "text": _CLEANSING_SUMMARY_TEXT}
 
 
-def review_brief(product_key: str) -> dict | None:
+def review_brief(product_key: str, conn=None) -> dict | None:
     """추천 결과/리포트 화면의 미니 리뷰 배지 — total_count + 구조화된 신호(signals) + 클렌징 요약 + 유저용 문장(plain).
 
     excluded_ratio·rating_refined(정제 전/후 비교)는 판정기가 없어 못 낸다(docs/decisions/0001).
@@ -241,7 +249,7 @@ def review_brief(product_key: str) -> dict | None:
     """
     plain = review_plain.render(product_key)
     try:
-        summary = get_summary(product_key)
+        summary = get_summary(product_key, conn)
     except NotFound:
         return {"total_count": None, "excluded_ratio": None, "rating_refined": None,
                 "signals": None, "cleansing_summary": _cleansing_summary(), "plain": plain}

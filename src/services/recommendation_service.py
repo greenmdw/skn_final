@@ -708,7 +708,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
     # 추적 기록(화면용)은 설명이 끝난 뒤에만 있다 — 설명 대기 중 폴링에서는 읽지 않는다. 리뷰 계산 snapshot(약 780KB)은 응답에 싣지 않는다.
     trace = [] if (run.get("explanation_status") or "pending") == "pending" else erepo.get_run_trace(run["id"])
     result["reasoning_log"] = trace
-    candidates_by_slot = prodrepo.candidates_by_slot()
+    variant_ids_by_slot = prodrepo.candidate_variant_ids_by_slot()
     items = []
     candidate_rows = erepo.get_candidates(run["id"])
     from src.repo.catalog_repo import load_specs_by_variant
@@ -722,8 +722,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
                        else row["product_key"])
         spec_summary = _spec_summary(row["slot"], specs_by_variant.get(str(row["variant_id"])))
         price = int(row["price"]) if row["price"] is not None else 0
-        slot_variants = candidates_by_slot.get(row["slot"], [])
-        alternatives_count = sum(1 for c in slot_variants if c["variant_id"] != row["variant_id"])
+        alternatives_count = len(variant_ids_by_slot.get(row["slot"], set()) - {str(row["variant_id"])})
         items.append({
             "item_id": str(row["id"]), "slot": row["slot"], "slot_label": row["slot_label"],
             "product": {
@@ -735,7 +734,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
             "price": price, "price_source": "observed" if category == "computer" else "synthetic",
             "price_observed_at": row["observed_at"].isoformat() if row["observed_at"] else None,
             "qty": row["qty"], "selected": row["selected"], "timing": row["timing"], "budget_share": None,
-            "review": _review_with_db_count(review_service.review_brief(product_key), review_counts.get(str(row["product_id"]))),
+            "review": _review_with_db_count(review_service.review_brief(product_key, conn), review_counts.get(str(row["product_id"]))),
             "review_detail": review_for_candidate(
                 review_snapshot, variant_id=row["variant_id"], product_id=row["product_id"],
                 slot=row["slot"], selection_source="user_swap" if row["score"] is None else "automatic",
