@@ -18,7 +18,7 @@ class EngineRepo(Repo):
         terminal = "stale" if status == "completed" and run["lock_version"] != run["draft_lock_version"] else status
         self._exec("UPDATE engine.recommendation_run SET status=%s, completed_at=now(), updated_at=now() WHERE id=%s", (terminal, run_id))
         if terminal == "stale": raise Conflict("추천 도중 조건이 변경되었습니다.")
-    def add_candidate(self, run_id: UUID, requirement_id: UUID, variant_id: UUID, *, result: str, score=None, score_method_version: str | None = None, reason: str | None = None, offer_observation_id: UUID | None = None) -> UUID:
+    def add_candidate(self, run_id: UUID, requirement_id: UUID, variant_id: UUID, *, result: str, score=None, score_method_version: str | None = None, reason: str | None = None, offer_observation_id: UUID | None = None, qty: int = 1) -> UUID:
         # PostgreSQL has individual FKs for run and requirement, but cannot express
         # that they belong to the same revision with those columns alone.
         scope = self._one(
@@ -30,8 +30,8 @@ class EngineRepo(Repo):
         if scope is None:
             raise ValueError("cross_revision_candidate_rejected")
         reason_status = "ready" if reason is not None else "pending"
-        row=self._one("""INSERT INTO engine.recommendation_candidate (run_id,requirement_id,variant_id,offer_observation_id,result,score,score_method_version,reason,reason_status)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",(run_id,requirement_id,variant_id,offer_observation_id,result,score,score_method_version,reason,reason_status)); return row["id"]
+        row=self._one("""INSERT INTO engine.recommendation_candidate (run_id,requirement_id,variant_id,offer_observation_id,result,score,score_method_version,reason,reason_status,qty)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",(run_id,requirement_id,variant_id,offer_observation_id,result,score,score_method_version,reason,reason_status,qty)); return row["id"]
     def update_candidate_reason(self, candidate_id: UUID, reason: str, variant_id: UUID | None = None) -> bool:
         """[5] 설명 문장이 부품표 확정보다 늦게 끝날 때, 나중에 reason만 채워 넣는다.
 

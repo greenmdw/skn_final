@@ -19,7 +19,7 @@ def test_review_delta_uses_actual_weights_and_preserves_other_terms(priority, no
     weights, _ = ranker._weights_for({'priority':priority,'noise_sensitive':noise_sensitive}, rules['ranking'])
     cand = Candidate(product_key='gpu',slot='GPU',name='GPU',price=31001,
                      specs={'perf_tier':6.3,'power_w':123})
-    args = (cand, 100000 * 0.4, 'GPU', {'tgp_budget_w':200}, weights)
+    args = (cand, 100000 * 0.4, 'GPU', weights)
     old = ranker._score(*args, gap_penalty=.023, review_detail=_detail(.5))
     new = ranker._score(*args, gap_penalty=.023, review_detail=_detail(.525123456))
     # 중간 반올림이 없으므로 리뷰 값 차이가 가중치만큼 그대로 점수 차이가 된다.
@@ -30,16 +30,16 @@ def test_review_delta_uses_actual_weights_and_preserves_other_terms(priority, no
     assert new.specs == old.specs
 
 
-def test_ram_bonus_and_gap_are_preserved():
+def test_ram_pair_has_no_bonus_and_gap_is_preserved():
+    """정책 §2.5 — 모듈 2개 구성에 별도 가산점이 없고, 가격 축은 구성 가격으로 계산된다."""
     rules = ranker.load_computer_rules()['ranking']
-    target = {'capacity_gb_min':16}
+    assert 'ram_dual_channel_bonus' not in rules
     cand = Candidate(product_key='ram',slot='RAM',name='RAM',price=20000,
                      specs={'capacity_gb':16,'module_config':'8GB x 2'},review_detail=_detail(.525,'ram'))
-    result = ranker._score(cand,80000.0,'RAM',target,gap_penalty=.01)
+    result = ranker._score(cand,80000.0,'RAM',gap_penalty=.01)
     price_axis = 80000 / (80000 + 20000)
     base = sum(rules['weights'][k]*v for k, v in {'가격':price_axis,'성능':.5,'리뷰':.525}.items())
-    expected = base - .01 + ranker._ram_dual_channel_bonus(cand,'RAM',target,rules)
-    assert result.score == pytest.approx(expected, abs=1e-14)
+    assert result.score == pytest.approx(base - .01, abs=1e-14)
     assert result.score_notes == ['neutral:성능']
 
 

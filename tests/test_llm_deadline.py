@@ -206,7 +206,7 @@ def test_explanation_retries_share_one_deadline(monkeypatch):
         return json.loads('{"headline": "h", "summary": "s", "items": []}')
 
     monkeypatch.setattr(stage5_explain, "call_llm", wrong_slots)
-    item = SimpleNamespace(slot="CPU", name="cpu", price=1, rank_from_3b=1, product_key="k")
+    item = SimpleNamespace(slot="CPU", name="cpu", price=1, rank_from_3b=1, qty=1, product_key="k")
     build = SimpleNamespace(items=[item], budget={"max": 1}, totals={"price": 1}, list_id="x")
     outcome: dict = {}
     assert stage5_explain._llm_draft(build, SimpleNamespace(targets=[]), None, lambda _m: None, outcome=outcome) is None

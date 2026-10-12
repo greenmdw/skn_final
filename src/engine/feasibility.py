@@ -11,7 +11,7 @@ from typing import Any
 
 from src.dto import Candidate, RequirementSpec
 from src.engine.lang import fmt_money
-from src.engine.stage3a_hardfilter import _judge_computer
+from src.engine.stage3a_hardfilter import _judge
 
 # 하한이 예산의 이 비율을 넘으면 "빠듯" — 호환되는 조합을 찾다 보면 예산을 넘기기 쉬운 구간이다.
 TIGHT_RATIO = 0.85
@@ -26,8 +26,9 @@ def assess(spec: RequirementSpec, by_slot: dict[str, list[Candidate]]) -> dict[s
     per_slot: dict[str, int] = {}
     unfillable: list[str] = []
     for slot, target in spec.targets.items():
-        prices = [c.price for c in by_slot.get(slot, [])
-                  if c.price and c.price > 0 and _judge_computer(c, target).verdict == "Pass"]
+        # RAM 은 판정과 같은 2개 구성 변환을 거친 뒤 구성 가격으로 센다(정책 §2.5)
+        prices = [j.price for c in by_slot.get(slot, [])
+                  if c.price and c.price > 0 and (j := _judge(slot, c, target)).verdict == "Pass"]
         if prices:
             per_slot[slot] = min(prices)
         else:

@@ -194,7 +194,7 @@ def _llm_draft(build: BuildResult, verification: VerificationResult,
     ]
     for it in build.items:
         axes = _top_axes(rank, it.slot, it.product_key)
-        lines.append(f"- {it.slot} | {it.name} | {fmt_money(it.price)} | {it.rank_from_3b}순위"
+        lines.append(f"- {it.slot} | {_display_name(it)} | {fmt_money(it.price)} | {it.rank_from_3b}순위"
                      + (f" | 기여가 큰 축: {axes}" if axes else ""))
     if tgt and tgt.issues:
         lines.append("검증 쟁점:")
@@ -239,8 +239,13 @@ def _llm_draft(build: BuildResult, verification: VerificationResult,
     return None
 
 
+def _display_name(item) -> str:
+    """2개 구매 품목(RAM 낱개 2개)은 이름 뒤에 수량을 붙여, 구성 전체 가격이 낱개 가격으로 읽히지 않게 한다."""
+    return f"{item.name} ×{item.qty}" if item.qty > 1 else item.name
+
+
 def _fallback_reason(item) -> str:
-    return f"{item.name} — 조건 충족, {item.rank_from_3b}순위, {fmt_money(item.price)}"
+    return f"{_display_name(item)} — 조건 충족, {item.rank_from_3b}순위, {fmt_money(item.price)}"
 
 
 def _fallback_headline(build: BuildResult) -> str:

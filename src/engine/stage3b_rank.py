@@ -44,28 +44,7 @@ def _data_gap_penalty(cand: Candidate, gap_keys: list[str], gap: dict) -> float:
     return min(missing * gap.get("penalty_per_key", 0.0), gap.get("max_penalty", 0.0))
 
 
-def _ram_dual_channel_bonus(cand: Candidate, slot: str, target: dict, ranking: dict) -> float:
-    """개발요청 7번 — RAM은 perf_tier가 없어 성능 축이 중립 고정이라 같은 총 용량이면
-    가격만으로 갈렸고, 단일 모듈이 듀얼채널(모듈 2개 이상) 키트보다 늘 이겼다. breakdown 축이
-    아니라 gap_penalty처럼 최종 점수에만 더한다(우선순위별 weights 표를 새로 만들 필요가 없다).
-
-    딱 필요한 용량(capacity_gb_min)과 같은 후보에만 준다 — 그보다 큰 용량까지 우대하면
-    "16GB 듀얼(8GB×2)"이 아니라 "32GB 듀얼(16GB×2)"처럼 필요보다 큰(그래서 훨씬 비싼) 키트가
-    가격 축이 0으로 뭉개지는 예산 초과 구간에서 단지 module_count>=2 라는 이유로 이겨버렸다
-    (실측: 예산 200만·가성비 우선주에서 33만원 16GB 단일 대신 91만원 32GB 듀얼을 골랐다)."""
-    if slot != "RAM":
-        return 0.0
-    need = target.get("capacity_gb_min")
-    capacity = cand.specs.get("capacity_gb")
-    if need is None or capacity is None or capacity != need:
-        return 0.0
-    from src.engine.compat_parse import parse_module_count
-
-    count = parse_module_count(cand.specs.get("module_config"))
-    return float(ranking.get("ram_dual_channel_bonus", 0.0)) if count is not None and count >= 2 else 0.0
-
-
-def _score(cand: Candidate, ref_budget: float, slot: str, target: dict,
+def _score(cand: Candidate, ref_budget: float, slot: str,
            weights: dict[str, float] | None = None, gap_penalty: float = 0.0,
            review_detail: ReviewScoreDetail | None = None) -> Candidate:
     notes: list[str] = []
@@ -87,7 +66,6 @@ def _score(cand: Candidate, ref_budget: float, slot: str, target: dict,
     base = clip01(math.fsum(weights[a] * b[a] for a in AXES))
     score = base
     score -= gap_penalty   # 임시: 4단계에서 제거
-    score += _ram_dual_channel_bonus(cand, slot, target, ranking)   # 임시: 3단계에서 제거
     return cand.model_copy(update={"score": score, "breakdown": b, "score_notes": notes,
                                    "review_detail": review_detail})
 
@@ -132,11 +110,10 @@ def run(hf: HardFilterResult, spec: RequirementSpec, slots: Slots, log: LogFn, *
         if slot not in alloc:
             raise ScoreInputError(f"예산 배분(alloc)에 슬롯 {slot}이(가) 없습니다")
         ref_budget = float(total) * alloc[slot]
-        target = spec.targets.get(slot, {})
         gap = ranking.get("data_gap") or {}
         gap_keys = _data_gap_keys(cands, slot, gap)
         penalties = {c.product_key: _data_gap_penalty(c, gap_keys, gap) for c in cands} if gap_keys else {}
-        scored = sorted((_score(c, ref_budget, slot, target, weights, penalties.get(c.product_key, 0.0))
+        scored = sorted((_score(c, ref_budget, slot, weights, penalties.get(c.product_key, 0.0))
                          for c in cands), key=lambda c: (-c.score, c.price, c.product_key))
         if any(penalties.values()):
             log(f"      {slot}: 검사용 스펙({', '.join(gap_keys)})이 빈 후보 {sum(1 for v in penalties.values() if v)}/{len(cands)}개 감점")

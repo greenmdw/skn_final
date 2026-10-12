@@ -18,6 +18,7 @@ from psycopg_pool import PoolTimeout
 
 from src.categories import load_category
 from src.dto import PipelineResult, RequirementSpec
+from src.engine import ram_config
 from src.engine.brands import SLOT_SYNONYMS
 from src.engine.lang import fmt_money, josa
 from src.engine.slots import slots_from_conditions as _slots_from_conditions
@@ -381,7 +382,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
                 candidate_id_by_slot[item.slot] = erepo.add_candidate(
                     run_id, req_id_by_slot[item.slot], variant_id, result="selected",
                     score=item.score, score_method_version="v1", reason=None,
-                    offer_observation_id=offer_observation_id,
+                    offer_observation_id=offer_observation_id, qty=item.qty,
                 )
                 variant_id_by_slot[item.slot] = variant_id
 
@@ -580,6 +581,9 @@ def _current_set(conn, revision_id: UUID, cvals: dict, stored: list[dict]):
             conn, [(row["product_type"], str(row["variant_id"])) for row in picked]
         )
     chosen = {row["slot"]: by_variant[str(row["variant_id"])] for row in picked if str(row["variant_id"]) in by_variant}
+    if "RAM" in chosen:   # 저장된 qty(2개 구성·사용자가 바꾼 수량)만큼 모듈 수·총용량을 늘려 호환 검사에 넘긴다
+        qty = next(int(row.get("qty") or 1) for row in picked if row["slot"] == "RAM")
+        chosen["RAM"] = ram_config.with_purchase_qty(chosen["RAM"], qty)
     owned = owned_for_conditions(cvals, pool, {r["slot"] for r in stored},
                                  load_category("computer").get("slot_structure", []))
     cached_for_kept_parts(conn, owned, cvals.get("current_specs"))
@@ -1035,7 +1039,7 @@ def _alternative_out(row: dict, *, current: bool, current_price: int, slot: str,
             "spec_summary": _spec_summary(slot, specs),
             "image_url": row.get("image_url"), "purchase_url": row.get("purchase_url"),
         },
-        "price": price, "price_delta": delta, "review": None,
+        "price": price, "price_delta": delta, "review": None, "qty": int(row.get("qty") or 1),
         "review_detail": review_for_candidate(
             review_snapshot, variant_id=row["variant_id"], product_id=row.get("product_id"),
             slot=slot, selection_source="alternative",
@@ -1064,7 +1068,8 @@ def _drop_incompatible_alternatives(conn, stored: list[dict], current: dict, var
     for row in stored:
         cand = by_variant.get(str(row["variant_id"]))
         if row["slot"] != slot and row.get("selected") is not False and cand is not None:
-            chosen[row["slot"]] = cand
+            chosen[row["slot"]] = (ram_config.with_purchase_qty(cand, int(row.get("qty") or 1))
+                                   if row["slot"] == "RAM" else cand)
     owned = owned_for_conditions(cvals, pool, {r["slot"] for r in stored},
                                  load_category("computer").get("slot_structure", []))
     cached_for_kept_parts(conn, owned, cvals.get("current_specs"))
@@ -1075,10 +1080,14 @@ def _drop_incompatible_alternatives(conn, stored: list[dict], current: dict, var
     )
     rules = load_computer_rules()["verification"]
     now = by_variant.get(str(current["variant_id"]))
+    if slot == "RAM" and now is not None:   # RAM 은 현재 수량·대안의 2개 구성 기준으로 호환을 본다
+        now = ram_config.with_purchase_qty(now, int(current.get("qty") or 1))
     baseline = _pc_known_failures({**chosen, slot: now}, spec, rules) if now is not None else set()
     kept = []
     for row in variants:
         cand = by_variant.get(str(row["variant_id"]))
+        if slot == "RAM" and cand is not None:
+            cand = ram_config.with_purchase_qty(cand, ram_config.pair_qty(cand.specs) or 1)
         if cand is not None and _pc_known_failures({**chosen, slot: cand}, spec, rules) - baseline:
             continue
         kept.append(row)
@@ -1178,7 +1187,10 @@ def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
     review_snapshot = cached_snapshot(erepo, run["id"])
     stored = erepo.get_candidates(run["id"])
     current = _find_candidate(stored, item_id)
-    current_price = int(current["price"]) if current["price"] is not None else 0
+    is_ram = current["slot"] == "RAM"
+    current_qty = int(current.get("qty") or 1) if is_ram else 1
+    # RAM 은 2개 구성 기준이다(정책 §2.5) — 현재 항목 가격은 단가 × 현재 수량.
+    current_price = (int(current["price"]) if current["price"] is not None else 0) * current_qty
     slot_variants = ProductRepo(conn).candidates_by_slot().get(current["slot"], [])
     from src.repo.plan_repo import PlanRepo
     cvals = {r["condition_key"]: r["value"].get("value") for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
@@ -1189,6 +1201,14 @@ def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
     specs_by_variant = load_specs_by_variant(conn, [
         (row.get("product_type"), str(row["variant_id"])) for row in [current, *others]
     ])
+    if is_ram:
+        # 대안 가격은 2개 구성 가격(키트=가격, 단품=가격×2). 2개 구성으로 만들 수 없는 후보는 목록에서 뺀다.
+        composed = []
+        for row in others:
+            qty = ram_config.pair_qty(specs_by_variant.get(str(row["variant_id"])) or {})
+            if qty is not None and row.get("price") is not None:
+                composed.append({**row, "price": int(row["price"]) * qty, "qty": qty})
+        others = composed
     current_tier = specs_by_variant.get(str(current["variant_id"]), {}).get("perf_tier")
     if current_tier is not None:
         # 워크스테이션·전문가용까지 섞인 전체 카탈로그 대신, 지금 고른 성능 등급에 가까운 후보만
@@ -1201,7 +1221,8 @@ def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
 
         others = sorted(others, key=_distance)[:_SIMILAR_TIER_ALTERNATIVES]
 
-    items = [_alternative_out(_current_candidate_as_variant_row(current), current=True, current_price=current_price,
+    current_row = {**_current_candidate_as_variant_row(current), "price": current_price, "qty": current_qty}
+    items = [_alternative_out(current_row, current=True, current_price=current_price,
                                slot=current["slot"], specs=specs_by_variant.get(str(current["variant_id"])),
                                review_snapshot=review_snapshot)]
     items += [
@@ -1228,6 +1249,16 @@ def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID,
         raise NotFound("해당 후보를 찾을 수 없습니다.")
     erepo.update_candidate_variant(item_id, variant_id=candidate_id,
                                     offer_observation_id=target.get("offer_observation_id"))
+    old_qty = new_qty = 1
+    if current["slot"] == "RAM":
+        # RAM 은 대상의 2개 구성 수량(키트 1, 단품 2)으로 맞춘다 — 키트가 qty 2(모듈 4개)가 되지 않게.
+        from src.repo.catalog_repo import load_specs_by_variant
+        old_qty = new_qty = int(current.get("qty") or 1)
+        target_specs = load_specs_by_variant(conn, [(target.get("product_type"), str(candidate_id))]).get(str(candidate_id)) or {}
+        pair = ram_config.pair_qty(target_specs)
+        if pair is not None:
+            new_qty = pair
+            erepo.update_candidate_state(item_id, qty=new_qty)
     # 위 UPDATE 는 후처리(execute_recommendation)가 이 행의 잠금을 쥐고 있으면 그 커밋까지 기다린다. 기다리는 사이 요약이 만들어져
     # (explanation_status pending → ready) 있을 수 있어서, 처음 읽은 run 으로 아래 안내를 정하면 요약에 안내가 빠지고
     # 후처리가 방금 저장한 reasoning_log 도 옛 값으로 덮인다 — 잠금을 얻은 지금 run 을 다시 읽는다.
@@ -1235,8 +1266,8 @@ def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID,
     # update_candidate_variant 가 reason 을 pending 으로 되돌리는데 다시 채우는 경로가 없어서 화면의
     # "추천 이유" 가 영원히 "정리하는 중…" 이었다. [5] 를 다시 돌릴 수 없으니(rank·build 는 메모리에만
     # 있었다) 코드가 아는 사실만으로 한 줄 적는다 — 판단이 아니라 교체 기록이다.
-    old_price = int(current["price"]) if current["price"] is not None else 0
-    new_price = int(target["price"]) if target.get("price") is not None else 0
+    old_price = (int(current["price"]) if current["price"] is not None else 0) * old_qty
+    new_price = (int(target["price"]) if target.get("price") is not None else 0) * new_qty
     cvals = {r["condition_key"]: r["value"].get("value") for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
     delta = fmt_money(new_price - old_price, signed=True)
     erepo.update_candidate_reason(item_id, (f"사용자 요청으로 교체한 부품입니다 — 자동 추천은 '{current['product_name']}'({fmt_money(old_price)})였고 "

@@ -61,7 +61,7 @@ def test_efficiency_order_and_rank_weights_come_from_yaml(monkeypatch):
 
     rules["ranking"]["weights"] = {"가격": 1.0, "성능": 0.0, "리뷰": 0.0}
     monkeypatch.setattr(stage3b_rank, "load_computer_rules", lambda: rules)
-    scored = stage3b_rank._score(_cand("cpu", "CPU", 100, perf_tier=5), 100.0, "CPU", {})
+    scored = stage3b_rank._score(_cand("cpu", "CPU", 100, perf_tier=5), 100.0, "CPU")
     assert scored.score == 0.5   # 가격 축 B/(B+P) = 100/200
 
 

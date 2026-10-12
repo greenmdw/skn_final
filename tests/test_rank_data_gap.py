@@ -33,7 +33,7 @@ def test_missing_data_lowers_the_score_but_price_still_counts():
     cheap_missing = _case("cheap", 55_000, **{k: v for k, v in FULL.items() if k != "max_psu_length_mm"})
     fair_full = _case("full", 88_000, **FULL)
     keys = list(FULL)
-    args = (120_000, "케이스", {})
+    args = (120_000, "케이스")
     a = stage3b_rank._score(cheap_missing, *args, gap_penalty=stage3b_rank._data_gap_penalty(cheap_missing, keys, GAP))
     b = stage3b_rank._score(fair_full, *args, gap_penalty=stage3b_rank._data_gap_penalty(fair_full, keys, GAP))
     plain = stage3b_rank._score(cheap_missing, *args)
@@ -44,5 +44,5 @@ def test_missing_data_lowers_the_score_but_price_still_counts():
 
 def test_gap_penalty_defaults_to_no_change():
     cand = _case("c", 60_000, **FULL)
-    assert stage3b_rank._score(cand, 100_000, "케이스", {}).score == \
-        stage3b_rank._score(cand, 100_000, "케이스", {}, gap_penalty=0.0).score
+    assert stage3b_rank._score(cand, 100_000, "케이스").score == \
+        stage3b_rank._score(cand, 100_000, "케이스", gap_penalty=0.0).score

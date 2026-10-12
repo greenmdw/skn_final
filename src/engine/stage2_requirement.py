@@ -43,7 +43,7 @@ def _check_power_and_budget(req: dict, where: str = "") -> None:
         raise RequirementRuleError(f"{where}PC 예산 배분 합계가 1이 아님")
 
 
-_REMOVED_RANKING_KEYS = ("noise_proxy", "noise_sensitive_min_weight")
+_REMOVED_RANKING_KEYS = ("noise_proxy", "noise_sensitive_min_weight", "ram_dual_channel_bonus")
 
 
 def _check_ranking_priority(ranking: dict) -> None:

@@ -124,6 +124,9 @@ class Candidate(BaseModel):
     offer_observation_id: str | None = None
     brand: str = ""
     price: int = 0
+    # RAM 2개 구성(정책 §2.5): price 는 구성 전체 가격, unit_price 는 상품 1개 가격, purchase_qty 는 상품 개수.
+    purchase_qty: int = 1
+    unit_price: int | None = None
     specs: dict[str, Any] = Field(default_factory=dict)
     # E5 — 카탈로그 출처(어느 URL·언제 확인한 값인가). specs 에는 섞지 않는다 — 섞으면
     # 스펙 키를 세는 로직(빈 스펙 카운트 등)이 메타데이터 키를 스펙으로 셀 수 있다.
@@ -169,7 +172,9 @@ class BuildItem(BaseModel):
     name: str
     variant_id: str | None = None
     offer_observation_id: str | None = None
-    price: int
+    price: int   # 구성 전체 가격(= unit_price × qty, 키트는 가격 그대로). 합계·예산 계산에 쓴다
+    qty: int = 1
+    unit_price: int | None = None
     perf_tier: float = 0.0
     score: float = 0.0
     rank_from_3b: int = 1

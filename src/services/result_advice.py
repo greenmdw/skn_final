@@ -6,7 +6,7 @@
 
 여기 함수들은 **아무것도 저장하지 않는다**. 지금 구성에서 한 부품만 바꾼다고 가정하고, 추천 엔진이 쓰는 것과
 같은 판정을 그대로 돌린다:
-- 요구 사양(성능 등급·용량·소켓·파워 용량 …) — `stage3a_hardfilter._judge_computer` 를 계획에 저장된 요구 사양으로
+- 요구 사양(성능 등급·용량·소켓·파워 용량 …) — `stage3a_hardfilter._judge` 를 계획에 저장된 요구 사양으로
 - 부품 사이 호환(소켓·메모리·크기·전력 …) — `stage4_optimize._pc_known_failures` / `pc_compat_details`
 - 예산 — 계획의 `budget_max` 와 선택된 부품 합계
 
@@ -20,6 +20,7 @@ import re
 from dataclasses import dataclass
 from uuid import UUID
 
+from src.engine import ram_config
 from src.engine.brands import PC_SLOTS, SLOT_SYNONYMS
 from src.engine.lang import fmt_money
 
@@ -51,7 +52,8 @@ class _Ctx:
         for r in self.picked:
             cand = self.by_variant.get(str(r["variant_id"]))
             if cand is not None:
-                out[r["slot"]] = cand
+                # RAM 은 저장된 수량만큼의 실제 구성(2개 구성·사용자가 바꾼 수량)으로 호환을 본다
+                out[r["slot"]] = ram_config.with_purchase_qty(cand, _qty(r)) if r["slot"] == "RAM" else cand
         return out
 
     @property
@@ -143,8 +145,8 @@ def _new_failures(ctx: _Ctx, slot: str, cand) -> set[str]:
 
 def _requirement_verdict(ctx: _Ctx, slot: str, cand) -> tuple[str, list[str]]:
     """계획에 저장된 이 슬롯의 요구 사양(성능 등급 하한·용량·파워 용량 …)으로 본 판정 — Pass/Pending/Fail."""
-    from src.engine.stage3a_hardfilter import _judge_computer
-    judged = _judge_computer(cand, ctx.targets.get(slot, {}))
+    from src.engine.stage3a_hardfilter import _judge
+    judged = _judge(slot, cand, ctx.targets.get(slot, {}))   # RAM 은 2개 구성 총용량으로 판정(이미 구성이면 그대로)
     return judged.verdict, judged.reasons
 
 
@@ -193,6 +195,36 @@ def _qty(row: dict) -> int:
 def _price(row_or_cand) -> int:
     p = row_or_cand["price"] if isinstance(row_or_cand, dict) else row_or_cand.price
     return int(p) if p is not None else 0
+
+
+def _cfgs(ctx: _Ctx, slot: str) -> list:
+    """슬롯 후보를 비교용 구성으로 — RAM 은 2개 구성(가격·용량이 구성 전체 기준), 2개 구성으로 만들 수 없는 후보는 뺀다."""
+    cands = ctx.pool.get(slot, [])
+    if slot != "RAM":
+        return cands
+    return [p for c in cands if (p := ram_config.as_pair(c)[0]) is not None]
+
+
+def _current(ctx: _Ctx, slot: str, row: dict):
+    """지금 담긴 부품 — RAM 은 저장된 수량만큼의 구성(가격 = 단가 × 수량)."""
+    cur = ctx.by_variant.get(str(row["variant_id"]))
+    if cur is None or slot != "RAM":
+        return cur
+    qty = _qty(row)
+    return ram_config.with_purchase_qty(cur, qty).model_copy(
+        update={"price": _price(row) * qty, "unit_price": _price(row), "purchase_qty": qty})
+
+
+def _extra_cost(slot: str, row: dict, cand) -> int:
+    """cand 로 바꿀 때 늘어나는 금액(줄면 음수). RAM 은 cand 가 구성 전체 가격이라 현재 단가 × 수량과 비교한다."""
+    if slot == "RAM":
+        return _price(cand) - _price(row) * _qty(row)
+    return (_price(cand) - _price(row)) * _qty(row)
+
+
+def _label(slot: str, cand) -> str:
+    """이름 + 수량 표시 — 구성 전체 가격과 낱개 가격이 헷갈리지 않게 2개 구매면 ×2."""
+    return f"{cand.name} ×{cand.purchase_qty}" if slot == "RAM" and cand.purchase_qty > 1 else cand.name
 
 
 def _ideal_tiers(ctx: _Ctx) -> dict[str, float]:
@@ -258,12 +290,12 @@ def step_candidate(ctx: _Ctx, slot: str, direction: str):
     가장 가까운 단계를 고르고(같은 단계면 더 싼 것), 그 값이 없는 슬롯은 가격으로 바로 위/아래. 없으면 None.
     예산은 보지 않는다 — 넘으면 preview 가 '예산 초과'로 알린다."""
     row = ctx.row(slot)
-    cur = ctx.by_variant.get(str(row["variant_id"])) if row else None
+    cur = _current(ctx, slot, row) if row else None
     if cur is None:
         return None
     up = direction == "up"
     m0 = _metric(slot, cur.specs)
-    pool = [c for c in ctx.pool.get(slot, []) if c.variant_id != cur.variant_id and not _new_failures(ctx, slot, c)]
+    pool = [c for c in _cfgs(ctx, slot) if c.variant_id != cur.variant_id and not _new_failures(ctx, slot, c)]
     # 이 견적의 요구 사양(파워 용량·효율, 성능 하한 …)을 채우는 후보가 있으면 그 안에서 고른다 — "파워 더 싼 걸로"에
     # 750W·골드 요구를 못 채우는 700W 를 고르던 것(2026-10-02 평가). 다 못 채우면 그대로 두고 preview 가 ⚠ 로 알린다.
     meets = [c for c in pool if _requirement_verdict(ctx, slot, c)[0] != "Fail"]
@@ -301,11 +333,15 @@ def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = No
     row = ctx.row(slot)
     if row is None:
         return f"오류: 담긴 부품 중 '{slot}' 슬롯이 없습니다."
-    cur = ctx.by_variant.get(str(row["variant_id"]))
+    cur = _current(ctx, slot, row)
     if variant_id:
         cand = ctx.by_variant.get(str(variant_id))
         if cand is None or cand.slot != slot:
             return "오류: candidate_id 는 이 슬롯의 list_alternatives·upgrade_options·savings_options 결과 값이어야 합니다."
+        if slot == "RAM":
+            cand = ram_config.as_pair(cand)[0]
+            if cand is None:
+                return "오류: 이 RAM 은 모듈 2개 구성으로 만들 수 없어 비교할 수 없습니다(모듈 구성 정보 없음 또는 3개 이상 키트)."
     elif direction in ("up", "down"):
         cand = step_candidate(ctx, slot, direction)
         if cand is None:
@@ -315,11 +351,18 @@ def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = No
     else:
         return "오류: candidate_id 또는 direction('up'/'down') 중 하나가 필요합니다."
     qty = _qty(row)
-    delta = (_price(cand) - _price(row)) * qty
+    delta = _extra_cost(slot, row, cand)
     total = ctx.total() + delta
-    lines = [f"(가정 계산 — 구성표는 그대로) {slot}: {row['product_name']} {fmt_money(_price(row))}"
-             f" → {cand.name} {fmt_money(_price(cand))}" + (f" × {qty}" if qty > 1 else "")
-             + f" (차액 {fmt_money(delta, signed=True)}) · candidate_id={cand.variant_id}"]
+    if slot == "RAM":   # 구성 기준 — 단가 × 수량을 양쪽에 보여 준다
+        now_text = f"{fmt_money(_price(row))}" + (f" × {qty}" if qty > 1 else "")
+        new_text = f"{fmt_money(cand.unit_price)}" + (f" × {cand.purchase_qty}" if cand.purchase_qty > 1 else "")
+        lines = [f"(가정 계산 — 구성표는 그대로) {slot}: {row['product_name']} {now_text}"
+                 f" → {cand.name} {new_text} (구성 합계 {fmt_money(_price(cand))}, 차액 {fmt_money(delta, signed=True)})"
+                 f" · candidate_id={cand.variant_id}"]
+    else:
+        lines = [f"(가정 계산 — 구성표는 그대로) {slot}: {row['product_name']} {fmt_money(_price(row))}"
+                 f" → {cand.name} {fmt_money(_price(cand))}" + (f" × {qty}" if qty > 1 else "")
+                 + f" (차액 {fmt_money(delta, signed=True)}) · candidate_id={cand.variant_id}"]
     if ctx.budget_max:
         remaining = ctx.budget_max - total
         lines.append(f"바꾼 뒤 총액 {fmt_money(total)} · 예산 {fmt_money(ctx.budget_max)} · "
@@ -346,7 +389,8 @@ def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = No
     elif verdict == "Pending":
         lines.append("요구 사양 중 일부는 이 후보의 스펙 정보가 없어 확인 못 함")
     # 부품 사이 호환 — 화면 '호환성 점검 상세'와 같은 계산을 바꾼 구성으로 다시 돌린다.
-    swapped = [{**r, "variant_id": cand.variant_id, "price": cand.price} if r["id"] == row["id"] else r
+    swapped = [{**r, "variant_id": cand.variant_id, "price": cand.unit_price if slot == "RAM" else cand.price,
+                **({"qty": cand.purchase_qty} if slot == "RAM" else {})} if r["id"] == row["id"] else r
                for r in ctx.stored]
     before = {r["axis"]: r for r in compat_checks(conn, revision_id, ctx.cvals, ctx.stored)}
     after = [r for r in compat_checks(conn, revision_id, ctx.cvals, swapped) if r["axis"] != "budget"]
@@ -435,15 +479,14 @@ def upgrade_options(conn, revision_id: UUID, budget: int | None = None, new_budg
     found = 0
     for slot in _upgrade_order(ctx, present):
         row = ctx.row(slot)
-        cur = ctx.by_variant.get(str(row["variant_id"]))
+        cur = _current(ctx, slot, row)
         m0 = _metric(slot, cur.specs) if cur is not None else None
         if m0 is None:
             continue
-        qty = _qty(row)
         ok = []
-        for cand in ctx.pool.get(slot, []):
+        for cand in _cfgs(ctx, slot):
             m1 = _metric(slot, cand.specs)
-            delta = (_price(cand) - _price(row)) * qty
+            delta = _extra_cost(slot, row, cand)
             if m1 is None or m1 <= m0 or delta <= 0 or delta > budget:
                 continue
             if _requirement_verdict(ctx, slot, cand)[0] == "Fail" or _new_failures(ctx, slot, cand):
@@ -464,7 +507,7 @@ def upgrade_options(conn, revision_id: UUID, budget: int | None = None, new_budg
         for label, (m1, delta, cand) in picks:
             after = total + delta
             left = f", 바꾼 뒤 잔여 {fmt_money(cap - after)}" if cap else ""
-            lines.append(f"    · {label}: {cand.name} {_metric_text(slot, m1)} · {fmt_money(_price(cand))}"
+            lines.append(f"    · {label}: {_label(slot, cand)} {_metric_text(slot, m1)} · {fmt_money(_price(cand))}"
                          f" (추가 {fmt_money(delta)}, 바꾼 뒤 총액 {fmt_money(after)}{left}) · candidate_id={cand.variant_id}")
     if not found:
         lines.append("→ 이 금액 안에서 성능 등급·용량을 올릴 수 있는 후보가 없습니다. 더 쓸 수 있는 금액(예: 20만원)을 "
@@ -672,11 +715,11 @@ def _cheaper_options(ctx: _Ctx, slot: str, allow_fail: bool = False) -> list[tup
     """이 슬롯을 더 싸게 바꾸는 후보 (절약액, 손실, 후보) — 요구 사양을 확인해서 채우고(Pass) 지금 구성과 확정 비호환이
     없는 것만. 절약액과 손실의 파레토 앞쪽만 남긴다(같은 손실이면 더 많이 줄이는 것, 같은 절약이면 덜 잃는 것)."""
     row = ctx.row(slot)
-    cur = ctx.by_variant.get(str(row["variant_id"]))
+    cur = _current(ctx, slot, row)
     m0 = _metric(slot, cur.specs) if cur is not None else None
     out = []
-    for cand in ctx.pool.get(slot, []):
-        saving = (_price(row) - _price(cand)) * _qty(row)
+    for cand in _cfgs(ctx, slot):
+        saving = -_extra_cost(slot, row, cand)
         if saving <= 0 or cand.variant_id == str(row["variant_id"]) or _new_failures(ctx, slot, cand):
             continue
         verdict, reasons = _requirement_verdict(ctx, slot, cand)
@@ -728,11 +771,11 @@ def savings_options(conn, revision_id: UUID, target: int | None = None) -> str:
     for row in ctx.picked:
         slot = row["slot"]
         options[slot] = _cheaper_options(ctx, slot)
-        cur = ctx.by_variant.get(str(row["variant_id"]))
+        cur = _current(ctx, slot, row)
         m0 = _metric(slot, cur.specs) if cur is not None else None
         below = None
-        for cand in ctx.pool.get(slot, []):
-            saving = (_price(row) - _price(cand)) * _qty(row)
+        for cand in _cfgs(ctx, slot):
+            saving = -_extra_cost(slot, row, cand)
             m1 = _metric(slot, cand.specs)
             if saving <= 0 or m0 is None or m1 is None or m1 >= m0 or _new_failures(ctx, slot, cand):
                 continue
@@ -748,13 +791,15 @@ def savings_options(conn, revision_id: UUID, target: int | None = None) -> str:
 
     def swap_text(slot: str, saving: int, loss: float, cand) -> str:
         row = ctx.row(slot)
-        cur = ctx.by_variant.get(str(row["variant_id"]))
+        cur = _current(ctx, slot, row)
         m0, m1 = (_metric(slot, cur.specs) if cur else None), _metric(slot, cand.specs)
         verdict, reasons = _requirement_verdict(ctx, slot, cand)
         perf = (f" · {_metric_text(slot, m0)} → {_metric_text(slot, m1)}" if m0 is not None or m1 is not None
                 else " · 성능 값 없음" + ("(요구 사양은 채움)" if verdict == "Pass" else ""))
         warn = f" · ⚠ {_reason_text(reasons)}" if verdict == "Fail" else ""
-        return (f"{slot}: {row['product_name']} {fmt_money(_price(row))} → {cand.name} {fmt_money(_price(cand))}"
+        now_price = _price(row) * _qty(row) if slot == "RAM" else _price(row)   # RAM 은 구성 합계끼리 비교
+        now_name = f"{row['product_name']} ×{_qty(row)}" if slot == "RAM" and _qty(row) > 1 else row["product_name"]
+        return (f"{slot}: {now_name} {fmt_money(now_price)} → {_label(slot, cand)} {fmt_money(_price(cand))}"
                 f" (절약 {fmt_money(saving)}){perf}{warn} · candidate_id={cand.variant_id}")
 
     lines = [f"지금 총액 {fmt_money(total)}" + (f" · 줄이고 싶은 금액 {fmt_money(target)}" if target else "")]
@@ -790,7 +835,7 @@ def savings_options(conn, revision_id: UUID, target: int | None = None) -> str:
     if relaxed:
         lines.append("요구 사양을 한 단계 낮추면 (⚠ 이 견적의 조건이 정한 기준 아래로 내려감):")
         for saving, slot, row, cand, m0, m1, reasons in relaxed:
-            lines.append(f"- {slot}: {row['product_name']} → {cand.name} {fmt_money(_price(cand))} (절약 {fmt_money(saving)})"
+            lines.append(f"- {slot}: {row['product_name']} → {_label(slot, cand)} {fmt_money(_price(cand))} (절약 {fmt_money(saving)})"
                          f" · {_metric_text(slot, m0)} → {_metric_text(slot, m1)} · ⚠ {_reason_text(reasons)}"
                          f" · candidate_id={cand.variant_id}")
     lines.append("아직 아무것도 바꾸지 않았습니다.")

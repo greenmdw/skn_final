@@ -231,7 +231,8 @@ def _put(conn, key, fields, *, relevant=True, status="unreviewed", age_days=0, s
 
 
 def _ram(name) -> Candidate:
-    return Candidate(product_key=name, slot="RAM", name=name, brand="b", price=50_000, specs={"capacity_gb": 16})
+    return Candidate(product_key=name, slot="RAM", name=name, brand="b", price=50_000,
+                     specs={"capacity_gb": 16, "module_config": "8GB × 2"})
 
 
 @pytest.fixture()
@@ -255,8 +256,9 @@ def test_enricher_fills_ram_from_cache_with_provenance_and_passes_rejudge(conn, 
     _put(conn, "eligibility test ram a", {"mem_type": "DDR5", "capacity_gb": 32})
     cand = _ram("Eligibility-Test RAM-A")
     spec = _spec({"RAM": {"type": "DDR5", "capacity_gb_min": 16}})
-    pool = {"RAM": [cand.model_copy(update={"specs": {"capacity_gb": 16}}), _ram("x").model_copy(
-        update={"specs": {"mem_type": "DDR5", "capacity_gb": 16}})]}
+    kit = {"capacity_gb": 16, "module_config": "8GB × 2"}   # RAM 은 모듈 2개 구성(정책 §2.5)으로 판정한다
+    pool = {"RAM": [cand.model_copy(update={"specs": kit}), _ram("x").model_copy(
+        update={"specs": {"mem_type": "DDR5", **kit}})]}
     hf = stage3a_hardfilter.run(spec, pool, _noop, enrich=make_enricher(conn))
     filled = next(c for c in hf.slots["RAM"] if c.product_key == "Eligibility-Test RAM-A")
     assert filled.specs["mem_type"] == "DDR5" and filled.specs["capacity_gb"] == 16   # 있던 값은 덮지 않는다

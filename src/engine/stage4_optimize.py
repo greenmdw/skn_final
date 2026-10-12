@@ -871,6 +871,7 @@ def build_computer(
     def _make_item(s: str, cand: Candidate) -> BuildItem:
         return BuildItem(
             slot=s, product_key=cand.product_key, name=cand.name, price=cand.price,
+            qty=cand.purchase_qty, unit_price=cand.unit_price,
             variant_id=cand.variant_id,
             offer_observation_id=cand.offer_observation_id,
             perf_tier=float(cand.specs.get("perf_tier", 0)), score=cand.score,

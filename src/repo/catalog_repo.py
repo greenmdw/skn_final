@@ -89,7 +89,7 @@ def _compat_specs(product_key: str) -> dict:
     for k in ("vram_gb", "capacity_gb", "wattage_w"):
         if (override.get(k) or "").strip():
             out[k] = int(override[k])
-    for k in ("protocol", "efficiency_rating"):
+    for k in ("protocol", "efficiency_rating", "module_config"):   # module_config: RAM 2개 구성 판정(정책 §2.5)이 읽는다
         if (override.get(k) or "").strip():
             out[k] = override[k].strip()
     return out

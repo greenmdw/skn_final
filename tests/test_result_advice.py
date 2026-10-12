@@ -380,11 +380,12 @@ def test_ram_step_down_falls_back_to_a_cheaper_part_of_the_same_capacity(conn):
     같은 용량의 더 싼 후보가 있으면 그것을 고른다."""
     revision_id = _build(conn)
     ctx = result_advice._context(conn, revision_id)
-    cur = ctx.chosen()["RAM"]
+    cur = result_advice._current(ctx, "RAM", ctx.row("RAM"))     # 비교는 모두 2개 구성 기준(정책 §2.5)
+    pool = result_advice._cfgs(ctx, "RAM")
     m0 = result_advice._metric("RAM", cur.specs)
-    lower_ok = [c for c in ctx.pool["RAM"] if (result_advice._metric("RAM", c.specs) or m0) < m0
+    lower_ok = [c for c in pool if (result_advice._metric("RAM", c.specs) or m0) < m0
                 and result_advice._requirement_verdict(ctx, "RAM", c)[0] != "Fail" and not result_advice._new_failures(ctx, "RAM", c)]
-    same = [c for c in ctx.pool["RAM"] if c.variant_id != cur.variant_id and result_advice._metric("RAM", c.specs) == m0
+    same = [c for c in pool if c.variant_id != cur.variant_id and result_advice._metric("RAM", c.specs) == m0
             and result_advice._price(c) < result_advice._price(cur) and not result_advice._new_failures(ctx, "RAM", c)
             and result_advice._requirement_verdict(ctx, "RAM", c)[0] != "Fail"]
     if lower_ok or not same:

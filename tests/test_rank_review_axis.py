@@ -32,7 +32,7 @@ def test_rank_preserves_full_r_and_candidate_detail(monkeypatch):
     from src.repo import review_repo
     monkeypatch.setattr(review_repo, "default_risk_store", lambda: (_ for _ in ()).throw(AssertionError()))
     candidate = Candidate(product_key="gpu", slot="GPU", name="GPU", review_detail=_detail(0.525))
-    scored = stage3b_rank._score(candidate.model_copy(update={"price": 1, "specs": {"perf_tier": 5}}), 1.0, "GPU", {})
+    scored = stage3b_rank._score(candidate.model_copy(update={"price": 1, "specs": {"perf_tier": 5}}), 1.0, "GPU")
     assert scored.breakdown["리뷰"] == 0.525
     assert scored.review_detail.value == 0.525
 

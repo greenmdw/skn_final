@@ -119,12 +119,11 @@ def _make_pairs(n: int, seed: int) -> list[dict]:
         slot = slots[i % len(slots)]
         budget_max = rng.choice(BUDGET_TIERS)
         spec = _real_spec("game", budget_max)
-        target = spec.targets.get(slot, {})
         ref_budget = float(spec.budget["total"]) * spec.budget["alloc"][slot]
 
         a, b = rng.sample(by_slot[slot], 2)
-        scored_a = _score(a, ref_budget, slot, target)
-        scored_b = _score(b, ref_budget, slot, target)
+        scored_a = _score(a, ref_budget, slot)
+        scored_b = _score(b, ref_budget, slot)
         pairs.append({
             "id": f"pair{i+1:02d}", "slot": slot, "budget_max": budget_max,
             "A": scored_a.breakdown, "B": scored_b.breakdown,

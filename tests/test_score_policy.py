@@ -132,7 +132,7 @@ def test_default_and_priority_weights_match_the_policy_table():
 
 def test_policy_example_7_1_reproduces_0_665():
     # 가격 0.8 · 성능 0.6 · 리뷰 0.5, 기본 가중치.
-    scored = stage3b_rank._score(_cand(price=50_000, perf_tier=6), 200_000.0, "GPU", {},
+    scored = stage3b_rank._score(_cand(price=50_000, perf_tier=6), 200_000.0, "GPU",
                                  review_detail=_detail(0.5))
     assert scored.breakdown == pytest.approx({"가격": 0.8, "성능": 0.6, "리뷰": 0.5})
     assert scored.score == pytest.approx(0.665)
@@ -140,14 +140,14 @@ def test_policy_example_7_1_reproduces_0_665():
 
 def test_policy_example_7_2_reproduces_0_605():
     # 가격 0.4 · 성능 1.0 · 리뷰 0.5.
-    scored = stage3b_rank._score(_cand(price=300_000, perf_tier=10), 200_000.0, "GPU", {},
+    scored = stage3b_rank._score(_cand(price=300_000, perf_tier=10), 200_000.0, "GPU",
                                  review_detail=_detail(0.5))
     assert scored.breakdown["가격"] == pytest.approx(0.4)
     assert scored.score == pytest.approx(0.605)
 
 
 def test_score_and_breakdown_are_not_rounded():
-    scored = stage3b_rank._score(_cand(price=137_000, perf_tier=7.3), 211_000.0, "GPU", {},
+    scored = stage3b_rank._score(_cand(price=137_000, perf_tier=7.3), 211_000.0, "GPU",
                                  review_detail=_detail(0.123456789))
     values = [scored.score, *scored.breakdown.values()]
     assert any(round(v, 3) != v for v in values)
@@ -156,7 +156,7 @@ def test_score_and_breakdown_are_not_rounded():
 
 
 def test_review_value_is_clipped_into_the_unit_interval():
-    high = stage3b_rank._score(_cand(perf_tier=5), 100_000.0, "GPU", {}, review_detail=_detail(1.0))
+    high = stage3b_rank._score(_cand(perf_tier=5), 100_000.0, "GPU", review_detail=_detail(1.0))
     assert high.breakdown["리뷰"] == 1.0
 
 
@@ -173,10 +173,10 @@ def test_candidate_score_does_not_depend_on_other_candidates():
 
 def test_cpu_gpu_without_perf_tier_is_an_input_error_other_slots_are_neutral():
     with pytest.raises(ScoreInputError):
-        stage3b_rank._score(_cand(slot="GPU"), 100_000.0, "GPU", {})
-    ram = stage3b_rank._score(_cand("r", 50_000, slot="RAM"), 100_000.0, "RAM", {})
+        stage3b_rank._score(_cand(slot="GPU"), 100_000.0, "GPU")
+    ram = stage3b_rank._score(_cand("r", 50_000, slot="RAM"), 100_000.0, "RAM")
     assert ram.breakdown["성능"] == 0.5 and ram.score_notes == ["neutral:성능"]
-    gpu = stage3b_rank._score(_cand(perf_tier=6), 100_000.0, "GPU", {})
+    gpu = stage3b_rank._score(_cand(perf_tier=6), 100_000.0, "GPU")
     assert gpu.score_notes == []
 
 

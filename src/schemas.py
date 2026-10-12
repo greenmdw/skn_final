@@ -847,8 +847,9 @@ class AlternativeOut(BaseModel):
     label: str
     current: bool = False
     product: ProductOut
-    price: int
+    price: int            # RAM 은 2개 구성 전체 가격(qty 만큼 산 가격)
     price_delta: int
+    qty: int = 1
     review: ReviewBriefOut | None = None
     review_detail: RecommendationReviewOut = Field(default_factory=RecommendationReviewOut)
 

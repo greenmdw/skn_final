@@ -14,6 +14,7 @@ from typing import Callable
 
 from src.dto import Candidate, HardFilterResult, RequirementSpec
 from src.engine import LogFn
+from src.engine.ram_config import as_pair
 from src.engine.stage2_requirement import load_computer_rules
 
 
@@ -43,6 +44,7 @@ _PENDING_LABELS = {
     _PENDING_SPEC_PREFIX + "vram_gb": "VRAM 정보가 없는",
     _PENDING_SPEC_PREFIX + "mem_type": "메모리 규격 정보가 없는",
     _PENDING_SPEC_PREFIX + "capacity_gb": "용량 정보가 없는",
+    _PENDING_SPEC_PREFIX + "module_config": "모듈 구성 정보가 없는",
     _PENDING_SPEC_PREFIX + "form_factor": "폼팩터 정보가 없는",
     _PENDING_SPEC_PREFIX + "protocol": "저장장치 규격 정보가 없는",
     _PENDING_SPEC_PREFIX + "wattage_w": "정격 출력 정보가 없는",
@@ -54,6 +56,7 @@ _FAIL_LABELS = {
     "FAIL_VRAM_BELOW": "VRAM 부족",
     "FAIL_MEM_TYPE": "메모리 규격 불일치",
     "FAIL_CAPACITY_BELOW": "용량 부족",
+    "EXCLUDED_RAM_NOT_PAIR": "모듈 2개 구성이 아님",
     "FAIL_FORM_NOT_IN": "폼팩터 불일치",
     "FAIL_PROTOCOL": "저장장치 규격 불일치",
     "FAIL_WATTAGE_BELOW": "정격 출력 부족",
@@ -176,6 +179,20 @@ def _judge_computer(cand: Candidate, target: dict) -> Candidate:
     return cand.model_copy(update={"verdict": verdict, "reasons": reasons})
 
 
+def _judge(slot: str, cand: Candidate, target: dict) -> Candidate:
+    """슬롯별 판정. RAM 은 판정 전에 2개 구성으로 바꾼다(정책 §2.5) — 요구 용량은 구성 총용량으로 본다.
+    구성할 수 없으면 사유에 따라 Pending(스펙 미상) / Fail(3개 이상 키트). Pending 은 원본 후보를 그대로 둬서
+    보완 뒤 같은 변환을 다시 적용할 수 있게 한다(변환본에 다시 변환하면 가격·용량이 중복 합산된다)."""
+    if slot != "RAM":
+        return _judge_computer(cand, target)
+    paired, reason = as_pair(cand)
+    if paired is None:
+        verdict = "Pending" if reason.startswith(_PENDING_SPEC_PREFIX) else "Fail"
+        return cand.model_copy(update={"verdict": verdict, "reasons": [reason]})
+    judged = _judge_computer(paired, target)
+    return cand.model_copy(update={"verdict": "Pending", "reasons": judged.reasons}) if judged.verdict == "Pending" else judged
+
+
 def _tally(reasons: list[list[str]], *, prefix_only: bool) -> dict[str, int]:
     out: dict[str, int] = {}
     for rs in reasons:
@@ -210,7 +227,7 @@ def run(spec: RequirementSpec, by_slot: dict[str, list[Candidate]], log: LogFn, 
         if spec.mode == "upgrade" and slot not in spec.targets:
             continue   # 업그레이드에서 그대로 쓰는 부품은 후보를 고르지 않는다(예산 배분도 대상 슬롯에만 있다)
         target = spec.targets.get(slot, {})
-        judged = [_judge_computer(c, target) for c in cands]
+        judged = [_judge(slot, c, target) for c in cands]
         keep = [c for c in judged if c.verdict == "Pass"]
         fail = [c for c in judged if c.verdict == "Fail"]
         held = [c for c in judged if c.verdict == "Pending"]
@@ -219,7 +236,7 @@ def run(spec: RequirementSpec, by_slot: dict[str, list[Candidate]], log: LogFn, 
             # 보완된 후보도 같은 판정을 다시 거친다. Pass로 확인된 것만 keep에 들어간다.
             enriched, attempts = _enrich_pending(slot, held, enrich, log)
             result.enrichment.extend(attempts)
-            rejudged = [_judge_computer(c, target) for c in enriched]
+            rejudged = [_judge(slot, c, target) for c in enriched]
             keep += [c for c in rejudged if c.verdict == "Pass"]
             fail += [c for c in rejudged if c.verdict == "Fail"]
             held = [c for c in rejudged if c.verdict == "Pending"]
