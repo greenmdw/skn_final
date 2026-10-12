@@ -143,6 +143,12 @@ _HAS_16 = re.compile(r"16\s*-?\s*pin|12V-?2X6|12VHPWR", re.IGNORECASE)
 _HAS_PCIE = re.compile(r"(?<!\d)[68]\s*-?\s*pin|PCIe", re.IGNORECASE)
 
 
+def psu_connector_readable(psu_connector: Any) -> bool:
+    """파워의 GPU 전원 커넥터 표기에서 PCIe 8핀·16핀 중 하나라도 읽히는가(못 읽으면 호환 판정을 할 수 없다)."""
+    text = str(psu_connector or "")
+    return bool(_HAS_16.search(text) or _HAS_PCIE.search(text))
+
+
 def gpu_connector_fit(gpu_connector: Any, gpu_aux: Any, psu_connector: Any) -> str | None:
     """GPU 가 요구하는 보조 전원 커넥터를 파워가 제공하는가.
 

@@ -210,7 +210,9 @@ def test_checks_for_parts_that_are_not_in_the_quote_are_skipped():
     assert "socket" not in link and "bios" not in link and link["gpu_len"] == "ok (근사)"
 
 
-def test_aio_cooler_height_is_explained_not_just_missing():
+def test_aio_cooler_height_is_skipped_because_radiator_check_replaces_it():
+    # 4a단계 정책: 수랭(AIO)은 높이 대신 라디에이터 검사가 보므로 쿨러 높이는 비적용(skipped)이다.
     cooler = _cand("쿨러", "aio", cooling_type="Liquid (AIO)", supported_socket="AM5")
     rows = {r["axis"]: r for r in pc_compat_details({"쿨러": cooler, "케이스": ATX_CASE}, _spec(), RULES)}
-    assert rows["cooler_height"]["state"] == "unknown" and "라디에이터" in rows["cooler_height"]["detail"]
+    assert rows["cooler_height"]["state"] == "skipped" and "라디에이터" in rows["cooler_height"]["detail"]
+    assert rows["cooler_height"]["applicable"] is False

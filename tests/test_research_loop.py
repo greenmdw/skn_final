@@ -17,17 +17,20 @@ def _cand(key: str, price: int, slot: str, *, name: str | None = None, score: fl
 
 
 def _base_pools(cooler_pool: list[Candidate]) -> dict[str, list[Candidate]]:
-    """8슬롯 완성 세트 — 쿨러 축(cooler_height) 만 "근사"가 되도록 나머지 축은 전부 맞춘다."""
+    """8슬롯 완성 세트 — 필수 호환 정보(구현계획 §3.1)를 모두 채워 적격한 조합이 된다."""
     return {
         "CPU": [_cand("cpu1", 240_000, "CPU", name="AMD Ryzen 5 7600", score=0.8, socket="AM5", tdp_w=65)],
-        "GPU": [_cand("gpu1", 400_000, "GPU", score=0.8, length_mm=280, power_w=200, aux_power="X")],
-        "RAM": [_cand("ram1", 90_000, "RAM", score=0.8, mem_type="DDR5")],
+        "GPU": [_cand("gpu1", 400_000, "GPU", score=0.8, length_mm=280, power_w=200, aux_power="X",
+                      power_connector="슬롯 전력", slot_thickness=2)],
+        "RAM": [_cand("ram1", 90_000, "RAM", score=0.8, mem_type="DDR5", module_config="16GB × 2", capacity_gb=32)],
         "메인보드": [_cand("mb1", 155_000, "메인보드", score=0.8, socket="AM5", mem_type="DDR5", form_factor="ATX",
-                        supported_cpu_family="Ryzen 7000 / 8000G / 9000 계열")],
-        "저장장치": [_cand("ssd1", 100_000, "저장장치", score=0.8)],
-        "파워": [_cand("psu1", 90_000, "파워", score=0.8, form_factor="ATX", wattage_w=650)],
+                        supported_cpu_family="Ryzen 7000 / 8000G / 9000 계열", dimm_slots=4, max_memory_gb=192, m2_slots=3)],
+        "저장장치": [_cand("ssd1", 100_000, "저장장치", score=0.8, form_factor="M.2 2280")],
+        "파워": [_cand("psu1", 90_000, "파워", score=0.8, form_factor="ATX", wattage_w=650, length_mm=140,
+                      gpu_power_connector="PCIe 8-pin")],
         "케이스": [_cand("case1", 72_000, "케이스", score=0.8, psu_form_factor="ATX",
-                       supports_form_factors=["ATX", "mATX"], max_gpu_len_mm=330, max_cooler_height_mm=170)],
+                       supports_form_factors=["ATX", "mATX"], max_gpu_len_mm=330, max_cooler_height_mm=170,
+                       max_psu_length_mm=200, expansion_slots=7)],
         "쿨러": cooler_pool,
     }
 
@@ -46,9 +49,10 @@ def _spec(pools: dict[str, list[Candidate]], owned: dict | None = None) -> Requi
 
 
 def _cooler_bad() -> Candidate:
-    # height_mm 없음(비어 있는 스펙) — cooler_height 축이 "근사"가 된다.
+    # 합성 "근사" 후보 — 4a단계부터 높이 같은 필수 값이 없는 후보는 탐색에서 아예 빠지므로(test_combo_eligibility),
+    # 이 루프 테스트는 값은 갖추되 검증 단계가 '확인 필요' 쟁점을 붙이는 후보로 재탐색 제어 흐름만 본다.
     return _cand("cooler_bad", 58_000, "쿨러", name="쿨러 A(높이 미상)", score=0.9,
-                supported_socket="AM5/AM4", cooling_type="Air (Dual-Tower)")
+                supported_socket="AM5/AM4", cooling_type="Air (Dual-Tower)", height_mm=150)
 
 
 def _cooler_good() -> Candidate:
@@ -66,11 +70,19 @@ def _run(monkeypatch, pools, owned=None, threshold=95):
     impact_slots = frozenset(computer_rules["ranking"].get("impact_slots", []))
 
     def verify(build, _round_index):
-        return stage3c_verify.verify_build(build, "computer", _noop)
+        chosen = research_loop.resolve_chosen(rank, build)
+        result = stage3c_verify.verify_build(build, "computer", _noop, chosen=chosen, spec=spec, rules=rules)
+        if any(i.product_key == "cooler_bad" for i in build.items):          # 합성 '확인 필요' 쟁점(감점 6)
+            target = result.targets[0]
+            target.issues.append(Issue(axis="cooler_height", judge="확인 필요", penalty=6))
+            target.confidence -= 6
+            target.passed = target.confidence >= stage3c_verify.CONFIDENCE_THRESHOLD and target.eligible
+        return result
 
     def choose(build, verification):
-        chosen = research_loop.resolve_chosen(rank, build)
-        return research_loop.rule_based_exclusion(build, verification, chosen, spec, rules, impact_slots=impact_slots)
+        if any(i.axis == "cooler_height" for i in verification.targets[0].issues):
+            return "쿨러", "cooler_bad", "cooler_height"
+        return None
 
     return research_loop.run_set_with_research(rank, spec, _noop, verify=verify, choose_exclusion=choose)
 
@@ -401,7 +413,8 @@ def test_execute_recommendation_persists_the_adopted_research_round(conn):
     impact_slots = frozenset(computer_rules["ranking"].get("impact_slots", []))
 
     def verify(b, _round_index):
-        return s3c.verify_build(b, "computer", _noop)
+        chosen = research_loop.resolve_chosen(rank, b)
+        return s3c.verify_build(b, "computer", _noop, chosen=chosen, spec=spec, rules=rules)
 
     def choose(b, v):
         chosen = research_loop.resolve_chosen(rank, b)

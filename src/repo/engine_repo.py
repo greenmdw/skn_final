@@ -76,16 +76,29 @@ class EngineRepo(Repo):
         근거·대상 표(validation_evidence/target)는 0012 에서 없어졌고 이 행을 가리키는 것이 없다."""
         return self.conn.execute("DELETE FROM engine.validation_result WHERE run_id=%s", (run_id,)).rowcount
     def set_explanation(self, run_id: UUID, *, headline: str, text: str, reasoning_log: list) -> None:
+        from src.engine.eligibility import ELIGIBILITY_STEP
         from src.services.recommendation_review_snapshot import SNAPSHOT_STEP
-        trace = [step for step in reasoning_log if step.get("step") != SNAPSHOT_STEP]
+        # 리뷰 snapshot 과 추천 적격성 단계는 설명과 별개로 먼저 저장된다 — 설명 trace 가 지우거나 중복시키지 않는다.
+        kept = (SNAPSHOT_STEP, ELIGIBILITY_STEP)
+        trace = [step for step in reasoning_log if step.get("step") not in kept]
         self._exec(
             """UPDATE engine.recommendation_run
             SET explanation_status='ready', explanation_headline=%s, explanation_text=%s,
                 reasoning_log=COALESCE((SELECT jsonb_agg(entry)
                     FROM jsonb_array_elements(engine.recommendation_run.reasoning_log) entry
-                    WHERE entry->>'step'=%s), '[]'::jsonb) || %s::jsonb, updated_at=now()
+                    WHERE entry->>'step' = ANY(%s)), '[]'::jsonb) || %s::jsonb, updated_at=now()
             WHERE id=%s""",
-            (headline, text, SNAPSHOT_STEP, Jsonb(trace), run_id),
+            (headline, text, list(kept), Jsonb(trace), run_id),
+        )
+    def upsert_run_step(self, run_id: UUID, step: dict) -> None:
+        """reasoning_log 에서 이름(step)이 같은 단계를 지우고 새로 덧붙인다(추천 적격성 단계의 저장·재검증 교체)."""
+        self._exec(
+            """UPDATE engine.recommendation_run
+            SET reasoning_log=COALESCE((SELECT jsonb_agg(entry)
+                    FROM jsonb_array_elements(engine.recommendation_run.reasoning_log) entry
+                    WHERE entry->>'step' <> %s), '[]'::jsonb) || %s::jsonb, updated_at=now()
+            WHERE id=%s""",
+            (step["step"], Jsonb([step]), run_id),
         )
     def store_review_snapshot(self, run_id: UUID, step: dict) -> None:
         """Store before completing the build, independently of later explanation calls."""

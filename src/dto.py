@@ -189,6 +189,8 @@ class BuildResult(BaseModel):
     balance: dict[str, Any] = Field(default_factory=dict)
     alternatives: dict[str, int] = Field(default_factory=dict)
     round: int = 1
+    # 정상 추천 가능 여부 — 신뢰도와 별개다. {"status": "recommendable"|"not_recommendable", "reasons": [{"code", "axes", "missing"?}]}
+    eligibility: dict[str, Any] = Field(default_factory=lambda: {"status": "recommendable", "reasons": []})
 
 
 class BasketLine(BaseModel):
@@ -230,6 +232,9 @@ class VerificationTarget(BaseModel):
     issues: list[Issue] = Field(default_factory=list)
     gray_axes: list[str] = Field(default_factory=list)
     transcript: list[dict[str, Any]] = Field(default_factory=list)
+    # 적격 여부 — passed 는 신뢰도 기준 AND eligible 이다. blocking: 탈락 사유 [{"code", "axis"?, "missing"?}]
+    eligible: bool = True
+    blocking: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class VerificationResult(BaseModel):

@@ -31,38 +31,37 @@ def make_enricher(conn) -> Callable[[str, list[Candidate]], tuple[list[Candidate
             rows[key] = row if usable else None
         return rows[key]
 
-    def enrich(slot: str, pending: list[Candidate]) -> tuple[list[Candidate], list[dict]]:
+    def _fill_one(slot: str, cand: Candidate, keys: list[str]) -> tuple[Candidate, dict]:
         allowed = live_spec_lookup.SLOT_FIELDS.get(slot, frozenset())
-        out: list[Candidate] = []
-        attempts: list[dict] = []
-        for cand in pending:
-            keys = missing_keys(cand)
-            record = {"slot": slot, "product_key": cand.product_key, "missing_keys": keys,
-                      "source": None, "status": "no_path", "detail": "저장소가 다루지 않는 항목입니다"}
-            lookup_key = live_spec_lookup.normalize_lookup_key(cand.name)
-            if not any(k in allowed for k in keys) or not lookup_key:
-                out.append(cand)
-                attempts.append(record)
-                continue
-            row = _row(lookup_key)
-            if row is None:
-                out.append(cand)
-                attempts.append({**record, "source": CACHE_SOURCE, "status": "not_found",
-                                 "detail": "저장된 실시간 스펙 검색 결과가 없습니다"})
-                continue
-            fields = live_spec_lookup.clean_fields(slot, row["supported_fields"] or {})
-            filled = {k: fields[k] for k in keys if k in allowed and fields.get(k) is not None}
-            if not filled:
-                out.append(cand)
-                attempts.append({**record, "source": CACHE_SOURCE, "status": "not_found",
-                                 "detail": "저장된 검색 결과에 필요한 값이 없습니다"})
-                continue
-            source = row.get("source_url") or CACHE_SOURCE
-            by_key = {**(cand.provenance.get("by_key") or {}), **{k: source for k in filled}}
-            out.append(cand.model_copy(update={"specs": {**cand.specs, **filled},
-                                               "provenance": {**cand.provenance, "by_key": by_key}}))
-            attempts.append({**record, "source": source, "status": "filled",
-                             "detail": "채움: " + ", ".join(sorted(filled))})
-        return out, attempts
+        record = {"slot": slot, "product_key": cand.product_key, "missing_keys": keys,
+                  "source": None, "status": "no_path", "detail": "저장소가 다루지 않는 항목입니다"}
+        lookup_key = live_spec_lookup.normalize_lookup_key(cand.name)
+        if not any(k in allowed for k in keys) or not lookup_key:
+            return cand, record
+        row = _row(lookup_key)
+        if row is None:
+            return cand, {**record, "source": CACHE_SOURCE, "status": "not_found",
+                          "detail": "저장된 실시간 스펙 검색 결과가 없습니다"}
+        fields = live_spec_lookup.clean_fields(slot, row["supported_fields"] or {})
+        filled = {k: fields[k] for k in keys if k in allowed and fields.get(k) is not None}
+        if not filled:
+            return cand, {**record, "source": CACHE_SOURCE, "status": "not_found",
+                          "detail": "저장된 검색 결과에 필요한 값이 없습니다"}
+        source = row.get("source_url") or CACHE_SOURCE
+        by_key = {**(cand.provenance.get("by_key") or {}), **{k: source for k in filled}}
+        out = cand.model_copy(update={"specs": {**cand.specs, **filled},
+                                      "provenance": {**cand.provenance, "by_key": by_key}})
+        return out, {**record, "source": source, "status": "filled", "detail": "채움: " + ", ".join(sorted(filled))}
 
+    def enrich(slot: str, pending: list[Candidate]) -> tuple[list[Candidate], list[dict]]:
+        results = [_fill_one(slot, cand, missing_keys(cand)) for cand in pending]
+        return [c for c, _ in results], [a for _, a in results]
+
+    def enrich_keys(slot: str, requests: list[tuple[Candidate, list[str]]]) -> tuple[list[Candidate], list[dict]]:
+        """조합 단계 보완 — (후보, 모자란 spec 키 목록)마다 같은 저장소 경로로 그 키만 채운다. 사전 필터의 Pending 보완과
+        조회 캐시(rows)를 공유한다. 웹 검색·LLM 은 부르지 않는다."""
+        results = [_fill_one(slot, cand, list(keys)) for cand, keys in requests]
+        return [c for c, _ in results], [a for _, a in results]
+
+    enrich.for_keys = enrich_keys
     return enrich

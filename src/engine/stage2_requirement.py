@@ -16,6 +16,7 @@ import yaml
 from src.categories import load_category
 from src.dto import RequirementSpec, Slots
 from src.engine import LogFn
+from src.engine import eligibility as elig
 from src.engine.score_policy import validate_axis_weights
 
 _COMPUTER_RULES_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "computer_verification_rules.yaml"
@@ -43,7 +44,7 @@ def _check_power_and_budget(req: dict, where: str = "") -> None:
         raise RequirementRuleError(f"{where}PC 예산 배분 합계가 1이 아님")
 
 
-_REMOVED_RANKING_KEYS = ("noise_proxy", "noise_sensitive_min_weight", "ram_dual_channel_bonus")
+_REMOVED_RANKING_KEYS = ("noise_proxy", "noise_sensitive_min_weight", "ram_dual_channel_bonus", "data_gap")
 
 
 def _check_ranking_priority(ranking: dict) -> None:
@@ -59,6 +60,39 @@ def _check_ranking_priority(ranking: dict) -> None:
             validate_axis_weights(weights, f"PC 우선순위 가중치 {name}")
     except ValueError as exc:
         raise RequirementRuleError(str(exc)) from exc
+
+
+def _check_required_checks(verification: dict) -> None:
+    """verification.required_checks(조합 필수 호환 정보 규칙) 검증 — 알 수 없는 축·이름, 빈 키 목록을 거부한다."""
+    checks = verification.get("required_checks")
+    if not isinstance(checks, dict):
+        raise RequirementRuleError("PC 필수 호환 규칙(required_checks) 없음")
+    unknown = set(checks) - set(elig.REQUIRED_CHECK_AXES)
+    if unknown:
+        raise RequirementRuleError(f"PC 필수 호환 규칙에 알 수 없는 축: {sorted(unknown)}")
+    absent = set(elig.REQUIRED_CHECK_AXES) - set(checks)
+    if absent:
+        raise RequirementRuleError(f"PC 필수 호환 규칙에 빠진 축: {sorted(absent)}")
+    for axis, check in checks.items():
+        where = f"PC 필수 호환 규칙 {axis}: "
+        if not isinstance(check, dict) or set(check) - elig.REQUIRED_CHECK_AXIS_FIELDS:
+            raise RequirementRuleError(f"{where}알 수 없는 필드")
+        keys = check.get("keys")
+        if not isinstance(keys, list) or not keys:
+            raise RequirementRuleError(f"{where}키 목록이 비어 있음")
+        if check.get("when") is not None and check["when"] not in elig.REQUIRED_CHECK_WHEN:
+            raise RequirementRuleError(f"{where}알 수 없는 적용 조건 {check['when']!r}")
+        if check.get("row_axis") is not None and check["row_axis"] not in elig.REQUIRED_CHECK_AXES:
+            raise RequirementRuleError(f"{where}알 수 없는 행 축 {check['row_axis']!r}")
+        for entry in keys:
+            if (not isinstance(entry, dict) or set(entry) - elig.REQUIRED_CHECK_KEY_FIELDS
+                    or entry.get("slot") not in elig.REQUIRED_CHECK_SLOTS
+                    or not isinstance(entry.get("key"), str) or not entry["key"].strip()):
+                raise RequirementRuleError(f"{where}슬롯/키 항목 오류: {entry!r}")
+            if entry.get("parse") is not None and entry["parse"] not in elig.REQUIRED_CHECK_PARSE:
+                raise RequirementRuleError(f"{where}알 수 없는 해석 방식 {entry['parse']!r}")
+            if entry.get("any_of") is not None and not (isinstance(entry["any_of"], str) and entry["any_of"].strip()):
+                raise RequirementRuleError(f"{where}any_of 오류")
 
 
 _TIER_KEYS = ("gpu", "cpu", "ram_gb", "vram_gb")
@@ -178,6 +212,7 @@ def _load_computer_rules(path: Path) -> dict:
     if not verification.get("link_rules") or not 0 < verification.get("power", {}).get("psu_capacity_factor", 0) <= 1:
         raise RequirementRuleError("PC 호환성 규칙 오류")
     _check_power_and_budget(req)
+    _check_required_checks(verification)
     _check_ranking_priority(ranking)
     for part, table in (req.get("lineup_perf_tier") or {}).items():
         if part not in ("cpu", "gpu") or not isinstance(table, dict) or not table or not all(

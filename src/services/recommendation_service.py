@@ -18,6 +18,7 @@ from psycopg_pool import PoolTimeout
 
 from src.categories import load_category
 from src.dto import PipelineResult, RequirementSpec
+from src.engine import eligibility as elig
 from src.engine import ram_config
 from src.engine.brands import SLOT_SYNONYMS
 from src.engine.lang import fmt_money, josa
@@ -331,11 +332,9 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
             feasibility = feasibility_engine.assess(spec, by_slot)
             spec.budget["feasibility"] = feasibility["level"]
             spec.budget["feasibility_detail"] = feasibility
-            hf = stage3a_hardfilter.run(spec, by_slot, noop, enrich=make_enricher(conn))
             from src.services.review_ranking import rank_with_review_aspects
-            rank, _review_profiles = rank_with_review_aspects(
-                hf, spec, slots, noop, conn=conn, run_id=run_id, catalog_source="db",
-            )
+            # 같은 실행의 같은 보완 함수(조회 캐시 공유) — 사전 필터의 Pending 보완과 조합 단계의 필수 정보 보완이 함께 쓴다.
+            enricher = make_enricher(conn)
             # 지금 쓰는 부품 자체를 다시 추천하지 않는다(같은 제품으로 '교체'하는 견적이 나왔다).
             already_owned = {(slot, key) for slot, info in current_tiers.items() for key in info["keys"]}
             computer_rules = stage2_requirement.load_computer_rules()
@@ -344,24 +343,46 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
             # 그러면 성능이 눈에 띄게 낮은 구성이 "확인 필요 건수 감소"만으로 채택될 수 있다(리뷰 지적).
             impact_slots = frozenset(computer_rules["ranking"].get("impact_slots", []))
 
-            def _verify(b, _round_index):
-                # E5 — chosen(슬롯→Candidate, provenance 포함)을 넘겨야 verify_build 가 쟁점에
-                # 카탈로그 출처 근거(evidence)를 붙인다. research_loop.resolve_chosen 이 [3-B] 가 남긴
-                # 전체 스펙(provenance 포함)으로 다시 찾아 준다.
-                b_chosen = research_loop.resolve_chosen(rank, b)
-                return stage3c_verify.verify_build(b, category, noop, chosen=b_chosen, spec=spec, rules=compat_rules)
+            def _engine_pass():
+                """[3-A] 필터 → [3-B] 점수 → [4] 조합 → [3-C] 검증(재탐색 포함) 한 번."""
+                hf_ = stage3a_hardfilter.run(spec, by_slot, noop, enrich=enricher)
+                rank_, _review_profiles = rank_with_review_aspects(
+                    hf_, spec, slots, noop, conn=conn, run_id=run_id, catalog_source="db",
+                )
 
-            def _choose_exclusion(b, v):
-                chosen = research_loop.resolve_chosen(rank, b)
-                return research_loop.rule_based_exclusion(b, v, chosen, spec, compat_rules, impact_slots=impact_slots)
+                def _verify(b, _round_index):
+                    # E5 — chosen(슬롯→Candidate, provenance 포함)을 넘겨야 verify_build 가 쟁점에
+                    # 카탈로그 출처 근거(evidence)를 붙이고 필수 호환 정보를 판정한다. research_loop.resolve_chosen 이
+                    # [3-B] 가 남긴 전체 스펙(provenance 포함)으로 다시 찾아 준다.
+                    b_chosen = research_loop.resolve_chosen(rank_, b)
+                    return stage3c_verify.verify_build(b, category, noop, chosen=b_chosen, spec=spec, rules=compat_rules)
 
-            # E1: [4] 세트 최적화 → [3-C] 검증을 최대 MAX_RESEARCH_ROUNDS회 돌며 "근사(확인 필요)" 누적을
-            # 규칙 기반으로 줄여 본다(C5). 데모 경로(pipeline._run_computer_branch)와 같은 루프 함수다.
-            build, verification, research_rounds = research_loop.run_set_with_research(
-                rank, spec, noop, verify=_verify, choose_exclusion=_choose_exclusion,
-                base_exclude=frozenset(already_owned),
-            )
+                def _choose_exclusion(b, v):
+                    chosen = research_loop.resolve_chosen(rank_, b)
+                    return research_loop.rule_based_exclusion(b, v, chosen, spec, compat_rules, impact_slots=impact_slots)
+
+                # E1: [4] 세트 최적화 → [3-C] 검증을 최대 MAX_RESEARCH_ROUNDS회 돌며 "근사(확인 필요)" 누적을
+                # 규칙 기반으로 줄여 본다(C5). 데모 경로(pipeline._run_computer_branch)와 같은 루프 함수다.
+                build_, verification_, rounds_ = research_loop.run_set_with_research(
+                    rank_, spec, noop, verify=_verify, choose_exclusion=_choose_exclusion,
+                    base_exclude=frozenset(already_owned),
+                )
+                return hf_, rank_, build_, verification_, rounds_
+
+            hf, rank, build, verification, research_rounds = _engine_pass()
+            # 조합의 필수 호환 정보가 빠져 정상 추천이 안 되면, 그 항목만 같은 보완 경로로 한 번 채워 보고 값이 채워졌을 때만 한 번 더 돌린다.
+            enrichment = None
+            if _needs_combo_enrichment(build.eligibility):
+                enrichment = _enrich_combo_missing(enricher, by_slot, rank, build.eligibility)
+                if enrichment["filled"]:
+                    enrichment["rerun"] = True
+                    try:
+                        hf, rank, build, verification, research_rounds = _engine_pass()
+                    except CandidateShortage:
+                        enrichment["rerun"] = "failed"      # 채운 값으로 후보가 달라져 부족해졌다 — 처음 진단 결과를 그대로 둔다
             build.list_id = str(revision_id)
+            eligibility_step = _eligibility_step(build.eligibility, enrichment)
+            eligibility_notice = elig.eligibility_notice(build.eligibility)
             hold_detail = _hold_trace_detail(hf)
 
             from src.services.recommendation_review_snapshot import snapshot_step
@@ -387,6 +408,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
                 variant_id_by_slot[item.slot] = variant_id
 
             _store_validations(erepo, run_id, verification)
+            erepo.upsert_run_step(run_id, eligibility_step)
 
             erepo.complete_run(run_id)
 
@@ -499,6 +521,8 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
                     # 03 "추천 요약" 본문 = summary + 확인이 필요한 것. 슬롯별 reason 은 각 부품의 "추천 이유" 에
                     # 따로 나가므로 여기 나열하지 않는다 (전에는 reason 8줄을 이어붙여 요약이 아니었다).
                     summary_text = review_service.explanation_text_with_caveats(explanation.summary, explanation.caveats)
+                    if eligibility_notice:     # 정상 추천이 아니면 코드가 만든 안내를 맨 앞에 붙인다(LLM 아님)
+                        summary_text = eligibility_notice + "\n\n" + summary_text
                     # 요약은 엔진이 고른 구성 기준이다 — 그동안 교체된 부품이 있으면 그 사실을 본문 끝에 적는다(swap_item 과 같은 안내).
                     # 위 UPDATE 로 후보 행을 잠근 뒤라 이 사이에 새 교체가 끼어들지 않는다.
                     replaced = _replaced_since_build(erepo, run_id, candidate_id_by_slot, variant_id_by_slot)
@@ -530,6 +554,56 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
         finish_explanation()
     else:
         defer(finish_explanation)
+
+
+def _needs_combo_enrichment(eligibility: dict) -> bool:
+    return (eligibility or {}).get("status") == elig.NOT_RECOMMENDABLE and any(
+        r.get("code") == elig.REQUIRED_INFO_MISSING for r in eligibility.get("reasons") or [])
+
+
+def _enrich_combo_missing(enricher, by_slot: dict, rank, eligibility: dict) -> dict:
+    """조합 단계의 필수 정보 누락 항목을 사전 필터와 같은 보완 경로(저장소 읽기만)로 **한 번** 채운다.
+
+    구매 부품 쪽 누락은 그 슬롯의 필터 통과 후보(조합에 들어갈 수 있는 후보) 중 같은 키가 빈 것을 모두 시도하고, 채워진 사본으로
+    by_slot 을 바꾼다. 유지 부품은 입력 때 이미 같은 저장소로 보완했으므로 다시 시도하지 않고 기록만 남긴다.
+    반환: {"attempted", "filled", "attempts": [...], "rerun": False} — filled 가 0이면 호출부는 다시 돌리지 않는다."""
+    missing = [m for r in eligibility.get("reasons") or [] if r.get("code") == elig.REQUIRED_INFO_MISSING
+               for m in r.get("missing") or []]
+    wanted: dict[str, set[str]] = {}
+    attempts: list[dict] = []
+    for m in missing:
+        if m.get("side") == "owned":
+            attempts.append({"slot": m["slot"], "key": m["key"], "side": "owned", "status": "no_path",
+                             "detail": "유지 부품은 입력할 때 이미 확인했습니다"})
+        else:
+            wanted.setdefault(m["slot"], set()).add(m["key"])
+    filled = 0
+    for slot, keys in wanted.items():
+        pool = {c["product_key"] for c in (rank.slots.get(slot) or {}).get("pool") or []}
+        requests, positions = [], []
+        for i, cand in enumerate(by_slot.get(slot) or []):
+            if cand.product_key in pool:
+                lacking = sorted(k for k in keys if cand.specs.get(k) in (None, "", []))
+                if lacking:
+                    requests.append((cand, lacking))
+                    positions.append(i)
+        if not requests:
+            continue
+        updated, slot_attempts = enricher.for_keys(slot, requests)
+        for i, cand, attempt in zip(positions, updated, slot_attempts):
+            if attempt["status"] == "filled":
+                by_slot[slot][i] = cand
+                filled += 1
+            attempts.append({k: attempt[k] for k in ("slot", "product_key", "missing_keys", "status", "detail")})
+    return {"attempted": len(attempts), "filled": filled, "attempts": attempts[:60], "rerun": False}
+
+
+def _eligibility_step(eligibility: dict, enrichment: dict | None) -> dict:
+    """reasoning_log 의 "추천 적격성" 단계 — 새 컬럼 없이 상태·사유·보완 시도를 남긴다."""
+    notice = elig.eligibility_notice(eligibility)
+    return {"step": elig.ELIGIBILITY_STEP, "title": elig.ELIGIBILITY_STEP,
+            "detail": notice or "정상 추천 조건을 만족하는 구성입니다.",
+            "status": eligibility["status"], "reasons": eligibility["reasons"], "enrichment": enrichment}
 
 
 def _replaced_since_build(erepo, run_id: UUID, candidate_id_by_slot: dict[str, UUID],
@@ -650,6 +724,11 @@ def reverify_set(conn, revision_id: UUID, run: dict) -> None:
         build, "computer", chosen=chosen, spec=spec, rules=load_computer_rules()["verification"])
     erepo.delete_validations(run["id"])
     _store_validations(erepo, run["id"], verification)
+    # 같은 적격성을 지금 선택된 부품으로 다시 계산해 "추천 적격성" 단계를 교체한다(보완 시도 기록은 이어 둔다).
+    target = verification.targets[0] if verification.targets else None
+    if target is not None:
+        previous = erepo.get_run_step(run["id"], elig.ELIGIBILITY_STEP) or {}
+        erepo.upsert_run_step(run["id"], _eligibility_step(elig.make_eligibility(target.blocking), previous.get("enrichment")))
 
 
 def _conditions_summary(cat_def: dict, values: dict) -> str:
