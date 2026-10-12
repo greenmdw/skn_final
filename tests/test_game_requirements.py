@@ -1,6 +1,7 @@
 """games 조건 — 게임 제목의 권장 사양이 요구 등급을 올리고, 모르는 게임은 안내로 남는다."""
 from __future__ import annotations
 
+import re
 from copy import deepcopy
 
 import pytest
@@ -22,25 +23,32 @@ def _spec(**values) -> RequirementSpec:
 def test_heavy_game_raises_tier_above_resolution_default():
     base = _spec(purpose="game", resolution="FHD_144")
     heavy = _spec(purpose="game", resolution="FHD_144", games=["사이버펑크 2077"])
-    assert base.targets["GPU"]["perf_tier_min"] == 6
-    assert heavy.targets["GPU"]["perf_tier_min"] == 7
-    assert heavy.targets["CPU"]["perf_tier_min"] == base.targets["CPU"]["perf_tier_min"]   # cpu 6 == 6, 안 내려간다
+    # 2026-10-12: 게임 표를 공식 '권장' 사양(FHD)에서 다시 옮겼다. 사이버펑크의 권장 CPU(Core i7-12700급)만 해상도 기본(6)보다
+    # 높고, 권장 GPU(RTX 2060 Super급, 등급 5)는 기본(6)보다 낮아 GPU 요구는 그대로다.
+    assert base.targets["CPU"]["perf_tier_min"] == 6
+    assert heavy.targets["CPU"]["perf_tier_min"] == 7
+    assert heavy.targets["GPU"]["perf_tier_min"] == base.targets["GPU"]["perf_tier_min"] == 6   # 낮은 값은 요구를 내리지 않는다
     assert "games_applied" in heavy.flags
 
 
 def test_light_game_never_lowers_the_resolution_requirement():
     base = _spec(purpose="game", resolution="QHD_165")
     light = _spec(purpose="game", resolution="QHD_165", games=["발로란트", "롤"])
-    assert light.targets["GPU"] == base.targets["GPU"] and light.targets["RAM"] == base.targets["RAM"]
-    # 발로란트는 GPU 가 가벼워도 높은 프레임을 위해 CPU 등급 6 을 요구 — 해상도 기본(5)보다 올라가는 건 CPU 뿐이다.
-    assert light.targets["CPU"]["perf_tier_min"] == 6 > base.targets["CPU"]["perf_tier_min"]
+    # 발로란트·롤의 공식 권장 사양은 QHD 165Hz 해상도 기본보다 모든 요소가 낮다 — 아무 것도 바뀌지 않는다.
+    assert light.targets == base.targets
     assert "games_applied" in light.flags and not light.unresolved
 
 
-def test_max_is_taken_per_element_across_several_games():
+def test_max_is_taken_per_element_across_several_games(monkeypatch):
+    # 실제 표의 게임은 FHD 기본을 둘 다 넘지 못하므로, 두 게임이 서로 다른 요소를 올리도록 시험용 표를 쓴다.
+    rules = deepcopy(s2.load_computer_rules())
+    titles = rules["requirements"]["game_titles"]
+    titles["starfield"]["tier"] = {"gpu": 8, "cpu": 4, "ram_gb": 16, "vram_gb": 8}
+    titles["valorant"]["tier"] = {"gpu": 3, "cpu": 9, "ram_gb": 8, "vram_gb": 2}
+    monkeypatch.setattr(s2, "load_computer_rules", lambda *a, **k: rules)
     spec = _spec(purpose="game", resolution="FHD_144", games=["스타필드", "발로란트"])
-    assert spec.targets["CPU"]["perf_tier_min"] == 7        # 스타필드 cpu 7 > 해상도 6
-    assert spec.targets["GPU"]["perf_tier_min"] == 7
+    assert spec.targets["GPU"]["perf_tier_min"] == 8        # 스타필드(시험값)
+    assert spec.targets["CPU"]["perf_tier_min"] == 9        # 발로란트(시험값)
 
 
 def test_unknown_game_is_reported_and_changes_nothing():
@@ -59,9 +67,9 @@ def test_games_are_ignored_for_non_game_purposes():
 
 def test_upgrade_mode_only_keeps_requested_slots_but_still_applies_games():
     slots = Slots(category="computer", mode="upgrade", objective_text="",
-                  values={"purpose": "game", "resolution": "FHD_144", "games": ["사이버펑크"], "upgrade_parts": ["GPU"]})
+                  values={"purpose": "game", "resolution": "FHD_144", "games": ["사이버펑크"], "upgrade_parts": ["CPU"]})
     spec = s2.run(slots, {}, _noop)
-    assert set(spec.targets) == {"GPU"} and spec.targets["GPU"]["perf_tier_min"] == 7
+    assert set(spec.targets) == {"CPU"} and spec.targets["CPU"]["perf_tier_min"] == 7
 
 
 @pytest.mark.parametrize("raw, keys, unknown", [
@@ -102,7 +110,7 @@ def test_service_surfaces_unknown_games_and_trace_row():
     assert any("잠정값" in c for c in extras["extra_caveats"])
     assert "scope_note" not in extras                       # 신규 조립엔 견적 범위 문장이 없다
     step, detail = svc._games_trace_row(spec)
-    assert step == "게임 요구사양" and "GPU 등급 7 이상" in detail and "별게임" in detail
+    assert step == "게임 요구사양" and "CPU 등급 7 이상" in detail and "별게임" in detail
     assert svc._games_trace_row(_spec(purpose="game")) is None
     assert svc._explanation_extras(_spec(purpose="game")) == {}
 
@@ -118,14 +126,14 @@ def _rank(spec: RequirementSpec, slot: str, cands: list[Candidate], **values) ->
     return stage3b_rank.run(HardFilterResult(slots={slot: cands}), spec, slots, _noop)
 
 
-def test_heavy_game_raises_the_gpu_ideal_tier_and_logs_the_bump():
-    # FHD_144 의 ideal GPU(6.0)보다 사이버펑크(gpu tier 7)가 더 무겁다.
+def test_heavy_game_raises_the_cpu_ideal_tier_and_logs_the_bump():
+    # 게임 표의 권장 CPU 등급(사이버펑크 7)이 FHD_144 의 ideal CPU(6.0)보다 높다. (GPU 쪽은 지금 표의 게임이 기본을 못 넘는다)
     spec = _spec(purpose="game", resolution="FHD_144", games=["사이버펑크 2077"])
-    assert spec.targets["GPU"]["perf_tier_min"] == 7 and "games_applied" in spec.flags
-    cands = [_cand("GPU", "mid", 300_000, perf_tier=6), _cand("GPU", "high", 400_000, perf_tier=8)]
-    rr = _rank(spec, "GPU", cands, purpose="game", resolution="FHD_144", games=["사이버펑크 2077"])
-    assert rr.slots["GPU"]["ideal_tier"] == 7.0
-    assert "게임 요구 반영: GPU 이상 등급 6→7" in rr.weight_adjustments
+    assert spec.targets["CPU"]["perf_tier_min"] == 7 and "games_applied" in spec.flags
+    cands = [_cand("CPU", "mid", 200_000, perf_tier=6), _cand("CPU", "high", 300_000, perf_tier=8)]
+    rr = _rank(spec, "CPU", cands, purpose="game", resolution="FHD_144", games=["사이버펑크 2077"])
+    assert rr.slots["CPU"]["ideal_tier"] == 7.0
+    assert "게임 요구 반영: CPU 이상 등급 6→7" in rr.weight_adjustments
 
 
 def test_light_game_does_not_move_the_ideal_tier_or_add_a_note():
@@ -171,14 +179,17 @@ def test_raising_the_ideal_tier_relatively_favors_the_higher_tier_candidate():
 
 # ── E7 — game_titles 출처·승인 상태 스키마 (D의 엔진 쪽, R-11은 범위 밖) ──────────
 
-def test_existing_15_game_titles_load_as_provisional_without_config_changes():
-    """config/computer_verification_rules.yaml 은 이번 작업으로 건드리지 않는다 — 15개 전부
-    status 필드가 없는 채로 provisional 로 해석되고 출처(source)는 None 이어야 한다."""
+def test_the_15_game_titles_carry_a_source_but_stay_provisional_until_a_person_approves():
+    """2026-10-12: 공식 권장 사양을 수집해 출처(url·발췌·확인일)를 붙이고 등급을 다시 옮겼지만, 사람이 승인하기 전이라
+    status 는 provisional 로 남는다(기획서 ENG-05). approved 가 되려면 승인 단계가 필요하다."""
     rules = s2.load_computer_rules()
     titles = rules["requirements"]["game_titles"]
     assert len(titles) == 15
     for key in titles:
-        assert s2.game_title_status(key, rules) == {"status": "provisional", "source": None}
+        got = s2.game_title_status(key, rules)
+        assert got["status"] == "provisional", key
+        assert got["source"]["url"].startswith("https://") and got["source"]["excerpt"], key
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}", got["source"]["checked_at"]), key
 
 
 def _rules_with_lol_status(status: str, *, source: dict | None = None) -> dict:

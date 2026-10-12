@@ -36,7 +36,7 @@ def test_resolution_change_explains_the_gpu_upgrade_and_keeps_the_rest():
 
 
 def test_game_change_that_does_not_raise_the_requirement_is_not_given_as_the_cause():
-    # 오버워치(GPU 4)·배그(GPU 5) 모두 FHD 기준(6)보다 낮다 — 요구는 그대로이므로 원인을 지어내지 않는다.
+    # 오버워치(GPU 3)·배그(GPU 3) 모두 FHD 기준(6)보다 낮다 — 요구는 그대로이므로 원인을 지어내지 않는다.
     after = _result(GPU=("RX 7600", 380_000), CPU=("i5-14400F", 250_000), RAM=("DDR5 16GB", 60_000))
     c = compare(BASE, {**BASE, "games": ["배틀그라운드"]}, BEFORE, after, "9월 25일")
     reason = _reason(c, "GPU")
@@ -47,11 +47,12 @@ def test_game_change_that_does_not_raise_the_requirement_is_not_given_as_the_cau
 
 
 def test_heavier_game_is_named_as_the_cause_with_its_table_value():
-    after = _result(GPU=("RTX 4070", 700_000), CPU=("i5-14400F", 250_000), RAM=("DDR5 16GB", 60_000))
+    # 사이버펑크의 권장 CPU(Core i7-12700급)가 FHD 기본 요구(6)를 7로 올린다. GPU 요구(5)는 기본보다 낮아 그대로다.
+    after = _result(GPU=("RTX 4060", 400_000), CPU=("i7-12700", 330_000), RAM=("DDR5 16GB", 60_000))
     c = compare(BASE, {**BASE, "games": ["오버워치", "사이버펑크"]}, BEFORE, after, "9월 25일")
-    reason = _reason(c, "GPU")
+    reason = _reason(c, "CPU")
     assert reason["kind"] == "requirement"
-    assert reason["evidence"] == ["사이버펑크 추가(그래픽 성능 등급 7 요구)"]
+    assert reason["evidence"] == ["사이버펑크 추가(CPU 성능 등급 7 요구)"]
     assert not any("오버워치" in e and "추가" in e for e in reason["evidence"])
     assert c["caveats"], "게임 표가 잠정값이면 그렇다고 적는다"
 
