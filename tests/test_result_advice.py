@@ -393,3 +393,18 @@ def test_ram_step_down_falls_back_to_a_cheaper_part_of_the_same_capacity(conn):
     assert cand.variant_id == max(same, key=result_advice._price).variant_id
     out = result_advice.preview_swap(conn, revision_id, "RAM", direction="down")
     assert "같은 단계의 더 싼 후보" in out and "⚠ 이 견적의 요구 사양을 못 채움" not in out, out
+
+
+def test_qty_past_the_m2_slots_is_flagged_after_the_change(conn):
+    """화면·채팅에서 수량을 바꾸면 다시 돌린 세트 점검이 M.2 슬롯 초과를 쟁점으로 남긴다. 쟁점 문장은 코드가 쓴
+    개수 비교다 — 부품 스펙 근거만 받은 모델은 "관측값은 fail이며"처럼 입력 이름을 옮겨 적었다(10/12 실측)."""
+    revision_id = _build(conn)
+    ctx = result_advice._context(conn, revision_id)
+    slots = ctx.chosen()["메인보드"].specs.get("m2_slots")
+    item = next(i for i in recommendation_service.get_stored_result(conn, revision_id)["items"] if i["slot"] == "저장장치")
+    result = recommendation_service.patch_item(conn, revision_id, uuid.UUID(item["item_id"]), selected=None,
+                                               qty=slots + 1, timing=None)
+    m2 = next(r for r in result["compat_checks"] if r["axis"] == "m2")
+    assert m2["state"] == "fail", m2
+    issue = next(i for i in result["verification"]["issues"] if i["axis"] == "m2")
+    assert issue["text"].startswith(f"M.2 SSD와 메인보드 슬롯: M.2 SSD {slots + 1}개 > 메인보드 M.2 슬롯 {slots}개"), issue

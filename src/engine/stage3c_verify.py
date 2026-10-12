@@ -247,8 +247,12 @@ def verify_build(
     chosen: dict[str, "Candidate"] | None = None,
     spec: "RequirementSpec | None" = None,
     rules: dict | None = None,
+    qty: dict[str, int] | None = None,
 ) -> VerificationResult:
     """DB 경로([추천 실행])의 세트 검증 — 규칙 judge + 쟁점 문장화.
+
+    qty(슬롯별 구매 수량)는 결과 화면에서 수량을 바꾼 뒤 다시 점검할 때 — M.2 SSD·RAM 개수 검사가 수량을 보고,
+    그 검사의 쟁점 문장은 코드가 쓴 비교("M.2 SSD 2개 > 메인보드 M.2 슬롯 1개")로 한다.
 
     chosen/spec/rules 를 주면(E5) `stage4_optimize.pc_compat_details`를 다시 돌려 각 쟁점의
     inputs 를 후보 provenance 와 엮어 Issue.evidence(카탈로그 출처)를 만든다. 셋 중 하나라도
@@ -260,7 +264,9 @@ def verify_build(
     have_provenance = chosen is not None and spec is not None and rules is not None
     if have_provenance:
         from src.engine.stage4_optimize import pc_compat_details
-        rows_by_axis = {row["axis"]: row for row in pc_compat_details(chosen, spec, rules)}
+        rows_by_axis = {row["axis"]: row for row in pc_compat_details(chosen, spec, rules, qty)}
+    # 수량 때문에 걸린 검사는 근거(부품 스펙)만으로는 문장이 이유를 못 댄다 — 슬롯 수만 보고 "M.2 슬롯이 없다"고 쓸 수 있다
+    counted = {"m2": "저장장치", "ram_slots": "RAM"}
 
     issues: list[Issue] = []
     penalty = 0
@@ -271,7 +277,11 @@ def verify_build(
         s = str(state).lower()
         if "fail" in s or "미충족" in s or "over" in s:
             ev = _catalog_evidence(rows_by_axis.get(axis), chosen) if have_provenance else []
-            issues.append(Issue(axis=axis, text=_issue_sentence(axis, state, ev),
+            detail = ((rows_by_axis.get(axis) or {}).get("detail")
+                      if axis in counted and int((qty or {}).get(counted[axis]) or 1) > 1 else None)
+            # 수량 때문에 걸린 검사는 코드가 쓴 비교 문장을 그대로 — 모델에 넘기면 "관측값은 fail이며 … 점검 내용에는"처럼
+            # 입력 이름을 옮겨 적었고, 교체·수량 변경 답이 그 호출만큼 늦어졌다(10/12 실측 7~11초)
+            issues.append(Issue(axis=axis, text=f"{axis_label(axis)}: {detail}" if detail else _issue_sentence(axis, state, ev),
                                 tool_result=state, evidence=ev, judge="위반", penalty=_FAIL_ISSUE_PENALTY))
             penalty += _FAIL_ISSUE_PENALTY
         elif "pending" in s or "근사" in s:
