@@ -213,6 +213,26 @@ def test_popular_sort_reflects_reactions_not_just_age(alice, bob):
     assert _titles(by_like)[0].endswith("반응 많은 글") and quiet["id"] in [i["id"] for i in by_like["items"]]
 
 
+def test_example_post_reactions_count_toward_popularity_like_normal_posts(alice, bob, monkeypatch):
+    """정책: 예시 글의 추천·조회도 일반 글과 똑같이 센다(EXAMPLE_POPULARITY_WEIGHT=1.0)."""
+    from src.repo import community_repo
+    assert community_repo.EXAMPLE_POPULARITY_WEIGHT == 1.0
+    a, a_id = alice
+    b, _ = bob
+    monkeypatch.setattr(svc, "COMMUNITY_ADMIN_USER_IDS", frozenset({a_id}))
+    marker = uuid4().hex[:8]
+    plain = _post(a, title=f"{marker} 일반 글")
+    example = _post(a, title=f"{marker} 예시 글", is_example=True)
+    assert b.post(f"/community/posts/{example['id']}/likes").status_code == 200
+    assert b.get(f"/community/posts/{example['id']}").status_code == 200       # 조회 1회
+    listed = TestClient(app).get("/community/posts", params={"q": marker, "sort": "popular"}).json()
+    assert _titles(listed)[0].endswith("예시 글")
+    item = listed["items"][0]
+    assert item["like_count"] == 1 and item["view_count"] == 1                   # 통계에도 그대로 잡힌다
+    only_ex = TestClient(app).get("/community/posts", params={"q": marker, "sort": "recommend", "is_example": True}).json()
+    assert only_ex["total"] == 1 and plain["id"] not in [i["id"] for i in only_ex["items"]]
+
+
 # ── 댓글 · 답글 ──────────────────────────────────────────────────────────────────────
 def test_comments_replies_edit_delete_and_counts(alice, bob):
     a, _ = alice
