@@ -240,3 +240,15 @@ REVIEW_SEARCH_DEFAULT_LIMIT: int = 3      # 상품당 돌려줄 리뷰 수(상�
 REVIEW_SEARCH_MAX_LIMIT: int = 10
 # 로그인 없이 부르는 공개 API인데 요청마다 유료 embedding 호출이 하나 생긴다(같은 질문은 캐시) — IP별 분당 한도.
 REVIEW_SEARCH_LIMIT_PER_MIN: int = int(os.getenv("REVIEW_SEARCH_LIMIT_PER_MIN", "20"))
+
+# ── 일반 커뮤니티(/community) ──────────────────────────────────────────────────────────
+# 관리자: 숨김·복원·예시 글 표시(is_example)를 할 수 있는 사용자 id(쉼표로 구분). 비워 두면 관리자가 없다.
+COMMUNITY_ADMIN_USER_IDS: frozenset[str] = frozenset(
+    x.strip() for x in os.getenv("COMMUNITY_ADMIN_USER_IDS", "").split(",") if x.strip())
+# 금칙어(쉼표로 구분, 소문자 비교). 비워 두면 검사하지 않는다.
+COMMUNITY_BANNED_WORDS: tuple[str, ...] = tuple(
+    x.strip().lower() for x in os.getenv("COMMUNITY_BANNED_WORDS", "").split(",") if x.strip())
+# 사용자별 분당 한도
+COMMUNITY_POST_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_POST_LIMIT_PER_MIN", "5"))
+COMMUNITY_COMMENT_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_COMMENT_LIMIT_PER_MIN", "20"))
+COMMUNITY_LIKE_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_LIKE_LIMIT_PER_MIN", "60"))
