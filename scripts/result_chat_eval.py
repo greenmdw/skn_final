@@ -92,7 +92,8 @@ QUESTIONS: list[Q] = [
     Q("casual", "그래픽 올리는거 어케생각함", tools=("preview_swap", "upgrade_options")),
     Q("casual", "파워 바꾸는거 ㄱㅊ?", tools=("preview_swap", "list_alternatives")),
     Q("casual", "씨퓨 업글 해도 무방?", tools=("preview_swap", "upgrade_options")),
-    Q("casual", "SSD 1테라 더 달아도 됨", tools=("preview_swap", "set_item", "list_alternatives")),
+    # preview_qty 는 10/12 에 생긴 도구(같은 부품을 더 다는 가정) — 문장은 그대로, 받는 도구만 넓힘
+    Q("casual", "SSD 1테라 더 달아도 됨", tools=("preview_swap", "preview_qty", "set_item", "list_alternatives")),
     Q("casual", "남는돈으로 머 올리지", tools=("upgrade_options",)),
     Q("casual", "글카 한단계 위로 바꿔주셈", change=True, tools=("swap",)),
     # 시연 대화(2026-10-02)에서 옮긴 것 — 10만원 목표에 CPU 를 등급 8→4 로 내리던 것
@@ -123,6 +124,20 @@ ADDED: list[Q] = [
       note="틀린 전제 — 새 대화라 그런 약속이 없다. 약속을 인정하거나 쿨러를 빼면 실패"),
     Q("failure", "그래픽카드 한 단계 좋은 걸로 바꿔", change=True, tools=("swap",),
       note="10/8 팀 시연 — '줘' 없는 반말 명령. 되물으면('바꿔줘라고 말씀해 주세요') 실패"),
+    # 10/12 사람 평가 시트 — "하나 더 달기"를 교체로 답하던 것. 기준 구성 메인보드(A620M H)는 M.2 슬롯이 1개다
+    Q("failure", "SSD 하나 더 달아줘", change=True, tools=("set_item",),
+      note="같은 SSD를 하나 더(수량 2). 교체(swap)하면 실패. 메인보드 M.2 슬롯이 1개라 '호환 점검 문제'를 알려야 한다 — 빠뜨리면 오도"),
+    # U-04(통합테스트 F-6, 10/12 재현) — 기준 구성 쿨러는 카탈로그에서 가장 싼 것이라 바꿀 후보가 없다
+    Q("failure", "쿨러 더 저렴한 걸로 바꿔줘", tools=("preview_swap", "list_alternatives"),
+      note="가장 싼 제품이라 더 싼 후보가 없다고 이유를 말하고, CPU 기본 쿨러가 있으니 빼는 방법을 제안만 한다. "
+           "묻지 않고 빼면 실패(구성표 오변경). 이유 없이 '교체하지 않았다'로 끝나면 오도"),
+    # 10/12 — 전후 비교 페이지에서 손으로 확인했던 말을 평가 세트로 옮긴 것
+    Q("budget", "왜 예산을 다 안 썼어?", tools=("prefetch:budget_reason", "budget_reason"),
+      note="추천 방식(예산 상한 안에서 점수 합 최대)과 용도 기준 등급으로 설명. '근거 없음'·'예산을 다 못 썼다'(실패처럼)면 실패"),
+    Q("info", "총액을 만원 단위로 알려줘", note="구성표 총액의 어림값(예: 약 132만 원). 다른 금액이면 비사실"),
+    Q("info", "총액이 예산의 몇 퍼센트야?", note="총액 ÷ 예산 상한. 계산이 틀리면 비사실"),
+    Q("failure", "우선순위를 성능으로 바꿔줘",
+      note="조건은 이 화면에서 못 바꾼다 — '조건 바꾸기' 안내. 부품을 바꾸면 실패(구성표 오변경), 반영된 것처럼 말하면 비사실"),
     # P1-7 (10/9) — explain 이 추천 당시 점수 근거(후보 중 순위·점수 비중·리뷰 긍정·부정 수)를 준다
     Q("why", "이 그래픽카드 리뷰 어때?", tools=("explain",),
       note="P1-7 — 리뷰 긍정·부정 건수·속성을 도구 결과대로. 관측이 없으면 없다고. 별점·평점을 지어내면 비사실"),
@@ -180,6 +195,14 @@ SCENARIOS: list[Scenario] = [
         Q("info", "남은 예산 얼마야?"),
         Q("upgrade", "남은 돈으로 할 만한 업그레이드 있어?", tools=("upgrade_options",)),
         Q("change", "영상 편집이니까 그래픽카드를 한 단계 좋은 걸로 바꿔줘", change=True, tools=("swap",)),
+    )),
+    # 10/12 말 분류 점검 — 동의 낱말로 시작하는 질문·감상("응 근데 왜?", "좋아 보이네")이 문장 앞만 보던 규칙에서
+    # 바꾸라는 말이 됐다. 바로 앞 답이 교체를 제안한 뒤라 원치 않는 교체가 될 수 있는 자리
+    Scenario("E", "게임 150만·가성비 — 제안 뒤 동의 낱말로 시작하는 질문", "(10/12 점검, 리허설 대본 아님)",
+             {"purpose": "game", "budget_max": 1_500_000, "priority": "value"}, (
+        Q("whatif", "그래픽카드 한 단계 올리면 어때?", tools=("preview_swap",)),
+        Q("info", "응 근데 왜 이거야?", note="앞 답이 교체를 제안했어도 바꾸지 않는다 — 지금 그래픽카드의 근거를 묻는 말"),
+        Q("info", "좋아 보이네", note="감상 — 바꾸지 않는다. 바꾸면 실패"),
     )),
     Scenario("D", "오버워치 300만·성능 (즉흥)", "e56c685c",
              {"purpose": "game", "games": ["오버워치"], "budget_max": 3_000_000, "priority": "performance"}, (
