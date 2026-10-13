@@ -327,6 +327,9 @@ def test_review_with_catalog_and_custom_products_keeps_order_and_match_status(al
     assert [l["match_status"] for l in links] == ["matched", "unmatched"] and [l["display_order"] for l in links] == [0, 1]
     assert links[0]["product_id"] == item["id"] and links[1]["product_id"] is None and links[1]["selected_option"] == "저소음 적축"
     assert post["board_label"] == "사용기 · 마우스"
+    assert links[0]["image_url"] == item["image_url"] and links[0]["image_url"] and links[1]["image_url"] is None       # 카탈로그 제품은 이미지, 직접 입력은 없음
+    listed = TestClient(app).get("/community/posts", params={"q": "마우스 사용기", "board_type": "review"}).json()["items"]
+    assert [p["image_url"] for p in next(i for i in listed if i["id"] == post["id"])["products"]] == [item["image_url"], None]
     mice = TestClient(app).get("/community/posts", params={"product_kind": "마우스", "board_type": "review", "page_size": 50}).json()
     assert post["id"] in [i["id"] for i in mice["items"]]
     # 제품 추가·삭제

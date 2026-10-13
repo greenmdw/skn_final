@@ -116,7 +116,8 @@ def _product_out(link: dict) -> dict:
     return {"id": str(link["id"]), "product_id": str(link["product_id"]) if link["product_id"] else None,
             "product_kind": link["product_kind"], "name": name, "brand": link.get("product_brand"),
             "custom_product_name": link["custom_product_name"], "selected_option": link["selected_option"],
-            "match_status": link["match_status"], "display_order": link["display_order"]}
+            "match_status": link["match_status"], "display_order": link["display_order"],
+            "image_url": link.get("product_image_url")}
 
 
 def _item(row: dict, products: list[dict]) -> dict:

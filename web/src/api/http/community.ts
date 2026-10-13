@@ -17,6 +17,7 @@ export interface WireCommunityProduct {
   selected_option: string | null
   match_status: 'matched' | 'unmatched' | 'review_needed'
   display_order: number
+  image_url: string | null
 }
 
 export interface WireCommunityImage {
@@ -164,6 +165,7 @@ export function mapCommunityItem(item: WireCommunityItem) {
       kind: product.product_kind,
       name: product.name ?? product.custom_product_name ?? '',
       detail: product.selected_option ?? '',
+      imageUrl: product.image_url,
     })),
   }
 }

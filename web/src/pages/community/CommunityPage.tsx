@@ -448,7 +448,7 @@ function PostView({ postId, user, reactionOf, onBack, onBoard, onPost, onWrite, 
         <div className="cm-stack">
           <article className="cm-card cm-article">
             <span className="cm-badge accent">{post.boardLabel}</span><h1>{post.title}</h1>
-            {!!post.products?.length && <section className="cm-product-cards"><h2>연결 제품</h2>{post.products.map((product, index) => <div key={product.name + index} className="cm-product-card"><span>{product.kind}</span><div><strong>{product.name}</strong><small>{product.detail}</small></div></div>)}</section>}
+            {!!post.products?.length && <section className="cm-product-cards"><h2>연결 제품</h2>{post.products.map((product, index) => <div key={product.name + index} className="cm-product-card">{product.imageUrl && <img src={product.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onError={event => { event.currentTarget.style.display = 'none' }} style={{ width: 56, height: 56, objectFit: 'contain', borderRadius: 8, flex: 'none' }} />}<span>{product.kind}</span><div><strong>{product.name}</strong><small>{product.detail}</small></div></div>)}</section>}
             <div className="cm-article-meta"><span><Avatar name={post.author} /><span><strong>{post.author}</strong><small>{post.time}</small></span></span><span>조회 {wire.view_count} · 댓글 {commentTotal}</span></div>
             {post.is_example && <div className="review-disclosure" role="note"><strong>예시 리뷰</strong><span>서비스 구성을 보여주기 위해 팀이 작성한 글입니다. 실제 구매·사용 후기가 아닙니다.</span></div>}
             <div className="cm-article-body">

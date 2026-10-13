@@ -128,7 +128,7 @@ class CommunityRepo(Repo):
             return {}
         rows = self._all(
             """SELECT pp.id, pp.post_id, pp.product_id, pp.product_kind, pp.custom_product_name, pp.selected_option,
-                      pp.match_status, pp.display_order, cp.name AS product_name, cp.brand AS product_brand, cp.model AS product_model
+                      pp.match_status, pp.display_order, cp.name AS product_name, cp.brand AS product_brand, cp.model AS product_model, cp.image_url AS product_image_url
                FROM community.post_product pp LEFT JOIN catalog.product cp ON cp.id = pp.product_id
                WHERE pp.post_id = ANY(%s) ORDER BY pp.post_id, pp.display_order, pp.created_at""", (list(post_ids),))
         out: dict[UUID, list[dict]] = {}
