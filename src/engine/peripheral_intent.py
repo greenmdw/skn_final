@@ -33,11 +33,18 @@ BUDGET_MAX_WON = 10_000_000          # 이 값을 넘는 금액은 예산으로 
 UNRECOGNIZED_MAX_ITEMS = 5
 UNRECOGNIZED_MAX_CHARS = 40
 
-# 사용자 문장에 섞인 "AI 에게 하는 지시문"이 반영하지 못한 말 목록으로 화면에 나가지 않게 거른다.
+# 사용자 문장·사용기 본문에 섞인 "AI 에게 하는 지시문"이 반영하지 못한 말 목록으로 화면에 나가거나 글이 점수에 쓰이지 않게 거른다.
 # 부품명·말투에는 나오지 않는 표현만 쓴다(src/agent/spec_extraction_agent.py 와 같은 원칙).
+# 사용기에는 "무조건 편한 건 아니다", "AI가 추천해서 샀다" 같은 평범한 말이 흔하므로, 낱말 하나만으로는 걸지 않고
+# "AI 를 부르는 말" 이나 "명령하는 어미" 와 함께 나올 때만 건다(예: 읽는 AI, AI는 … 추천하라, 무조건 … 해라).
+_IMPERATIVE = (r"(?:(?:추천|출력|답변?|말|표시|인식|적|무시)\s*(?:하라|해라|해줘|해\s*주세요|하세요|하십시오)"
+               r"|(?:하라|해라|하세요|하십시오|해\s*주세요|따르라|따라라))(?![가-힣])")
 _INJECTION_CUES = re.compile(
-    r"ignore\s+(?:all\s+|the\s+)?(?:previous|prior|above)|disregard|system\s*:|(?:system|developer)\s+prompt|instructions?"
-    r"|이전\s*지시|지시(?:를|문|사항)?\s*(?:무시|따라)|무조건|읽는\s*AI|AI\s*(?:는|가|에게|야)",
+    r"ignore\s+(?:all\s+|the\s+)?(?:previous|prior|above)|disregard\s+(?:all\s+|the\s+)?(?:previous|prior|above|instructions?)"
+    r"|system\s*:|(?:system|developer)\s+prompt|(?:follow|obey|new|these|above|your)\s+instructions?"
+    r"|이전\s*지시|지시(?:를|문|사항)?\s*(?:무시|따라)|읽는\s*AI|AI\s*(?:에게|야)"
+    r"|AI\s*(?:는|가)[^.!?\n]{0,40}?" + _IMPERATIVE +
+    r"|무조건[^.!?\n]{0,20}?" + _IMPERATIVE,
     re.IGNORECASE,
 )
 

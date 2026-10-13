@@ -132,6 +132,14 @@ def test_instruction_inside_the_body_holds_the_whole_post():
     assert analysis.observations(post) == []
 
 
+def test_everyday_words_in_the_body_do_not_hold_the_post():
+    """"무조건"처럼 후기에 흔한 말이 있다고 글 전체를 보류하지 않는다(탐지는 AI 를 향한 명령에만 건다)."""
+    body = BODY + " 가벼운 마우스가 무조건 편한 것은 아니라는 걸 알았습니다. AI가 추천해서 샀습니다."
+    post, analysis = _analyze([_item("그립이 손에 착 감겨서 안정적입니다.")], post=_post(body=body))
+    assert _status(analysis)[0] == "confirmed"
+    assert len(analysis.observations(post)) == 1
+
+
 def test_posts_that_cannot_be_scored_are_skipped_with_a_reason():
     ext = pc.PostExtraction(is_review=True, items=[_item("그립이 손에 착 감겨서 안정적입니다.")])
     assert pc.analyze_post(_post(status="hidden"), ext, RULES).skip_reason == "not_published"
