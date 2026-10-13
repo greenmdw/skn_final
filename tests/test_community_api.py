@@ -552,3 +552,23 @@ def test_intake_failure_never_breaks_saving_a_post(alice, monkeypatch):
     r = a.post("/community/posts", json={"board_type": "free", "title": "저장은 성공", "body": "본문", "publish": True})
     assert r.status_code == 201 and r.json()["status"] == "published"
     assert a.patch(f"/community/posts/{r.json()['id']}", json={"body": "수정도 성공"}).status_code == 200
+
+
+# ── 작성자 탈퇴(개발요청 B-7: 글은 그대로 둔다) ────────────────────────────────────────
+def test_withdrawn_authors_posts_and_comments_stay_with_anonymous_name(alice, bob):
+    a, _ = alice
+    b, _ = bob
+    post = _post(a, title="탈퇴 전에 쓴 글", image_ids=[_upload(a, _png()).json()["id"]])
+    comment = a.post(f"/community/posts/{post['id']}/comments", json={"body": "내 댓글"}).json()
+    other = _post(b, title="다른 사람 글")
+    assert b.post(f"/community/posts/{post['id']}/likes").status_code == 200
+    assert a.post("/auth/withdraw", json={"password": "abcd1234"}).status_code == 204
+    anon = TestClient(app)
+    seen = anon.get(f"/community/posts/{post['id']}").json()
+    assert seen["status"] == "published" and seen["author"]["name"] == "탈퇴한 사용자"          # 글은 게시 상태 그대로, 작성자만 익명
+    assert seen["like_count"] == 1 and len(seen["images"]) == 1 and anon.get(seen["images"][0]["url"]).status_code == 200
+    assert post["id"] in [i["id"] for i in anon.get("/community/posts", params={"q": "탈퇴 전에"}).json()["items"]]
+    tree = anon.get(f"/community/posts/{post['id']}/comments").json()["items"]
+    assert tree[0]["body"] == "내 댓글" and tree[0]["author"]["name"] == "탈퇴한 사용자" and tree[0]["id"] == comment["id"]
+    assert anon.get(f"/community/posts/{other['id']}").json()["author"]["name"] == "밥"        # 다른 사람 글은 영향 없음
+    assert a.patch(f"/community/posts/{post['id']}", json={"title": "탈퇴 후 수정"}).status_code == 401   # 탈퇴한 계정은 더 쓸 수 없다
