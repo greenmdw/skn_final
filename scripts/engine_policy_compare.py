@@ -2,7 +2,7 @@
 
 `execute_recommendation`(src/services/recommendation_service.py)의 엔진 부분만 따라 하고 DB 에는 아무것도 쓰지 않는다
 (트랜잭션 READ ONLY, run_id 없음). 설명 문장(LLM) 단계는 돌지 않는다. 같은 스크립트를 정책 변경 뒤에 다시 돌려 diff 한다
-(docs/추천엔진_수정_구현계획_20261012.md §4 0·7단계).
+(docs/history/추천엔진_수정_구현계획_20261012.md §4 0·7단계).
 
 엔진 구간 흐름(`engine_flow`)은 서비스와 같다: 사전 필터에 읽기 전용 보완 함수(`catalog_enrichment.make_enricher`)를 넘기고,
 최종 조합이 `required_info_missing` 이면 서비스의 `_needs_combo_enrichment`·`_enrich_combo_missing` 을 그대로 불러 한 번 보완한 뒤
