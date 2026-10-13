@@ -100,6 +100,12 @@ def compare(review: dict, part: str = "") -> str:
     if not part:
         s = block["summary"]
         lines.append(f"우리 추천 합계 {_won(s['our_total'])} (예산 {_won(s['budget'])}" + (", 초과" if s["over_budget"] else "") + ")")
+        if s.get("missing_in_quote") and s.get("same_slots"):
+            # notes 가 "같은 부품군끼리의 합계를 따로 냈다"고 하는데 그 합계를 싣지 않아, "가격 차이 얼마나 나?"에 모델이 "자료에
+            # 없다"고 하거나 견적 합계를 추천 전체 합계와 빼서 틀린 차이를 냈다(10/13 실측 3/3)
+            lines.append(f"같은 부품군({len(s['same_slots'])}개)끼리 합계: 견적 {_won(s['quote_total'])} · 우리 추천 "
+                         f"{_won(s['our_total_same_slots'])} (견적 − 추천 {s['diff']:+,}원"
+                         + (f", {s['diff_pct']:+.1f}%" if s.get("diff_pct") is not None else "") + ")")
         lines += [f"참고: {n}" for n in block.get("notes") or []]
     return "\n".join(lines)
 
