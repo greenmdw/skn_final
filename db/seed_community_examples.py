@@ -8,6 +8,7 @@
     board: review           # question | review | tip | free
     author: P06             # P01~P20 (아래 AUTHORS) — 계정이 없으면 만든다(로그인 불가 계정)
     is_example: true
+    written_at: 2026-08-16  # 선택 — 게시일(community.post.published_at). 없으면 적재 시각 기준으로 과거에 둔다. 미래 날짜는 오류
     products:
       - brand: Logitech     # catalog.product.brand, model 과 글자까지 같아야 연결된다(모호하면 건너뛴다)
         model: G PRO X SUPERLIGHT 2
@@ -19,6 +20,9 @@
     images: [a1-1_1.jpg, a1-1_2.png]   # 선택 — 글 파일과 같은 폴더(하위 폴더 가능)의 이미지, 첫 장이 대표. 최대 5장, 장당 5MB
     ---
     본문…
+
+폴더는 하위 폴더까지 읽는다(`A/`, `B/` … 묶음 폴더). 단 `revisions/`·`dump/`·`README.md`·`_` 로 시작하는 이름은 건너뛴다.
+검증은 실제 사용자가 글을 올릴 때와 같은 규칙을 쓴다(제목·본문 길이, 금지어, 태그 정리, 제품 개수, 사용기의 제품 연결).
 
 사용 (기본은 점검만 한다 — 아무것도 쓰지 않는다):
     python db/seed_community_examples.py <글 폴더>                 # 점검(dry-run)
@@ -37,7 +41,7 @@ import argparse
 import re
 import sys
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 
 import yaml
@@ -47,7 +51,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from src.config import COMMUNITY_IMAGE_MAX_BYTES, COMMUNITY_IMAGE_MAX_PER_POST, COMMUNITY_IMAGE_MAX_SIDE_PX  # noqa: E402
 from src.db import get_conn  # noqa: E402
 from src.repo.community_repo import CommunityRepo  # noqa: E402
-from src.services.community_service import BOARD_TYPES, KIND_TO_TYPE, TYPE_TO_KIND, _remove_files, _store, kind_to_type  # noqa: E402
+from src.errors import ValidationFailed  # noqa: E402
+from src.services.community_service import (  # noqa: E402
+    BOARD_TYPES, KIND_TO_TYPE, PRODUCT_MAX, TYPE_TO_KIND, _check_banned, _check_lengths, _clean_tags, _remove_files, _store, kind_to_type,
+)
 from src.storage.community_images import InvalidImage, process_image  # noqa: E402
 
 # 예시 글 작성자 20명(닉네임은 예시_사용기_작성_기획.md 4장). 로그인할 수 없는 계정(비밀번호 없음)으로 만든다.
@@ -68,6 +75,48 @@ class Report:
     errors: list[tuple[str, str]] = field(default_factory=list)
     saved_keys: list[str] = field(default_factory=list)       # 이번 실행에서 저장한 이미지 파일 — 롤백하면 지운다
     stale_keys: list[str] = field(default_factory=list)       # 교체돼 빠진 이미지 파일 — 커밋된 뒤에 지운다
+
+
+def _service_checks(title: str, body: str, board: str, tags: list[str], products: list) -> list[str]:
+    """실제 사용자가 글을 올릴 때(`community_service.create_post`)와 같은 검증을 한다 — 길이, 금지어, 태그 정리,
+    제품 개수, 사용기의 제품 연결. 예시 글이 사용자 글이라면 막혔을 내용을 통과시키지 않기 위해서다.
+    정리한 태그를 돌려준다."""
+    try:
+        _check_lengths(title, body)
+        _check_banned(title, body)
+        cleaned = _clean_tags(tags)
+    except ValidationFailed as exc:
+        raise ValueError(exc.message) from exc
+    if len(products) > PRODUCT_MAX:
+        raise ValueError(f"제품은 최대 {PRODUCT_MAX}개까지 연결할 수 있다")
+    if board == "review" and not products:
+        raise ValueError("사용기(review)는 제품을 1개 이상 연결해야 한다")
+    for item in products:
+        option = str((item or {}).get("option") or "").strip()
+        if len(option) > 60:
+            raise ValueError("옵션은 60자 이하여야 한다")
+    return cleaned
+
+
+EXCLUDED_DIRS = {"revisions", "dump"}          # 폴더 아래로 내려갈 때 건너뛰는 하위 폴더(수정본·스냅샷)
+EXCLUDED_FILES = {"readme.md"}
+
+
+def collect_files(folder: Path) -> list[Path]:
+    """폴더와 그 하위 폴더의 글 파일(.md)을 이름 순으로 모은다.
+
+    `revisions/`(수정본)와 `dump/`(스냅샷)는 아래로 내려갈 때 건너뛴다 — 수정본은 원글 적재 뒤에 그 폴더를 직접 지정해
+    `--update` 로 올린다. `README.md` 와 `_` 로 시작하는 파일·폴더도 글이 아니다. 폴더를 직접 지정하면
+    (예: `.../revisions`) 그 안의 파일은 모두 읽는다."""
+    files = []
+    for path in folder.rglob("*.md"):
+        rel = path.relative_to(folder).parts
+        if any(part in EXCLUDED_DIRS or part.startswith("_") for part in rel[:-1]):
+            continue
+        if path.name.lower() in EXCLUDED_FILES or path.name.startswith("_"):
+            continue
+        files.append(path)
+    return sorted(files)
 
 
 def parse_file(path: Path) -> dict:
@@ -99,9 +148,26 @@ def parse_file(path: Path) -> dict:
         if len(images) > COMMUNITY_IMAGE_MAX_PER_POST:
             raise ValueError(f"이미지는 글당 최대 {COMMUNITY_IMAGE_MAX_PER_POST}장이다")
         images = [x.strip() for x in images]
-    return {"images": images, "id": str(meta["id"]).strip(), "board": meta["board"], "author": meta["author"], "title": str(meta["title"]).strip(),
-            "is_example": bool(meta.get("is_example", False)), "tags": [str(t) for t in (meta.get("tags") or [])],
-            "products": products, "body": body}
+    written_at = meta.get("written_at")
+    if isinstance(written_at, str):                                       # "2026-08-16"처럼 따옴표로 쓴 날짜(JSON)도 받는다
+        try:
+            written_at = date.fromisoformat(written_at.strip())
+        except ValueError:
+            raise ValueError(f"written_at 은 날짜(YYYY-MM-DD)여야 한다: {written_at}") from None
+    if written_at is not None:
+        if isinstance(written_at, datetime):
+            written_at = written_at if written_at.tzinfo else written_at.replace(tzinfo=timezone.utc)
+        elif isinstance(written_at, date):
+            written_at = datetime.combine(written_at, time(3, 0), tzinfo=timezone.utc)      # 한국 시간 낮 12시
+        else:
+            raise ValueError(f"written_at 은 날짜(YYYY-MM-DD)여야 한다: {written_at}")
+        if written_at > datetime.now(timezone.utc):
+            raise ValueError("written_at 이 미래 날짜다")
+    title = str(meta["title"]).strip()
+    tags = _service_checks(title, body, meta["board"], [str(t) for t in (meta.get("tags") or [])], products)
+    return {"images": images, "id": str(meta["id"]).strip(), "board": meta["board"], "author": meta["author"], "title": title,
+            "is_example": bool(meta.get("is_example", False)), "tags": tags,
+            "products": products, "body": body, "written_at": written_at}
 
 
 def _author_id(conn, code: str) -> "object":
@@ -195,7 +261,7 @@ def load_examples(conn, files: list[Path], *, apply: bool, update: bool = False,
             if not apply:
                 (report.updated if existing else report.created).append(post["id"])
                 continue
-            published_at = base - timedelta(minutes=index)
+            published_at = (post["written_at"] or base) - timedelta(minutes=index)
             if existing is None:
                 author = _author_id(conn, post["author"])
                 owner = author
@@ -226,7 +292,7 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true", help="실제로 적재한다")
     parser.add_argument("--update", action="store_true", help="이미 있는 글도 갱신한다")
     args = parser.parse_args()
-    files = sorted(args.folder.glob("*.md"))
+    files = collect_files(args.folder)
     if not files:
         print(f"글 파일이 없다: {args.folder}")
         return 1

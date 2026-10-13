@@ -77,6 +77,18 @@ def test_loaded_posts_are_examples_with_author_accounts_and_linked_products(tmp_
     assert row[0] is None
 
 
+def test_written_at_sets_published_date_and_rejects_bad_values(tmp_path):
+    tag = f"T{os.urandom(3).hex()}"
+    dated = _write(tmp_path, "d1.md", f"id: {tag}-d1\nboard: free\nauthor: P01\ntitle: 날짜 지정\nwritten_at: 2026-08-16")
+    future = _write(tmp_path, "d2.md", f"id: {tag}-d2\nboard: free\nauthor: P01\ntitle: 미래\nwritten_at: 2999-01-01")
+    garbage = _write(tmp_path, "d3.md", f"id: {tag}-d3\nboard: free\nauthor: P01\ntitle: 형식 오류\nwritten_at: 어제")
+    with get_conn() as conn:
+        report = seed.load_examples(conn, [dated, future, garbage], apply=True)
+        row = conn.execute("SELECT published_at::date FROM community.post WHERE external_id = %s", (f"{tag}-d1",)).fetchone()
+    assert report.created == [f"{tag}-d1"] and {name for name, _ in report.errors} == {"d2.md", "d3.md"}
+    assert str(row[0]) == "2026-08-16"
+
+
 def test_bad_files_are_reported_without_blocking_the_rest(tmp_path):
     tag = f"T{os.urandom(3).hex()}"
     good = _files(tmp_path, tag)[2]
@@ -201,3 +213,48 @@ def test_custom_products_not_in_the_catalog_are_linked_as_unmatched(tmp_path):
     product = item["products"][0]
     assert product["product_id"] is None and product["name"] == "이세상에없는키보드 Z9" and product["match_status"] == "unmatched"
     assert product["product_kind"] == "키보드" and product["selected_option"] == "45g 리니어"
+
+
+def test_collect_files_reads_subfolders_and_skips_revisions_dump_and_notes(tmp_path):
+    root = tmp_path / "ex"
+    for sub in ("A", "B/nested", "revisions", "dump", "_draft"):
+        (root / sub).mkdir(parents=True)
+    names = ["A/A1-1.md", "B/nested/B1-1.md", "revisions/F12-edited.md", "dump/note.md", "_draft/x.md", "README.md", "_skip.md", "top.md"]
+    for n in names:
+        (root / n).write_text("---\nid: x\n---\n", encoding="utf-8")
+    got = [p.relative_to(root).as_posix() for p in seed.collect_files(root)]
+    assert got == ["A/A1-1.md", "B/nested/B1-1.md", "top.md"]
+    # 폴더를 직접 지정하면 그 안은 모두 읽는다(수정본 폴더)
+    assert [p.name for p in seed.collect_files(root / "revisions")] == ["F12-edited.md"]
+
+
+def test_example_posts_are_held_to_the_same_rules_as_user_posts(tmp_path, monkeypatch):
+    from src.services import community_service as svc
+
+    def parse(front: str, body: str = "본문 문장입니다."):
+        path = tmp_path / "p.md"
+        path.write_text(f"---\n{front}\n---\n\n{body}\n", encoding="utf-8")
+        return seed.parse_file(path)
+
+    base = 'id: V-1\nboard: review\nauthor: P01\nproducts:\n  - brand: Razer\n    model: Cobra\n'
+    ok = parse(base + 'title: "정상"\ntags: ["#마우스", "마우스", " FPS "]')
+    assert ok["tags"] == ["마우스", "FPS"]                       # 서비스와 같은 태그 정리(# 제거, 중복·공백 제거)
+
+    with pytest.raises(ValueError, match="제목"):
+        parse(base + "title: " + "가" * (svc.TITLE_MAX + 1))
+    with pytest.raises(ValueError, match="본문"):
+        parse(base + "title: t", "가" * (svc.BODY_MAX + 1))
+    with pytest.raises(ValueError, match="태그"):
+        parse(base + "title: t\ntags: [" + ", ".join(f"t{i}" for i in range(svc.TAG_MAX_COUNT + 1)) + "]")
+    with pytest.raises(ValueError, match="태그"):
+        parse(base + "title: t\ntags: [" + "가" * (svc.TAG_MAX_LEN + 1) + "]")
+    with pytest.raises(ValueError, match="제품을 1개 이상"):
+        parse("id: V-2\nboard: review\nauthor: P01\ntitle: t")
+    parse("id: V-3\nboard: free\nauthor: P01\ntitle: t")          # 자유 게시판은 제품 없이도 된다
+    many = "".join(f"  - brand: Razer\n    model: Cobra{i}\n" for i in range(svc.PRODUCT_MAX + 1))
+    with pytest.raises(ValueError, match="최대"):
+        parse("id: V-4\nboard: review\nauthor: P01\ntitle: t\nproducts:\n" + many)
+
+    monkeypatch.setattr(svc, "COMMUNITY_BANNED_WORDS", ("금칙어",))
+    with pytest.raises(ValueError, match="사용할 수 없는 표현"):
+        parse(base + "title: 금칙어 포함")
