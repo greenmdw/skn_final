@@ -38,6 +38,33 @@ def pc_context_from_list(conn, pc_list_id: UUID, principal: Principal) -> dict |
     return {"resolution": cvals.get("resolution"), "gpu_specs": None}
 
 
+def _intent_from_body(body):
+    """요청 바디의 견적 입력(목적·상황·직접 말한 조건·종류별 예산)을 정해진 목록 안의 값으로 정리한다.
+
+    예전 입력(PC 견적 용도 `purpose`, `priority=quiet`, `noise_sensitive`)도 같은 값으로 옮겨 쓴다 — 화면이
+    새 입력으로 바뀌기 전까지 같은 요청이 같은 선호로 풀린다. 목록에 없는 이름은 버리고 이름만 돌려준다
+    (오류로 내지 않고 안내로 돌려주는 원칙, 견적 입력 설계 8장).
+    """
+    from src.engine import peripheral_intent
+
+    situations = list(body.situations)
+    if body.noise_sensitive or body.priority == "quiet":
+        situations.append("quiet_place")
+    raw = {
+        "kinds": list(body.kinds),
+        "purposes": [*body.purposes, *peripheral_intent.from_pc_purpose(body.purpose)],
+        "situations": situations,
+        "stated": body.stated,
+        "budget": body.kind_budget,
+    }
+    interp = peripheral_intent.sanitize(raw)
+
+    sent = {*body.purposes, *body.situations, *(c for ids in body.stated.values() for c in ids)}
+    kept = {*interp.purposes, *interp.situations, *(c for ids in interp.stated.values() for c in ids)}
+    ignored = sorted(sent - kept)
+    return interp, ignored
+
+
 def recommend(conn, body, pc_context: dict | None) -> dict:
     """요청 바디(kinds·budget_max·purpose 등)를 run_peripherals()의 조건 dict로 옮겨
     돌리고, 공개 계약 모양(peripheral_payload)으로 낸다.
@@ -47,25 +74,41 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
     PC가 QHD_165인데도 모니터 요구사양은 기본값(FHD_144)으로 떨어지는 결과가 났다(실측
     확인). body가 resolution을 안 주면 pc_context 쪽을 대신 써서 "PC 견적 이후 주변기기도
     같이 보기"가 그 PC의 해상도를 그대로 이어받게 한다 — body가 주면 그게 우선(명시가 추정을 이긴다)."""
+    from src.engine import peripheral_intent
     from src.engine.peripheral_payload import peripheral_payload
     from src.engine.peripheral_select import run_peripherals
+    from src.engine.peripheral_suggest import suggest_chips
+    from src.services import peripheral_post_pipeline
     from src.repo.catalog_repo import load_peripheral_candidates
     from src.services.review_ranking import score_peripheral_candidates
 
     resolution = body.resolution or (pc_context or {}).get("resolution")
+    interp, ignored = _intent_from_body(body)
+    candidates = load_peripheral_candidates(conn)
+    requested_candidates = {kind: candidates.get(kind, []) for kind in body.kinds}
     values = {
         "peripherals": body.kinds,
         "peripheral_budget_max": body.budget_max,
+        "peripheral_kind_budget": interp.budget,
+        "peripheral_intent": interp,
+        "peripheral_resolved": peripheral_intent.resolve(interp),
+        # 사용기 분석이 쌓은 근거(종류 → 관측). 분석 결과가 없으면 비어 있고 체감 점수는 외부 리뷰만으로 계산된다.
+        "peripheral_feel_observations": peripheral_post_pipeline.current_observations(
+            conn, [c.product_id for group in requested_candidates.values() for c in group if c.product_id]),
+        # purpose 는 monitor.hard 의 주사율 상향(4K+game)과 리뷰 점수가, priority·noise_sensitive 는 리뷰 점수가 읽는
+        # PC 견적 조건이다. 주변기기 목적(peripheral_resolved)과는 다른 말이라 그대로 넘긴다.
         "purpose": body.purpose,
         "priority": body.priority,
         "noise_sensitive": body.noise_sensitive,
         "resolution": resolution,
     }
-    candidates = load_peripheral_candidates(conn)
-    requested_candidates = {kind: candidates.get(kind, []) for kind in body.kinds}
     score_peripheral_candidates(conn, requested_candidates, values, catalog_source="db")
     result = run_peripherals(
         values, candidates, log=lambda *_: None, pc_context=pc_context,
         require_review_details=True,
     )
-    return peripheral_payload(result)
+    payload = peripheral_payload(result)
+    payload["ignored_inputs"] = ignored
+    payload["adjust_chips"] = suggest_chips(values, interp, candidates, result, pc_context=pc_context,
+                                          require_review_details=True)
+    return payload

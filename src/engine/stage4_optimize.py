@@ -815,7 +815,8 @@ def _show(value) -> str:
     return " / ".join(str(v) for v in value) if isinstance(value, (list, tuple)) else str(value)
 
 
-def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules: dict) -> list[dict]:
+def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules: dict,
+                      qty: dict[str, int] | None = None) -> list[dict]:
     """호환 검사별 결과 — 무엇을 무엇과 비교했고 결과가 어땠는지. 화면의 "호환성 점검 상세"와 pc_link_check 가 같이 쓴다.
 
     각 항목: {axis, label, state, detail, missing_slots, inputs, applicable, required, missing_keys, required_missing}. state 는 ok(통과) / unknown(스펙을 몰라 확인 못 함) / fail(확정된 비호환) /
@@ -826,6 +827,8 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
     inputs 는 비교에 실제로 쓴 [{slot, key, value}] — [3-C](E5)가 후보의 provenance 와 엮어 근거(evidence)를
     만드는 데 쓴다. key 는 이 규칙 문서(verification 절)에 적힌 spec 키 이름과 같다. skipped 행은 빈 리스트.
     상세 문장은 코드가 아는 값만 옮긴다. `rules` 는 규칙 문서의 verification 절.
+    `qty` 는 슬롯별 구매 수량(없으면 1) — 결과 화면에서 "SSD 2개로"처럼 수량을 바꾸면 M.2 SSD 개수와 RAM 모듈 수가
+    슬롯 수를 넘는지 본다. 처음 추천은 수량 1이라 넘기지 않는다.
     """
     from src.engine.stage3c_verify import axis_label
 
@@ -836,6 +839,7 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
         return cand.name if cand is not None else ((spec.owned.get(slot) or {}).get("name") or f"현재 {slot}")
 
     rows: list[dict] = []
+    count = lambda slot: max(1, int((qty or {}).get(slot) or 1))  # noqa: E731
 
     def add(axis: str, slots: tuple[str, ...], state: str, detail: str, data_missing: bool = False,
             missing_slots: tuple[str, ...] = (), inputs: tuple[tuple[str, str, object], ...] = ()) -> None:
@@ -1078,9 +1082,12 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
     modules, dimm = parse_module_count(specs_of("RAM").get(r["ram_module_spec"])), specs_of("메인보드").get(r["board_slots_spec"])
     capacity, max_capacity = specs_of("RAM").get(r["ram_capacity_spec"]), specs_of("메인보드").get(r["board_max_capacity_spec"])
     parts, bad = [], False
+    # RAM 수량은 호출자가 ram_config.with_purchase_qty 로 모듈 수·총용량에 이미 반영했다 — qty 로 다시 곱하지 않는다
+    n_ram = chosen["RAM"].purchase_qty if "RAM" in chosen else 1
     module_known, capacity_known = modules is not None and dimm is not None, capacity is not None and max_capacity is not None
     if module_known:
-        parts.append(f"RAM 모듈 {modules}개 {'≤' if modules <= dimm else '>'} 메인보드 DIMM 슬롯 {dimm}개")
+        parts.append(f"RAM 모듈 {modules}개{f'(제품 {n_ram}개)' if n_ram > 1 else ''} {'≤' if modules <= dimm else '>'}"
+                     f" 메인보드 DIMM 슬롯 {dimm}개")
         bad = bad or modules > dimm
     if capacity_known:
         parts.append(f"RAM 총 {capacity}GB {'≤' if capacity <= max_capacity else '>'} 메인보드 최대 {max_capacity}GB")
@@ -1136,6 +1143,10 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
             missing_slots=absent(("저장장치", ssd_form or None), ("메인보드", m2_slots)), inputs=m2_inputs)
     elif m2_slots == 0 and "SATA" not in ssd_form.upper():
         add("m2", ("저장장치", "메인보드"), "fail", f"M.2 SSD({ssd_form})인데 메인보드에 M.2 슬롯이 없습니다.", inputs=m2_inputs)
+    elif count("저장장치") > m2_slots:
+        # "SSD 하나 더 달아줘" — 슬롯 1개짜리 메인보드에 M.2 SSD 2개를 담아도 '통과'로 나왔다(10/12 평가 시트)
+        add("m2", ("저장장치", "메인보드"), "fail",
+            f"M.2 SSD {count('저장장치')}개 > 메인보드 M.2 슬롯 {m2_slots}개 — 남는 SSD를 꽂을 자리가 없습니다.", inputs=m2_inputs)
     else:
         ssd_gens = parse_pcie_gens(ssd_iface)
         if ssd_gens and board_gens and max(board_gens) < max(ssd_gens):
@@ -1144,7 +1155,7 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
                 inputs=m2_inputs)
         else:
             add("m2", ("저장장치", "메인보드"), "ok",
-                f"M.2 슬롯 {m2_slots}개" + (f" · SSD PCIe {max(ssd_gens):g} ≤ 슬롯 최대 {max(board_gens):g}" if ssd_gens and board_gens else ""),
+                f"M.2 SSD {count('저장장치')}개 ≤ 메인보드 M.2 슬롯 {m2_slots}개" + (f" · SSD PCIe {max(ssd_gens):g} ≤ 슬롯 최대 {max(board_gens):g}" if ssd_gens and board_gens else ""),
                 inputs=m2_inputs)
 
     # 필수 호환 정보 — 행마다 적용 여부·필수 여부·실제 누락 키. required_info_findings 결과를 그대로 옮긴다(따로 계산하지 않는다).
@@ -1159,13 +1170,14 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
     return rows
 
 
-def pc_link_check(chosen: dict[str, Candidate], spec: RequirementSpec, rules: dict) -> dict[str, str]:
+def pc_link_check(chosen: dict[str, Candidate], spec: RequirementSpec, rules: dict,
+                  qty: dict[str, int] | None = None) -> dict[str, str]:
     """고른 부품들 사이의 호환 점검 결과 — 검사(axis)별 "ok" / "ok (근사)"(스펙을 몰라 정밀 검사를 못 함) / "fail".
 
     [4] 최적화가 결과를 만들 때와 교체·담기 뒤 세트 전체를 다시 점검할 때 같은 함수를 쓴다. 이번 견적에서 바뀌는
     부품이 없는 검사(skipped)는 넣지 않는다. 검사별 상세는 pc_compat_details.
     """
-    link_check = {row["axis"]: _STATE_TEXT[row["state"]] for row in pc_compat_details(chosen, spec, rules)
+    link_check = {row["axis"]: _STATE_TEXT[row["state"]] for row in pc_compat_details(chosen, spec, rules, qty)
                   if row["state"] != "skipped"
                   and not (row["state"] == "unknown" and row.get("data_missing") and row["axis"] in _QUIET_WHEN_DATA_MISSING)}
     for failure in _pc_known_failures(chosen, spec, rules):

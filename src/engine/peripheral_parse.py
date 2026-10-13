@@ -29,6 +29,10 @@ Candidate.specs 에 그대로 들어간다(값이 없으면 키 자체를 넣지
 | `channels_raw`                    | `parse_channels`         | `channels`                                              |
 | `output_power_raw`                | `parse_output_w`         | `output_w`                                              |
 | `connectivity` + `connectivity_interface` (이미 배열) | `parse_connectivity` | `connectivity_wired`, `connectivity_wireless`, `connectivity_bluetooth` |
+| `size_mm_raw` (키보드·마우스·스피커) | `parse_size_longest_mm` | `size_longest_mm` |
+| `size_mm_raw` (키보드) | `parse_size_height_mm` | `size_height_mm` |
+| `button_count_raw` | `parse_button_count` | `button_count` |
+| `usb_c_video_input_raw` | `parse_usb_c_video` | `usb_c_video` |
 
 해상도 등급(`resolution_class`) 분류표는 코드가 아니라 `config/peripherals.yaml`의
 `parsing.resolution_classes` 절에 있다(`src/engine/peripheral_rules.resolution_classes()`가
@@ -44,17 +48,17 @@ from typing import Any
 # 파서는 keyboard 전용, 채널/출력 파서는 speaker 전용 등). connectivity 파서는 keyboard·
 # mouse·speaker 세 종류가 공유한다(모니터는 유선 연결만 있어 대상이 아니다).
 PARSED_KEYS_BY_KIND: dict[str, frozenset[str]] = {
-    "monitor": frozenset({"resolution_w", "resolution_h", "resolution_class"}),
+    "monitor": frozenset({"resolution_w", "resolution_h", "resolution_class", "usb_c_video"}),
     "keyboard": frozenset({
-        "switch_clicky", "switch_magnetic", "switch_low_profile",
+        "switch_clicky", "switch_magnetic", "switch_low_profile", "size_longest_mm", "size_height_mm",
         "connectivity_wired", "connectivity_wireless", "connectivity_bluetooth",
     }),
     "mouse": frozenset({
-        "dpi_max", "polling_hz_max",
+        "dpi_max", "polling_hz_max", "size_longest_mm", "button_count",
         "connectivity_wired", "connectivity_wireless", "connectivity_bluetooth",
     }),
     "speaker": frozenset({
-        "channels", "output_w",
+        "channels", "output_w", "size_longest_mm",
         "connectivity_wired", "connectivity_wireless", "connectivity_bluetooth",
     }),
 }
@@ -208,3 +212,84 @@ def parse_connectivity(
     interfaces = [str(v).strip().lower() for v in (connectivity_interface or []) if str(v).strip()]
     bluetooth: bool | None = any("bluetooth" in v for v in interfaces) if interfaces else None
     return {"wired": wired, "wireless": wireless, "bluetooth": bluetooth}
+
+
+_OPTION_SPLIT_RE = re.compile(r"\s+/\s+")
+_OPTION_TAIL_RE = re.compile(r"\s*등$")
+_OPTION_EMPTY = {"—", "-", "–"}
+
+
+def split_switch_options(raw: Any) -> list[str]:
+    """`catalog.keyboard_spec.switch_kind` 원문을 글쓰기 화면의 옵션 제안 목록으로 나눈다.
+
+    " / "(앞뒤 공백이 있는 슬래시)로 나누고 끝의 " 등"은 뗀다. "40g/45g"처럼 붙어 있는
+    슬래시는 나누지 않는다. 값이 없거나 "—"뿐이면 빈 목록이다. 중복은 처음 것만 남긴다.
+    작성자가 목록에 없는 옵션을 직접 적을 수 있으므로 어디까지나 제안 목록이다.
+    """
+    text = _clean(raw)
+    if text is None:
+        return []
+    out: list[str] = []
+    for part in _OPTION_SPLIT_RE.split(_OPTION_TAIL_RE.sub("", text)):
+        part = _OPTION_TAIL_RE.sub("", part).strip()
+        if part and part not in _OPTION_EMPTY and part not in out:
+            out.append(part)
+    return out
+
+
+_DIMENSION_SPLIT_RE = re.compile(r"\s*[xX×]\s*")
+_USB_C_VIDEO_KEYWORDS = ("usb-c", "usb c", "usbc", "thunderbolt", "썬더볼트")
+_USB_C_NONE_KEYWORDS = ("없음", "미지원", "없다")
+
+
+def _dimensions_mm(raw: Any) -> list[float] | None:
+    """"67.9 x 105.4 x 38.4" -> [67.9, 105.4, 38.4]. 숫자가 아닌 칸이 하나라도 있으면 None."""
+    text = _clean(raw)
+    if text is None:
+        return None
+    parts = _DIMENSION_SPLIT_RE.split(_PAREN_RE.sub(" ", text).strip())
+    values: list[float] = []
+    for part in parts:
+        match = _NUMBER_RE.fullmatch(part.strip().replace("mm", "").strip())
+        if match is None:
+            return None
+        values.append(float(match.group(0).replace(",", "")))
+    return values if len(values) >= 2 else None
+
+
+def parse_size_longest_mm(raw: Any) -> float | None:
+    """"67.9 x 105.4 x 38.4" -> 105.4. 가장 긴 변이 제품 크기를 대표한다(마우스 길이, 키보드 가로)."""
+    dims = _dimensions_mm(raw)
+    return max(dims) if dims else None
+
+
+def parse_size_height_mm(raw: Any) -> float | None:
+    """"358 x 135 x 37" -> 37.0. 가로 x 세로 x 높이 순서를 따르는 세 칸짜리 값에서 마지막 칸만 높이로 본다.
+    칸이 둘뿐이면 높이를 알 수 없으므로 None이다."""
+    dims = _dimensions_mm(raw)
+    return dims[2] if dims and len(dims) == 3 else None
+
+
+def parse_button_count(raw: Any) -> float | None:
+    """"6개 프로그래밍 가능 버튼" -> 6, "11개 버튼 / 13개 프로그래밍 가능 컨트롤" -> 13.
+
+    괄호 밖에서 "<숫자>개"로 적힌 숫자의 최댓값을 쓴다(DPI·폴링레이트와 같은 규칙). 숫자가 "개"와 붙어 있지
+    않은 값(예: "Easy-Switch 3채널")은 버튼 수로 읽지 않는다."""
+    text = _clean(raw)
+    if text is None:
+        return None
+    counts = [float(m.group(1)) for m in re.finditer(r"(\d+)\s*개", _PAREN_RE.sub(" ", text))]
+    return max(counts) if counts else None
+
+
+def parse_usb_c_video(raw: Any) -> bool | None:
+    """"USB-C"/"Thunderbolt" -> True, "없음" -> False. 비어 있거나 알 수 없는 문구는 None(추측하지 않는다)."""
+    text = _clean(raw)
+    if text is None:
+        return None
+    lowered = text.lower()
+    if any(k in lowered for k in _USB_C_VIDEO_KEYWORDS):
+        return True
+    if any(k in lowered for k in _USB_C_NONE_KEYWORDS):
+        return False
+    return None

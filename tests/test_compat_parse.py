@@ -10,7 +10,8 @@ import pytest
 from src.dto import Candidate, RequirementSpec
 from src.engine.compat_parse import cpu_family, cpu_supported, parse_socket_list, socket_supported, supported_families
 from src.engine.stage2_requirement import load_computer_rules
-from src.engine.stage4_optimize import _pc_known_failures, pc_link_check
+from src.engine import ram_config
+from src.engine.stage4_optimize import _pc_known_failures, pc_compat_details, pc_link_check
 
 RULES = load_computer_rules()["verification"]
 
@@ -216,3 +217,30 @@ def test_aio_cooler_height_is_skipped_because_radiator_check_replaces_it():
     rows = {r["axis"]: r for r in pc_compat_details({"쿨러": cooler, "케이스": ATX_CASE}, _spec(), RULES)}
     assert rows["cooler_height"]["state"] == "skipped" and "라디에이터" in rows["cooler_height"]["detail"]
     assert rows["cooler_height"]["applicable"] is False
+
+
+# ── 수량 — 결과 화면에서 "SSD 2개로"·"램 하나 더" ─────────────────────────────────
+ONE_M2_BOARD = _cand("메인보드", "A620M", m2_slots=1, m2_pcie_gen="PCIe 4.0", dimm_slots=2, max_memory_gb=96)
+M2_SSD = _cand("저장장치", "nvme", form_factor="M.2 2280", interface="PCIe 4.0")
+RAM_1X16 = _cand("RAM", "ddr5 16", module_config="16GB x1", capacity_gb=16)
+
+
+def test_m2_ssds_beyond_the_board_slots_fail_only_when_qty_says_so():
+    """슬롯 1개 메인보드에 M.2 SSD 2개를 담아도 '통과'로 나왔다(10/12 평가 시트) — 수량을 슬롯 수와 견준다."""
+    chosen = {"메인보드": ONE_M2_BOARD, "저장장치": M2_SSD}
+    one = {r["axis"]: r for r in pc_compat_details(chosen, _spec(), RULES)}["m2"]
+    assert one["state"] == "ok" and one["detail"].startswith("M.2 SSD 1개 ≤ 메인보드 M.2 슬롯 1개"), one
+    two = {r["axis"]: r for r in pc_compat_details(chosen, _spec(), RULES, {"저장장치": 2})}["m2"]
+    assert two["state"] == "fail" and "M.2 SSD 2개 > 메인보드 M.2 슬롯 1개" in two["detail"], two
+    assert pc_link_check(chosen, _spec(), RULES, {"저장장치": 2})["m2"] == "fail"
+
+
+def test_ram_qty_multiplies_modules_and_capacity():
+    # 수량은 ram_config.with_purchase_qty 가 specs 에 반영한다 — pc_compat_details 의 qty 로는 다시 곱하지 않는다
+    chosen = {"메인보드": ONE_M2_BOARD, "RAM": ram_config.with_purchase_qty(RAM_1X16, 2)}
+    row = {r["axis"]: r for r in pc_compat_details(chosen, _spec(), RULES, {"RAM": 2})}["ram_slots"]
+    assert row["state"] == "ok" and "RAM 모듈 2개(제품 2개) ≤ 메인보드 DIMM 슬롯 2개" in row["detail"]
+    assert "RAM 총 32GB" in row["detail"], row
+    chosen["RAM"] = ram_config.with_purchase_qty(RAM_1X16, 3)
+    row = {r["axis"]: r for r in pc_compat_details(chosen, _spec(), RULES, {"RAM": 3})}["ram_slots"]
+    assert row["state"] == "fail", row

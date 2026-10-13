@@ -122,8 +122,9 @@ def test_an_unknown_game_is_reported_and_the_resolution_requirement_still_applie
 
 
 def test_a_heavy_game_raises_the_requirement_like_the_recommendation_engine_does():
-    plain = rows({"GPU": "RTX 4060 Ti"}, {"purpose": "game", "resolution": "FHD_144"})[("GPU", "성능 등급")]
-    heavy = rows({"GPU": "RTX 4060 Ti"}, {"purpose": "game", "resolution": "FHD_144", "games": ["스타필드"]})[("GPU", "성능 등급")]
+    # 게임 표(공식 권장 사양, FHD)에서 FHD 기본을 넘는 요소는 사이버펑크의 CPU(7)뿐이다.
+    plain = rows({"CPU": "AMD Ryzen 5 7600"}, {"purpose": "game", "resolution": "FHD_144"})[("CPU", "성능 등급")]
+    heavy = rows({"CPU": "AMD Ryzen 5 7600"}, {"purpose": "game", "resolution": "FHD_144", "games": ["사이버펑크"]})[("CPU", "성능 등급")]
     assert plain["target"] == 6 and heavy["target"] == 7 and heavy["state"] == "short"
 
 

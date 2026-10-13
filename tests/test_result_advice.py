@@ -394,3 +394,51 @@ def test_ram_step_down_falls_back_to_a_cheaper_part_of_the_same_capacity(conn):
     assert cand.variant_id == max(same, key=result_advice._price).variant_id
     out = result_advice.preview_swap(conn, revision_id, "RAM", direction="down")
     assert "같은 단계의 더 싼 후보" in out and "⚠ 이 견적의 요구 사양을 못 채움" not in out, out
+
+
+def test_preview_qty_adds_the_same_part_and_checks_m2_slots_without_saving(conn):
+    """"SSD 1테라 더 달아도 됨"을 가격순 다음 후보로의 교체로 답하던 것(10/7~10/12 평가 3판 모두) — 같은 제품을
+    하나 더 담는 가정을 계산하고, 메인보드 M.2 슬롯 수를 넘으면 그 사실을 알린다."""
+    revision_id = _build(conn)
+    before = _snapshot(conn, revision_id)
+    ctx = result_advice._context(conn, revision_id)
+    row = ctx.row("저장장치")
+    slots = ctx.chosen()["메인보드"].specs.get("m2_slots")
+    assert slots, "기준 구성의 메인보드 M.2 슬롯 수가 카탈로그에 있어야 이 테스트가 뜻이 있다"
+    out = result_advice.preview_qty(conn, revision_id, "저장장치", slots + 1)
+    assert out.startswith("(가정 계산 — 구성표는 그대로)") and "교체가 아님" in out, out
+    assert f"차액 +{int(row['price']) * slots:,}원" in out, out
+    assert f"M.2 SSD {slots + 1}개 > 메인보드 M.2 슬롯 {slots}개" in out and "⚠ 호환 점검 문제" in out, out
+    assert "몇 TB가 늘어나는지는 알 수 없음" in out
+    assert _snapshot(conn, revision_id) == before
+    assert "지금도" in result_advice.preview_qty(conn, revision_id, "저장장치", 1)
+
+
+def test_qty_past_the_m2_slots_is_flagged_after_the_change(conn):
+    """화면·채팅에서 수량을 바꾸면 다시 돌린 세트 점검이 M.2 슬롯 초과를 쟁점으로 남긴다. 쟁점 문장은 코드가 쓴
+    개수 비교다 — 부품 스펙 근거만 받은 모델은 "관측값은 fail이며"처럼 입력 이름을 옮겨 적었다(10/12 실측)."""
+    revision_id = _build(conn)
+    ctx = result_advice._context(conn, revision_id)
+    slots = ctx.chosen()["메인보드"].specs.get("m2_slots")
+    item = next(i for i in recommendation_service.get_stored_result(conn, revision_id)["items"] if i["slot"] == "저장장치")
+    result = recommendation_service.patch_item(conn, revision_id, uuid.UUID(item["item_id"]), selected=None,
+                                               qty=slots + 1, timing=None)
+    m2 = next(r for r in result["compat_checks"] if r["axis"] == "m2")
+    assert m2["state"] == "fail", m2
+    issue = next(i for i in result["verification"]["issues"] if i["axis"] == "m2")
+    assert issue["text"].startswith(f"M.2 SSD와 메인보드 슬롯: M.2 SSD {slots + 1}개 > 메인보드 M.2 슬롯 {slots}개"), issue
+
+
+def test_no_cheaper_cooler_says_why_and_offers_the_box_cooler(conn):
+    """U-04(통합테스트 F-6) — "쿨러 더 저렴한 걸로 바꿔줘"에 "한 단계 아래 후보가 카탈로그에 없습니다"만 돌려줘 모델이
+    이유 없이 "교체하지 않았습니다"로 답했다(10/12 재현 3/3). 지금 쿨러가 카탈로그에서 가장 싼 것이었다."""
+    revision_id = _build(conn)
+    ctx = result_advice._context(conn, revision_id)
+    row = ctx.row("쿨러")
+    cheaper = [c for c in ctx.pool["쿨러"] if c.price is not None and c.price < row["price"]]
+    out = result_advice.preview_swap(conn, revision_id, "쿨러", direction="down")
+    if cheaper:
+        assert "candidate_id=" in out or "호환 점검에서 맞지 않습니다" in out, out
+    else:
+        assert f"카탈로그 쿨러 {len(ctx.pool['쿨러'])}개 중 가장 싼 제품이라 더 싼 후보가 없습니다" in out, out
+        assert "CPU 기본 쿨러(카탈로그 값)" in out and "별도 쿨러가 담겨 있음" in out, out

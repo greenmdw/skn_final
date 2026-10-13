@@ -19,11 +19,11 @@
 
 ## 중복 pref 제거
 
-`config/peripherals.yaml`의 요구사양 룩업(E10)은 서로 다른 `when` 조건이 같은
-(key, op, value) pref를 두 번 등재할 수 있다(예: `priority=quiet`와
-`noise_sensitive=true`가 둘 다 `switch_clicky: false`를 낸다, peripheral_requirement.py
-모듈 docstring 참고). 이 평가기가 그 중복을 한 번만 세지 않으면 점수가 두 배로 깎이거나
-붙는다 — `dedupe_prefs`/`evaluate_all`이 (key, op, value) 동일 여부로 중복을 제거한다.
+목적·상황·직접 말한 조건(`config/peripherals.yaml`의 `purposes`·`spec_conditions`)은 서로 다른
+이름이 같은 (key, op, value) pref를 두 번 낼 수 있다(예: 마우스의 `portable` 과 `many_buttons` 가 같은
+키를 겨냥할 수 있다, peripheral_requirement.py 모듈 docstring 참고). 이 평가기가 그 중복을 한 번만
+세지 않으면 점수가 두 배로 깎이거나 붙는다 — `dedupe_prefs`/`evaluate_all`이 (key, op, value) 동일
+여부로 중복을 제거한다.
 """
 from __future__ import annotations
 

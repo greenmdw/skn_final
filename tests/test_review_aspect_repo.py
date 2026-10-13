@@ -572,6 +572,20 @@ def test_peripheral_db_score_reaches_typed_payload_without_affecting_rank(review
     from src.services.review_aspect_score import load_review_profile_config
     from src.services.review_ranking import score_peripheral_candidates
 
+    from src.engine import peripheral_payload as payload_module
+    from src.engine import peripheral_select as select_module
+    from src.engine.peripheral_rules import load_peripheral_rules
+
+    # 이 시험은 외부 리뷰 근거가 점수·순위를 건드리지 않고 형식 있는 응답까지 전달되는 배선만 본다. 리뷰 축은 이제 체감 적합도 R 이고
+    # 가중치가 설정에 있으므로(config/peripherals.yaml ranking), 가중치를 0 으로 둔 규칙으로 돌려 "순위에 영향 없음"을 확인한다.
+    zero_review = deepcopy(load_peripheral_rules())
+    for kind_rules in zero_review["ranking"].values():
+        weights = kind_rules["weights"]
+        weights["가격"] += weights["리뷰"]
+        weights["리뷰"] = 0.0
+    monkeypatch.setattr(select_module, "load_peripheral_rules", lambda *a, **k: zero_review)
+    monkeypatch.setattr(payload_module, "load_peripheral_rules", lambda *a, **k: zero_review)
+
     conn, ids = review_db
     candidates = load_peripheral_candidates(conn)["mouse"]
     candidates = sorted(candidates, key=lambda candidate: candidate.product_key)[:2]
@@ -628,7 +642,9 @@ def test_peripheral_db_score_reaches_typed_payload_without_affecting_rank(review
     for key in actual_picks:
         assert actual_picks[key].score == baseline_picks[key].score
         assert actual_picks[key].candidate.rank == baseline_picks[key].candidate.rank
-        assert actual_picks[key].candidate.breakdown["리뷰"] == actual_picks[key].candidate.review_detail.value
+        # 리뷰 축의 값은 체감 적합도 R(feel_detail)이다. 외부 리뷰 점수(review_detail)는 그 출발값으로만 들어간다.
+        assert actual_picks[key].candidate.breakdown["리뷰"] == actual_picks[key].candidate.feel_detail.value
+        assert actual_picks[key].candidate.review_detail is not None
     assert actual.counts == baseline.counts
     assert profiles["mouse"].analysis_version == version
 

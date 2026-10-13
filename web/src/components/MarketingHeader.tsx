@@ -18,6 +18,7 @@ export default function MarketingHeader() {
         <NavLink to="/start">새 컴퓨터 본체</NavLink>
         <NavLink to="/check">받은 견적 점검</NavLink>
         <NavLink to="/peripherals">주변기기 견적</NavLink>
+        <NavLink to="/community">커뮤니티</NavLink>
       </nav>
       <div className="tf-home-spacer" />
       {user ? (

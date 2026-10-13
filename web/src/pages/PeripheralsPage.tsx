@@ -1,12 +1,13 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import PlannerShell from '../components/PlannerShell'
 import { api, errorMessage, type PeripheralItem, type PeripheralKind, type PeripheralRecommendRequest, type PeripheralsResult } from '../api'
 import { usePlan } from '../state/PlanContext'
 import { useToast } from '../state/ToastContext'
 import { wonFmt } from '../utils/format'
+import { COMMUNITY_REVIEW_BOARD, findCommunitySource, type CommunitySource } from '../utils/communitySource'
 import { Linkified } from '../utils/linkify'
-import { CHECK_STATE_LABEL, PERIPHERAL_KINDS as KINDS, aspectLabel, parsePeripheralCondition, reviewEvidence, type ParsedPeripheralConditions } from '../utils/peripherals'
+import { PERIPHERAL_KINDS as KINDS, aspectLabel, parsePeripheralCondition, reviewEvidence, type ParsedPeripheralConditions, type ReviewEvidence } from '../utils/peripherals'
 import '../styles/peripherals.css'
 
 type ChatMessage = { id: number; role: 'user' | 'assistant'; text: string }
@@ -66,6 +67,49 @@ function PeripheralChat({ selected, spec, feel, showingResults, onMessage }: {
   )
 }
 
+// 평가 기준별 후기 집계 줄: 점(긍정 초록·부정 빨강·애매함 회색) + "후기 N건 중 긍정 M건". 관측이 없으면 안내만 보인다.
+function ReviewRows({ evidence, withQuotes = false }: { evidence: ReviewEvidence[]; withQuotes?: boolean }) {
+  if (evidence.length === 0) return <div className="pf-weak-note">이 제품의 사용기는 아직 없습니다. 스펙과 가격 기준으로 추천했습니다.</div>
+  return <>{evidence.map(review => <div className="pf-evidence-item" key={review.aspectCode}>
+    <div className="pf-evidence-row">
+      <b>{aspectLabel(review.aspectCode)}</b>
+      <span className="pf-dots" aria-label={`긍정 ${review.positive}건, 부정 ${review.negative}건`}>{Array.from({ length: Math.min(review.total, 8) }, (_, index) => <i className={index < review.positive ? 'positive' : index < review.positive + review.negative ? 'negative' : ''} key={index} />)}</span>
+      <span>후기 {review.total}건 중 긍정 {review.positive}건{review.total < 3 && <em>근거 적음</em>}</span>
+    </div>
+    {withQuotes && review.quote && <p className="pf-evidence-quote">{review.quote}</p>}
+  </div>)}</>
+}
+
+// 추천 제품의 대표 후기 카드. 커뮤니티에 이 제품의 사용기 글이 있으면 그 글(사진·내용)을 보여 주고 "원문 보기"로 글을 연다.
+// 없으면 서버가 준 후기 문장(quote)을 보여 주고, 링크는 사용기 게시판으로 간다. 글도 후기 문장도 없으면 "아직 없어요" 빈 카드를 보여 준다.
+function CommunityCitation({ productName, kindLabel, quote }: { productName: string; kindLabel: string; quote: string | null }) {
+  const [source, setSource] = useState<CommunitySource | null>(null)
+  const [searched, setSearched] = useState(false)
+  useEffect(() => {
+    let alive = true
+    setSource(null)
+    setSearched(false)
+    void findCommunitySource(productName, kindLabel).then(found => { if (alive) { setSource(found); setSearched(true) } })
+    return () => { alive = false }
+  }, [productName, kindLabel])
+  const text = source?.excerpt || quote
+  if (!text) {
+    if (!searched) return null   // 찾는 중에는 빈 카드가 깜빡이지 않게 비워 둔다
+    return <div className="pf-citation empty">
+      <span className="pf-citation-thumb" aria-hidden="true">글의 사진</span>
+      <p>이 제품의 사용기가 아직 없어요. 첫 사용기를 남겨 보세요.</p>
+      <Link to={COMMUNITY_REVIEW_BOARD}>사용기 게시판 보기 →</Link>
+    </div>
+  }
+  return <div className="pf-citation">
+    <span className="pf-citation-thumb" aria-hidden="true">
+      {source?.coverUrl ? <img src={source.coverUrl} alt="" loading="lazy" onError={event => { event.currentTarget.style.display = 'none' }} /> : '글의 사진'}
+    </span>
+    <p>“{text}”</p>
+    <Link to={source?.path ?? COMMUNITY_REVIEW_BOARD}>원문 보기 →</Link>
+  </div>
+}
+
 export default function PeripheralsPage() {
   const { state, setPeripherals } = usePlan()
   const { showToast } = useToast()
@@ -80,11 +124,13 @@ export default function PeripheralsPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<PeripheralsResult | null>(null)
+  const [pickedKinds, setPickedKinds] = useState<Set<PeripheralKind>>(() => new Set())
   const sessionId = useRef<string | null>(null)
 
   const showResults = result !== null
   const selectedLabels = useMemo(() => KINDS.filter(kind => selected.has(kind.id)).map(kind => kind.label), [selected])
-  const total = useMemo(() => (result?.items ?? []).reduce((sum, item) => sum + item.price, 0), [result])
+  const pickedItems = useMemo(() => (result?.items ?? []).filter(item => pickedKinds.has(item.kind)), [pickedKinds, result])
+  const total = useMemo(() => pickedItems.reduce((sum, item) => sum + item.price, 0), [pickedItems])
   const budget = params.budgetMax ?? null
   const plan = state.currentPlan
   const hasUnreflectedFeel = feelConditions.some(condition => condition !== '조용한 사용감')
@@ -128,6 +174,7 @@ export default function PeripheralsPage() {
       }, sessionId.current)
       sessionId.current = next.sessionId
       setResult(next)
+      setPickedKinds(new Set(next.items.map(item => item.kind)))
     } catch (caught) {
       setError(errorMessage(caught, '주변기기를 추천받지 못했습니다. 잠시 후 다시 시도해주세요.'))
     } finally { setLoading(false) }
@@ -140,7 +187,7 @@ export default function PeripheralsPage() {
       setNotice('장바구니에 담을 수 없어요. 주변기기 추천을 다시 받아 주세요.')
       return
     }
-    const items = result.items.filter(item => item.variantId).map(item => ({
+    const items = result.items.filter(item => pickedKinds.has(item.kind) && item.variantId).map(item => ({
       kind: item.kind, name: item.name, brand: item.brand, price: item.price, qty: 1,
       variantId: item.variantId, imageUrl: item.imageUrl, productUrl: item.productUrl,
     }))
@@ -150,53 +197,50 @@ export default function PeripheralsPage() {
     navigate('/cart')
   }
 
+  function togglePicked(kind: PeripheralKind) {
+    setPickedKinds(previous => {
+      const next = new Set(previous)
+      if (next.has(kind)) next.delete(kind); else next.add(kind)
+      return next
+    })
+  }
+
   function recommendationCard(item: PeripheralItem) {
     const evidence = reviewEvidence(item.reviewAspects)
-    const specLine = item.requirement.length ? item.requirement.map(row => `${row.label} ${row.value}`).join(' · ') : item.brand
-    return <article className="pf-result-card" key={item.kind}>
-      <div className="pf-product-head">
-        <div className="pf-product-image" aria-hidden="true">{item.imageUrl ? <img src={item.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onError={event => { event.currentTarget.style.display = 'none' }} /> : <span>사진</span>}</div>
-        <div className="pf-product-title">
-          <span>{item.kindLabel}</span>
-          <h2>{item.name}</h2>
-          <p>{specLine}</p>
+    const picked = pickedKinds.has(item.kind)
+    const cautions = item.checks.filter(check => check.state !== 'ok')
+    return <section className="pf-kind-result" key={item.kind}>
+      <div className="pf-kind-heading"><h2>{item.kindLabel}</h2><span>조건과 리뷰 근거에 가장 잘 맞는 제품</span></div>
+      <p className="pf-kind-pref">{[...specConditions, ...feelConditions].join(' · ') || '선택한 품목과 현재 조건을 기준으로 추천'}</p>
+      <article className="pf-hero-card">
+        <div className="pf-hero-side">
+          <span className="pf-best">가장 잘 맞아요</span>
+          <div className="pf-hero-image">{item.imageUrl ? <img src={item.imageUrl} alt={item.name} loading="lazy" referrerPolicy="no-referrer" onError={event => { event.currentTarget.style.display = 'none' }} /> : <span>제품 이미지</span>}</div>
+          <strong className="pf-hero-price pl-mono">{wonFmt(item.price)}</strong>
+          <button type="button" className={'pf-pick' + (picked ? ' on' : '')} onClick={() => togglePicked(item.kind)}>{picked ? '담았습니다' : '견적에 담기'}</button>
         </div>
-        <strong className="pf-product-price pl-mono">{wonFmt(item.price)}</strong>
-      </div>
-      {item.priceNote && <p className="pf-price-note">ⓘ {item.priceNote}</p>}
-
-      {item.reason.text && <section className="pf-evidence">
-        <h3>추천 근거</h3>
-        <p>{item.reason.text}</p>
-      </section>}
-
-      <section className="pf-evidence">
-        <h3>리뷰 근거</h3>
-        {evidence.length === 0 && <div className="pf-weak-note">아직 모인 리뷰 근거가 없어요. 스펙 근거만 참고해 주세요.</div>}
-        {evidence.map(review => {
-          const ratio = review.total ? Math.round(review.positive / review.total * 100) : 0
-          const weak = review.total < 3
-          return <div className={'pf-review' + (weak ? ' weak' : '')} key={review.aspectCode}>
-            <p><b>{aspectLabel(review.aspectCode)}</b> · 후기 언급 {review.total}건 중 긍정 <b>{review.positive}건</b> · 부정 {review.negative}건{review.mixed > 0 ? ` · 엇갈림 ${review.mixed}건` : ''}</p>
-            <div className="pf-review-track"><i style={{ width: `${ratio}%` }} /></div>
-            {review.quote && <blockquote>“{review.quote}”</blockquote>}
-            {weak && <div className="pf-weak-note">리뷰가 적어 판단 근거가 약해요. 비율보다 건수를 먼저 봐 주세요.</div>}
+        <div className="pf-hero-body">
+          <h3>{item.name}</h3>
+          <div className="pf-fit-tags">{item.requirement.map(row => <span key={row.key}>✓ {row.value}</span>)}{item.checks.filter(check => check.state === 'fail').map(check => <span className="no" key={check.axis}>✕ {check.label}</span>)}</div>
+          {item.reason.text && <p className="pf-main-reason">{item.reason.text}</p>}
+          <div className="pf-review-evidence">
+            <ReviewRows evidence={evidence} />
           </div>
-        })}
-        {item.reviewNote && <p className="pf-review-note">{item.reviewNote}</p>}
-      </section>
-
-      {item.checks.length > 0 && <section className="pf-device-checks">
-        <h3>스펙·본체 검사</h3>
-        {item.checks.map(check => <div key={check.axis}><span className={check.state}>{CHECK_STATE_LABEL[check.state]}</span><b>{check.label}</b><p>{check.detail}</p></div>)}
-      </section>}
-      {item.guide.status === 'ready' && item.guide.text && <p className="pf-buying-note"><b>구매 전 확인</b> · {item.guide.text}</p>}
-
-      {item.alternatives.length > 0 && <details className="pf-alternatives">
-        <summary>다른 후보 {item.alternatives.length}개 보기</summary>
-        <ul>{item.alternatives.map(alternative => <li key={alternative.name}><span>{alternative.name}</span><b className="pl-mono">{wonFmt(alternative.price)}</b><em className={alternative.diff > 0 ? 'up' : 'down'}>{alternative.diff > 0 ? '+' : ''}{wonFmt(alternative.diff)}</em></li>)}</ul>
+          <CommunityCitation productName={item.name} kindLabel={item.kindLabel} quote={evidence.find(review => review.quote)?.quote ?? null} />
+          {(cautions.length > 0 || item.guide.text) && <div className="pf-caution"><b>구매 전 확인</b><span>{[...cautions.map(check => check.detail), item.guide.text].filter(Boolean).join(' · ')}</span></div>}
+          <div className="pf-card-foot">{item.reviewNote && <span>{item.reviewNote}</span>}{item.priceNote && <span>{item.priceNote}</span>}{item.productUrl && <a href={item.productUrl} target="_blank" rel="noreferrer">상품 보기 →</a>}</div>
+        </div>
+      </article>
+      {item.alternatives.length > 0 && <details className="pf-more">
+        <summary><span>다른 선택지 {item.alternatives.length}개 · {item.alternatives.map(alternative => alternative.name).join(' · ')}</span></summary>
+        <div className="pf-alt-grid">{item.alternatives.map((alternative, index) => <article className="pf-alt-card" key={alternative.name}>
+          <header className="pf-alt-head"><i>{index + 2}</i><h3>{alternative.name}</h3><strong className="pl-mono">{wonFmt(alternative.price)}</strong></header>
+          <p className="pf-alt-diff">1위보다 <b>{wonFmt(Math.abs(alternative.diff))} {alternative.diff < 0 ? '저렴' : alternative.diff > 0 ? '비쌈' : '같은 가격'}</b></p>
+          <div className="pf-review-evidence pf-alt-evidence"><ReviewRows evidence={reviewEvidence(alternative.reviewAspects, 3)} withQuotes /></div>
+          {alternative.reviewNote && <small className="pf-alt-note">{alternative.reviewNote}</small>}
+        </article>)}</div>
       </details>}
-    </article>
+    </section>
   }
 
   return (
@@ -210,15 +254,27 @@ export default function PeripheralsPage() {
               <span>{budget != null ? `주변기기 예산 ${wonFmt(budget)} · ${total <= budget ? `잔액 ${wonFmt(budget - total)}` : `${wonFmt(total - budget)} 초과`}` : '예산을 알려 주면 잔액도 보여 드려요'}</span>
             </div>
           </div>
+          <section className="pf-understood">
+            <b>이해한 내용</b>
+            <div className="pf-understood-chips">
+              {selectedLabels.map(label => <span key={label}><i>종류</i>{label}</span>)}
+              {specConditions.map(condition => <span key={condition}><i>스펙</i>{condition}</span>)}
+              {feelConditions.map(condition => <span key={condition}><i>사용감</i>{condition}</span>)}
+              {plan && <span className="pc"><i>PC 견적</i>본체 조건 연결됨</span>}
+            </div>
+            {extraConditions.length > 0 && <p>아직 추천 순서에 직접 반영하지 못한 조건: {extraConditions.join(' · ')}</p>}
+          </section>
           {result.status === 'skipped' && <div className="pl-alert warn" role="status">서버가 이번 요청은 추천하지 않았어요. 조건을 바꿔 다시 시도해 주세요.</div>}
           {result.empty.length > 0 && <div className="pl-alert warn" role="status">{result.empty.map(row => `${KINDS.find(kind => kind.id === row.kind)?.label ?? row.kind}: ${row.reason}`).join(' · ')}</div>}
-          <div className="pf-results-grid">{result.items.map(recommendationCard)}</div>
-          <div className="pf-results-actions">
-            <button type="button" className="pf-secondary" onClick={() => setResult(null)}>조건 다시 보기</button>
-            <button type="button" className="pl-btn" onClick={toCart} disabled={result.items.length === 0}>{plan ? '통합 장바구니로' : '주변기기만 장바구니로'}</button>
-          </div>
+          <div className="pf-results-list">{result.items.map(recommendationCard)}</div>
+          <button type="button" className="pf-secondary pf-edit-conditions" onClick={() => setResult(null)}>조건 다시 보기</button>
           {!plan && <div className="pl-alert warn" role="status">본체 견적 없이 주변기기만 담아 확정할 수 있어요. 본체와 함께 확정하려면 <Link to="/start" style={{ color: 'inherit', fontWeight: 700 }}>본체 추천 받으러 가기 →</Link></div>}
           {notice && <div className="pl-alert warn" role="status">{notice}</div>}
+          <div className="pf-pick-bar">
+            <div>{pickedItems.length ? pickedItems.map(item => <span key={item.kind}><i>{item.kindLabel}</i>{item.name}</span>) : <span>담은 제품이 없습니다 · 종류마다 하나씩 담을 수 있어요</span>}</div>
+            <strong>{pickedItems.length}개 · {wonFmt(total)}</strong>
+            <button type="button" onClick={toCart} disabled={pickedItems.length === 0}>{plan ? '통합 장바구니로' : '견적 확정하기'}</button>
+          </div>
         </> : <>
         <div className="pf-heading">
           <h1>필요한 품목과 원하는 느낌</h1>

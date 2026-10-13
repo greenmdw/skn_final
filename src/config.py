@@ -51,6 +51,10 @@ QUOTE_REVIEW_AGENT: bool = os.getenv("QUOTE_REVIEW_AGENT", "0") == "1"    # 견�
 # (유튜브 견적 설명 등)에서 부품별 문구를 LLM 구조화 출력으로 뽑는다. 기본 "0" — opt-in. MOCK_MODE=1이거나
 # OPENAI_API_KEY·LLM_MODEL이 비면 켜도 규칙 기반 파서(key: value 줄만 인식, src/engine/spec_text.py)로 간다.
 SPEC_EXTRACTION_AGENT: bool = os.getenv("SPEC_EXTRACTION_AGENT", "0") == "1"
+PERIPHERAL_INTENT_AGENT: bool = os.getenv("PERIPHERAL_INTENT_AGENT", "0") == "1"    # 주변기기 견적 문장 해석 — 꺼져 있으면 단어 규칙
+PERIPHERAL_POST_DAILY_LIMIT: int = int(os.getenv("PERIPHERAL_POST_DAILY_LIMIT", "200"))    # 하루에 분석을 시작하는 글 수 상한
+PERIPHERAL_POST_INTERVAL_SECONDS: int = int(os.getenv("PERIPHERAL_POST_INTERVAL_SECONDS", "60"))    # 분석 작업의 확인 주기
+PERIPHERAL_POST_AGENT: bool = os.getenv("PERIPHERAL_POST_AGENT", "0") == "1"    # 사용기 글 분석(체감 문장 추출) — 꺼져 있으면 분석하지 않는다
 # DB 미보유 부품·주변기기 실시간 스펙 검색(docs/미보유부품_실시간스펙검색_설계.md). "1"이면 pc_check에서
 # 카탈로그에 "대응 안 됨"으로 뜬 부품을 사용자가 버튼으로 눌렀을 때 웹 검색+LLM 검증을 시도한다. 기본
 # "0" — opt-in. 자동 트리거가 아니라 버튼 트리거다(§2 — 로그인 없이 호출 가능한 엔드포인트라 비용·남용
@@ -251,3 +255,22 @@ REVIEW_SEARCH_DEFAULT_LIMIT: int = 3      # 상품당 돌려줄 리뷰 수(상�
 REVIEW_SEARCH_MAX_LIMIT: int = 10
 # 로그인 없이 부르는 공개 API인데 요청마다 유료 embedding 호출이 하나 생긴다(같은 질문은 캐시) — IP별 분당 한도.
 REVIEW_SEARCH_LIMIT_PER_MIN: int = int(os.getenv("REVIEW_SEARCH_LIMIT_PER_MIN", "20"))
+
+# ── 일반 커뮤니티(/community) ──────────────────────────────────────────────────────────
+# 관리자: 숨김·복원·예시 글 표시(is_example)를 할 수 있는 사용자 id(쉼표로 구분). 비워 두면 관리자가 없다.
+COMMUNITY_ADMIN_USER_IDS: frozenset[str] = frozenset(
+    x.strip() for x in os.getenv("COMMUNITY_ADMIN_USER_IDS", "").split(",") if x.strip())
+# 금칙어(쉼표로 구분, 소문자 비교). 비워 두면 검사하지 않는다.
+COMMUNITY_BANNED_WORDS: tuple[str, ...] = tuple(
+    x.strip().lower() for x in os.getenv("COMMUNITY_BANNED_WORDS", "").split(",") if x.strip())
+# 사용자별 분당 한도
+COMMUNITY_POST_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_POST_LIMIT_PER_MIN", "5"))
+COMMUNITY_COMMENT_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_COMMENT_LIMIT_PER_MIN", "20"))
+COMMUNITY_LIKE_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_LIKE_LIMIT_PER_MIN", "60"))
+# 이미지 첨부: 저장 폴더(배포 폴더 밖 볼륨 권장), 파일당 최대 바이트, 글당 최대 장수, 긴 변 최대 px, 연결 안 된 임시 이미지 보관 시간
+COMMUNITY_UPLOAD_DIR: str = os.getenv("COMMUNITY_UPLOAD_DIR", "data/uploads/community")
+COMMUNITY_IMAGE_MAX_BYTES: int = int(os.getenv("COMMUNITY_IMAGE_MAX_BYTES", str(5 * 1024 * 1024)))
+COMMUNITY_IMAGE_MAX_PER_POST: int = int(os.getenv("COMMUNITY_IMAGE_MAX_PER_POST", "5"))
+COMMUNITY_IMAGE_MAX_SIDE_PX: int = int(os.getenv("COMMUNITY_IMAGE_MAX_SIDE_PX", "1600"))
+COMMUNITY_IMAGE_ORPHAN_HOURS: int = int(os.getenv("COMMUNITY_IMAGE_ORPHAN_HOURS", "24"))
+COMMUNITY_UPLOAD_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_UPLOAD_LIMIT_PER_MIN", "10"))

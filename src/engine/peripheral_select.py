@@ -12,7 +12,9 @@ pref 목록으로 바꿔 Fail만 제외한다. **조건을 완화하지 않는�
 
 ## [3-B] rank_candidates
 
-축 넷(가격/선호적합/데이터충실/리뷰) 중 리뷰 가중치는 계속 0이다. 주변기기 R과 근거는
+축 넷(가격/선호적합/데이터충실/리뷰) 중 "리뷰" 축의 값은 체감 적합도 R(`peripheral_feel`, 개발_확정사양 6장)이다.
+사용기 근거가 없으면 외부 리뷰 점수로 계산한 R이다. 그 축의 가중치는 `config/peripherals.yaml` `ranking` 이 정한다(0이면 R은
+설명용이고 순위에 영향을 주지 않는다). 예전 문구: 주변기기 R과 근거는
 설명용으로 전달하되 현재 순위 점수에는 반영하지 않는다.
 
 ## 조합(choose)
@@ -40,6 +42,7 @@ from typing import Any
 from src.config import PENDING_SCORE_PENALTY
 from src.dto import Candidate, PeripheralPick, PeripheralRequirement, PeripheralResult
 from src.engine import LogFn, spec_rules
+from src.engine.peripheral_feel import attach_feel
 from src.engine.peripheral_requirement import build_requirements
 from src.engine.peripheral_rules import kind_def, load_peripheral_rules, requested_kinds
 
@@ -65,13 +68,17 @@ def _hard_prefs(hard: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def filter_candidates(
-    kind: str, requirement: PeripheralRequirement, cands: list[Candidate],
+    kind: str, requirement: PeripheralRequirement, cands: list[Candidate], *, max_price: int | None = None,
 ) -> tuple[list[Candidate], dict[str, int]]:
-    """[3-A]. hard 조건이 없는 종류(키보드·마우스·스피커)는 전부 Pass다."""
-    prefs = _hard_prefs(requirement.hard)
+    """[3-A]. hard·filters 조건이 없는 종류는 전부 Pass다. `filters`(사용자가 직접 말한 조건)는 hard 와 같이
+    판정한다 — 값이 없으면 Pending 이고 탈락시키지 않는다. `max_price`(종류별 예산)를 넘는 후보는 뺀다."""
+    prefs = _hard_prefs(requirement.hard) + list(requirement.filters)
     kept: list[Candidate] = []
-    counts = {"pool": len(cands), "pass": 0, "fail": 0, "pending": 0}
+    counts = {"pool": len(cands), "pass": 0, "fail": 0, "pending": 0, "over_price": 0}
     for cand in cands:
+        if max_price is not None and cand.price > max_price:
+            counts["over_price"] += 1
+            continue
         if not prefs:
             kept.append(cand.model_copy(update={"verdict": "Pass", "reasons": ["PASS"]}))
             counts["pass"] += 1
@@ -106,6 +113,13 @@ def _preference_axis(cand: Candidate, prefs: list[dict[str, Any]]) -> float:
         verdict, _ = spec_rules.evaluate(pref, cand.specs)
         values.append(1.0 if verdict == "Pass" else 0.5 if verdict == "Pending" else 0.0)
     return sum(values) / len(values)
+
+
+def _feel_axis(cand: Candidate) -> float:
+    """리뷰 축 값. 체감 적합도 R(`feel_detail`)이 있으면 그것을, 없으면 외부 리뷰 점수를 쓴다(근거가 없으면 중립)."""
+    if cand.feel_detail is not None:
+        return cand.feel_detail.value
+    return cand.review_detail.value if cand.review_detail else 0.5
 
 
 def _fullness_axis(cand: Candidate, judged_keys: list[str]) -> float:
@@ -146,7 +160,7 @@ def rank_candidates(
             "선호적합": round(_preference_axis(cand, soft_prefs), 3),
             "데이터충실": round(_fullness_axis(cand, judged_keys), 3),
             # R/상세는 표시하되 peripheral_rules가 보장하는 외부 가중치 0을 유지한다.
-            "리뷰": cand.review_detail.value if cand.review_detail else 0.5,
+            "리뷰": _feel_axis(cand),
         }
         raw = sum(weights.get(axis, 0.0) * value for axis, value in breakdown.items())
         if cand.verdict == "Pending":
@@ -155,6 +169,26 @@ def rank_candidates(
 
     ranked = sorted(scored, key=lambda c: (-c.score, c.price, c.product_key))
     return [c.model_copy(update={"rank": i + 1}) for i, c in enumerate(ranked)]
+
+
+def apply_trending(ranked: list[Candidate], margin: float) -> list[Candidate]:
+    """"요즘 많이 쓰는"을 말했을 때: 점수는 바꾸지 않고, 1위와의 점수 차가 `margin` 이내인 후보들 안에서만 최근 사용기를
+    쓴 작성자 수가 많은 순으로 앞에 놓는다(개발_확정사양 6.6). 최근 글이 하나도 없으면 순서를 그대로 둔다."""
+    if len(ranked) < 2:
+        return ranked
+    top = ranked[0].score
+    head = [c for c in ranked if top - c.score <= margin + 1e-9]
+    if len(head) < 2:
+        return ranked
+
+    def _recent(c: Candidate) -> int:
+        return c.feel_detail.recent_authors if c.feel_detail else 0
+
+    if not any(_recent(c) for c in head):
+        return ranked
+    reordered = sorted(head, key=lambda c: -_recent(c))          # sorted 는 안정 정렬: 같으면 원래 순위
+    out = [*reordered, *ranked[len(head):]]
+    return [c.model_copy(update={"rank": i + 1}) for i, c in enumerate(out)]
 
 
 def choose(
@@ -202,12 +236,19 @@ def choose(
     return cheapest[0], counts
 
 
-def _empty_reason(kind: str, requirement: PeripheralRequirement, rules: dict, pool: int) -> str:
-    """필터 후 0건일 때 화면에 보일 이유 문장(계획 §3.3 C6). 후보 자체가 없는 것과 하드
-    조건에 걸려 전부 떨어진 것을 구분한다."""
+def _empty_reason(
+    kind: str, requirement: PeripheralRequirement, rules: dict, stats: dict[str, int], max_price: int | None = None,
+) -> str:
+    """필터 후 0건일 때 화면에 보일 이유 문장(계획 §3.3 C6). 후보 자체가 없는 것, 예산에 걸린 것,
+    하드 조건에 걸려 전부 떨어진 것을 구분한다."""
     label = kind_def(kind, rules)["label"]
+    pool = stats["pool"]
     if pool == 0:
         return f"{label} 후보 자체가 카탈로그에 없습니다"
+    if max_price is not None and stats.get("over_price") == pool:
+        return f"예산 {max_price:,}원 안에 드는 {label}가 카탈로그에 없습니다"
+    if requirement.filters and not requirement.hard:
+        return f"말씀하신 조건에 맞는 {label}가 카탈로그에 없습니다"
     hard = requirement.hard
     if hard:
         classes = hard.get("resolution_class")
@@ -221,6 +262,21 @@ def _empty_reason(kind: str, requirement: PeripheralRequirement, rules: dict, po
         if cond:
             return f"{cond} 조건에 맞는 {label}가 카탈로그에 없습니다"
     return f"조건에 맞는 {label}가 카탈로그에 없습니다"
+
+
+def _feel_blocks(picks: list[PeripheralPick], values: dict, rules: dict) -> dict[str, Any]:
+    """고른 제품마다 체감 근거 블록(화면에 보여 줄 문구와 인용 문장). 근거가 없으면 그 종류는 넣지 않는다."""
+    from src.engine.peripheral_evidence import build_feel_block
+    from src.engine.peripheral_intent import Interpretation
+
+    interp = values.get("peripheral_intent") or Interpretation()
+    out: dict[str, Any] = {}
+    for pick in picks:
+        resolved = (values.get("peripheral_resolved") or {}).get(pick.kind)
+        block = build_feel_block(pick.candidate.feel_detail, interp, resolved, pick.kind, rules)
+        if block is not None:
+            out[pick.kind] = block
+    return out
 
 
 def run_peripherals(
@@ -254,22 +310,27 @@ def run_peripherals(
     for kind in kinds:
         cands = candidates.get(kind, [])
         req = requirements[kind]
-        kept, stats = filter_candidates(kind, req, cands)
+        kind_budget = (values.get("peripheral_kind_budget") or {}).get(kind)
+        kept, stats = filter_candidates(kind, req, cands, max_price=kind_budget)
         counts[kind] = stats
         label = kind_def(kind, rules)["label"]
         if not kept:
-            reason = _empty_reason(kind, req, rules, stats["pool"])
+            reason = _empty_reason(kind, req, rules, stats, kind_budget)
             empty.append({"kind": kind, "reason": reason})
             log(f"      [P] {label}: 조건에 맞는 후보 0건 — {reason}")
             continue
         weights = rules["ranking"][kind]["weights"]
+        kept = attach_feel(kind, cands, kept, values, rules)
         ranked = rank_candidates(
             kind, req, kept, weights, budget=values.get("peripheral_budget_max"),
             require_review_details=require_review_details,
         )
+        interp = values.get("peripheral_intent")
+        if interp is not None and "trending" in interp.situations and rules.get("feel"):
+            ranked = apply_trending(ranked, rules["feel"]["trending_margin"])
         kinds_ranked[kind] = ranked
         log(f"      [P] {label}: {stats['pool']} → 유지 {len(kept)}"
-            f" (Pass {stats['pass']}/Pending {stats['pending']}/Fail {stats['fail']}) · 리뷰 R은 참고값, 가중치 0")
+            f" (Pass {stats['pass']}/Pending {stats['pending']}/Fail {stats['fail']}) · 체감 R 가중치 {weights.get('리뷰', 0)}")
 
     if not kinds_ranked:
         log("[P] 주변기기: 요청한 종류 전부 조건에 맞는 후보가 없습니다")
@@ -317,5 +378,7 @@ def run_peripherals(
 
     log(f"[P] 주변기기 결과: {len(picks)}건 선정" + (f", 미충족 {len(empty)}건" if empty else ""))
     picked_requirements = {kind: requirements[kind] for kind in picks_by_kind if kind in requirements}
+    feel_blocks = _feel_blocks(picks, values, rules)
     return PeripheralResult(status="ready", picks=picks, empty=empty, counts=counts,
-                             budget=budget_info, verification=verification, requirements=picked_requirements)
+                             budget=budget_info, verification=verification, requirements=picked_requirements,
+                             feel=feel_blocks)

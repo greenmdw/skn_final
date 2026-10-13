@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useSetups } from '../../state/SetupsContext'
 import { wonFmt } from '../../utils/format'
 import { Hero } from './parts'
-import { PC_FIELDS, PC_PLACEHOLDERS, configKey, dateText, newestFirst, setupToPcParts, setupTotal, type MyPc, type PcParts } from './model'
+import { PC_FIELDS, configKey, dateText, newestFirst, setupToPcParts, setupTotal, type MyPc, type PcParts } from './model'
 
 function CurrentPc({ myPc, onUse, onReset }: { myPc: MyPc | null; onUse: () => void; onReset: () => void }) {
   if (!myPc) {
@@ -75,7 +75,7 @@ export default function MyPcPage({ myPc, onRegister, onReset, onUse }: {
                 {PC_FIELDS.map(([key, label]) => (
                   <label className="pc-field" key={key}>
                     <span>{label}</span>
-                    <input className="pc-input" type="text" maxLength={80} value={draft[key] ?? ''} placeholder={`예: ${PC_PLACEHOLDERS[key]}`}
+                    <input className="pc-input" type="text" maxLength={80} value={draft[key] ?? ''} placeholder={`${label} 제품명을 입력하세요`}
                       onChange={event => setDraft(previous => ({ ...previous, [key]: event.target.value }))} />
                   </label>
                 ))}

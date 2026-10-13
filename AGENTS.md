@@ -16,7 +16,7 @@ Always set `TRUEFIT_REQUIRE_TEST_DB=1` for completion checks. It turns PostgreSQ
 At the start of a pytest session, the test harness automatically:
 
 1. Creates a unique `truefit_test_<UUID>` database on the running PostgreSQL server.
-2. Runs `db/setup_all.py` to apply the thirteen baseline migrations and all seeds.
+2. Runs `db/setup_all.py` to apply the sixteen baseline migrations and all seeds.
 3. Runs the tests.
 4. Drops the temporary database with `DROP DATABASE ... WITH (FORCE)` when the session ends.
 
@@ -87,7 +87,7 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
 - If the default uv cache is read-only, keep `UV_CACHE_DIR=/tmp/uv-cache` in the command.
 - If Python raises `ModuleNotFoundError: src`, run from the repository root and set `PYTHONPATH=.`.
 - If database tests are skipped, rerun with `TRUEFIT_REQUIRE_TEST_DB=1` so the underlying setup problem is reported as an error.
-- The current database baseline must contain exactly these thirteen files:
+- The current database baseline must contain exactly these sixteen files:
   - `db/migrations/0000_schema.sql`
   - `db/migrations/0001_constraints.sql`
   - `db/migrations/0002_indexes.sql`
@@ -119,3 +119,12 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
   - `db/migrations/0012_review_embedding_invalidate.sql` (added 2026-10-06: trigger deleting
     `evidence.review_embedding` when `review_document.body` changes so the embedding backfill worker
     `src/workers/review_embedding_batch.py` re-embeds it)
+  - `db/migrations/0013_community_post.sql` (added 2026-10-12: general community — `community.post`/
+    `post_product`/`post_comment`/`post_like`/`post_view` for the React `/community` board; separate from the
+    product-review tables `community.review*`)
+  - `db/migrations/0014_community_post_image.sql` (added 2026-10-12: `community.post_image` — image
+    attachments for community posts; file bytes live in `COMMUNITY_UPLOAD_DIR`, rows hold metadata)
+  - `db/migrations/0015_peripheral_post_evidence.sql` (added 2026-10-13: `engine.peripheral_post_intake`/
+    `peripheral_post_analysis_log`/`peripheral_post_evidence`/`peripheral_post_evidence_embedding` — community review
+    posts analysed for the peripheral recommendation's feel score; written by
+    `src/workers/peripheral_post_analysis.py`, no foreign key to `community.post`)

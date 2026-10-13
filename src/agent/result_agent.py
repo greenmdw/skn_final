@@ -83,8 +83,10 @@ class ResultSession:
         2로 바꿔 버렸다(2026-10-02 실측). 모델이 이 문장을 보고 가정 결과(preview_swap)로 답하게 한다."""
         if not self.read_only:
             return None
+        # 수량 변경을 거절당하면 모델이 preview_swap(교체)으로 넘어가 "하나 더 달기"를 교체로 답했다(10/12 평가 시트 3/3)
+        tool = "preview_qty(같은 부품을 더 다는 가정)" if "qty=" in call and "qty=''" not in call else "preview_swap"
         return self._record(call, "거절: 이번 말에는 바꾸라는 요청(바꿔줘·해줘·~로·응)이 없어 구성표를 바꾸지 않았습니다. "
-                                  "preview_swap 으로 가정 결과를 확인해 전하고, 바꿀지 사용자에게 물으세요.")
+                                  f"{tool} 으로 가정 결과를 확인해 전하고, 바꿀지 사용자에게 물으세요.")
 
     def refresh(self) -> None:
         from src.services.recommendation_service import get_stored_result
@@ -322,6 +324,18 @@ class ResultSession:
         return self._record(call, result_advice.preview_swap(self.conn, self.revision_id, it["slot"],
                                                              candidate_id.strip() or None, direction.strip().lower() or None))
 
+    def preview_qty(self, slot: str, qty: str) -> str:
+        from src.services import result_advice
+        call = f"preview_qty({slot!r}, {qty!r})"
+        if (no := self._pc_only(call)) is not None:
+            return no
+        it = self.item(slot)
+        if it is None:
+            return self._record(call, f"오류: '{slot}' 슬롯이 없습니다.")
+        if not qty.strip().isdigit() or not 1 <= int(qty) <= 99:
+            return self._record(call, "오류: qty 는 1~99 정수")
+        return self._record(call, result_advice.preview_qty(self.conn, self.revision_id, it["slot"], int(qty)))
+
     def check_build(self) -> str:
         from src.services import result_advice
         call = "check_build()"
@@ -437,7 +451,7 @@ def make_tools(s: ResultSession) -> list:
 
     @tool
     def set_qty(slot: str, qty: str) -> str:
-        """부품의 수량만 바꾼다 ("SSD 2개로").
+        """부품의 수량만 바꾼다 ("SSD 2개로", "SSD 하나 더 달아줘" → 지금 수량+1). 같은 제품을 더 담는 것이라 교체가 아니다.
 
         Args:
             slot: 슬롯 이름
@@ -480,6 +494,19 @@ def make_tools(s: ResultSession) -> list:
             direction: "up" 또는 "down" (candidate_id 를 쓰면 비움)
         """
         return s.preview_swap(slot, candidate_id, direction)
+
+    @tool
+    def preview_qty(slot: str, qty: str) -> str:
+        """같은 부품의 수량을 바꾸면 어떻게 되는지 *바꾸지 않고* 계산한다 — "SSD 하나 더 달아도 돼?", "램 하나 더 꽂으면?".
+        차액·바꾼 뒤 총액·예산, 수량을 반영한 호환 점검(M.2 SSD 개수·RAM 모듈 수 ↔ 메인보드 슬롯). 교체가 아니다.
+        "램 32기가로 늘려도 돼?"처럼 용량을 말하면 이 도구가 아니라 preview_swap(direction='up') — 같은 램을 하나 더 다는
+        것보다 큰 용량 한 개가 더 쌀 수 있다. 사용자가 개수("하나 더", "2개")를 말할 때만 쓴다.
+
+        Args:
+            slot: 슬롯 이름
+            qty: 바꾼 뒤 수량 1~99 (하나 더면 지금 수량+1)
+        """
+        return s.preview_qty(slot, qty)
 
     @tool
     def upgrade_options(extra: str = "", new_budget: str = "") -> str:
@@ -541,7 +568,7 @@ def make_tools(s: ResultSession) -> list:
         return s.search_unavailable_part(slot, product_text)
 
     return [list_alternatives, swap, set_qty, remove_or_restore, explain,
-            preview_swap, upgrade_options, savings_options, check_build, game_check,
+            preview_swap, preview_qty, upgrade_options, budget_reason, savings_options, check_build, game_check,
             search_unavailable_part]
 
 
@@ -566,7 +593,7 @@ _WHY = ("왜", "이유", "근거", "괜찮", "믿을", "어때", "리뷰", "총�
 # "씨퓨 업글 해도 무방?")는 7개 중 1개만 걸렸다(2026-10-02) — 표현은 끝이 없어서 놓치면 구성표가 바뀐다.
 # 그래서 거꾸로, **바꾸라는 표시가 있을 때만** 바꾸는 도구를 연다(허용 목록). 놓쳤을 때의 피해가 "잘못 바뀜"에서
 # "한 번 더 물어봄"으로 줄어든다. 묻는 말 표시가 같이 있으면 묻는 말이 이긴다.
-_CHANGE_VERB = r"(?:바꾸|바꿔|바꿀|갈아|올리|올려|올릴|늘리|늘려|늘릴|업글|업그레이드|교체|변경|빼|뺄|넣|담|달아|내리|내려|줄이|줄여|가면)"
+_CHANGE_VERB = r"(?:바꾸|바꿔|바꿀|갈아|올리|올려|올릴|늘리|늘려|늘릴|업글|업그레이드|교체|변경|빼|뺄|넣|담|달아|달면|추가|꽂|장착|내리|내려|줄이|줄여|가면)"
 _ASK_RE = re.compile(
     r"도\s*(?:돼|되나|될까|되려나|되겠|되냐|되남|됨|괜찮|괜춘|문제|상관|무방|ok|ㄱㅊ)"
     r"|면\s*.{0,15}?(?:어때|어떨|어떻|괜찮|문제|될까|되나|돼\?|충분|부족)"
@@ -575,19 +602,26 @@ _ASK_RE = re.compile(
     r"|ㄱㄱ\s*\?"
 )
 _ASK_LOOSE_RE = re.compile(r"ㄱㅊ|괜찮음|괜춘|무방|어케\s*생각|어떻게\s*생각|어떰|어떨까|나을까|낫나|좋을까")
-_IMPERATIVE = (r"(?:바꿔|교체해|변경해|빼|넣어|담아|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해|로\s*해|로\s*가자|로\s*할게|로\s*갈게)"
+_IMPERATIVE = (r"(?:바꿔|교체해|변경해|빼|넣어|담아|달아|추가해|꽂아|장착해|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해|로\s*해|로\s*가자|로\s*할게|로\s*갈게)"
                r"\s*(?:줘|주세요|줄래|주라|줄\s*수|주셈|주삼|주쇼|쥬|줭|봐|요|라)")
 _IMPERATIVE_RE = re.compile(_IMPERATIVE)
 _CLAUSE_SPLIT = re.compile(r"[,.!?\n]+")
+_AGREE = r"(?:응|ㅇㅇ|ㅇㅋ|오케이|ok|okay|네|넵|예|그래|좋아|콜|ㄱㄱ|고고|부탁해|그렇게\s*해(?:\s*(?:줘|주세요|줄래))?)(?:요)?"
 _CHANGE_RE = re.compile(
     _IMPERATIVE
     + r"|(?:로\s*해|로\s*할게|로\s*갈게|로\s*가자)\b"
     r"|(?:으)?로\s*[요.!~]*\s*$"                              # "7600X로", "SSD 2개로", "더 싼 걸로" — 말줄임 요청
-    r"|^\s*(?:응|ㅇㅇ|ㅇㅋ|오케이|ok|okay|네|넵|예|그래|좋아|콜|ㄱㄱ|고고|부탁해|그렇게\s*해)(?:\s|[.!~,]|$)"
+    # 앞 제안을 받는 말("응", "네 부탁해요", "좋아 그걸로 해") — 동의 낱말 뒤에 다른 말이 오면 받는 말이 아니다.
+    # 문장 앞만 보던 때는 "응 근데 왜 이거야?", "좋아 보이네", "좋아 근데 파워는 괜찮아?"도 바꾸라는 말이 돼서,
+    # 바로 앞 답이 교체를 제안했다면 원치 않는 교체가 될 수 있었다(10/12 말 분류 점검)
+    + r"|^\s*" + _AGREE + r"(?:[\s.!~,]*" + _AGREE + r")*[\s.!~,]*"
+    r"(?:(?:그렇게|그걸로|그거로|그걸|그거|그대로)\s*)?"
+    r"(?:해\s*(?:줘|주세요|줄래|요|봐)?|진행해?\s*(?:줘|주세요)?|ㄱㄱ|고고|가자|부탁(?:해|해요|드려요|합니다|드립니다)?)?"
+    r"[\s.!~,]*$"
     r"|ㄱㄱ(?!\s*\?)"
     # 반말 명령("GPU 바꿔", "그래픽카드 더 좋은 걸로 바꿔") — '줘'가 없어 other 로 빠져 "원하시면 '바꿔줘'라고 말씀해
     # 주세요"로 되묻던 것(10/8 팀 시연·회의). 말 끝에 올 때만 — "바꿔?"·"바꿔도 돼"는 묻는 말이다
-    r"|(?:바꿔|교체해|변경해|빼|넣어|담아|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해)\s*[.!~]*\s*$"
+    r"|(?:바꿔|교체해|변경해|빼|넣어|담아|달아|추가해|꽂아|장착해|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해)\s*[.!~]*\s*$"
 )
 
 
@@ -685,7 +719,8 @@ def _budget_rounded(budget: int | None, t: dict) -> str:
     return " (어림: " + " · ".join(parts) + ")"
 
 
-def system_prompt(result: dict, user_text: str, history: list[dict], prefetched: str = "", previous: str = "") -> str:
+def system_prompt(result: dict, user_text: str, history: list[dict], prefetched: str = "", previous: str = "",
+                  read_only: bool = False) -> str:
     t = result.get("totals") or {}
     v = result.get("verification") or {}
     issues = " | ".join(f"[{i['axis']}] {i['text']}" for i in (v.get("issues") or [])) or "없음"
@@ -703,19 +738,30 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "이 화면의 대화 기록: " + ("없음 — 이번이 첫 질문이라 당신이 이전에 한 말이나 약속은 없습니다." if not history
                               else f"최근 {len(history)}턴만 보입니다(앞의 메시지들)." if len(history) >= _HISTORY_TURNS
                               else f"{len(history)}턴 전부(앞의 메시지들). 그 밖에 당신이 한 말이나 약속은 없습니다."),
+        # 코드가 '바꾸라는 말이 아님'으로 판정해 바꾸는 도구를 막아도 모델은 그걸 모르고 "좋아 보이네"에 swap 을 불렀다
+        # (10/12 시나리오 E 3/3 — 코드가 거절해 구성표는 그대로) — 판정을 프롬프트에도 알린다
+        *(["이번 말 판정(코드): 구성표를 바꾸라는 요청이 아닙니다 — swap·set_qty·remove_or_restore 는 거절됩니다. "
+           "앞 답이 교체를 제안했고 사용자가 '좋아 보이네', '응 근데 …?'처럼 반응하거나 되물었다면 그 말에 답하고, "
+           "바꿀지는 '바꿔 드릴까요?'로 다시 묻습니다."] if read_only else []),
         "",
         "규칙:",
         "1. '바꿔줘', '로 해줘', '바꿔 주세요'처럼 바꾸라고 하면 되묻지 말고 바로 swap 합니다. candidate_id 는 list_alternatives·upgrade_options·savings_options·preview_swap 결과에서만 가져오고, 지어내거나 답변에 보여 주지 않습니다.",
         "2. 방향만 말하면('한 단계 좋은 걸로 바꿔줘', '더 싼 걸로') preview_swap(direction='up'/'down') 으로 바로 다음 단계 후보를 찾아 그 candidate_id 로 swap 합니다. "
-        "'⚠ 요구 사양' 표시가 있는 후보는 바꾸지 말고 그 사실을 알립니다. 사용자가 고른 이름이 여럿에 해당하면 이름·가격을 나열하고 고르게 합니다.",
-        "3. '빼줘/필요 없어' → remove_or_restore(false). '2개로' → set_qty. "
+        "'⚠ 요구 사양' 표시가 있는 후보는 바꾸지 말고 그 사실을 알립니다. 사용자가 고른 이름이 여럿에 해당하면 이름·가격을 나열하고 고르게 합니다. "
+        "다음 단계 후보가 없다는 결과면 도구가 준 이유(가장 싼 제품이라는 등)를 그대로 전하고, 쿨러처럼 도구가 다른 방법(빼고 CPU 기본 쿨러 쓰기)을 "
+        "적어 주면 그것을 제안만 합니다 — 사용자가 원한다고 하기 전에는 빼지 않습니다.",
+        "3. '빼줘/필요 없어' → remove_or_restore(false). '2개로' → set_qty. '하나 더 달아줘', 'SSD 1개 더 추가해줘'처럼 같은 부품을 더 달라는 말은 "
+        "교체가 아니라 수량 추가라 set_qty(지금 수량 + 더할 개수) — swap 하지 않습니다. "
         "한 문장에 부품 여러 개가 나오면 각 부품에 그 부품 앞뒤에 붙은 요청만 적용하고 도구를 따로 부릅니다.",
         "4. '왜 이거?', '이유가 뭐야?', '이거 괜찮아?', '믿을 만해?' 처럼 지금 부품의 근거를 묻는 말에는 **반드시 explain 을 먼저 부르고** 그 내용만 전합니다. "
         "저장된 추천 이유가 없어도 explain 이 준 가격·예산 비중·검증 쟁점·리뷰 관측은 전합니다. "
         "'추천 당시 점수 근거'가 있으면 후보 중 순위와 리뷰에서 긍정·부정이 몇 건이었는지를 쉬운 말로 전하고(리뷰 문장은 짧게 하나), "
         "가격·성능 점수가 몇 점이었는지는 도구 결과에 없으므로 지어내지 않습니다.",
         "5. '바꿔도 돼?', '바꾸면 괜찮을까?', '올려도 문제없어?', '32기가로 늘려도 돼?' 처럼 **바꿔도 되는지 묻는 말은 교체 요청이 아닙니다**. "
-        "preview_swap(특정 제품이면 candidate_id, '더 좋은 걸로/한 단계 올리면'이면 direction='up')으로 가정 결과만 확인해 차액·예산 초과 여부·요구 사양·호환 점검(전력 포함) 결과를 전한 뒤 '바꿔 드릴까요?'로 묻습니다. swap·set_qty 를 부르지 않습니다.",
+        "preview_swap(특정 제품이면 candidate_id, '더 좋은 걸로/한 단계 올리면'이면 direction='up')으로 가정 결과만 확인해 차액·예산 초과 여부·요구 사양·호환 점검(전력 포함) 결과를 전한 뒤 '바꿔 드릴까요?'로 묻습니다. swap·set_qty 를 부르지 않습니다. "
+        "'하나 더 달아도 돼?', 'SSD 1테라 더 달아도 됨'처럼 같은 부품을 더 달아도 되는지 묻는 말은 교체가 아니라 수량 추가라 "
+        "preview_qty(slot, 지금 수량 + 1)로 차액·예산·슬롯 점검을 전한 뒤 '추가해 드릴까요?'로 묻습니다. "
+        "'램 32기가로'처럼 개수 없이 용량만 말하면 preview_swap 입니다.",
         "6. '돈 남았는데 뭐 바꿀까', '남은 예산으로 업그레이드', 'N만원 더 쓰면' → upgrade_options. '예산을 N원으로 늘려줘'처럼 새 총예산을 말하면 upgrade_options(new_budget=N) — "
         "조건의 예산 자체는 이 화면에서 못 바꾸고 화면의 '조건 바꾸기'에서 바꾼다고 한 번 말하고 그 금액 기준 후보를 보여 줍니다. 결과의 순서와 후보를 그대로 전하고, 사용자가 고르기 전에는 바꾸지 않습니다.",
         # 6번 문장 뒤에 이어 붙였더니 "가격에 맞게 예산 줄여줘"에 RAM 을 바꾸는 일이 생겼다(10/8 평가 D-1 2/4) — 따로 둔다
@@ -769,14 +815,19 @@ def _run_messages(conn, revision_id: UUID, run_id: str) -> list[dict]:
 _PREVIOUS_CANDIDATE_LINES = 12
 
 
+def previous_outputs(messages: list[dict], turns: int = 1) -> list[str]:
+    """최근 `turns` 개 답의 도구 결과 원문(턴 기록) — 후보 줄 뽑기(직전 답만)와 수치 가드의 허용 근거(모델이 보는
+    대화 기록 범위)가 같이 쓴다."""
+    answers = [m for m in messages if m["role"] == "assistant"][-turns:] if turns > 0 else []
+    return [out for m in answers for out in (((m.get("metadata") or {}).get("turn") or {}).get("outputs") or [])]
+
+
 def previous_candidates(messages: list[dict]) -> str:
     """직전 답의 근거가 된 도구 결과 중 candidate_id 가 있는 줄 — 답 메시지의 턴 기록(metadata["turn"]["outputs"])에서.
     이력에는 답 문장만 남아 "응 그렇게 바꿔줘"에 모델이 id 를 몰라 후보 목록을 다시 뒤지다 실패했다 — 제안한 4060 Ti 는
     list_alternatives 목록에 없다(10/8 A-6 6/10, 10/10 평가 0/3). 앞 답이 실제로 제안한 후보를 그대로 넘긴다."""
-    last = next((m for m in reversed(messages) if m["role"] == "assistant"), None)
-    outputs = (((last or {}).get("metadata") or {}).get("turn") or {}).get("outputs") or []
     lines: list[str] = []
-    for out in outputs:
+    for out in previous_outputs(messages):
         for line in out.splitlines():
             line = line.strip()
             if "candidate_id=" in line and not re.match(r"\d+\. candidate_id=", line) and line not in lines:
@@ -906,7 +957,7 @@ def swap_arithmetic_sign_errors(reply: str, result: dict, outputs: list[str]) ->
     return bad
 
 
-_READ_TOOLS = ("preview_swap(", "upgrade_options(", "budget_reason(", "savings_options(", "check_build(", "game_check(",
+_READ_TOOLS = ("preview_swap(", "preview_qty(", "upgrade_options(", "budget_reason(", "savings_options(", "check_build(", "game_check(",
               "search_unavailable_part(")
 
 
@@ -966,7 +1017,12 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
 
     run_id = result["run_id"]
     pairs = _db_history(conn, revision_id, run_id)
-    previous = previous_candidates(_run_messages(conn, revision_id, run_id)) if pairs else ""
+    messages = _run_messages(conn, revision_id, run_id) if pairs else []
+    previous = previous_candidates(messages)
+    # 앞 답이 전한 가정 계산("바꾸면 총액 1,530,828원")을 이번 답이 다시 말하면 이번 턴 도구 결과에는 없어 가드가 답을
+    # 버렸다(10/12 시나리오 E "좋아 보이네" 3/3) — 모델이 보는 대화 기록 범위의 도구 결과도 코드가 낸 사실이라 허용한다.
+    # 그사이 구성표가 바뀌었으면 옛 숫자일 수 있지만, 이 가드는 지어낸 숫자를 막는 것이고 그 숫자는 지어낸 게 아니다
+    earlier = previous_outputs(messages, turns=len(pairs))
     hist_rows = [{"role": "user", "content": u} for u, _ in pairs]
     intent = classify_intent(text)
     session = ResultSession(conn=conn, revision_id=revision_id, result=result, user_id=user_id,
@@ -974,7 +1030,7 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
                             search_confirmed=_search_confirmed(pairs, text))
     prefetched = _prefetch_explanations(session, text)
     session.previous = previous
-    prompt = system_prompt(result, text, hist_rows, prefetched, previous)
+    prompt = system_prompt(result, text, hist_rows, prefetched, previous, read_only=session.read_only)
     agent = Agent(
         model=_model(),
         system_prompt=prompt,
@@ -996,7 +1052,7 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
         error = type(exc).__name__
     else:
         # 수치 가드 — 답변의 숫자는 전부 입력에 있던 것이어야 한다. 아니면 LLM 문장을 버리고 코드 문장으로.
-        ok, outside = _reply_within(reply, [prompt, text, *session.outputs,
+        ok, outside = _reply_within(reply, [prompt, text, *session.outputs, *earlier,
                                             swap_arithmetic(session.result, session.outputs)])
         bad_words = evaluative_words(reply, text) + swap_arithmetic_sign_errors(reply, session.result, session.outputs)
         if not ok or bad_words:

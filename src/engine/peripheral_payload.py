@@ -74,6 +74,7 @@ from typing import Any
 from src.dto import Candidate, PeripheralPick, PeripheralRequirement, PeripheralResult
 from src.engine import spec_rules
 from src.engine.peripheral_catalog import PRICE_NOTE
+from src.engine.peripheral_evidence import NO_EVIDENCE_NOTE
 from src.engine.peripheral_rules import kind_def, load_peripheral_rules
 from src.engine.stage3c_verify import axis_label
 from src.rag.care_guides import SLOT_GUIDE_IDS, search_care_guide
@@ -93,7 +94,7 @@ _TOTALS_NOTE = "PC 예산과 별도"
 _JUDGE_TO_STATE = {"확인 필요": "unknown", "위반": "fail"}
 
 # requirement[].label — hard(resolution_class/refresh_min_hz)와 config/peripherals.yaml
-# requirements.<kind>.soft가 실제로 쓰는 pref 키(계획 §3.3 E10 표)만 담는다. 여기 없는 키는
+# spec_conditions 가 실제로 쓰는 pref 키만 담는다. 여기 없는 키는
 # axis_label과 같은 원칙으로 키 이름을 그대로 라벨로 쓴다(모르는 키를 지어내지 않는다).
 _REQUIREMENT_KEY_LABEL: dict[str, str] = {
     "resolution_class": "요구 해상도 등급",
@@ -106,6 +107,21 @@ _REQUIREMENT_KEY_LABEL: dict[str, str] = {
     "connectivity_wireless": "무선 연결",
     "power_source_raw": "전원 방식",
     "channels": "채널 수",
+    "connectivity_bluetooth": "블루투스 연결",
+    "weight_g": "무게(g)",
+    "size_longest_mm": "가장 긴 변(mm)",
+    "size_height_mm": "높이(mm)",
+    "button_count": "버튼 수",
+    "form_factor_raw": "형태",
+    "resolution_h": "세로 해상도(px)",
+    "refresh_hz": "주사율(Hz)",
+    "response_ms_gtg": "응답속도(ms)",
+    "screen_size_inch": "화면 크기(인치)",
+    "brightness_nit": "밝기(nit)",
+    "usb_c_video": "USB-C 영상 입력",
+    "usb_c_power_w": "USB-C 충전(W)",
+    "output_w": "출력(W)",
+    "speaker_form_raw": "스피커 형태",
 }
 
 
@@ -157,6 +173,11 @@ def _requirement_rows(req: PeripheralRequirement) -> list[dict[str, Any]]:
         rows.append({"key": "refresh_min_hz", "label": _requirement_label("refresh_min_hz"),
                      "value": f"{int(req.hard['refresh_min_hz'])}Hz 이상"})
 
+    # 사용자가 직접 말해서 거르는 조건 → 그다음 목적·상황에서 풀린 선호(중복 제거, 설정 순서 유지)
+    for pref in spec_rules.dedupe_prefs(req.filters or []):
+        rows.append({"key": pref["key"], "label": _requirement_label(pref["key"]),
+                     "value": _fmt_pref_value(pref)})
+
     soft_prefs = spec_rules.dedupe_prefs((req.soft or {}).get("preferences") or [])
     for pref in soft_prefs:
         rows.append({"key": pref["key"], "label": _requirement_label(pref["key"]),
@@ -188,7 +209,7 @@ def _reason_text(kind_label: str, req: PeripheralRequirement, cand: Candidate, s
         parts.append(f"{int(req.hard['refresh_min_hz'])}Hz 이상")
     goal = " ".join(parts)
 
-    has_hard = bool(req.hard)
+    has_hard = bool(req.hard or req.filters)
     has_soft = bool((req.soft or {}).get("preferences"))
     kept = int(stats.get("pass", 0)) + int(stats.get("pending", 0))
 
@@ -237,11 +258,24 @@ def _checks_for_pick(kind: str, pick: PeripheralPick, verification) -> list[dict
     return checks
 
 
-def _alternatives(pick: PeripheralPick) -> list[dict[str, Any]]:
+_REVIEW_NOTE_UNUSED = "요청 조건과 연결한 참고 적합도이며 주변기기 점수와 순위에는 반영되지 않았습니다."
+_REVIEW_NOTE_USED = "요청 조건과 연결한 체감 적합도이며 주변기기 점수와 순위에 반영되었습니다."
+
+
+def _review_weight(kind: str, rules: dict) -> float:
+    """순위의 "리뷰" 축 가중치(config/peripherals.yaml ranking). 응답이 순위에 실제로 쓴 값과 같은 값이어야 한다."""
+    return float(rules["ranking"][kind]["weights"].get("리뷰", 0.0))
+
+
+def _review_note(weight: float) -> str:
+    return _REVIEW_NOTE_USED if weight > 0 else _REVIEW_NOTE_UNUSED
+
+
+def _alternatives(pick: PeripheralPick, rules: dict) -> list[dict[str, Any]]:
+    weight = _review_weight(pick.kind, rules)
     return [{"name": alt.name, "price": alt.price, "diff": alt.price - pick.candidate.price,
              "review": alt.review_detail.model_dump(mode="json") if alt.review_detail else None,
-             "review_weight": 0.0,
-             "review_note": "요청 조건과 연결한 참고 적합도이며 주변기기 점수와 순위에는 반영되지 않았습니다."}
+             "review_weight": weight, "review_note": _review_note(weight)}
             for alt in pick.alternatives]
 
 
@@ -258,7 +292,7 @@ def _guide_for_kind(kind: str) -> dict[str, str]:
 
 
 def _item_dict(kind: str, pick: PeripheralPick, req: PeripheralRequirement,
-               stats: dict[str, Any], verification, rules: dict) -> dict[str, Any]:
+               stats: dict[str, Any], verification, rules: dict, feel: dict[str, Any] | None = None) -> dict[str, Any]:
     cand = pick.candidate
     kdef = kind_def(kind, rules)
     return {
@@ -269,11 +303,14 @@ def _item_dict(kind: str, pick: PeripheralPick, req: PeripheralRequirement,
         "requirement": _requirement_rows(req),
         "checks": _checks_for_pick(kind, pick, verification),
         "reason": {"status": "ready", "text": _reason_text(kdef["label"], req, cand, stats)},
-        "alternatives": _alternatives(pick),
+        "alternatives": _alternatives(pick, rules),
         "guide": _guide_for_kind(kind),
         "review": cand.review_detail.model_dump(mode="json") if cand.review_detail else None,
-        "review_weight": 0.0,
-        "review_note": "요청 조건과 연결한 참고 적합도이며 주변기기 점수와 순위에는 반영되지 않았습니다.",
+        "review_weight": _review_weight(kind, rules),
+        "review_note": _review_note(_review_weight(kind, rules)),
+        # 체감 근거(사용기·외부 리뷰). None 이면 보여 줄 근거가 없다 — 화면은 feel_note 만 쓴다.
+        "feel": feel,
+        "feel_note": None if feel else NO_EVIDENCE_NOTE,
     }
 
 
@@ -299,7 +336,8 @@ def peripheral_payload(result: PeripheralResult, rules: dict | None = None) -> d
     for pick in result.picks:
         req = requirements.get(pick.kind) or PeripheralRequirement(kind=pick.kind)
         stats = (result.counts or {}).get(pick.kind) or {}
-        items.append(_item_dict(pick.kind, pick, req, stats, result.verification, rules))
+        items.append(_item_dict(pick.kind, pick, req, stats, result.verification, rules,
+                                (result.feel or {}).get(pick.kind)))
 
     return {
         "status": "ready", "items": items,

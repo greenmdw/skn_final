@@ -11,6 +11,7 @@ SPEC_EXTRACTION_AGENT=1까지 필요하다. `available()`이 False이거나 `ext
 """
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -58,13 +59,27 @@ _IMAGE_SLOT_MAP = {"cpu": "CPU", "gpu": "GPU", "ram": "RAM", "motherboard": "메
                    "storage": "저장장치", "psu": "파워", "case_": "케이스", "cooler": "쿨러"}
 
 
+# 입력(이미지·텍스트)에 섞인 "AI 에게 하는 지시문"(U-06). 프롬프트가 1차 방어이고, 모델이 그 문장을 부품 항목으로 옮겨 와도
+# 여기서 한 번 더 버린다 — 부품명·모델번호에는 나오지 않는 말만 쓴다.
+_INJECTION_CUES = re.compile(
+    r"ignore\s+(?:all\s+|the\s+)?(?:previous|prior|above)|disregard|system\s*:|(?:system|developer)\s+prompt|instructions?"
+    r"|이전\s*지시|지시(?:를|문|사항)?\s*(?:무시|따라)|무조건|이\s*이미지를\s*읽는|읽는\s*AI|AI\s*(?:는|가|에게|야)"
+    r"|(?:인식|답변?|출력|말|적)\s*(?:해|하세요|하십시오|해라|해줘|해\s*주세요)|모든\s*가격",
+    re.IGNORECASE)
+
+
+def looks_like_injected_instruction(text: str) -> bool:
+    return bool(_INJECTION_CUES.search(text or ""))
+
+
 def available() -> bool:
     return (not MOCK_MODE and SPEC_EXTRACTION_AGENT and LLM_PROVIDER == "openai"
             and bool(OPENAI_API_KEY) and bool(LLM_MODEL))
 
 
 def _clean(draft: _SpecExtraction) -> dict[str, str]:
-    return {slot: value.strip() for slot, value in draft.model_dump().items() if value and value.strip()}
+    return {slot: value.strip() for slot, value in draft.model_dump().items()
+            if value and value.strip() and not looks_like_injected_instruction(value)}
 
 
 def extract(text: str) -> dict[str, str]:
@@ -99,7 +114,8 @@ def extract_from_image(image_data_url: str) -> dict[str, str]:
         raw = raw["properties"]
     draft = _SpecExtractionImage.model_validate(raw)
     return {_IMAGE_SLOT_MAP[slot]: value.strip()
-            for slot, value in draft.model_dump().items() if value and value.strip()}
+            for slot, value in draft.model_dump().items()
+            if value and value.strip() and not looks_like_injected_instruction(value)}
 
 
 # ── 여러 제품 보존(받은 견적 점검 — 여러 장 업로드) ──────────────────────────────────────────────
@@ -126,7 +142,7 @@ def extract_items(text: str) -> list[dict[str, str]]:
                    output_schema=_SpecExtractionItems.model_json_schema())
     parsed = _SpecExtractionItems.model_validate(raw)
     return [{"category": _ITEM_SLOT_MAP[i.category], "raw_text": i.raw_text.strip()}
-            for i in parsed.items if i.raw_text and i.raw_text.strip()]
+            for i in parsed.items if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text)]
 
 
 def extract_items_from_image(image_data_url: str) -> list[dict[str, str]]:
@@ -140,4 +156,4 @@ def extract_items_from_image(image_data_url: str) -> list[dict[str, str]]:
         raw = raw["properties"]
     parsed = _SpecExtractionItems.model_validate(raw)
     return [{"category": _ITEM_SLOT_MAP[i.category], "raw_text": i.raw_text.strip()}
-            for i in parsed.items if i.raw_text and i.raw_text.strip()]
+            for i in parsed.items if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text)]

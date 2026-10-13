@@ -4,6 +4,7 @@ import pytest
 from src.dto import (
     Candidate, PeripheralRequirement, ReviewRequirementProfile, ReviewScoreDetail,
 )
+from src.engine.peripheral_rules import load_peripheral_rules
 from src.engine.peripheral_select import rank_candidates
 
 
@@ -69,4 +70,5 @@ def test_response_schema_preserves_selected_and_alternative_review_evidence():
     item = response["items"][0]
     assert item["review"] == selected.review_detail.model_dump(mode="json")
     assert item["alternatives"][0]["review"] == detail.model_dump(mode="json")
-    assert item["review_weight"] == item["alternatives"][0]["review_weight"] == 0.0
+    expected = load_peripheral_rules()["ranking"][item["kind"]]["weights"]["리뷰"]     # 순위에 실제 쓴 가중치
+    assert item["review_weight"] == item["alternatives"][0]["review_weight"] == expected

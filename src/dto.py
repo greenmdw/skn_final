@@ -117,6 +117,48 @@ class ReviewScoreDetail(BaseModel):
     readiness: dict[str, Any] = Field(default_factory=dict)
 
 
+class FeelQuote(BaseModel):
+    """체감 근거로 보여 줄 인용 문장 하나. `quote_id` 로 글 상세에서 그 문장 위치를 찾는다(작업지시서 W-3)."""
+
+    quote_id: str
+    post_id: str
+    sentence: str
+    is_example: bool = False
+    photo_url: str | None = None
+
+
+class FeelAttributeDetail(BaseModel):
+    """체감 적합도(R)에 들어간 속성 하나. 성향 축이면 good/bad 는 요청자가 고른 쪽과 같은/다른 쪽 표의 수다."""
+
+    code: str
+    label: str
+    type: Literal["rating", "taste"]
+    alpha: float
+    value: float
+    state: Literal["same_condition", "other_condition", "external_only", "no_evidence"]
+    same_good: int = 0
+    same_bad: int = 0
+    rest_good: int = 0
+    rest_bad: int = 0
+    external_p: int | None = None
+    external_n: int | None = None
+    external_score: float | None = None
+    split: bool = False          # 의견(또는 쪽)이 갈린다
+    mismatch: bool = False       # 성향이 한쪽으로 모였는데 요청자가 고른 쪽과 다르다
+    situational: int = 0         # 상황에 따라 다르다고 해서 표로 세지 않은 작성자 수
+    quotes: list[FeelQuote] = Field(default_factory=list)    # 이 평가를 뒷받침하는 문장(같은 조건 먼저, 최근 순)
+    side_counts: dict[str, int] = Field(default_factory=dict)   # 성향 축이면 쪽별 작성자 수, 평가 속성이면 good/bad 수
+
+
+class FeelDetail(BaseModel):
+    """체감 적합도 R(개발_확정사양.md 6장). 사용기 근거가 없으면 외부 리뷰 출발값만으로 계산한 값이다."""
+
+    value: float = Field(ge=0.0, le=1.0, allow_inf_nan=False)
+    attributes: list[FeelAttributeDetail] = Field(default_factory=list)
+    basis: Literal["community", "example", "external_only"] = "external_only"
+    recent_authors: int = 0      # 최근 N개월 안에 이 제품의 사용기를 쓴 작성자 수(0 이면 표시하지 않는다)
+
+
 # ── [3-0]~[3-B] 후보 ────────────────────────────────────────────────────
 class Candidate(BaseModel):
     product_key: str
@@ -144,6 +186,7 @@ class Candidate(BaseModel):
     breakdown: dict[str, float] = Field(default_factory=dict)
     score_notes: list[str] = Field(default_factory=list)   # 점수 계산 중 남긴 표식(예: neutral:성능)
     review_detail: ReviewScoreDetail | None = None
+    feel_detail: FeelDetail | None = None     # 주변기기 체감 적합도(R). 순위의 "리뷰" 축 값이 된다
     rank: int = 0
     # E8/E9 — 가격 출처. PC 후보는 기존대로 offer_observation 기반 "observed"(기본값,
     # 동작 불변). 주변기기 로더(E9)는 peripheral_price_snapshot만 있어 "reference_snapshot"을
@@ -256,6 +299,7 @@ class PeripheralRequirement(BaseModel):
     kind: PeripheralKind
     hard: dict[str, Any] = Field(default_factory=dict)     # 탈락 가능 조건(예: 모니터 해상도 등급)
     soft: dict[str, Any] = Field(default_factory=dict)     # 랭킹에만 쓰는 선호(예: 패널 종류)
+    filters: list[dict[str, Any]] = Field(default_factory=list)   # 사용자가 직접 말해서 거르는 조건({key, op, value})
     assumed: list[str] = Field(default_factory=list)       # 조건 없이 기본값을 썼다고 표시할 키
     notes: list[str] = Field(default_factory=list)         # 화면 안내용 보조 문구(잠정값 등)
 
@@ -287,6 +331,8 @@ class PeripheralResult(BaseModel):
     # picks에 있는 종류만큼 채워진다. peripheral_payload()가 requirement/reason을 만드는 재료다
     # — payload가 [1]의 원본 조건(values)을 다시 안 받아도 되게 여기 실어 둔다.
     requirements: dict[str, PeripheralRequirement] = Field(default_factory=dict)
+    # 종류 → 체감 근거 블록(peripheral_evidence.build_feel_block). 보여 줄 근거가 없는 종류는 키가 없다.
+    feel: dict[str, Any] = Field(default_factory=dict)
 
 
 # ── [5] 설명 생성 ───────────────────────────────────────────────────────

@@ -49,17 +49,23 @@ def budget_notice(totals: dict | None, values: dict) -> dict | None:
     """예산을 많이 남긴 새 구성에, 왜 남았는지와 남은 예산을 쓰는 길을 안내하는 문장.
 
     점수 규칙은 건드리지 않는다 — 결과는 그대로고 설명만 붙인다. 업그레이드는 예산이 바꿀 부품에 쓸 돈이라
-    남는 게 자연스러워 제외하고, 예산 초과·조금 남은 경우도 안내하지 않는다.
+    남는 게 자연스러워 제외하고, 조금 남은 경우도 안내하지 않는다. 예산을 넘은 구성에는 얼마나 넘었는지 알린다(remaining 이 음수).
     성능 우선은 "이미 채우는 쪽"이라 빼 두었는데, 실제로는 용도 기준 등급을 넘는 부품이 점수에서 이기지 못해
     700만원 예산에 300만원 구성이 나왔다(2026-10-08 팀 시연·회의). 그때는 다시 추천받을 우선순위가 없으니
     suggest_priority 를 비우고 결과 채팅으로 안내한다."""
     from src.services.result_advice import PURPOSE_LABEL
     budget = values.get("budget_max")
     priority = values.get("priority")
-    if not totals or not budget or values.get("mode") != "build" or totals.get("over_budget"):
+    if not totals or not budget or values.get("mode") != "build":
         return None
     spent = int(totals.get("selected_price") or 0)
     remaining = int(budget) - spent
+    if totals.get("over_budget"):
+        # 예산을 넘은 구성은 조용히 보여 주지 않는다(U-08) — 얼마나 넘었는지와 줄이는 길을 적는다.
+        # 넘은 이유가 요구 성능의 최저가 때문인지 사용자가 바꾼 부품 때문인지는 여기서 모르므로 이유는 단정하지 않는다.
+        return {"message": (f"예산 {fmt_money(budget)}보다 {fmt_money(-remaining)} 많은 {fmt_money(spent)} 구성이에요. "
+                            "예산을 올리거나 해상도·게임 같은 요구 사양을 낮추거나, 부품을 더 저렴한 것으로 바꾸면 예산에 가까워져요."),
+                "budget": int(budget), "spent": spent, "remaining": remaining, "suggest_priority": None}
     if spent <= 0 or remaining < budget * UNDERSPENT_RATIO:
         return None
     head = f"예산 {fmt_money(budget)} 중 {fmt_money(spent)}을 썼어요."
@@ -704,6 +710,11 @@ def _current_set(conn, revision_id: UUID, cvals: dict, stored: list[dict]):
     return chosen, spec
 
 
+def _picked_qty(stored: list[dict]) -> dict[str, int]:
+    """선택된 부품의 슬롯별 수량 — 호환 점검이 M.2 SSD·RAM 개수를 슬롯 수와 견준다."""
+    return {r["slot"]: int(r["qty"] or 1) for r in stored if r.get("selected") is not False}
+
+
 def compat_checks(conn, revision_id: UUID, cvals: dict, stored: list[dict]) -> list[dict]:
     """결과 화면의 "호환성 점검 상세" — 검사별로 무엇을 비교했고 결과가 어땠는지(PC 만). 저장하지 않고 지금 선택된
     부품으로 그때그때 계산해서, 교체·담기 뒤에도 항상 현재 구성을 따라간다."""
@@ -713,7 +724,7 @@ def compat_checks(conn, revision_id: UUID, cvals: dict, stored: list[dict]) -> l
     from src.engine.stage4_optimize import pc_compat_details
 
     chosen, spec = _current_set(conn, revision_id, cvals, stored)
-    rows = pc_compat_details(chosen, spec, load_computer_rules()["verification"])
+    rows = pc_compat_details(chosen, spec, load_computer_rules()["verification"], _picked_qty(stored))
     if cvals.get("budget_max"):
         total = sum((int(r["price"]) if r["price"] is not None else 0) * int(r["qty"] or 1)
                     for r in stored if r.get("selected") is not False)
@@ -746,7 +757,7 @@ def reverify_set(conn, revision_id: UUID, run: dict) -> None:
     stored = erepo.get_candidates(run["id"])
     picked = [row for row in stored if row.get("selected") is not False]
     chosen, spec = _current_set(conn, revision_id, cvals, stored)
-    link_check = pc_link_check(chosen, spec, load_computer_rules()["verification"])
+    link_check = pc_link_check(chosen, spec, load_computer_rules()["verification"], _picked_qty(stored))
 
     budget_max = cvals.get("budget_max") or 0
     total = sum((int(r["price"]) if r["price"] is not None else 0) * int(r["qty"] or 1) for r in picked)
@@ -756,7 +767,7 @@ def reverify_set(conn, revision_id: UUID, run: dict) -> None:
                         budget={"max": budget_max, "used": total,
                                 "used_pct": round(total / budget_max * 100, 1) if budget_max else 0.0})
     verification = stage3c_verify.verify_build(
-        build, "computer", chosen=chosen, spec=spec, rules=load_computer_rules()["verification"])
+        build, "computer", chosen=chosen, spec=spec, rules=load_computer_rules()["verification"], qty=_picked_qty(stored))
     erepo.delete_validations(run["id"])
     _store_validations(erepo, run["id"], verification)
     # 같은 적격성을 지금 선택된 부품으로 다시 계산해 "추천 적격성" 단계를 교체한다(보완 시도 기록은 이어 둔다).
@@ -984,21 +995,21 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
         steps = erepo.get_run_steps(run["id"], [elig.ELIGIBILITY_STEP, build_margins.MARGINS_STEP])
     result["eligibility"] = _eligibility_out(steps.get(elig.ELIGIBILITY_STEP))
     result["margins"] = _margins_out(steps.get(build_margins.MARGINS_STEP))
-    candidates_by_slot = prodrepo.candidates_by_slot()
+    variant_ids_by_slot = prodrepo.candidate_variant_ids_by_slot()
     items = []
     candidate_rows = erepo.get_candidates(run["id"])
     from src.repo.catalog_repo import load_specs_by_variant
     specs_by_variant = load_specs_by_variant(
         conn, [(row["product_type"], str(row["variant_id"])) for row in candidate_rows]
     )
+    review_counts = review_service.db_review_counts(conn, [row["product_id"] for row in candidate_rows])
     for row in candidate_rows:
         product_key = (pc_catalog_key(row["product_type"], row["brand"], row["product_key"])
                        if category == "computer" and row["product_type"] in PC_TYPE_TO_SLOT
                        else row["product_key"])
         spec_summary = _spec_summary(row["slot"], specs_by_variant.get(str(row["variant_id"])))
         price = int(row["price"]) if row["price"] is not None else 0
-        slot_variants = candidates_by_slot.get(row["slot"], [])
-        alternatives_count = sum(1 for c in slot_variants if c["variant_id"] != row["variant_id"])
+        alternatives_count = len(variant_ids_by_slot.get(row["slot"], set()) - {str(row["variant_id"])})
         items.append({
             "item_id": str(row["id"]), "slot": row["slot"], "slot_label": row["slot_label"],
             "product": {
@@ -1010,7 +1021,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
             "price": price, "price_source": "observed" if category == "computer" else "synthetic",
             "price_observed_at": row["observed_at"].isoformat() if row["observed_at"] else None,
             "qty": row["qty"], "selected": row["selected"], "timing": row["timing"], "budget_share": None,
-            "review": review_service.review_brief(product_key),
+            "review": _review_with_db_count(review_service.review_brief(product_key, conn), review_counts.get(str(row["product_id"]))),
             "review_detail": review_for_candidate(
                 review_snapshot, variant_id=row["variant_id"], product_id=row["product_id"],
                 slot=row["slot"], selection_source="user_swap" if row["score"] is None else "automatic",
@@ -1074,6 +1085,13 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
 
 
 # ── 결과 화면 상호작용 (§D-4-2: 담기/빼기·수량·구매시점 / 후보 교체 / 결과 대화) ──
+
+def _review_with_db_count(brief: dict | None, db_count: int | None) -> dict | None:
+    """화면의 '리뷰 N개' 는 순위가 읽는 DB 의 리뷰 문서 수로 채운다 — 파일 산출물에 상품이 없을 때만(U-12)."""
+    if brief is None or brief.get("total_count") is not None or not db_count:
+        return brief
+    return {**brief, "total_count": db_count}
+
 
 def _require_done_run(conn, revision_id: UUID) -> tuple:
     from src.repo.engine_repo import EngineRepo

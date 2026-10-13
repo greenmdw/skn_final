@@ -11,6 +11,8 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 from src.dto import ReviewScoreDetail as ReviewScoreDetailDTO
+from src.engine.peripheral_intent import Interpretation as PeripheralInterpretation
+from src.engine.peripheral_intent import ResolvedKind as PeripheralResolvedKind
 
 
 # ── auth: 코드 로그인 (보류 — §G 재사용 예정) ──
@@ -895,6 +897,12 @@ class PeripheralsRecommendIn(BaseModel):
     # 주면 그 PC 견적의 해상도·GPU 스펙을 pc_context로 묶어 모니터 교차검사를 추가로 켠다
     # (principal 소유가 아니거나 못 찾으면 조용히 무시 — 독립 추천으로 그냥 진행한다).
     pc_list_id: Optional[str] = None
+    # 견적 입력(POST /peripherals/interpret 의 결과를 그대로 넘긴다). 목록에 없는 값은 오류 없이 무시하고
+    # 응답의 ignored_inputs 로 알린다. 목적·상황에서 풀린 조건은 선호로만 쓰고, 거르는 것은 stated 뿐이다.
+    purposes: list[str] = Field(default_factory=list)
+    situations: list[str] = Field(default_factory=list)
+    stated: dict[str, list[str]] = Field(default_factory=dict)       # 종류 → 직접 말한 스펙 조건 이름
+    kind_budget: dict[str, int] = Field(default_factory=dict)        # 종류 → 예산 상한(원). 합산 예산은 budget_max
 
 
 class PeripheralProductOut(BaseModel):
@@ -942,6 +950,8 @@ class PeripheralItemOut(BaseModel):
     review: ReviewScoreDetailDTO | None = None
     review_weight: float = 0.0
     review_note: str
+    feel: dict[str, Any] | None = None       # 체감 근거 블록. None 이면 보여 줄 근거가 없다
+    feel_note: str | None = None             # feel 이 None 일 때만 있다("스펙과 가격 기준 추천")
 
 
 class PeripheralEmptyOut(BaseModel):
@@ -954,11 +964,55 @@ class PeripheralTotalsOut(BaseModel):
     note: str
 
 
+class PeripheralAdjustChipOut(BaseModel):
+    """"더 맞추기" 칩 하나. 누르면 `add` 를 추천 입력(purposes·situations·stated)에 더해 다시 부르면 된다.
+    눌렀을 때 지금 보이는 순서가 바뀌는 칩만 나온다(`moved` 는 바뀌는 자리 수)."""
+
+    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    id: str
+    label: str
+    add: dict[str, Any]
+    moved: int
+
+
 class PeripheralsOut(BaseModel):
     status: Literal["ready", "empty", "skipped"]
     items: list[PeripheralItemOut] = Field(default_factory=list)
     empty: list[PeripheralEmptyOut] = Field(default_factory=list)
     totals: PeripheralTotalsOut
+    ignored_inputs: list[str] = Field(default_factory=list)    # 목록에 없어 반영하지 않은 목적·상황·조건 이름
+    adjust_chips: list[PeripheralAdjustChipOut] = Field(default_factory=list)    # "더 맞추기" 칩(최대 3개)
+
+
+class PeripheralCatalogItemOut(BaseModel):
+    """제품 검색(GET /peripherals/catalog/search)의 한 항목. options 는 제안 목록일 뿐이다."""
+
+    product_id: str
+    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    brand: str
+    model: str
+    image_url: str | None = None
+    options: list[str] = Field(default_factory=list)
+
+
+class PeripheralCatalogSearchOut(BaseModel):
+    items: list[PeripheralCatalogItemOut] = Field(default_factory=list)
+
+
+class PeripheralInterpretIn(BaseModel):
+    """POST /peripherals/interpret — 견적 문장 한 줄. 이어서 말하면 이전 해석(`previous`)에 더해진다."""
+
+    text: str = Field(min_length=1, max_length=2000)    # 서버가 설정의 글자 수 상한으로 한 번 더 자른다
+    previous: dict[str, Any] | None = None             # 직전 응답의 interpretation 을 그대로 돌려보낸다
+    kinds: list[Literal["monitor", "keyboard", "mouse", "speaker"]] | None = None    # 종류 카드로 고른 값
+
+
+class PeripheralInterpretOut(BaseModel):
+    interpretation: PeripheralInterpretation
+    resolved: dict[str, PeripheralResolvedKind] = Field(default_factory=dict)    # 종류 → 풀이 결과
+    needs_kind: bool                       # True 면 화면이 "어떤 기기를 찾으세요?" 카드를 띄운다
+    source: Literal["llm", "rules"]        # 어떻게 읽었는가(규칙은 모델을 쓰지 못했을 때)
+    truncated: bool = False                # 문장이 길어 앞부분만 읽었는가
 
 
 class SwapIn(BaseModel):
@@ -1010,7 +1064,7 @@ class CompatCheckOut(BaseModel):
 
 
 class BudgetNoticeOut(BaseModel):
-    """예산을 많이 남긴 이유 안내 — 우선순위(가성비·저소음·성능)와 상관없이 예산을 많이 남긴 새 구성에 채운다."""
+    """예산 안내 — 예산을 많이 남긴 새 구성(이유와 쓰는 길) 또는 예산을 넘은 구성(얼마나 넘었는지, remaining 이 음수)에 채운다."""
 
     message: str
     budget: int

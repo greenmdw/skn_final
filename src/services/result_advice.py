@@ -325,6 +325,29 @@ def step_candidate(ctx: _Ctx, slot: str, direction: str):
     return (min if up else max)(pool, key=_price)
 
 
+def _no_step_text(conn, ctx: _Ctx, slot: str, row: dict, cur, direction: str) -> str:
+    """한 단계 위/아래 후보가 없을 때 그 이유 — "쿨러 더 저렴한 걸로 바꿔줘"에 "한 단계 아래 후보가 카탈로그에
+    없습니다"만 돌려줘, 모델이 이유 없이 "교체하지 않았습니다"로 답했다(통합테스트 F-6 · U-04, 10/12 재현 3/3).
+    실제로는 지금 쿨러가 카탈로그 쿨러 40개 중 가장 싼 것이었다. 성능 값이 없는 슬롯은 가격으로 견준다."""
+    up = direction == "up"
+    word = "위" if up else "아래"
+    head = f"{slot}: 지금 {row['product_name']} {fmt_money(_price(row))}"
+    m0 = _metric(slot, cur.specs) if cur is not None else None
+    if m0 is not None:
+        return f"{head} · {_metric_text(slot, m0)} — 지금 구성과 맞는 한 단계 {word} 후보가 카탈로그에 없습니다."
+    pool = [c for c in ctx.pool.get(slot, []) if cur is None or c.variant_id != cur.variant_id]
+    beyond = [c for c in pool if c.price is not None and (_price(c) > _price(row) if up else _price(c) < _price(row))]
+    if not beyond:
+        lines = [f"{head} — 카탈로그 {slot} {len(pool) + 1}개 중 가장 {'비싼' if up else '싼'} 제품이라 "
+                 f"더 {'비싼' if up else '싼'} 후보가 없습니다."]
+    else:
+        lines = [f"{head} — 더 {'비싼' if up else '싼'} 후보 {len(beyond)}개는 모두 지금 구성과 호환 점검에서 맞지 않습니다."]
+    if slot == "쿨러" and not up:
+        # 더 줄일 길은 쿨러를 빼고 CPU 기본 쿨러를 쓰는 것뿐 — 그 사실(기본 쿨러 포함 여부)을 같이 준다
+        lines += cooler_lines(conn, ctx)
+    return "\n".join(lines)
+
+
 def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = None, direction: str | None = None) -> str:
     """slot 을 variant_id(또는 direction='up'|'down' 이면 한 단계 위/아래 후보)로 바꾼다고 가정한 결과 — 가격·예산,
     성능 등급, 요구 사양, 부품 사이 호환. 구성표는 그대로다."""
@@ -345,9 +368,7 @@ def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = No
     elif direction in ("up", "down"):
         cand = step_candidate(ctx, slot, direction)
         if cand is None:
-            word = "위" if direction == "up" else "아래"
-            return (f"{slot}: 지금 {row['product_name']} {_metric_text(slot, _metric(slot, cur.specs) if cur else None)}"
-                    f" — 지금 구성과 맞는 한 단계 {word} 후보가 카탈로그에 없습니다.")
+            return _no_step_text(conn, ctx, slot, row, cur, direction)
     else:
         return "오류: candidate_id 또는 direction('up'/'down') 중 하나가 필요합니다."
     qty = _qty(row)
@@ -407,6 +428,50 @@ def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = No
         lines.append("스펙 정보가 없어 확인 못 한 항목: " + ", ".join(r["label"] for r in new_unknown))
     if slot == "CPU":
         lines += [x for x in cooler_lines(conn, ctx, cand.variant_id) if x.startswith(("CPU 기본 쿨러", "⚠"))]
+    return "\n".join(lines)
+
+
+def preview_qty(conn, revision_id: UUID, slot: str, qty: int) -> str:
+    """slot 의 수량을 qty 로 바꾼다고 가정한 결과 — 같은 제품을 더(덜) 담는 것이라 교체가 아니다. 차액·예산과
+    수량을 반영한 호환 점검(M.2 SSD 개수·RAM 모듈 수 ↔ 메인보드 슬롯). 구성표는 그대로다.
+    "SSD 1테라 더 달아도 됨"을 가격순 다음 후보로의 교체로 답하던 것(10/7~10/12 평가 3판 모두) — 묻는 말이라
+    수량 변경 도구가 닫혀 있고, 가정 계산 도구가 교체(preview_swap)뿐이었다."""
+    from src.services.recommendation_service import compat_checks
+    ctx = _context(conn, revision_id)
+    row = ctx.row(slot)
+    if row is None:
+        return f"오류: 담긴 부품 중 '{slot}' 슬롯이 없습니다."
+    cur = _qty(row)
+    if qty == cur:
+        return f"{slot}: 지금도 {row['product_name']} {cur}개입니다."
+    delta = _price(row) * (qty - cur)
+    total = ctx.total() + delta
+    more = qty - cur
+    lines = [f"(가정 계산 — 구성표는 그대로) {slot}: {row['product_name']} {fmt_money(_price(row))} × {cur} → × {qty}"
+             f" (차액 {fmt_money(delta, signed=True)}) — 같은 제품을 {abs(more)}개 {'더 담는' if more > 0 else '덜 담는'} 것이라 교체가 아님"]
+    if ctx.budget_max:
+        remaining = ctx.budget_max - total
+        lines.append(f"바꾼 뒤 총액 {fmt_money(total)} · 예산 {fmt_money(ctx.budget_max)} · "
+                     + (f"⚠ 예산 초과 {fmt_money(-remaining)}" if remaining < 0 else f"잔여 {fmt_money(remaining)}"))
+    else:
+        lines.append(f"바꾼 뒤 총액 {fmt_money(total)} (예산 상한 없음)")
+    if slot == "저장장치":
+        lines.append("저장장치 용량: 카탈로그에 이 제품의 판매 용량이 없어 몇 TB가 늘어나는지는 알 수 없음 — 같은 제품 기준")
+    changed = [{**r, "qty": qty} if r["id"] == row["id"] else r for r in ctx.stored]
+    before = {r["axis"]: r for r in compat_checks(conn, revision_id, ctx.cvals, ctx.stored)}
+    after = [r for r in compat_checks(conn, revision_id, ctx.cvals, changed) if r["axis"] != "budget"]
+    fails = [r for r in after if r["state"] == "fail"]
+    if fails:
+        lines.append("⚠ 호환 점검 문제: " + " / ".join(f"{r['label']}: {r['detail']}" for r in fails))
+    else:
+        lines.append("호환 점검(소켓·메모리·크기·전력 등)을 바꾼 수량으로 돌렸고 확정된 문제는 없음")
+    axis = {"저장장치": "m2", "RAM": "ram_slots"}.get(slot)
+    shown = next((r for r in after if r["axis"] == axis and r["state"] not in ("skipped", "fail")), None)
+    if shown:
+        lines.append(f"{shown['label']}: {shown['detail']}")
+    new_unknown = [r for r in after if r["state"] == "unknown" and (before.get(r["axis"]) or {}).get("state") != "unknown"]
+    if new_unknown:
+        lines.append("스펙 정보가 없어 확인 못 한 항목: " + ", ".join(r["label"] for r in new_unknown))
     return "\n".join(lines)
 
 

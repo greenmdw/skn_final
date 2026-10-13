@@ -2,8 +2,8 @@
 
 DB 불필요(마지막 두 절의 "전체 CSV" 테스트만 data/peripherals/*_processed.csv 원본을
 읽는다 — DB 접속은 아니다). 계획 §3.3 E10의 완료 기준: QHD_165 하드 조건, 해상도 미지정 시
-기본값(FHD_144)+assumed, 4K의 용도별 주사율 하한, 소음/게임 소프트 선호, 요청하지 않은
-종류 배제, 잘못된 설정에서 PeripheralRuleError, C6(기본 조건에서 모니터 0건) 사실 고정,
+기본값(FHD_144)+assumed, 4K의 용도별 주사율 하한, 목적·상황 풀이 선호와 직접 말한 조건의 거르기,
+요청하지 않은 종류 배제, 잘못된 설정에서 PeripheralRuleError, C6(기본 조건에서 모니터 0건) 사실 고정,
 마우스 블루투스⊆무선 사실 고정(코디네이터 리뷰 반영 — 아래 참고).
 """
 from __future__ import annotations
@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 from src.config import ROOT
+from src.engine import peripheral_intent
 from src.engine import peripheral_rules as pr
 from src.engine.peripheral_catalog import load_peripheral_candidates_from_csv
 from src.engine.peripheral_requirement import build_requirements
@@ -57,75 +58,93 @@ def test_4k_refresh_min_hz_depends_on_purpose():
     assert office.hard == {"resolution_class": ["UHD"], "refresh_min_hz": 60}
 
 
-# ── 소프트 선호 ─────────────────────────────────────────────────────────────
-def test_quiet_priority_prefers_non_clicky_keyboard_switch():
-    req = build_requirements({"priority": "quiet"}, ["keyboard"])["keyboard"]
-    assert {"key": "switch_clicky", "op": "equals", "value": False} in req.soft["preferences"]
-
-
-def test_noise_sensitive_also_prefers_non_clicky_keyboard_switch():
-    req = build_requirements({"noise_sensitive": True}, ["keyboard"])["keyboard"]
-    assert {"key": "switch_clicky", "op": "equals", "value": False} in req.soft["preferences"]
-
-
-def test_quiet_and_noise_sensitive_both_match_appends_both_not_overwrite():
-    """설계 결정(모듈 docstring): 여러 when 이 같은 판정 키를 겨냥하면 뒤 조건이 앞 조건을
-    덮지 않고 둘 다 preferences 목록에 쌓인다."""
-    req = build_requirements({"priority": "quiet", "noise_sensitive": True}, ["keyboard"])["keyboard"]
-    clicky_false_count = sum(
-        1 for p in req.soft["preferences"] if p == {"key": "switch_clicky", "op": "equals", "value": False}
+# ── 선호와 거르기: 목적 풀이(peripheral_intent.resolve)가 만든 값을 옮겨 담는다 ─────────────────
+def _req(raw_input: dict, kinds: list[str], **values) -> dict:
+    interp = peripheral_intent.sanitize({"kinds": kinds, **raw_input})
+    return build_requirements(
+        {"peripheral_resolved": peripheral_intent.resolve(interp), **values}, kinds,
     )
-    assert clicky_false_count == 2
 
 
-def test_game_purpose_prefers_magnetic_and_rapid_trigger_keyboard():
-    req = build_requirements({"purpose": "game"}, ["keyboard"])["keyboard"]
+def test_quiet_situation_prefers_non_clicky_keyboard_switch():
+    req = _req({"situations": ["quiet_place"]}, ["keyboard"])["keyboard"]
+    assert {"key": "switch_clicky", "op": "equals", "value": False} in req.soft["preferences"]
+
+
+def test_fps_prefers_magnetic_and_rapid_trigger_keyboard():
+    req = _req({"purposes": ["fps"]}, ["keyboard"])["keyboard"]
     prefs = req.soft["preferences"]
     assert {"key": "switch_magnetic", "op": "equals", "value": True} in prefs
     assert {"key": "rapid_trigger", "op": "equals", "value": True} in prefs
+    assert req.filters == []          # 목적에서 풀린 조건은 거르지 않는다
 
 
-def test_game_purpose_prefers_high_polling_mouse():
-    req = build_requirements({"purpose": "game"}, ["mouse"])["mouse"]
-    assert {"key": "polling_hz_max", "op": "min", "value": 1000} in req.soft["preferences"]
+def test_fps_prefers_light_high_polling_mouse():
+    prefs = _req({"purposes": ["fps"]}, ["mouse"])["mouse"].soft["preferences"]
+    assert {"key": "polling_hz_max", "op": "min", "value": 4000} in prefs
+    assert {"key": "weight_g", "op": "max", "value": 80} in prefs
 
 
-@pytest.mark.parametrize("purpose", ["office", "study"])
-def test_office_or_study_prefers_wireless_mouse(purpose):
-    """무선만 선호로 둔다(블루투스는 별도 pref 없음) — 아래 전체 카탈로그 고정 테스트가
-    이유(블루투스는 항상 무선의 부분집합으로 관측됨)를 증명한다. 둘 다 넣으면 이중 계산이
-    된다(코디네이터 리뷰 지적)."""
-    req = build_requirements({"purpose": purpose}, ["mouse"])["mouse"]
-    prefs = req.soft["preferences"]
+def test_general_game_does_not_narrow_mouse_specs():
+    """"게임용"이라고만 하면 게임(일반)이고 스펙을 좁히지 않는다(견적 입력 설계 5.1)."""
+    req = _req({"purposes": ["game"]}, ["mouse"])["mouse"]
+    assert req.soft == {} and req.filters == []
+
+
+def test_office_prefers_only_wireless_mouse():
+    """무선만 선호로 둔다(블루투스는 별도 pref 없음) — 아래 전체 카탈로그 고정 테스트가 이유(블루투스는 항상
+    무선의 부분집합으로 관측됨)를 증명한다."""
+    prefs = _req({"purposes": ["office"]}, ["mouse"])["mouse"].soft["preferences"]
     assert prefs == [{"key": "connectivity_wireless", "op": "equals", "value": True}]
 
 
-def test_office_prefers_usb_powered_speaker():
-    req = build_requirements({"purpose": "office"}, ["speaker"])["speaker"]
-    assert {"key": "power_source_raw", "op": "contains_any", "value": ["USB"]} in req.soft["preferences"]
+def test_desk_casual_prefers_small_usb_powered_speaker():
+    prefs = _req({"purposes": ["desk_casual"]}, ["speaker"])["speaker"].soft["preferences"]
+    assert {"key": "power_source_raw", "op": "contains_any", "value": ["USB"]} in prefs
+    assert {"key": "size_longest_mm", "op": "max", "value": 200} in prefs
 
 
-def test_game_prefers_multichannel_speaker():
-    req = build_requirements({"purpose": "game"}, ["speaker"])["speaker"]
-    assert {"key": "channels", "op": "min", "value": 2} in req.soft["preferences"]
+def test_creative_prefers_ips_and_high_resolution_monitor():
+    prefs = _req({"purposes": ["creative"]}, ["monitor"], resolution="QHD_165")["monitor"].soft["preferences"]
+    assert {"key": "panel_raw", "op": "contains_any", "value": ["IPS"]} in prefs
+    assert {"key": "resolution_h", "op": "min", "value": 2160} in prefs
 
 
-def test_creation_prefers_ips_oled_monitor_panel():
-    req = build_requirements({"purpose": "creation"}, ["monitor"])["monitor"]
-    assert {"key": "panel_raw", "op": "contains_any", "value": ["IPS", "OLED"]} in req.soft["preferences"]
+def test_purpose_missing_from_a_kind_table_does_nothing_for_that_kind():
+    """같은 코드가 표에 없는 종류에는 아무 일도 하지 않는다(종류를 가리지 않은 말은 있는 종류에만 적용)."""
+    reqs = _req({"purposes": ["office"]}, ["mouse", "speaker"])
+    assert reqs["mouse"].soft != {}
+    assert reqs["speaker"].soft == {}
 
 
-def test_no_matching_condition_gives_empty_soft():
-    req = build_requirements({"purpose": "other"}, ["speaker"])["speaker"]
+def test_stated_filterable_condition_filters_and_is_not_a_preference():
+    req = _req({"stated": {"mouse": ["wireless"]}}, ["mouse"])["mouse"]
+    assert req.filters == [{"key": "connectivity_wireless", "op": "equals", "value": True}]
     assert req.soft == {}
+
+
+def test_stated_threshold_condition_is_only_a_preference():
+    """임계값이 잠정인 조건(가벼운 무게)은 직접 말해도 거르지 않는다 — 거르면 제품이 사라진다."""
+    req = _req({"stated": {"mouse": ["lightweight"]}}, ["mouse"])["mouse"]
+    assert req.filters == []
+    assert req.soft["preferences"] == [{"key": "weight_g", "op": "max", "value": 80}]
+
+
+def test_condition_in_filters_is_not_repeated_as_preference():
+    req = _req({"purposes": ["portable"], "stated": {"mouse": ["wireless"]}}, ["mouse"])["mouse"]
+    assert {"key": "connectivity_wireless", "op": "equals", "value": True} not in req.soft["preferences"]
+    assert {"key": "connectivity_bluetooth", "op": "equals", "value": True} in req.soft["preferences"]
+
+
+def test_no_resolved_input_gives_empty_soft_and_filters():
+    req = build_requirements({}, ["speaker"])["speaker"]
+    assert req.soft == {} and req.filters == []
 
 
 # ── 요청하지 않은 종류는 결과에 없음 ────────────────────────────────────────
 def test_unrequested_kind_not_in_result():
-    reqs = build_requirements({"purpose": "game"}, ["keyboard"])
+    reqs = _req({"purposes": ["fps"]}, ["keyboard"])
     assert set(reqs) == {"keyboard"}
-    assert "mouse" not in reqs
-    assert "monitor" not in reqs
 
 
 def test_empty_kinds_list_gives_empty_result():
@@ -133,33 +152,17 @@ def test_empty_kinds_list_gives_empty_result():
 
 
 # ── 잘못된 설정은 PeripheralRuleError ──────────────────────────────────────
-def test_unknown_condition_key_in_soft_when_raises(tmp_path):
+def test_unknown_spec_key_in_spec_conditions_raises(tmp_path):
     rules = deepcopy(pr.load_peripheral_rules())
-    rules["requirements"]["keyboard"]["soft"][0]["when"] = {"never_heard_of_this": "x"}
-    path = _write(tmp_path, rules)
-    with pytest.raises(pr.PeripheralRuleError, match="조건 키"):
-        pr.load_peripheral_rules(path)
-
-
-def test_enum_value_outside_slot_schema_raises(tmp_path):
-    rules = deepcopy(pr.load_peripheral_rules())
-    rules["requirements"]["keyboard"]["soft"][0]["when"] = {"priority": "ultra_quiet"}
-    path = _write(tmp_path, rules)
-    with pytest.raises(pr.PeripheralRuleError, match="조건 값"):
-        pr.load_peripheral_rules(path)
-
-
-def test_unknown_spec_key_in_soft_prefs_raises(tmp_path):
-    rules = deepcopy(pr.load_peripheral_rules())
-    rules["requirements"]["mouse"]["soft"][0]["prefs"][0]["key"] = "totally_made_up_key"
+    rules["spec_conditions"]["mouse"]["wireless"]["prefs"][0]["key"] = "totally_made_up_key"
     path = _write(tmp_path, rules)
     with pytest.raises(pr.PeripheralRuleError, match="spec 키"):
         pr.load_peripheral_rules(path)
 
 
-def test_unknown_operator_in_soft_prefs_raises(tmp_path):
+def test_unknown_operator_in_spec_conditions_raises(tmp_path):
     rules = deepcopy(pr.load_peripheral_rules())
-    rules["requirements"]["mouse"]["soft"][0]["prefs"][0]["op"] = "greater_than_maybe"
+    rules["spec_conditions"]["mouse"]["wireless"]["prefs"][0]["op"] = "greater_than_maybe"
     path = _write(tmp_path, rules)
     with pytest.raises(pr.PeripheralRuleError, match="연산자"):
         pr.load_peripheral_rules(path)
@@ -167,10 +170,42 @@ def test_unknown_operator_in_soft_prefs_raises(tmp_path):
 
 def test_min_op_with_non_numeric_value_raises(tmp_path):
     rules = deepcopy(pr.load_peripheral_rules())
-    rules["requirements"]["mouse"]["soft"][0]["prefs"][0]["op"] = "min"
-    rules["requirements"]["mouse"]["soft"][0]["prefs"][0]["value"] = "not-a-number"
+    rules["spec_conditions"]["mouse"]["lightweight"]["prefs"][0].update(op="min", value="not-a-number")
     path = _write(tmp_path, rules)
     with pytest.raises(pr.PeripheralRuleError, match="숫자"):
+        pr.load_peripheral_rules(path)
+
+
+def test_purpose_prefer_must_name_an_existing_condition(tmp_path):
+    rules = deepcopy(pr.load_peripheral_rules())
+    rules["purposes"]["mouse"]["office"]["prefer"] = ["no_such_condition"]
+    path = _write(tmp_path, rules)
+    with pytest.raises(pr.PeripheralRuleError, match="spec_conditions 에 없는 이름"):
+        pr.load_peripheral_rules(path)
+
+
+def test_spec_condition_filter_must_be_boolean(tmp_path):
+    rules = deepcopy(pr.load_peripheral_rules())
+    rules["spec_conditions"]["mouse"]["wireless"]["filter"] = "yes"
+    path = _write(tmp_path, rules)
+    with pytest.raises(pr.PeripheralRuleError, match="true/false"):
+        pr.load_peripheral_rules(path)
+
+
+def test_pc_purpose_map_must_name_existing_purposes(tmp_path):
+    rules = deepcopy(pr.load_peripheral_rules())
+    rules["pc_purpose_map"]["game"] = ["not_a_purpose"]
+    path = _write(tmp_path, rules)
+    with pytest.raises(pr.PeripheralRuleError, match="purposes 에 없는 이름"):
+        pr.load_peripheral_rules(path)
+
+
+def test_removed_requirements_soft_section_is_rejected(tmp_path):
+    """요구사양의 소프트 선호(when/prefs)는 목적 풀이 표로 대체됐다. 남아 있으면 조용히 무시하지 않고 오류다."""
+    rules = deepcopy(pr.load_peripheral_rules())
+    rules["requirements"]["keyboard"] = {"soft": [{"when": {"purpose": "game"}, "prefs": []}]}
+    path = _write(tmp_path, rules)
+    with pytest.raises(pr.PeripheralRuleError, match="monitor 하나만"):
         pr.load_peripheral_rules(path)
 
 
@@ -192,9 +227,9 @@ def test_monitor_hard_non_positive_refresh_raises(tmp_path):
 
 def test_hard_section_outside_monitor_raises(tmp_path):
     rules = deepcopy(pr.load_peripheral_rules())
-    rules["requirements"]["keyboard"]["hard"] = {"resolution_class_by_res": {}}
+    rules["requirements"]["keyboard"] = {"hard": {"resolution_class_by_res": {}}}
     path = _write(tmp_path, rules)
-    with pytest.raises(pr.PeripheralRuleError, match="monitor 전용"):
+    with pytest.raises(pr.PeripheralRuleError, match="monitor 하나만"):
         pr.load_peripheral_rules(path)
 
 

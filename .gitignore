@@ -103,3 +103,7 @@ docs/local/
 .ppt-build/
 output/presentations/
 artifacts/screen-spec/
+
+# 커뮤니티 업로드 이미지(런타임 생성물)
+/data/uploads/
+/uploads/

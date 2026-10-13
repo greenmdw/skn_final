@@ -144,9 +144,16 @@ def test_performance_priority_that_leaves_a_lot_explains_the_method_without_a_re
     assert "성능 우선'으로 다시" not in notice["message"]
 
 
-def test_no_notice_for_upgrade_over_budget_or_missing_data():
+def test_no_notice_for_upgrade_or_missing_data():
     assert budget_notice(_totals(300_000), {"mode": "upgrade", "budget_max": 2_000_000, "priority": "value"}) is None
-    assert budget_notice(_totals(2_500_000, over=True), {"mode": "build", "budget_max": 2_000_000, "priority": "value"}) is None
     assert budget_notice(None, {"mode": "build", "budget_max": 2_000_000, "priority": "value"}) is None
     assert budget_notice(_totals(1_000_000), {"mode": "build", "budget_max": None, "priority": "value"}) is None
     assert budget_notice(_totals(0), {"mode": "build", "budget_max": 2_000_000, "priority": "value"}) is None
+
+
+def test_over_budget_notice_states_the_excess_without_a_retry_suggestion():
+    """U-08 — 예산을 넘은 구성은 초과 금액을 알리고(remaining 음수) 우선순위 재추천을 권하지 않는다. 업그레이드는 계속 제외."""
+    notice = budget_notice(_totals(2_500_000, over=True), {"mode": "build", "budget_max": 2_000_000, "priority": "value"})
+    assert notice["remaining"] == -500_000 and notice["spent"] == 2_500_000 and notice["suggest_priority"] is None
+    assert "500,000원" in notice["message"] and "많은" in notice["message"]
+    assert budget_notice(_totals(2_500_000, over=True), {"mode": "upgrade", "budget_max": 2_000_000, "priority": "value"}) is None
