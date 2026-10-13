@@ -107,3 +107,6 @@ artifacts/screen-spec/
 # 커뮤니티 업로드 이미지(런타임 생성물)
 /data/uploads/
 /uploads/
+
+# 예시 글 스냅샷(분석·임베딩 결과 덤프) — 팀 내 파일로 공유. data/community_examples/README.md 참고
+data/community_examples/dump/
