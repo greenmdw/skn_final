@@ -209,6 +209,7 @@ verification:
       when: m2_ssd
       keys: [{slot: 저장장치, key: form_factor, as: type}, {slot: 메인보드, key: m2_slots, parse: number}]
     ram_speed:              # 사용자 필수 속도(targets.RAM.speed_mts_min)가 있을 때만 필수. 없으면 기존 '확인 필요' 안내
+                            # 현재는 사용자에게서 속도 요구를 받지 않아(입력 경로 없음) 실제 요청에서는 늘 비필수다
       when: user_ram_speed
       keys: [{slot: RAM, key: speed_mts, as: ram, parse: number}, {slot: 메인보드, key: max_memory_speed_mts, as: board, parse: number},
              {slot: CPU, key: max_memory_speed_mts, as: cpu, parse: number}]
