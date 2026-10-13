@@ -78,6 +78,7 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
     from src.engine.peripheral_payload import peripheral_payload
     from src.engine.peripheral_select import run_peripherals
     from src.engine.peripheral_suggest import suggest_chips
+    from src.services import peripheral_post_pipeline
     from src.repo.catalog_repo import load_peripheral_candidates
     from src.services.review_ranking import score_peripheral_candidates
 
@@ -89,6 +90,8 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
         "peripheral_kind_budget": interp.budget,
         "peripheral_intent": interp,
         "peripheral_resolved": peripheral_intent.resolve(interp),
+        # 사용기 분석이 쌓은 근거(종류 → 관측). 분석 결과가 없으면 비어 있고 체감 점수는 외부 리뷰만으로 계산된다.
+        "peripheral_feel_observations": peripheral_post_pipeline.current_observations(),
         # purpose 는 monitor.hard 의 주사율 상향(4K+game)과 리뷰 점수가, priority·noise_sensitive 는 리뷰 점수가 읽는
         # PC 견적 조건이다. 주변기기 목적(peripheral_resolved)과는 다른 말이라 그대로 넘긴다.
         "purpose": body.purpose,

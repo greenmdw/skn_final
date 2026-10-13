@@ -99,6 +99,35 @@ class MemoryIntakeStore:
     def analyses_started_since(self, since: datetime) -> int:
         return sum(1 for t in self._started if t >= since)
 
+    # 파일에 저장·복원한다(`peripheral_post_pipeline.FileState`). 테이블 위치가 정해지기 전의 임시 저장 방식이다.
+    def export(self) -> dict:
+        return {"rows": [record_to_dict(r) for r in self._rows.values()],
+                "started": [t.isoformat() for t in self._started]}
+
+    def restore(self, data: dict) -> None:
+        self._rows = {r["post_id"]: record_from_dict(r) for r in data.get("rows", [])}
+        self._started = [datetime.fromisoformat(t) for t in data.get("started", [])]
+
+
+def _dt(value: str | None) -> datetime | None:
+    return datetime.fromisoformat(value) if value else None
+
+
+def record_to_dict(r: IntakeRecord) -> dict:
+    return {"post_id": r.post_id, "status": r.status, "attempts": r.attempts, "last_error": r.last_error,
+            "analyzed_hash": r.analyzed_hash, "truncated": r.truncated,
+            "requested_at": r.requested_at.isoformat() if r.requested_at else None,
+            "started_at": r.started_at.isoformat() if r.started_at else None,
+            "processed_at": r.processed_at.isoformat() if r.processed_at else None}
+
+
+def record_from_dict(d: dict) -> IntakeRecord:
+    return IntakeRecord(
+        post_id=d["post_id"], status=d["status"], attempts=d.get("attempts", 0), last_error=d.get("last_error"),
+        analyzed_hash=d.get("analyzed_hash"), truncated=d.get("truncated", False),
+        requested_at=_dt(d.get("requested_at")), started_at=_dt(d.get("started_at")), processed_at=_dt(d.get("processed_at")),
+    )
+
 
 _default_store: IntakeStore = MemoryIntakeStore()
 
@@ -152,6 +181,7 @@ def decide(record: IntakeRecord, snapshot: PostSnapshot | None) -> Action:
 
 def claim_next(
     store: IntakeStore, *, daily_limit: int, now: datetime | None = None, scan: int = 50,
+    exclude: set[str] | None = None,
 ) -> IntakeRecord | None:
     """가장 오래 기다린 `pending` 글 하나를 `processing` 으로 바꿔 돌려준다. 하루 한도에 닿았거나 대기가 없으면 None.
     한도는 UTC 날짜 기준 분석 시작 건수다. 종료 처리(`close`·`skip`·`remove`)는 한도에 넣지 않는다 — 그건 분석을 시작하지 않는다."""
@@ -159,7 +189,7 @@ def claim_next(
     day_start = at.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     if store.analyses_started_since(day_start) >= daily_limit:
         return None
-    rows = store.pending_oldest_first(scan)
+    rows = [r for r in store.pending_oldest_first(scan) if r.post_id not in (exclude or ())]
     if not rows:
         return None
     record = replace(rows[0], status="processing", started_at=at, attempts=rows[0].attempts + 1)
@@ -211,11 +241,14 @@ def _settle(store: IntakeStore, current: IntakeRecord, done: IntakeRecord) -> In
 def process_one(
     store: IntakeStore, load_snapshot: Callable[[str], PostSnapshot | None], analyze: Callable[[str], tuple[str, bool]],
     *, daily_limit: int, max_attempts: int = DEFAULT_MAX_ATTEMPTS, now: datetime | None = None,
+    on_cleared: Callable[[str], None] | None = None, exclude: set[str] | None = None,
 ) -> tuple[IntakeRecord, Action | str] | None:
     """대기 글 하나를 처리한다. 반환: (처리 후 기록, 한 일). 처리할 것이 없거나 한도에 닿았으면 None.
 
     `load_snapshot(post_id)` 는 글의 현재 상태, `analyze(post_id)` 는 분석을 돌려 (입력 해시, 잘렸는가)를 돌려준다.
-    분석 쪽에서 난 예외는 기록하고 재시도 규칙을 따른다 — 이 함수는 예외를 밖으로 내지 않는다."""
+    분석 쪽에서 난 예외는 기록하고 재시도 규칙을 따른다 — 이 함수는 예외를 밖으로 내지 않는다.
+    `on_cleared(post_id)` 는 이 글의 기존 근거를 지워야 할 때(`remove`·`close`) 부른다.
+    `exclude` 의 글은 이번 호출에서 건드리지 않는다(한 번의 실행 안에서 실패한 글을 곧바로 다시 시도하지 않기 위해서다)."""
     at = now or _now()
     snapshot_cache: dict[str, PostSnapshot | None] = {}
 
@@ -225,12 +258,16 @@ def process_one(
 
     # 종료 처리는 한도에 넣지 않는다 — 먼저 대기 글을 훑어 분석이 필요 없는 글부터 끝낸다.
     for candidate in store.pending_oldest_first(50):
+        if exclude and candidate.post_id in exclude:
+            continue
         action = _peek(candidate)
         if action != "analyze":
             started = replace(candidate, status="processing", started_at=at)
             store.put(started)
+            if on_cleared is not None and action in ("remove", "close"):
+                on_cleared(candidate.post_id)
             return finish_without_analysis(store, started, action, at), action
-    record = claim_next(store, daily_limit=daily_limit, now=at)
+    record = claim_next(store, daily_limit=daily_limit, now=at, exclude=exclude)
     if record is None:
         return None
     try:

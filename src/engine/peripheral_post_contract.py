@@ -126,15 +126,19 @@ class PostAnalysis(BaseModel):
 
     def observations(self, post: PostInput) -> list[FeelObservation]:
         """점수에 들어가는 관측만 `FeelObservation` 으로 바꾼다. 제품이 카탈로그에 없으면 만들지 않는다."""
+        return [obs for _kind, obs in self.observations_with_kind(post)]
+
+    def observations_with_kind(self, post: PostInput) -> list[tuple[str, FeelObservation]]:
+        """`observations` 에 그 제품의 종류를 붙인 것. 종류별로 모아 점수 계산에 넘길 때 쓴다."""
         if not self.analyzable:
             return []
         author = self.author
-        out: list[FeelObservation] = []
+        out: list[tuple[str, FeelObservation]] = []
         for analyzed in self.items:
-            if not analyzed.scorable or analyzed.product_id is None:
+            if not analyzed.scorable or analyzed.product_id is None or analyzed.kind is None:
                 continue
             item = analyzed.item
-            out.append(FeelObservation(
+            out.append((analyzed.kind, FeelObservation(
                 author_id=post.author_id, product_id=analyzed.product_id, attribute=item.attribute,
                 direction=item.direction, side=item.side,
                 purposes=frozenset(author.purposes), situations=frozenset(author.situations),
@@ -142,7 +146,7 @@ class PostAnalysis(BaseModel):
                 written_at=post.written_at, is_example=post.is_example,
                 post_id=post.post_id, quote_id=analyzed.quote_id, sentence=item.sentence.strip(),
                 photo_url=post.photo_url,
-            ))
+            )))
         return out
 
 
