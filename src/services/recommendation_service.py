@@ -494,6 +494,11 @@ def _current_set(conn, revision_id: UUID, cvals: dict, stored: list[dict]):
     return chosen, spec
 
 
+def _picked_qty(stored: list[dict]) -> dict[str, int]:
+    """선택된 부품의 슬롯별 수량 — 호환 점검이 M.2 SSD·RAM 개수를 슬롯 수와 견준다."""
+    return {r["slot"]: int(r["qty"] or 1) for r in stored if r.get("selected") is not False}
+
+
 def compat_checks(conn, revision_id: UUID, cvals: dict, stored: list[dict]) -> list[dict]:
     """결과 화면의 "호환성 점검 상세" — 검사별로 무엇을 비교했고 결과가 어땠는지(PC 만). 저장하지 않고 지금 선택된
     부품으로 그때그때 계산해서, 교체·담기 뒤에도 항상 현재 구성을 따라간다."""
@@ -503,7 +508,7 @@ def compat_checks(conn, revision_id: UUID, cvals: dict, stored: list[dict]) -> l
     from src.engine.stage4_optimize import pc_compat_details
 
     chosen, spec = _current_set(conn, revision_id, cvals, stored)
-    rows = pc_compat_details(chosen, spec, load_computer_rules()["verification"])
+    rows = pc_compat_details(chosen, spec, load_computer_rules()["verification"], _picked_qty(stored))
     if cvals.get("budget_max"):
         total = sum((int(r["price"]) if r["price"] is not None else 0) * int(r["qty"] or 1)
                     for r in stored if r.get("selected") is not False)
@@ -536,7 +541,7 @@ def reverify_set(conn, revision_id: UUID, run: dict) -> None:
     stored = erepo.get_candidates(run["id"])
     picked = [row for row in stored if row.get("selected") is not False]
     chosen, spec = _current_set(conn, revision_id, cvals, stored)
-    link_check = pc_link_check(chosen, spec, load_computer_rules()["verification"])
+    link_check = pc_link_check(chosen, spec, load_computer_rules()["verification"], _picked_qty(stored))
 
     budget_max = cvals.get("budget_max") or 0
     total = sum((int(r["price"]) if r["price"] is not None else 0) * int(r["qty"] or 1) for r in picked)
@@ -546,7 +551,7 @@ def reverify_set(conn, revision_id: UUID, run: dict) -> None:
                         budget={"max": budget_max, "used": total,
                                 "used_pct": round(total / budget_max * 100, 1) if budget_max else 0.0})
     verification = stage3c_verify.verify_build(
-        build, "computer", chosen=chosen, spec=spec, rules=load_computer_rules()["verification"])
+        build, "computer", chosen=chosen, spec=spec, rules=load_computer_rules()["verification"], qty=_picked_qty(stored))
     erepo.delete_validations(run["id"])
     _store_validations(erepo, run["id"], verification)
 
