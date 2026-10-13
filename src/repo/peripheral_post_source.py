@@ -13,6 +13,7 @@ from psycopg.rows import dict_row
 
 from src.agent.peripheral_post_agent import content_hash
 from src.engine.peripheral_post_contract import LinkedProduct, PostInput
+from src.engine.peripheral_post_text import plain_text
 from src.services.community_post_intake import REVIEW_BOARD, PostSnapshot
 
 _KINDS = {"monitor", "keyboard", "mouse", "speaker"}
@@ -58,7 +59,7 @@ def load_post_input(conn, post_id: UUID | str) -> PostInput | None:
             kind=kind if link["product_id"] else None, name=name, option_label=link["selected_option"],
         ))
     return PostInput(
-        post_id=str(post["id"]), author_id=str(post["author_user_id"]), board=post["board_type"], body=post["body"] or "",
+        post_id=str(post["id"]), author_id=str(post["author_user_id"]), board=post["board_type"], body=plain_text(post["body"]),
         products=products, status=_STATUS.get(post["status"], "hidden"), is_example=bool(post["is_example"]),
         written_at=post["published_at"], photo_url=_image_url(image["id"]) if image else None,
     )

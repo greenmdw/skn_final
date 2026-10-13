@@ -327,3 +327,17 @@ def test_observation_source_can_be_replaced_in_tests():
         assert pipeline.current_observations(None) == {"mouse": [obs]}
     finally:
         pipeline.set_observation_source(None)
+
+
+def test_image_marker_only_edit_is_not_analyzed_again_and_analyzer_sees_plain_text(community):
+    """본문 서식·이미지 마커는 분석 입력에서 빠진다. 마커 줄만 추가한 수정(version 은 오른다)은 다시 분석하지 않는다."""
+    marked = "## 써 본 느낌\n- **" + BODY + "**"
+    post_id = _review_post(community, body=marked)
+    state, analyzer = _state_for([post_id]), FakeAnalyzer()
+    assert _run(state, analyzer).analyzed == 1
+    current = community.get(f"/community/posts/{post_id}").json()
+    with_image = marked + "\n\n![책상 위 모습](image:00000000-0000-0000-0000-000000000000)\n"
+    r = community.patch(f"/community/posts/{post_id}", json={"body": with_image, "version": current["version"]})
+    assert r.status_code == 200, r.text
+    again = _run(state, analyzer)
+    assert again.analyzed == 0 and analyzer.calls == [post_id]
