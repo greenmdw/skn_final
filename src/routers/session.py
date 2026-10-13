@@ -73,6 +73,17 @@ def patch_slot(
             conn, list_id, body.field, body.value, principal,
         ))
 
+@router.patch("/{list_id}/slots", response_model=schemas.ConditionState)
+def patch_slots(
+    list_id: UUID,
+    body: schemas.SlotsPatchIn,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.ConditionState:
+    with get_conn() as conn:
+        return schemas.ConditionState(**session_service.patch_slots(
+            conn, list_id, [(slot.field, slot.value) for slot in body.slots], principal,
+        ))
+
 @router.post("/{list_id}/message", response_model=schemas.ConditionState)
 def message(
     list_id: UUID,
@@ -136,6 +147,15 @@ def result(list_id: UUID, principal: Principal = Depends(optional_principal)) ->
     if stored is None:
         raise NotFound("추천 실행 결과가 없습니다. 먼저 /recommend 를 호출하세요.")
     return schemas.RecommendResultOut(**stored)
+
+@router.get("/{list_id}/result/status", response_model=schemas.ResultStatusOut)
+def result_status(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.ResultStatusOut:
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        state = recommendation_service.get_result_status(conn, revision["id"])
+    if state is None:
+        raise NotFound("추천 실행 결과가 없습니다. 먼저 /recommend 를 호출하세요.")
+    return schemas.ResultStatusOut(**state)
 
 @router.get("/{list_id}/previous-comparison", response_model=schemas.PreviousComparisonOut)
 def previous_comparison(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.PreviousComparisonOut:

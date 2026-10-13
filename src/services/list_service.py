@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from src.auth.deps import Principal
+from src.engine.lang import fmt_money
 from src.errors import Conflict, NotFound, ValidationFailed
 from src.repo.engine_repo import EngineRepo
 from src.repo.notification_repo import NotificationRepo
@@ -38,6 +39,20 @@ def _stage(row: dict) -> str:
     if row["has_category"]:
         return "conditions"
     return "category"
+
+
+def _frozen_evidence(row: dict, item_view: dict | None) -> tuple[str, str]:
+    """확정 스냅샷에 얼릴 추천 이유와 그 출처.
+
+    추천 이유(LLM 문장·교체 문장)가 있으면 그대로("recommendation"). 아직 만드는 중이거나(pending) 실패해서(failed) 비어
+    있으면 저장된 사실(슬롯·상품명·단가·코드가 만든 점검 문구)만으로 쓴 규칙 문장("rule_fallback") — 판단·평가는 지어내지
+    않는다. 리포트는 이 스냅샷만 읽고 나중에 채워진 이유를 다시 읽지 않으므로, 빈 문자열을 얼리면 확정본에 이유가 영영 없다."""
+    if (row["reason"] or "").strip():
+        return row["reason"], "recommendation"
+    label = (item_view or {}).get("slot_label") or row["slot_label"]
+    text = f"{label} {row['product_name']} — 단가 {fmt_money(row['price'])}. AI 추천 이유 없이 확정되어 저장된 정보만 적었습니다."
+    checks = (((item_view or {}).get("checks") or {}).get("text") or "").strip()
+    return (f"{text} 구매 전 확인: {checks}" if checks else text), "rule_fallback"
 
 
 def _require_login(conn, principal: Principal) -> UUID:
@@ -323,10 +338,11 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
         # 결과 화면에서 바꾼 수량·구매 시점을 그대로 얼린다 — 예전엔 1개·"now"로 고정해서, 수량을 바꾸면 리포트의
         # 부품 금액 합이 확정 총액(단가 × 수량의 합)과 어긋났다.
         qty = int(row["qty"] or 1)
+        evidence_text, evidence_source = _frozen_evidence(row, item_view)
         snapshot = {
             "slot": row["slot"], "slot_label": (item_view or {}).get("slot_label") or row["slot_label"],  # 결과 화면과 같은 언어
             "qty": qty, "timing": row["timing"] or "now",
-            "review": review_by_item_id.get(str(row["id"])), "evidence_text": row["reason"] or "",
+            "review": review_by_item_id.get(str(row["id"])), "evidence_text": evidence_text, "evidence_source": evidence_source,
             "review_detail": (item_view or {}).get("review_detail"),
             "original_review_detail": (item_view or {}).get("original_review_detail"),
             "product": {

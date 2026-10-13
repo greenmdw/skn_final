@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import math
 import re
 import uuid
 from functools import lru_cache
@@ -16,6 +17,8 @@ import yaml
 from src.categories import load_category
 from src.dto import RequirementSpec, Slots
 from src.engine import LogFn
+from src.engine import eligibility as elig
+from src.engine.score_policy import validate_axis_weights
 
 _COMPUTER_RULES_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "computer_verification_rules.yaml"
 _TIMING_RANK = {"now": 0, "soon": 1, "later": 2}
@@ -42,28 +45,77 @@ def _check_power_and_budget(req: dict, where: str = "") -> None:
         raise RequirementRuleError(f"{where}PC 예산 배분 합계가 1이 아님")
 
 
+_REMOVED_RANKING_KEYS = ("noise_proxy", "noise_sensitive_min_weight", "ram_dual_channel_bonus", "data_gap")
+
+
 def _check_ranking_priority(ranking: dict) -> None:
-    axes = set(ranking.get("weights") or {})
-    for name, weights in (ranking.get("priority_weights") or {}).items():
-        if (not isinstance(weights, dict) or set(weights) != axes
-                or any(not isinstance(v, (int, float)) or isinstance(v, bool) or v < 0 for v in weights.values())
-                or abs(sum(weights.values()) - 1) > 1e-9):
-            raise RequirementRuleError(f"PC 우선순위 가중치 오류: {name}")
-    floor = ranking.get("noise_sensitive_min_weight", 0)
-    if not isinstance(floor, (int, float)) or isinstance(floor, bool) or not 0 <= floor < 1:
-        raise RequirementRuleError("PC 소음 민감 최소 가중치 오류")
-    proxy = ranking.get("noise_proxy") or {}
-    for key in ("cpu_tdp_w", "gpu_power_w"):
-        if key in proxy:
-            bounds = proxy[key]
-            if not (isinstance(bounds, list) and len(bounds) == 2
-                    and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in bounds)
-                    and bounds[0] < bounds[1]):
-                raise RequirementRuleError(f"PC 소음 대용값 범위 오류: {key}")
-    table = proxy.get("cooler_type")
-    if table is not None and (not isinstance(table, dict) or not all(
-            isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 1 for v in table.values())):
-        raise RequirementRuleError("PC 소음 대용값 표 오류: cooler_type")
+    for key in _REMOVED_RANKING_KEYS:
+        if key in ranking:
+            raise RequirementRuleError(f"PC 랭킹 규칙에 제거된 정책 키가 남아 있음: {key}")
+    method = ranking.get("score_method")
+    if not isinstance(method, str) or not method.strip():
+        raise RequirementRuleError("PC 랭킹 score_method 오류")
+    try:
+        validate_axis_weights(ranking.get("weights"), "PC 랭킹 기본 가중치")
+        for name, weights in (ranking.get("priority_weights") or {}).items():
+            validate_axis_weights(weights, f"PC 우선순위 가중치 {name}")
+    except ValueError as exc:
+        raise RequirementRuleError(str(exc)) from exc
+
+
+def _check_required_checks(verification: dict) -> None:
+    """verification.required_checks(조합 필수 호환 정보 규칙) 검증 — 알 수 없는 축·이름, 빈 키 목록을 거부한다."""
+    checks = verification.get("required_checks")
+    if not isinstance(checks, dict):
+        raise RequirementRuleError("PC 필수 호환 규칙(required_checks) 없음")
+    unknown = set(checks) - set(elig.REQUIRED_CHECK_AXES)
+    if unknown:
+        raise RequirementRuleError(f"PC 필수 호환 규칙에 알 수 없는 축: {sorted(unknown)}")
+    absent = set(elig.REQUIRED_CHECK_AXES) - set(checks)
+    if absent:
+        raise RequirementRuleError(f"PC 필수 호환 규칙에 빠진 축: {sorted(absent)}")
+    for axis, check in checks.items():
+        where = f"PC 필수 호환 규칙 {axis}: "
+        if not isinstance(check, dict) or set(check) - elig.REQUIRED_CHECK_AXIS_FIELDS:
+            raise RequirementRuleError(f"{where}알 수 없는 필드")
+        keys = check.get("keys")
+        if not isinstance(keys, list) or not keys:
+            raise RequirementRuleError(f"{where}키 목록이 비어 있음")
+        if check.get("when") is not None and check["when"] not in elig.REQUIRED_CHECK_WHEN:
+            raise RequirementRuleError(f"{where}알 수 없는 적용 조건 {check['when']!r}")
+        if check.get("row_axis") is not None and check["row_axis"] not in elig.REQUIRED_CHECK_AXES:
+            raise RequirementRuleError(f"{where}알 수 없는 행 축 {check['row_axis']!r}")
+        for entry in keys:
+            if (not isinstance(entry, dict) or set(entry) - elig.REQUIRED_CHECK_KEY_FIELDS
+                    or entry.get("slot") not in elig.REQUIRED_CHECK_SLOTS
+                    or not isinstance(entry.get("key"), str) or not entry["key"].strip()):
+                raise RequirementRuleError(f"{where}슬롯/키 항목 오류: {entry!r}")
+            if entry.get("parse") is not None and entry["parse"] not in elig.REQUIRED_CHECK_PARSE:
+                raise RequirementRuleError(f"{where}알 수 없는 해석 방식 {entry['parse']!r}")
+            if entry.get("any_of") is not None and not (isinstance(entry["any_of"], str) and entry["any_of"].strip()):
+                raise RequirementRuleError(f"{where}any_of 오류")
+
+
+def _check_margins(verification: dict) -> None:
+    """verification.margins(조합 여유 평가 설정, 선택 절) 검증. 기타 구성품 부하의 근거는 기본 null — 값을 넣으면 {watts: 양수, source: 문자열}."""
+    margins = verification.get("margins")
+    if margins is None:
+        return
+    power = margins.get("power") if isinstance(margins, dict) else None
+    if not isinstance(margins, dict) or set(margins) - {"power"} or not (power is None or isinstance(power, dict)):
+        raise RequirementRuleError("PC 조합 여유 규칙(margins) 형식 오류")
+    if power is None:
+        return
+    if set(power) - {"other_load"}:
+        raise RequirementRuleError("PC 조합 여유 규칙(margins.power) 알 수 없는 키")
+    other = power.get("other_load")
+    if other is None:
+        return
+    watts = other.get("watts") if isinstance(other, dict) else None
+    if (not isinstance(other, dict) or set(other) != {"watts", "source"}
+            or not isinstance(watts, (int, float)) or isinstance(watts, bool) or not math.isfinite(watts) or watts <= 0
+            or not isinstance(other["source"], str) or not other["source"].strip()):
+        raise RequirementRuleError("PC 조합 여유 규칙 오류: margins.power.other_load 는 {watts: 양수, source: 비어 있지 않은 문자열}")
 
 
 _TIER_KEYS = ("gpu", "cpu", "ram_gb", "vram_gb")
@@ -183,8 +235,8 @@ def _load_computer_rules(path: Path) -> dict:
     if not verification.get("link_rules") or not 0 < verification.get("power", {}).get("psu_capacity_factor", 0) <= 1:
         raise RequirementRuleError("PC 호환성 규칙 오류")
     _check_power_and_budget(req)
-    if abs(sum((ranking.get("weights") or {}).values()) - 1) > 1e-9:
-        raise RequirementRuleError("PC 랭킹 가중치 합계가 1이 아님")
+    _check_required_checks(verification)
+    _check_margins(verification)
     _check_ranking_priority(ranking)
     for part, table in (req.get("lineup_perf_tier") or {}).items():
         if part not in ("cpu", "gpu") or not isinstance(table, dict) or not table or not all(
@@ -373,6 +425,8 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
         flags=flags,
         unresolved=unresolved,
         games=games_list,
+        power_sizing={"estimated_power_w": dict(power), "headroom_multiplier": req["psu_headroom_multiplier"],
+                      "required_w": required_w},
     )
 
 

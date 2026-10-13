@@ -5,3 +5,7 @@ from __future__ import annotations
 
 class EmbeddingError(RuntimeError):
     pass
+
+
+class EmbeddingInputError(EmbeddingError):
+    """입력에 따른 오류. 배치를 분할하면 정상 문서를 따로 임베딩할 수 있다."""

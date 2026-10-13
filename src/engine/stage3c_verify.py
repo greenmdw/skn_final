@@ -25,13 +25,15 @@
 """
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from src.clients.llm_client import call_llm
-from src.config import CONFIDENCE_THRESHOLD
+from src.config import CONFIDENCE_THRESHOLD, ISSUE_SENTENCE_DEADLINE_S
 from src.dto import (BuildResult, Candidate, Issue, PeripheralPick, PeripheralRequirement, RequirementSpec,
                      VerificationResult, VerificationTarget)
 from src.engine import LogFn, spec_rules
+from src.engine import eligibility as elig
 from src.engine.prompts import verify_issue_system
 from src.rag.evidence_search import evidence_search
 
@@ -103,6 +105,8 @@ _KEY_LABEL: dict[tuple[str, str], str] = {
     ("메인보드", "max_memory_speed_mts"): "메인보드 최대 메모리 속도", ("저장장치", "form_factor"): "SSD 폼팩터",
     ("저장장치", "interface"): "SSD 인터페이스", ("메인보드", "m2_slots"): "메인보드 M.2 슬롯",
     ("메인보드", "m2_pcie_gen"): "메인보드 M.2 세대",
+    ("CPU", "cpu_family"): "CPU 세대·계열(이름에서 읽음)", ("쿨러", "cooling_type"): "쿨러 냉각 방식",
+    ("CPU", "max_memory_speed_mts"): "CPU 지원 메모리 속도", ("GPU", "power_connector"): "GPU 전원 커넥터",
 }
 
 
@@ -172,17 +176,18 @@ def _approx_sentence(axis: str) -> str:
             "구매 전 제조사 스펙으로 확인해 주세요.")
 
 
-def _issue_sentence(axis: str, tool_result: str, evidence: list[dict]) -> str:
+def _issue_sentence(axis: str, tool_result: str, evidence: list[dict], deadline: float | None = None) -> str:
     """쟁점 1건을 중립 문장으로.
 
     판정어가 섞이면 1회 재생성하고, 그래도 섞이거나 호출이 실패하면 규칙 템플릿으로
     내려간다. 문장화 실패는 신뢰도 점수에 영향을 주지 않는다 (기획서 §10-11 E4).
+    deadline(time.monotonic 기준)을 주면 재생성·HTTP 재시도까지 그 안에서 끝내고, 넘기면 규칙 템플릿이다.
     """
     snippets = "\n".join(f"- {e.get('text', '')}" for e in evidence) or "- (없음)"
     prompt = f"축: {axis}\n관측값: {tool_result or '(기록 없음)'}\n근거:\n{snippets}"
     for _attempt in range(2):
         try:
-            text = (call_llm(prompt, system=verify_issue_system()).get("text") or "").strip()
+            text = (call_llm(prompt, system=verify_issue_system(), deadline=deadline).get("text") or "").strip()
         except Exception:
             break
         if text and not _contains_verdict(text):
@@ -255,11 +260,16 @@ def verify_build(
     그 검사의 쟁점 문장은 코드가 쓴 비교("M.2 SSD 2개 > 메인보드 M.2 슬롯 1개")로 한다.
 
     chosen/spec/rules 를 주면(E5) `stage4_optimize.pc_compat_details`를 다시 돌려 각 쟁점의
-    inputs 를 후보 provenance 와 엮어 Issue.evidence(카탈로그 출처)를 만든다. 셋 중 하나라도
-    없으면 기존과 똑같이 근거 없이 관측값만으로 문장을 만든다(하위 호환) — 문서 검색(RAG) 연결은
+    inputs 를 후보 provenance 와 엮어 Issue.evidence(카탈로그 출처)를 만든다 — 문서 검색(RAG) 연결은
     범위 밖이라 여전히 없다.
+
+    적격성은 신뢰도와 별개다(정책 §5.4): 확인된 호환 위반 1건·예산 초과·호환 세트 없음·필수 호환 정보 누락·사용자 필수 요구 미충족이
+    있으면 신뢰도가 80 이상이어도 `eligible=False`(blocking 에 사유)이고 passed 는 거짓이다. chosen/spec/rules 중 하나라도 없으면
+    필수 정보를 판정할 수 없으므로 적격으로 두지 않는다(`verification_inputs_missing`).
     """
     log("[3-C] 세트 검증 (규칙 스캐폴드) ...")
+    # 쟁점 문장(LLM)은 이 검증의 모든 쟁점이 한 시간 예산을 나눠 쓴다 — 호출자가 DB 연결·행 잠금을 쥔 채 기다린다.
+    deadline = time.monotonic() + ISSUE_SENTENCE_DEADLINE_S
     rows_by_axis: dict[str, dict] = {}
     have_provenance = chosen is not None and spec is not None and rules is not None
     if have_provenance:
@@ -275,13 +285,14 @@ def verify_build(
         if axis in ("budget", "예산"):
             continue  # 예산은 아래에서 한 건으로 합쳐 처리한다(중복 쟁점 정리)
         s = str(state).lower()
-        if "fail" in s or "미충족" in s or "over" in s:
+        if elig.is_fail_state(state):
             ev = _catalog_evidence(rows_by_axis.get(axis), chosen) if have_provenance else []
             detail = ((rows_by_axis.get(axis) or {}).get("detail")
                       if axis in counted and int((qty or {}).get(counted[axis]) or 1) > 1 else None)
             # 수량 때문에 걸린 검사는 코드가 쓴 비교 문장을 그대로 — 모델에 넘기면 "관측값은 fail이며 … 점검 내용에는"처럼
             # 입력 이름을 옮겨 적었고, 교체·수량 변경 답이 그 호출만큼 늦어졌다(10/12 실측 7~11초)
-            issues.append(Issue(axis=axis, text=f"{axis_label(axis)}: {detail}" if detail else _issue_sentence(axis, state, ev),
+            issues.append(Issue(axis=axis, text=f"{axis_label(axis)}: {detail}" if detail
+                                else _issue_sentence(axis, state, ev, deadline),
                                 tool_result=state, evidence=ev, judge="위반", penalty=_FAIL_ISSUE_PENALTY))
             penalty += _FAIL_ISSUE_PENALTY
         elif "pending" in s or "근사" in s:
@@ -309,7 +320,7 @@ def verify_build(
         else:
             budget_axis, budget_judge, budget_tool_result = "예산", "초과", f"{used_pct}%"
         ev = _catalog_evidence(rows_by_axis.get(budget_axis), chosen) if have_provenance else []
-        issues.append(Issue(axis=budget_axis, text=_issue_sentence(budget_axis, budget_tool_result, ev),
+        issues.append(Issue(axis=budget_axis, text=_issue_sentence(budget_axis, budget_tool_result, ev, deadline),
                             tool_result=budget_tool_result, evidence=ev, judge=budget_judge, penalty=budget_penalty))
         penalty += budget_penalty
 
@@ -326,16 +337,26 @@ def verify_build(
         gray = ["설명서·규격(RAG 미연결)",
                 "호환성 정밀 검사(소켓·전력·크기는 근사값)"]
     confidence = max(0, 100 - penalty)
-    passed = confidence >= CONFIDENCE_THRESHOLD
-    log(f"      신뢰도 {confidence} · 회색축 {gray} · {'통과' if passed else '기준 미달'}")
+    findings = _required_findings(chosen, spec, rules) if have_provenance else []
+    blocking = elig.blocking_entries(link_check, findings, budget_exceeded=budget_penalty > 0)
+    if not have_provenance:
+        blocking.append({"code": elig.VERIFICATION_INPUTS_MISSING})
+    eligible = not blocking
+    passed = confidence >= CONFIDENCE_THRESHOLD and eligible
+    log(f"      신뢰도 {confidence} · 회색축 {gray} · {'통과' if passed else '기준 미달' if eligible else '부적격'}")
 
     tgt = VerificationTarget(
         subject="세트 전체",
-        confidence=confidence, passed=passed,
+        confidence=confidence, passed=passed, eligible=eligible, blocking=blocking,
         issues=issues, gray_axes=gray,
         transcript=[{"round": 1, "issues": [i.model_dump() for i in issues]}],
     )
     return VerificationResult(list_id=build.list_id, category=category, mode="set", targets=[tgt])
+
+
+def _required_findings(chosen, spec, rules) -> list[dict]:
+    from src.engine.stage4_optimize import required_info_findings
+    return required_info_findings(chosen, spec, rules, detail=False)
 
 
 def verification_issue_payload(row: dict) -> dict[str, Any]:

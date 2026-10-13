@@ -111,7 +111,7 @@ def test_changed_profile_changes_requirement_without_code_edit(tmp_path, monkeyp
 
 def _ideal_tier(slot, **values):
     cand = Candidate(product_key="k", slot=slot, name="k", price=1000, specs={"perf_tier": 5})
-    spec = RequirementSpec(list_id="r", category="computer", mode="build", targets={slot: {}}, budget={"total": 0})
+    spec = RequirementSpec(list_id="r", category="computer", mode="build", targets={slot: {}}, budget={"total": 1_000_000, "alloc": {slot: 0.1}})
     rank = stage3b_rank.run(HardFilterResult(slots={slot: [cand]}), spec, _slots(**values), lambda _: None)
     return rank.slots[slot]["ideal_tier"]
 

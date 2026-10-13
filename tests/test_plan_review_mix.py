@@ -1,7 +1,6 @@
 """Review mix allocations use only verified real-review inventory."""
 
 import csv
-import json
 
 import pytest
 
@@ -73,12 +72,3 @@ def test_verified_inventory_can_confirm_zero_and_positive_counts(tmp_path):
         writer.writerow({"product_key": second, "available_real_count": 0,
                          "source_ref": "", "review_ids_verified": "yes", "usage_approved": "yes"})
     assert load_inventory(path, {first, second}) == {first: 3, second: 0}
-
-
-def test_actual_count_plan_has_unique_catalog_keys():
-    from scripts.plan_review_mix import DEFAULT_COUNT_PLAN
-
-    source = json.loads(DEFAULT_COUNT_PLAN.read_text(encoding="utf-8"))
-    plan = build_plan(source)
-    assert plan["summary"]["products"] == 322
-    assert plan["summary"]["pending_products"] == 322

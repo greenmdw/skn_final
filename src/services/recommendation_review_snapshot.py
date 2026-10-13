@@ -5,6 +5,7 @@ re-query current review aggregates. Legacy runs explicitly have unavailable deta
 """
 from __future__ import annotations
 
+import math
 import os
 import threading
 from collections import OrderedDict
@@ -12,15 +13,24 @@ from collections import OrderedDict
 from pydantic import ValidationError
 
 from src.dto import ReviewScoreDetail
+from src.engine.score_policy import AXES, clip01, validate_axis_weights
+from src.engine.stage2_requirement import load_computer_rules
 from src.schemas import RecommendationReviewOut
 
 SNAPSHOT_STEP = "리뷰 계산 snapshot"
 SNAPSHOT_VERSION = "recommendation-review-snapshot-v1"
 
 
+_RANK_SUM_TOLERANCE = 1e-12
+
+
 def snapshot_step(rank, build, run_id, conditions: dict) -> dict:
+    """후보마다 리뷰 계산 근거와, 추천 점수의 원본(`rank_score`·축별 `rank_breakdown`·`rank_weights`·`score_method`)을 담는다.
+    점수 값은 반올림하지 않은 계산값이다 — 표시는 fit_score.display_points 가 이 값에서 한 번만 반올림한다."""
     candidates = {}
     weight = float(rank.weights_used.get("리뷰", 0))
+    validate_axis_weights(rank.weights_used, "snapshot 가중치")
+    score_method = load_computer_rules()["ranking"]["score_method"]
     for slot, group in rank.slots.items():
         for candidate in group.get("pool") or group.get("ranked") or []:
             variant_id, product_id = candidate.get("variant_id"), candidate.get("product_id")
@@ -29,10 +39,18 @@ def snapshot_step(rank, build, run_id, conditions: dict) -> dict:
             detail = ReviewScoreDetail.model_validate(candidate["review_detail"])
             if candidate.get("breakdown", {}).get("리뷰") != detail.value:
                 raise ValueError("ranked review score differs from its detail")
+            breakdown = candidate.get("breakdown")
+            if not isinstance(breakdown, dict) or set(breakdown) != set(AXES):
+                raise ValueError("ranked candidate has no per-axis breakdown")
+            breakdown = {axis: clip01(breakdown[axis]) for axis in AXES}
+            rank_score = candidate["score"]
+            if abs(rank_score - clip01(math.fsum(rank.weights_used[a] * breakdown[a] for a in AXES))) > _RANK_SUM_TOLERANCE:
+                raise ValueError("ranked score differs from its weighted axes")
             candidates[str(variant_id)] = {
                 "slot": slot, "product_id": str(product_id), "variant_id": str(variant_id),
                 "rank_weight": weight, "rank_contribution": weight * detail.value,
-                "rank_score": candidate["score"], "detail": detail.model_dump(mode="json"),
+                "rank_score": rank_score, "detail": detail.model_dump(mode="json"),
+                "rank_breakdown": breakdown, "rank_weights": dict(rank.weights_used), "score_method": score_method,
             }
     selected = {item.slot: str(item.variant_id) for item in build.items}
     if any(variant not in candidates for variant in selected.values()):

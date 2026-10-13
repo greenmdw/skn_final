@@ -33,7 +33,8 @@ def keys(result):
     return {item.slot: item.product_key for item in result.items}
 
 
-CPU = cand("CPU", "cpu_lga", 100, 9, socket="LGA1851")
+CPU = cand("CPU", "cpu_lga", 100, 9, socket="LGA1851").model_copy(update={"name": "Intel Core Ultra 7 265K"})
+BOARD_FAMILY = "Intel Core Ultra 200S / Plus 계열"      # BIOS 축은 CPU 계열과 보드 지원 계열이 모두 있어야 조합이 보류되지 않는다
 COOLER_AM_ONLY = cand("쿨러", "cooler_am_only", 30, 9, supported_socket="AM5/AM4")
 COOLER_LGA = cand("쿨러", "cooler_lga", 40, 5, supported_socket="LGA1851/1700, AM5/AM4")
 COOLER_LGA_BEST = cand("쿨러", "cooler_lga_best", 60, 8, supported_socket="LGA1851/1700")
@@ -44,7 +45,7 @@ COOLER_LGA_BEST = cand("쿨러", "cooler_lga_best", 60, 8, supported_socket="LGA
 def test_stage3b_exposes_the_full_pool_beside_the_top_n():
     cands = [cand("쿨러", f"c{i}", 10 + i, 0.0) for i in range(8)]
     spec = RequirementSpec(list_id="r", category="computer", mode="build",
-                           targets={"쿨러": {}}, budget={"total": 0})
+                           targets={"쿨러": {}}, budget={"total": 1000, "alloc": {"쿨러": 0.1}})
     slots = Slots(category="computer", mode="build", objective_text="", values={"purpose": "game"},
                   assumed_keys=[], missing=[])
     rank = stage3b_rank.run(HardFilterResult(slots={"쿨러": cands}), spec, slots, lambda _: None)
@@ -74,9 +75,9 @@ def test_widened_search_still_maximises_score_within_budget():
 
 def test_budget_shortage_relaxes_the_budget_not_compatibility():
     # 예산(150)으로는 어떤 호환 조합도 못 만든다 → 호환되는 가장 싼 조합 + 예산 fail 표시.
-    board_top = cand("메인보드", "board_top", 300, 9, socket="LGA1851")
-    board_cheap = cand("메인보드", "board_cheap", 80, 3, socket="LGA1851")
-    board_wrong = cand("메인보드", "board_wrong_socket", 10, 1, socket="AM5")
+    board_top = cand("메인보드", "board_top", 300, 9, socket="LGA1851", supported_cpu_family=BOARD_FAMILY)
+    board_cheap = cand("메인보드", "board_cheap", 80, 3, socket="LGA1851", supported_cpu_family=BOARD_FAMILY)
+    board_wrong = cand("메인보드", "board_wrong_socket", 10, 1, socket="AM5", supported_cpu_family="Ryzen 7000 / 9000 계열")
     result = run({"CPU": [CPU], "메인보드": [board_top]},
                  pool={"메인보드": [board_top, board_cheap, board_wrong]}, budget=150)
     assert keys(result)["메인보드"] == "board_cheap"      # 더 싼 board_wrong_socket 은 비호환이라 제외
@@ -113,3 +114,21 @@ def test_top_n_solution_is_untouched_when_it_already_exists():
     result = run({"CPU": [CPU], "쿨러": [COOLER_LGA]}, pool={"쿨러": [COOLER_LGA, COOLER_LGA_BEST]})
     assert keys(result)["쿨러"] == "cooler_lga"
     assert "widened" not in result.alternatives
+
+
+def test_widened_and_cheapest_search_node_counts_are_kept_separately():
+    """확대 점수 탐색이 예산 안에서 못 찾아 최저가 호환 탐색까지 돌면, 두 탐색의 방문 수를 각각 남긴다
+    (예전엔 최저가 탐색이 widened_visited 를 덮어써 확대 탐색의 방문 수가 사라졌다)."""
+    from src.engine.stage4_optimize import _search_pc_build
+
+    cpu = CPU
+    top = {"CPU": [cpu], "쿨러": [COOLER_AM_ONLY]}
+    wide = {"CPU": [cpu], "쿨러": [COOLER_AM_ONLY, COOLER_LGA]}
+    spec = RequirementSpec(list_id="fb", category="computer", mode="build", targets={"CPU": {}, "쿨러": {}})
+    from src.engine.stage2_requirement import load_computer_rules
+
+    chosen, counts, compatible = _search_pc_build(top, ["CPU", "쿨러"], 50, spec,
+                                                  load_computer_rules()["verification"], wide_pools=wide)
+    assert compatible and chosen["쿨러"].product_key == "cooler_lga"      # 예산(50)은 넘지만 호환되는 최저가
+    assert counts["widened"] == 1
+    assert counts["widened_visited"] >= 1 and counts["cheapest_visited"] >= 1

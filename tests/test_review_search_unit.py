@@ -190,21 +190,26 @@ def test_embedding_failure_is_503_not_a_silent_fallback():
 
 # ── 저장된 벡터 일치 점검 ──
 
-def test_first_search_checks_index_in_the_same_embedding_call_then_skips_the_check():
+def test_each_search_checks_index_and_reuses_cached_sample_embeddings():
     pid = uuid4()
     sample = [{"id": uuid4(), "body": "짧은 리뷰"}, {"id": uuid4(), "body": "조금 더 긴 리뷰"}]
     repo = _FakeRepo({pid: {"exists": True, "reviews": 2, "embedded": 2}},
                      rows=[_row(pid, "팬 소음이 있어요", 0.8)], sample=sample, stored_similarity=[0.999, 0.998])
-    embedder = _FakeEmbedder()
+    inner = _FakeEmbedder()
+    embedder = CachedEmbedder(inner)
 
     _search(repo, embedder, [pid])
-    assert embedder.calls == [["짧은 리뷰", "조금 더 긴 리뷰", "팬 소음이 심한가요"]]   # 표본 + 질문을 한 번에
+    assert inner.calls == [["짧은 리뷰", "조금 더 긴 리뷰", "팬 소음이 심한가요"]]   # 표본 + 질문을 한 번에
     assert repo.called("embedded_sample") == [("embedded_sample", [pid], review_search.INDEX_CHECK_SAMPLE)]
     assert repo.called("stored_similarity") == [("stored_similarity", [row["id"] for row in sample])]
 
     _search(repo, embedder, [pid], query="발열은 어때요")
-    assert embedder.calls[-1] == ["발열은 어때요"]                                   # 확인이 끝난 embedder는 질문만
-    assert len(repo.called("embedded_sample")) == 1
+    assert inner.calls[-1] == ["발열은 어때요"]                                   # 표본은 텍스트 캐시에서 재사용
+    assert len(repo.called("embedded_sample")) == 2
+    assert len(repo.called("stored_similarity")) == 2
+    _search(repo, embedder, [pid], query="발열은 어때요")
+    assert len(inner.calls) == 2
+    assert len(repo.called("stored_similarity")) == 3
 
 
 def test_index_mismatch_is_503_and_is_rechecked_next_time():

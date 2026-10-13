@@ -125,6 +125,20 @@ def test_a_condition_no_catalog_candidate_can_satisfy_is_not_applied():
     assert any("맞는 메인보드가 카탈로그에 없어" in n for n in notes)
 
 
+_DDR4_BOARDS = {**POOL, "메인보드": [_cand("메인보드", "b-am4", socket="AM4", mem_type="DDR4", form_factor="ATX"),
+                                     _cand("메인보드", "b-1700", socket="LGA1700", mem_type="DDR4", form_factor="ATX")]}
+
+
+def test_wanted_ram_type_moves_the_default_socket_only_within_the_chosen_brand():
+    """기본 소켓(LGA1851/AM5)에 DDR4 보드가 없으면 소켓 조건을 DDR4 보드의 소켓으로 맞추되, 사용자가 고른 브랜드는 넘지 않는다."""
+    intel = _build_spec(purpose="game", budget_max=2_000_000, brand_pref="intel")
+    apply_wanted_constraints(intel, _wanted("RAM", mem_type="DDR4"), _DDR4_BOARDS)
+    assert intel.targets["메인보드"]["socket_in"] == ["LGA1700"] and intel.targets["CPU"]["socket_in"] == ["LGA1700"]
+    anyone = _spec()                                               # brand_pref 없음(none) — 두 제조사 모두 허용
+    apply_wanted_constraints(anyone, _wanted("RAM", mem_type="DDR4"), _DDR4_BOARDS)
+    assert anyone.targets["메인보드"]["socket_in"] == ["AM4", "LGA1700"]
+
+
 def test_cpu_socket_and_ram_type_must_be_satisfiable_by_one_board_together():
     spec = _spec()
     wanted = {**_wanted("CPU", socket="AM5"), **_wanted("RAM", mem_type="DDR4")}      # AM5 보드는 전부 DDR5뿐

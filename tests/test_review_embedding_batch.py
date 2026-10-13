@@ -17,12 +17,14 @@ test_batch_commits_are_durable_with_autocommit_connection)는 일부러 clean_co
 from __future__ import annotations
 
 import os
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import psycopg
 import pytest
 
-from src.rag.contracts import EmbeddingError
+from review_search_seed import seeded_reviews
+from src.rag.contracts import EmbeddingError, EmbeddingInputError
+from src.rag.embedding import OpenAIEmbedder
 from src.repo.review_embedding_repo import ReviewEmbeddingRepo
 from src.workers import review_embedding_batch
 
@@ -154,6 +156,111 @@ def test_run_isolates_failing_batch_and_rerun_fills_the_rest(clean_conn):
     assert rerun["failed"] == 0
     assert rerun["remaining"] == 0
     assert repo.count_missing() == 0
+
+
+def test_input_error_in_default_batch_only_excludes_the_invalid_document(clean_conn):
+    conn = clean_conn
+    product = _add_product(conn)
+    valid = _add_document(conn, product, "valid review")
+    invalid = _add_document(conn, product, "\n\t")  # DB의 btrim 제약을 통과한다.
+    embedder = OpenAIEmbedder(mock=True)
+
+    first = review_embedding_batch.run(conn, embedder, batch_size=100)
+    assert first == {"embedded": 1, "failed": 1, "remaining": 1, "batches": 1}
+    assert conn.execute(
+        "SELECT review_id FROM evidence.review_embedding WHERE review_id=%s", (valid,)
+    ).fetchone() == (valid,)
+    second = review_embedding_batch.run(conn, embedder, batch_size=100)
+    assert second == {"embedded": 0, "failed": 1, "remaining": 1, "batches": 1}
+    assert [row["id"] for row in ReviewEmbeddingRepo(conn).list_missing(100)] == [invalid]
+
+
+def test_api_input_error_is_split_without_exceeding_the_document_limit(clean_conn):
+    product = _add_product(clean_conn)
+    for body in ["valid one", "too long", "valid two", "valid three"]:
+        _add_document(clean_conn, product, body)
+
+    class InputLimitedEmbedder(_FakeEmbedder):
+        def embed(self, texts):
+            if "too long" in texts:
+                self.calls.append(list(texts))
+                raise EmbeddingInputError("embedding_input_invalid")
+            return super().embed(texts)
+
+    embedder = InputLimitedEmbedder()
+    result = review_embedding_batch.run(clean_conn, embedder, batch_size=4, limit=4)
+    assert result == {"embedded": 3, "failed": 1, "remaining": 1, "batches": 1}
+    assert len(embedder.calls) > 1
+    assert [row["body"] for row in ReviewEmbeddingRepo(clean_conn).list_missing(100)] == ["too long"]
+
+
+def test_service_failure_does_not_retry_every_document(clean_conn):
+    product = _add_product(clean_conn)
+    for body in ["valid one", "valid two", "valid three"]:
+        _add_document(clean_conn, product, body)
+    embedder = _FakeEmbedder(fail_bodies={"valid two"})
+    result = review_embedding_batch.run(clean_conn, embedder, batch_size=100)
+    assert result == {"embedded": 0, "failed": 3, "remaining": 3, "batches": 1}
+    assert len(embedder.calls) == 1
+
+
+@pytest.mark.parametrize("options", [{"limit": -1}, {"batch_size": 0}, {"batch_size": -1}])
+def test_invalid_options_preserve_existing_embeddings_before_rebuild(clean_conn, options):
+    before = clean_conn.execute("SELECT count(*) FROM evidence.review_embedding").fetchone()[0]
+    assert before > 0
+    with pytest.raises(ValueError):
+        review_embedding_batch.run(clean_conn, _FakeEmbedder(), rebuild=True, **options)
+    assert clean_conn.execute("SELECT count(*) FROM evidence.review_embedding").fetchone()[0] == before
+
+
+def test_zero_limit_is_a_noop(clean_conn):
+    product = _add_product(clean_conn)
+    _add_document(clean_conn, product, "valid review")
+    embedder = _FakeEmbedder()
+    assert review_embedding_batch.run(clean_conn, embedder, limit=0) == {
+        "embedded": 0, "failed": 0, "remaining": 1, "batches": 0,
+    }
+    assert embedder.calls == []
+
+
+@pytest.mark.parametrize("delete", [False, True])
+def test_document_changed_during_api_call_is_not_written(delete):
+    dsn = os.environ["DATABASE_URL"]
+    with seeded_reviews(dsn) as seed:
+        product = seed.product()
+        doc = UUID(int=101)
+        seed.conn.execute(
+            "INSERT INTO evidence.review_document(id,product_id,source_code,is_synthetic,body) "
+            "VALUES (%s,%s,'embedding-race-test',false,'oldbody')", (doc, product),
+        )
+        seed._docs.append(doc)
+        assert seed.repo.list_missing(1)[0]["id"] == doc
+        inner = OpenAIEmbedder(mock=True)
+
+        class ConcurrentWriteEmbedder:
+            mock = True
+
+            def embed(self, texts):
+                assert texts == ["oldbody"]
+                vectors = inner.embed(texts)
+                # 별도 커넥션의 쓰기가 여기서 완료돼야 한다: API 호출 동안 잠금이 없어야 한다.
+                with psycopg.connect(dsn, autocommit=True) as writer:
+                    writer.execute("SET lock_timeout='1s'")
+                    if delete:
+                        writer.execute("DELETE FROM evidence.review_document WHERE id=%s", (doc,))
+                    else:
+                        writer.execute("UPDATE evidence.review_document SET body='newbody' WHERE id=%s", (doc,))
+                return vectors
+
+        result = review_embedding_batch.run(seed.conn, ConcurrentWriteEmbedder(), limit=1, batch_size=1)
+        assert result["embedded"] == 0 and result["failed"] == 0
+        assert seed.conn.execute(
+            "SELECT review_id FROM evidence.review_embedding WHERE review_id=%s", (doc,),
+        ).fetchone() is None
+        if not delete:
+            rerun = review_embedding_batch.run(seed.conn, inner, limit=1, batch_size=1)
+            assert rerun["embedded"] == 1
+            assert seed.repo.stored_similarity([(doc, inner.embed(["newbody"])[0])])[0] > 0.999
 
 
 def test_dry_run_writes_nothing_and_never_calls_embedder(clean_conn):

@@ -29,8 +29,9 @@ def load_review_aspect_snapshot(
 ) -> dict[str, Any]:
     """Read all selected products' rules, aggregates and members in one SQL snapshot.
 
-    The query is request scoped and does no observation GROUP BY. It also checks source-observation
-    existence for requested product/rule pairs, so missing aggregate rows are not silently treated
+    The query is request scoped: the only observation GROUP BY counts source observations for the
+    requested products, once per product/rule pair. It also checks source-observation existence for
+    requested product/rule pairs, so missing aggregate rows are not silently treated
     as ordinary no-review cases. `version_has_any_aggregate` is a minimal global readiness signal;
     without a manifest, completeness outside the requested product scope cannot be proven.
     """
@@ -54,7 +55,14 @@ def load_review_aspect_snapshot(
             "version_state AS (SELECT EXISTS ("
             "SELECT 1 FROM evidence.review_aspect_aggregate a "
             "JOIN evidence.review_aspect_rule ar ON ar.id=a.rule_id "
-            "WHERE ar.analysis_version=%s) AS version_has_any_aggregate) "
+            "WHERE ar.analysis_version=%s) AS version_has_any_aggregate), "
+            # 요청 상품·규칙별 원본 관측 수를 한 번에 센다. 예전엔 결과행(상품×규칙×member)마다 상관 서브쿼리로 다시 셌고(로컬 3,093번),
+            # 그 비용 추정 때문에 작은 쿼리에 JIT 컴파일(약 46ms)까지 붙었다. 같은 문장 안이라 스냅샷 일관성은 그대로다.
+            "source_counts AS (SELECT sd.product_id, so.rule_id, count(*) AS n "
+            "FROM evidence.review_document sd "
+            "JOIN evidence.review_aspect_observation so ON so.document_id=sd.id "
+            "WHERE sd.product_id IN (SELECT product_id FROM requested) "
+            "GROUP BY sd.product_id, so.rule_id) "
             "SELECT req.product_id AS requested_product_id, p.id AS found_product_id, "
             "p.product_type, r.id AS rule_id, r.analysis_version AS rule_analysis_version, "
             "r.part_type, r.aspect_code, r.context_code, r.k, "
@@ -63,9 +71,7 @@ def load_review_aspect_snapshot(
             "d.product_id AS member_product_id, d.is_synthetic AS member_is_synthetic, "
             "d.source_code, o.direction, "
             "o.observation_text, o.evidence_sentences, "
-            "(SELECT count(*) FROM evidence.review_document sd "
-            "JOIN evidence.review_aspect_observation so ON so.document_id=sd.id "
-            "WHERE sd.product_id=req.product_id AND so.rule_id=r.id) AS source_observation_count, "
+            "COALESCE(sc.n, 0) AS source_observation_count, "
             "vs.version_has_any_aggregate "
             "FROM requested req CROSS JOIN version_state vs "
             "LEFT JOIN catalog.product p ON p.id=req.product_id "
@@ -75,6 +81,7 @@ def load_review_aspect_snapshot(
             "LEFT JOIN evidence.review_aspect_aggregate_member m ON m.aggregate_id=a.id "
             "LEFT JOIN evidence.review_aspect_observation o ON o.id=m.observation_id "
             "LEFT JOIN evidence.review_document d ON d.id=o.document_id "
+            "LEFT JOIN source_counts sc ON sc.product_id=req.product_id AND sc.rule_id=r.id "
             "ORDER BY req.product_id, r.part_type, r.aspect_code, r.context_code, m.observation_id",
             (normalized_ids, analysis_version, analysis_version),
         )

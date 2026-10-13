@@ -58,6 +58,9 @@ class RequirementSpec(BaseModel):
     # E7 — 인식된 게임 제목별 출처·승인 상태. 항목: {"key", "label", "status", "source"}.
     # status 는 provisional|approved, source 는 {url, excerpt, checked_at} 또는 None.
     games: list[dict[str, Any]] = Field(default_factory=list)
+    # 2단계 파워 최소 용량 요구 산정의 기록 — {"estimated_power_w": {cpu, gpu, other}, "headroom_multiplier", "required_w"}.
+    # 조합 여유 평가(build_margins)가 "무엇을 했는지"만 적는 데 쓴다. 판정에는 쓰지 않는다.
+    power_sizing: dict[str, Any] = Field(default_factory=dict)
 
 
 class ReviewRequirementAttribute(BaseModel):
@@ -166,9 +169,12 @@ class Candidate(BaseModel):
     offer_observation_id: str | None = None
     brand: str = ""
     price: int = 0
+    # RAM 2개 구성(정책 §2.5): price 는 구성 전체 가격, unit_price 는 상품 1개 가격, purchase_qty 는 상품 개수.
+    purchase_qty: int = 1
+    unit_price: int | None = None
     specs: dict[str, Any] = Field(default_factory=dict)
     # E5 — 카탈로그 출처(어느 URL·언제 확인한 값인가). specs 에는 섞지 않는다 — 섞으면
-    # [3-B] data_gap 감점(빈 스펙 카운트)이 메타데이터 키를 스펙으로 셀 수 있다.
+    # 스펙 키를 세는 로직(빈 스펙 카운트 등)이 메타데이터 키를 스펙으로 셀 수 있다.
     # {"spec_url", "checked_at"(ISO 날짜 문자열), "by_key": {엔진 spec 키: 그 값을 뒷받침하는 URL}}.
     # by_key 는 테이블에 전용 출처 컬럼이 있는 키만 담는다(예: gpu.dimension_source_url → length_mm/
     # height_mm/slot_thickness) — 확실하지 않은 키는 넣지 않고 evidence 생성 쪽에서 spec_url로 대체한다.
@@ -178,6 +184,7 @@ class Candidate(BaseModel):
     flags: list[str] = Field(default_factory=list)
     score: float = 0.0
     breakdown: dict[str, float] = Field(default_factory=dict)
+    score_notes: list[str] = Field(default_factory=list)   # 점수 계산 중 남긴 표식(예: neutral:성능)
     review_detail: ReviewScoreDetail | None = None
     feel_detail: FeelDetail | None = None     # 주변기기 체감 적합도(R). 순위의 "리뷰" 축 값이 된다
     rank: int = 0
@@ -190,8 +197,12 @@ class Candidate(BaseModel):
 
 
 class HardFilterResult(BaseModel):
-    slots: dict[str, list[Candidate]] = Field(default_factory=dict)          # Pass + 승격 Pending
-    stats: dict[str, dict[str, int]] = Field(default_factory=dict)           # slot -> pool/pass/fail/pending
+    slots: dict[str, list[Candidate]] = Field(default_factory=dict)          # Pass만 (보완 뒤 재판정 포함)
+    held: dict[str, list[Candidate]] = Field(default_factory=dict)           # 보완 뒤에도 Pending인 후보(평가 제외)
+    # slot -> pool/pass/fail/pending 개수 + pending_reasons({사유: 개수}) / fail_reasons({사유 접두어: 개수})
+    stats: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    # 보완 시도 기록: slot, product_key, missing_keys, source, status(filled/not_found/no_path/failed), detail
+    enrichment: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RankResult(BaseModel):
@@ -207,7 +218,9 @@ class BuildItem(BaseModel):
     name: str
     variant_id: str | None = None
     offer_observation_id: str | None = None
-    price: int
+    price: int   # 구성 전체 가격(= unit_price × qty, 키트는 가격 그대로). 합계·예산 계산에 쓴다
+    qty: int = 1
+    unit_price: int | None = None
     perf_tier: float = 0.0
     score: float = 0.0
     rank_from_3b: int = 1
@@ -222,6 +235,10 @@ class BuildResult(BaseModel):
     balance: dict[str, Any] = Field(default_factory=dict)
     alternatives: dict[str, int] = Field(default_factory=dict)
     round: int = 1
+    # 정상 추천 가능 여부 — 신뢰도와 별개다. {"status": "recommendable"|"not_recommendable", "reasons": [{"code", "axes", "missing"?}]}
+    eligibility: dict[str, Any] = Field(default_factory=lambda: {"status": "recommendable", "reasons": []})
+    # 조합의 전력·냉각·크기 여유 기록(engine/build_margins.evaluate_margins) — 점수·적격성과 무관한 기록. 계산 전이면 빈 dict.
+    margins: dict[str, Any] = Field(default_factory=dict)
 
 
 class BasketLine(BaseModel):
@@ -263,6 +280,9 @@ class VerificationTarget(BaseModel):
     issues: list[Issue] = Field(default_factory=list)
     gray_axes: list[str] = Field(default_factory=list)
     transcript: list[dict[str, Any]] = Field(default_factory=list)
+    # 적격 여부 — passed 는 신뢰도 기준 AND eligible 이다. blocking: 탈락 사유 [{"code", "axis"?, "missing"?}]
+    eligible: bool = True
+    blocking: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class VerificationResult(BaseModel):
@@ -345,10 +365,14 @@ class Explanation(BaseModel):
     list_id: str
     headline: str = ""
     summary: str = ""          # 03 화면 "추천 요약" 본문. 슬롯별 reason 은 items 에, 여기엔 반복하지 않는다
-    contribution: dict[str, int] = Field(default_factory=dict)   # 축(가격·성능·밸런스·리뷰·호환여유) -> %, 합 100
+    contribution: dict[str, int] = Field(default_factory=dict)   # 축(가격·성능·리뷰) -> %, 합 100
     items: list[ExplanationItem] = Field(default_factory=list)
     caveats: list[str] = Field(default_factory=list)
     review_line_by_slot: dict[str, str] = Field(default_factory=dict)
+    # 문장 출처 — 운영 로그에서 LLM 문장이 쓰였는지, 규칙 템플릿으로 내려갔는지(왜) 가리는 데 쓴다. 화면에는 나가지 않는다.
+    text_source: str = "rule"                                    # "llm" | "rule"
+    fallback_reason: str = ""                                    # 규칙으로 내려간 까닭: 예외 클래스명 또는 "check_rejected"
+    rule_reason_slots: list[str] = Field(default_factory=list)   # LLM 초안을 쓰고도 이유가 규칙 문장인 슬롯
 
 
 # (구 추천 결과 DTO는 §D-4-2 계약(RecommendResultOut, src/schemas.py)으로 대체되어 제거됨.

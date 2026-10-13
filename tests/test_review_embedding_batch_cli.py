@@ -52,6 +52,17 @@ def test_dry_run_and_rebuild_together_is_a_usage_error():
     assert exc_info.value.code == 2
 
 
+@pytest.mark.parametrize("options", [["--limit", "-1"], ["--batch-size", "0"], ["--batch-size", "-1"]])
+def test_invalid_options_are_rejected_before_connecting_to_the_db(monkeypatch, options):
+    def connect_must_not_be_called(*args, **kwargs):
+        raise AssertionError("invalid options must be rejected before DB access")
+
+    monkeypatch.setattr(psycopg, "connect", connect_must_not_be_called)
+    with pytest.raises(SystemExit) as caught:
+        review_embedding_batch.main(["--rebuild", *options])
+    assert caught.value.code == 2
+
+
 def test_real_run_embeds_at_least_one_missing_review(capsys):
     dsn = os.environ["DATABASE_URL"]
     with psycopg.connect(dsn, autocommit=True) as conn:

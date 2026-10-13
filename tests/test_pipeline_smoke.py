@@ -12,7 +12,7 @@ def test_computer_pass_runs_end_to_end(monkeypatch):
     assert "cpu" in r.review_requirement_profiles and r.rank.slots["CPU"]["pool"][0]["review_detail"]
     assert r.verification.targets[0].passed is True
     # 옛 목업 값(가격41/성능33/호환성26)이 아니라 [3-B] 점수의 실제 축별 비율이어야 한다.
-    assert {"가격", "성능", "밸런스", "리뷰", "호환여유"} <= set(r.explanation.contribution)
+    assert set(r.explanation.contribution) == {"가격", "성능", "리뷰"}
     assert sum(r.explanation.contribution.values()) == 100
 
 

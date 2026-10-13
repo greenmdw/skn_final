@@ -10,6 +10,7 @@ import pytest
 from src.dto import Candidate, RequirementSpec
 from src.engine.compat_parse import cpu_family, cpu_supported, parse_socket_list, socket_supported, supported_families
 from src.engine.stage2_requirement import load_computer_rules
+from src.engine import ram_config
 from src.engine.stage4_optimize import _pc_known_failures, pc_compat_details, pc_link_check
 
 RULES = load_computer_rules()["verification"]
@@ -210,10 +211,12 @@ def test_checks_for_parts_that_are_not_in_the_quote_are_skipped():
     assert "socket" not in link and "bios" not in link and link["gpu_len"] == "ok (근사)"
 
 
-def test_aio_cooler_height_is_explained_not_just_missing():
+def test_aio_cooler_height_is_skipped_because_radiator_check_replaces_it():
+    # 4a단계 정책: 수랭(AIO)은 높이 대신 라디에이터 검사가 보므로 쿨러 높이는 비적용(skipped)이다.
     cooler = _cand("쿨러", "aio", cooling_type="Liquid (AIO)", supported_socket="AM5")
     rows = {r["axis"]: r for r in pc_compat_details({"쿨러": cooler, "케이스": ATX_CASE}, _spec(), RULES)}
-    assert rows["cooler_height"]["state"] == "unknown" and "라디에이터" in rows["cooler_height"]["detail"]
+    assert rows["cooler_height"]["state"] == "skipped" and "라디에이터" in rows["cooler_height"]["detail"]
+    assert rows["cooler_height"]["applicable"] is False
 
 
 # ── 수량 — 결과 화면에서 "SSD 2개로"·"램 하나 더" ─────────────────────────────────
@@ -233,9 +236,11 @@ def test_m2_ssds_beyond_the_board_slots_fail_only_when_qty_says_so():
 
 
 def test_ram_qty_multiplies_modules_and_capacity():
-    chosen = {"메인보드": ONE_M2_BOARD, "RAM": RAM_1X16}
+    # 수량은 ram_config.with_purchase_qty 가 specs 에 반영한다 — pc_compat_details 의 qty 로는 다시 곱하지 않는다
+    chosen = {"메인보드": ONE_M2_BOARD, "RAM": ram_config.with_purchase_qty(RAM_1X16, 2)}
     row = {r["axis"]: r for r in pc_compat_details(chosen, _spec(), RULES, {"RAM": 2})}["ram_slots"]
     assert row["state"] == "ok" and "RAM 모듈 2개(제품 2개) ≤ 메인보드 DIMM 슬롯 2개" in row["detail"]
     assert "RAM 총 32GB" in row["detail"], row
+    chosen["RAM"] = ram_config.with_purchase_qty(RAM_1X16, 3)
     row = {r["axis"]: r for r in pc_compat_details(chosen, _spec(), RULES, {"RAM": 3})}["ram_slots"]
     assert row["state"] == "fail", row

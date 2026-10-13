@@ -65,18 +65,23 @@ def _recommend(conditions: dict, budget: int, by_slot: dict[str, list[Candidate]
     feasibility = feasibility_engine.assess(spec, pool)
     spec.budget["feasibility"] = feasibility["level"]
     spec.budget["feasibility_detail"] = feasibility
-    hf = stage3a_hardfilter.run(spec, pool, _noop)
+    try:
+        hf = stage3a_hardfilter.run(spec, pool, _noop)
+    except stage3a_hardfilter.CandidateShortage as exc:
+        raise LookupError(exc.summary()) from exc
     from src.services.review_ranking import rank_with_review_aspects
     rank, _profiles = rank_with_review_aspects(hf, spec, slots, _noop)
     return spec, stage4_optimize.run(rank, spec, _noop), feasibility
 
 
 def _row(slot: str, ours, owned: dict | None, price_row: dict | None) -> dict:
-    ours_side = {"name": ours.name, "price": ours.price, "perf_tier": ours.perf_tier or None}
+    # RAM 은 2개 구성 전체 가격이다(정책 §2.5) — 상품 2개 구성이면 이름 뒤에 ×2 를 붙여 낱개 가격과 혼동되지 않게 한다.
+    ours_label = f"{ours.name} ×{ours.qty}" if ours.qty > 1 else ours.name
+    ours_side = {"name": ours.name, "price": ours.price, "perf_tier": ours.perf_tier or None, "quantity": ours.qty}
     if owned is None:
         return {"part": slot, "quote": None, "ours": ours_side, "same_product": False, "price_diff": None,
                 "price_diff_pct": None, "price_state": None, "tier_diff": None,
-                "detail": f"견적에 이 부품이 없습니다. 우리 추천: {ours.name} {ours.price:,}원."}
+                "detail": f"견적에 이 부품이 없습니다. 우리 추천: {ours_label} {ours.price:,}원."}
     confirmed = owned.get("source") == "catalog" and owned.get("name") != owned.get("original")
     quoted = (price_row or {}).get("quoted")
     tier = (owned.get("specs") or {}).get("perf_tier") if owned.get("source") == "catalog" else None
@@ -86,7 +91,7 @@ def _row(slot: str, ours, owned: dict | None, price_row: dict | None) -> dict:
     compared = compare_price(quoted, ours.price)
     tier_diff = round(tier - ours.perf_tier, 1) if tier is not None and ours.perf_tier else None
     bits = [f"견적 {owned.get('name')}" + (f" {quoted:,}원" if quoted is not None else ""),
-            f"우리 추천 {ours.name} {ours.price:,}원"]
+            f"우리 추천 {ours_label} {ours.price:,}원"]
     if same:
         detail = f"견적과 우리 추천이 같은 제품입니다({ours.name})."
         if compared["diff"] is not None:      # 같은 제품이어도 가격이 다르면 그 차이가 이 비교의 핵심이다

@@ -331,6 +331,16 @@ def patch_slot(
     return _state(conn, list_id, principal)
 
 
+def patch_slots(conn, list_id: UUID, slots: list[tuple[str, object]], principal: Principal) -> dict:
+    """여러 조건을 순서대로 반영하고 최종 상태를 한 번만 만든다. 각 조건은 patch_slot 과 같게 저장된다 — 다른 점은
+    중간 상태(특히 카탈로그 전체를 읽는 예산 타당성 경고)를 조건마다 다시 계산하지 않는다는 것뿐이다."""
+    repo = PlanRepo(conn)
+    current = _owned(repo, list_id, principal)
+    for field, value in slots:
+        repo.upsert_condition(current["id"], field, {"value": value}, "explicit")
+    return _state(conn, list_id, principal)
+
+
 def _current_values(repo: PlanRepo, revision_id: UUID) -> tuple[dict, str | None]:
     full = repo.load_full(revision_id)
     values = {row["condition_key"]: row["value"].get("value") for row in full["conditions"]}

@@ -1,6 +1,6 @@
 """[5] 설명 생성.
 
-(a) 속성 기여도 — 계산(LLM 아님). [3-B] breakdown 을 세트 단위로 집계 → 축별 비율(가격·성능·밸런스·리뷰·호환여유, 합 100%).
+(a) 속성 기여도 — 계산(LLM 아님). [3-B] breakdown 을 세트 단위로 집계 → 축별 비율(가격·성능·리뷰, 합 100%).
 (b) 문장 — LLM structured output 1회. 수치·부품명·통과여부는 코드가 확정, LLM 은 서술만.
     실패 시 규칙 템플릿 fallback.
 (c) 리뷰 적합도 — [3-B]가 사용한 request profile, R, Q, α, 관측 수/member를 rank에 보존된
@@ -9,7 +9,10 @@
 """
 from __future__ import annotations
 
+import time
+
 from src.clients.llm_client import call_llm
+from src.config import EXPLANATION_DEADLINE_S
 from src.dto import (BuildResult, Explanation, ExplanationDraft, ExplanationItem, RankResult,
                      VerificationResult)
 from src.engine import LogFn
@@ -95,10 +98,11 @@ def explain_manual(service, request):
 
 
 def _contribution(build: BuildResult, rank: RankResult | None) -> dict[str, int]:
-    """고른 구성이 [3-B] 점수를 어느 축에서 얻었는지(%, 합 100).
+    """고른 구성이 [3-B] 점수를 가격·성능·리뷰 세 축 중 어디서 얻었는지(%, 합 100) — 전체 기여분 안의 비중이다.
+    사용자 표시용 축별 점수(100×축 점수)·기여분(100×가중치×축 점수)은 이 값이 아니라 결과 API 의 items[].fit 이다.
 
     후보 점수 = Σ 축 가중치 × 축 값(breakdown). 고른 부품마다 그 항을 축별로 더해 전체 대비 비율로 낸다.
-    (감점 — 검토 보류·검사 스펙 공백 — 은 축이 아니라서 여기엔 안 들어간다.)
+    (축이 아닌 임시 보정 — 검토 보류 감점 등 — 은 여기엔 안 들어간다.)
     rank 가 없으면(옛 호출) 만들 근거가 없으므로 빈 dict — 가짜 값을 대신 채우지 않는다."""
     if rank is None or not rank.weights_used:
         return {}
@@ -172,8 +176,11 @@ def _extra_note(conditions: dict | None) -> str:
 
 def _llm_draft(build: BuildResult, verification: VerificationResult,
                rank: RankResult | None, log: LogFn, *,
-               conditions: dict | None = None) -> ExplanationDraft | None:
+               conditions: dict | None = None, outcome: dict | None = None) -> ExplanationDraft | None:
     """문장 초안 1회 생성. 검사를 통과한 것만 돌려주고 아니면 None → 규칙 템플릿 (§11-6).
+
+    outcome 을 주면 None 일 때 그 까닭을 outcome["reason"] 에 적는다 — 예외 클래스명(시간 초과·요청 오류 등) 또는
+    "check_rejected"(재생성해도 검사 불통과). 운영 로그가 이 값으로 규칙 문장이 쓰인 이유를 남긴다.
 
     수치·부품명·통과여부는 아래 입력으로 확정해 준다. LLM 이 슬롯을 바꾸거나 다른 슬롯의
     부품을 끌어오거나 점수를 만들어내면 버린다 — 그 경우 호출자가 기존 규칙 문장을 쓴다.
@@ -188,7 +195,7 @@ def _llm_draft(build: BuildResult, verification: VerificationResult,
     ]
     for it in build.items:
         axes = _top_axes(rank, it.slot, it.product_key)
-        lines.append(f"- {it.slot} | {it.name} | {fmt_money(it.price)} | {it.rank_from_3b}순위"
+        lines.append(f"- {it.slot} | {_display_name(it)} | {fmt_money(it.price)} | {it.rank_from_3b}순위"
                      + (f" | 기여가 큰 축: {axes}" if axes else ""))
     if tgt and tgt.issues:
         lines.append("검증 쟁점:")
@@ -197,12 +204,16 @@ def _llm_draft(build: BuildResult, verification: VerificationResult,
     want = {it.slot for it in build.items}
     names = {it.slot: it.name for it in build.items}
     schema = ExplanationDraft.model_json_schema()
+    # 의미 검사 재생성(아래 2회)·JSON 재생성·HTTP 재시도를 한 시간 예산 안에서 쓴다 — 넘기면 규칙 템플릿으로 내려간다.
+    deadline = time.monotonic() + EXPLANATION_DEADLINE_S
     for _attempt in range(2):
         try:
             draft = ExplanationDraft.model_validate(
-                call_llm("\n".join(lines), system=explain_system(), output_schema=schema))
+                call_llm("\n".join(lines), system=explain_system(), output_schema=schema, deadline=deadline))
         except Exception as exc:
             log(f"      [5] 문장 생성 실패 ({type(exc).__name__}) → 규칙 템플릿")
+            if outcome is not None:
+                outcome["reason"] = type(exc).__name__
             return None
         if {i.slot for i in draft.items} != want:
             continue
@@ -224,11 +235,18 @@ def _llm_draft(build: BuildResult, verification: VerificationResult,
             continue
         return draft
     log("      [5] 검사 불통과 → 규칙 템플릿")
+    if outcome is not None:
+        outcome["reason"] = "check_rejected"
     return None
 
 
+def _display_name(item) -> str:
+    """2개 구매 품목(RAM 낱개 2개)은 이름 뒤에 수량을 붙여, 구성 전체 가격이 낱개 가격으로 읽히지 않게 한다."""
+    return f"{item.name} ×{item.qty}" if item.qty > 1 else item.name
+
+
 def _fallback_reason(item) -> str:
-    return f"{item.name} — 조건 충족, {item.rank_from_3b}순위, {fmt_money(item.price)}"
+    return f"{_display_name(item)} — 조건 충족, {item.rank_from_3b}순위, {fmt_money(item.price)}"
 
 
 def _fallback_headline(build: BuildResult) -> str:
@@ -257,7 +275,8 @@ def run(build: BuildResult, verification: VerificationResult, log: LogFn,
     gray = tgt.gray_axes if tgt else []
 
     # 리뷰 관측(review_line_by_slot·evidence)은 규칙이 만든 것을 그대로 둔다 — LLM 은 건드리지 않는다.
-    draft = _llm_draft(build, verification, rank, log, conditions=conditions)
+    draft_outcome: dict = {}
+    draft = _llm_draft(build, verification, rank, log, conditions=conditions, outcome=draft_outcome)
     reason_by_slot = {i.slot: i.reason for i in draft.items} if draft else {}
 
     items, review_lines, review_caveats = [], {}, []
@@ -295,4 +314,8 @@ def run(build: BuildResult, verification: VerificationResult, log: LogFn,
         items=items,
         caveats=caveats,
         review_line_by_slot=review_lines,
+        text_source="llm" if draft else "rule",
+        fallback_reason=draft_outcome.get("reason", ""),
+        # 초안의 슬롯 이유가 금지어·다른 슬롯 부품명으로 빠져 규칙 문장이 들어간 슬롯(초안 전체가 없으면 모든 슬롯)
+        rule_reason_slots=[it.slot for it in build.items if not reason_by_slot.get(it.slot)],
     )

@@ -49,11 +49,11 @@ def test_no_budget_means_nothing_to_compare():
     assert r["level"] == "ok" and r["message"] is None
 
 
-def test_unknown_spec_is_pending_not_fail_so_it_still_counts_toward_the_floor():
-    """정보 없음 ≠ 비호환 — perf_tier 값이 없는 후보도 후보다(하한이 부풀지 않게)."""
+def test_pending_candidate_does_not_lower_the_floor():
+    """추천할 수 없는(Pending) 후보로 하한을 계산하지 않는다 — perf_tier 값이 없는 싼 후보는 빠진다(정책 §5.1)."""
     by_slot = {"GPU": [_cand("GPU", "no-tier", 300_000), _cand("GPU", "tiered", 500_000, perf_tier=8)]}
     r = feasibility.assess(_spec(2_000_000, {"GPU": {"perf_tier_min": 7}}), by_slot)
-    assert r["per_slot"]["GPU"] == 300_000
+    assert r["per_slot"]["GPU"] == 500_000
 
 
 def test_slot_with_no_qualifying_candidate_is_reported_not_silently_zero():
@@ -106,8 +106,8 @@ def test_contribution_without_rank_is_empty_rather_than_invented():
 
 
 def test_negative_axis_value_does_not_push_another_axis_over_100():
-    rank = _rank({"가격": 1.0, "밸런스": 1.0}, {"GPU": {"ranked": [{"product_key": "g", "breakdown": {"가격": 0.5, "밸런스": -0.5}}]}})
-    assert _contribution(_build(_item("GPU", "g")), rank) == {"가격": 100, "밸런스": 0}
+    rank = _rank({"가격": 1.0, "리뷰": 1.0}, {"GPU": {"ranked": [{"product_key": "g", "breakdown": {"가격": 0.5, "리뷰": -0.5}}]}})
+    assert _contribution(_build(_item("GPU", "g")), rank) == {"가격": 100, "리뷰": 0}
 
 
 # ── 예산 남김 안내 ────────────────────────────────────────────────────────

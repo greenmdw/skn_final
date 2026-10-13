@@ -2,7 +2,7 @@
 from itertools import product
 
 from src.dto import Candidate, RankResult, RequirementSpec
-from src.engine.stage4_optimize import _pc_known_failures, build_computer
+from src.engine.stage4_optimize import _pc_known_failures, _pc_required_missing, build_computer
 from src.engine.stage2_requirement import load_computer_rules
 
 
@@ -59,12 +59,17 @@ def test_no_feasible_build_is_marked_and_exclusion_does_not_restore_pool():
     assert excluded.alternatives["considered"] == 0
 
 
+def named(cand, name):
+    return cand.model_copy(update={"name": name})
+
+
 def test_small_pool_matches_brute_force_oracle():
+    # BIOS 축(CPU 계열 ↔ 보드 지원 계열)은 필수 정보라, 오라클도 필수 정보가 빠진 조합을 뺀다.
     pools = {
-        "CPU": [candidate("CPU", "c1", 40, 7, socket="AM5"),
-                candidate("CPU", "c2", 30, 6, socket="LGA1700")],
-        "메인보드": [candidate("메인보드", "b1", 30, 5, socket="AM5"),
-                      candidate("메인보드", "b2", 25, 4, socket="LGA1700")],
+        "CPU": [named(candidate("CPU", "c1", 40, 7, socket="AM5"), "AMD Ryzen 5 7600"),
+                named(candidate("CPU", "c2", 30, 6, socket="LGA1700"), "Intel Core i5-14600K")],
+        "메인보드": [candidate("메인보드", "b1", 30, 5, socket="AM5", supported_cpu_family="Ryzen 7000 / 8000G / 9000 계열"),
+                      candidate("메인보드", "b2", 25, 4, socket="LGA1700", supported_cpu_family="Intel Core 12 / 13 / 14세대")],
         "GPU": [candidate("GPU", "g1", 50, 9), candidate("GPU", "g2", 35, 6)],
     }
     result, spec = run(pools, 110)
@@ -74,7 +79,7 @@ def test_small_pool_matches_brute_force_oracle():
     for combo in product(*(pools[s] for s in slots)):
         chosen = dict(zip(slots, combo))
         price = sum(c.price for c in combo)
-        if price <= 110 and not _pc_known_failures(chosen, spec, rules):
+        if price <= 110 and not _pc_known_failures(chosen, spec, rules) and not _pc_required_missing(chosen, spec, rules):
             feasible.append((-sum(c.score for c in combo), price,
                              tuple(c.product_key for c in combo)))
     expected = min(feasible)

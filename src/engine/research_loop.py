@@ -17,6 +17,7 @@ from typing import Callable
 from src.config import CONFIDENCE_THRESHOLD, MAX_RESEARCH_ROUNDS
 from src.dto import BuildResult, Candidate, RankResult, RequirementSpec, VerificationResult
 from src.engine import LogFn
+from src.engine import eligibility as elig
 from src.engine import stage4_optimize
 
 # 재탐색 대상에서 빼는 축 — set/budget 은 [4] 가 이미 전체 풀을 본 결과라 후보를 빼도 풀리지 않는다(C5).
@@ -78,14 +79,19 @@ def _confidence(record: RoundRecord) -> int:
     return record.verification.targets[0].confidence if record.verification.targets else -1
 
 
+def _eligible(record: RoundRecord) -> bool:
+    return bool(record.verification.targets) and record.verification.targets[0].eligible
+
+
 def _pick_best(records: list[RoundRecord]) -> RoundRecord:
-    """신뢰도가 가장 높은 라운드, 같으면 앞 라운드([4]가 1라운드에서 점수를 최대화하므로)."""
+    """적격한 라운드가 먼저, 그 안에서 신뢰도가 가장 높은 라운드, 같으면 앞 라운드([4]가 1라운드에서 점수를 최대화하므로).
+    신뢰도만 높은 부적격 라운드가 적격 라운드를 밀어내지 않는다."""
     best = records[0]
-    best_conf = _confidence(best)
+    best_key = (_eligible(best), _confidence(best))
     for rec in records[1:]:
-        conf = _confidence(rec)
-        if conf > best_conf:
-            best, best_conf = rec, conf
+        key = (_eligible(rec), _confidence(rec))
+        if key > best_key:
+            best, best_key = rec, key
     return best
 
 
@@ -154,8 +160,8 @@ def run_set_with_research(
     """[4] 세트 최적화 → `verify` 검증을 최대 `max_rounds` 회 돌며, 실패한 라운드에서
     `choose_exclusion` 이 고른 (slot, product_key) 를 다음 라운드 exclude 에 더한다.
 
-    채택: 라운드마다 결과를 보관하고 신뢰도가 가장 높은 라운드를 고른다(동점이면 앞 라운드) —
-    재탐색이 결과를 나쁘게 만드는 일은 없다.
+    채택: 라운드마다 결과를 보관하고 적격한 라운드 중 신뢰도가 가장 높은 라운드를 고른다(동점이면 앞 라운드) —
+    재탐색이 결과를 나쁘게 만드는 일은 없다. 적격 라운드가 하나도 없으면 채택한 라운드의 build.eligibility 를 부적격으로 둔다.
     """
     exclude: set[tuple[str, str]] = set(base_exclude)
     records: list[RoundRecord] = []
@@ -195,6 +201,10 @@ def run_set_with_research(
         log("")
 
     best = _pick_best(records)
+    if not _eligible(best) and best.build.eligibility.get("status") != elig.NOT_RECOMMENDABLE:
+        target = best.verification.targets[0] if best.verification.targets else None
+        best.build.eligibility = elig.make_eligibility(
+            (target.blocking if target else None) or [{"code": elig.VERIFICATION_INPUTS_MISSING}])
     if best.verification.targets:
         best.verification.targets[0].rounds = best.round
         best.verification.targets[0].transcript = _round_transcript(records)

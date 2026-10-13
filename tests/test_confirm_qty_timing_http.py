@@ -20,7 +20,9 @@ if DSN:
 def test_confirm_keeps_quantity_and_lines_add_up_to_total():
     c = _signed_up()
     lid, revision_id, data = _recommended_list(c)
-    item = next(it for it in data["items"] if it["selected"])
+    # 낱개 RAM 은 처음부터 2개 구성(qty 2)이다 — 사용자가 직접 2로 바꾸는 부품은 qty 1 인 것에서 고른다.
+    item = next(it for it in data["items"] if it["selected"] and it["qty"] == 1)
+    already_two = sum(1 for it in data["items"] if it["selected"] and it["qty"] == 2)
     r = c.patch(f"/session/{lid}/items/{item['item_id']}", json={"qty": 2})
     assert r.status_code == 200, r.text
 
@@ -34,7 +36,7 @@ def test_confirm_keeps_quantity_and_lines_add_up_to_total():
         rows = conn.execute(
             "SELECT pack_count, line_amount FROM planning.purchase_line WHERE revision_id=%s", (revision_id,)
         ).fetchall()
-    assert sorted(int(p) for p, _ in rows).count(2) == 1
+    assert sorted(int(p) for p, _ in rows).count(2) == already_two + 1
     assert sum(int(a) for _, a in rows) == report["total"]            # 줄 합계의 합 = 확정 총액
 
     # 다시 읽어도(GET) 같은 값

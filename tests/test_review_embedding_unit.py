@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from src.rag.contracts import EmbeddingError
+from src.rag.contracts import EmbeddingError, EmbeddingInputError
 from src.rag.embedding import OpenAIEmbedder
 
 pytestmark = pytest.mark.unit
@@ -140,6 +140,43 @@ def test_mock_mode_is_default_when_mock_not_specified():
     assert embedder.client is None
     vectors = embedder.embed(["anything"])
     assert len(vectors[0]) == 1536
+
+
+@pytest.mark.parametrize("param", [None, "input", "input[2]"])
+def test_api_bad_input_is_marked_as_a_splittable_error(param):
+    import httpx
+    from openai import BadRequestError
+
+    response = httpx.Response(400, request=httpx.Request("POST", "https://example.invalid/embeddings"))
+
+    def reject_input(texts):
+        raise BadRequestError("invalid input", response=response, body={"param": param})
+
+    embedder = OpenAIEmbedder(client=_FakeClient(reject_input), mock=False)
+    with pytest.raises(EmbeddingInputError, match="embedding_input_invalid"):
+        embedder.embed(["a valid review", "a review the API rejects"])
+
+
+@pytest.mark.parametrize("status, param", [(400, "model"), (429, None)])
+def test_model_errors_and_rate_limits_are_not_marked_for_document_retries(status, param):
+    import httpx
+    from openai import BadRequestError, RateLimitError
+
+    response = httpx.Response(status, request=httpx.Request("POST", "https://example.invalid/embeddings"))
+    error = BadRequestError if status == 400 else RateLimitError
+
+    def reject_request(texts):
+        raise error("request rejected", response=response, body={"param": param})
+
+    embedder = OpenAIEmbedder(client=_FakeClient(reject_request), mock=False)
+    with pytest.raises(EmbeddingError, match="embedding_unavailable") as caught:
+        embedder.embed(["a valid review"])
+    assert not isinstance(caught.value, EmbeddingInputError)
+
+
+def test_mock_body_without_tokens_is_a_splittable_input_error():
+    with pytest.raises(EmbeddingInputError, match="embedding_zero_vector"):
+        OpenAIEmbedder(mock=True).embed(["🙂"])
 
 
 # ── 채우기 워커: MOCK 가짜 벡터는 테스트 DB에만 (src/workers/review_embedding_batch.py) ──

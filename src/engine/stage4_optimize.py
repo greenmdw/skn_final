@@ -10,8 +10,10 @@ from itertools import product
 
 from src.dto import BuildItem, BuildResult, Candidate, RankResult, RequirementSpec
 from src.engine import LogFn
-from src.engine.compat_parse import (cpu_supported, gpu_connector_fit, gpu_power_count_fit, parse_module_count, parse_pcie_gens,
-                                     parse_size_list, psu_fits_case, slots_needed, socket_supported)
+from src.engine import eligibility as elig
+from src.engine.compat_parse import (cpu_family, cpu_supported, gpu_connector_fit, gpu_power_count_fit, gpu_power_options,
+                                     parse_module_count, parse_pcie_gens, parse_psu_forms, parse_size_list, parse_socket_list,
+                                     psu_connector_readable, psu_fits_case, slots_needed, socket_supported, supported_families)
 from src.engine.stage2_requirement import load_computer_rules
 
 # Requirements/candidate pools this size or smaller get an exact branch-and-bound
@@ -246,7 +248,9 @@ def _pc_known_failures(chosen: dict[str, Candidate], spec: RequirementSpec, rule
     cooler_height = rules["cooler_height"]
     cooler_mm = value("쿨러", cooler_height["cooler_spec"])
     case_cooler_mm = value("케이스", cooler_height["case_spec"])
-    if cooler_mm is not None and case_cooler_mm is not None and cooler_mm > case_cooler_mm:
+    # 수랭(AIO)은 라디에이터 검사가 대신한다 — 쿨러 높이로 케이스와 비교하지 않는다.
+    if (cooler_mm is not None and case_cooler_mm is not None and cooler_mm > case_cooler_mm
+            and not _is_liquid(value("쿨러", "cooling_type"))):
         failures.add("cooler_height")
 
     cooler_socket = rules["cooler_socket"]
@@ -322,6 +326,285 @@ def _pc_known_failures(chosen: dict[str, Candidate], spec: RequirementSpec, rule
     return failures
 
 
+def _is_liquid(cooling_type) -> bool:
+    return "liquid" in str(cooling_type or "").lower()
+
+
+# ── 조합 필수 호환 정보 (정책 §5.2, 구현계획 §3.1) ───────────────────────────────────────────────
+# 규칙은 설정 verification.required_checks 에 데이터로 있다. 실제 선택된 조합(구매 부품 + 유지 부품)과 사용자 필수 요구에 따라
+# 필요한 값이 정해지고, 카탈로그 보유율이나 다른 후보의 값 유무로는 바뀌지 않는다.
+
+def _blank(value) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    return isinstance(value, (list, tuple, set, dict)) and len(value) == 0
+
+
+def _is_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _form_ranks(forms) -> list[int]:
+    listed = forms if isinstance(forms, (list, tuple)) else str(forms).replace(",", "/").split("/")
+    return [r for r in (_form_rank(f) for f in listed) if r is not None]
+
+
+# 값을 읽을 수 있는가 — 읽지 못하는 값(파싱 실패)은 없는 값과 같게 본다(그 값으로는 호환 판정을 못 한다).
+_READABLE = {
+    "number": _is_number,
+    "form": lambda v: _form_rank(v) is not None,
+    "form_list": lambda v: bool(_form_ranks(v)),
+    "cpu_families": lambda v: bool(supported_families(str(v))),
+    "socket_list": lambda v: bool(parse_socket_list(v)),
+    "size_list": lambda v: bool(parse_size_list(v)),
+    "slot_thickness": lambda v: slots_needed(v) is not None,
+    "psu_form": lambda v: len(parse_psu_forms(str(v))) == 1,
+    "psu_forms": lambda v: bool(parse_psu_forms(str(v))),
+    "gpu_connector": lambda v: gpu_power_options(str(v)) is not None,
+    "psu_connector": psu_connector_readable,
+    "module_count": lambda v: (parse_module_count(v) or 0) >= 1,
+}
+
+
+def _req_value(chosen: dict[str, Candidate], spec: RequirementSpec, slot: str, key: str):
+    """필수 정보 판정용 값 읽기 — 고른 후보 → 유지 부품 순. cpu_family 는 CPU 이름에서 읽은 계열이다."""
+    if key == "cpu_family":
+        return cpu_family(_cpu_name(chosen, spec))
+    cand = chosen.get(slot)
+    if cand is not None:
+        return cand.specs.get(key)
+    return ((spec.owned.get(slot) or {}).get("specs") or {}).get(key)
+
+
+# 적용 조건(when)이 어느 슬롯의 값에 달렸는가 — 낙관 판정(wild)에서 상대 슬롯이 정해지지 않았으면 적용 여부를 모르므로 비적용으로 둔다.
+_WHEN_SLOTS = {"socket_not_failed": ("CPU", "메인보드"), "air_cooler": ("쿨러",), "liquid_cooler": ("쿨러",),
+               "gpu_aux_power": ("GPU",), "m2_ssd": ("저장장치",)}
+
+
+def _req_present(entry: dict, chosen, spec, wild=frozenset()) -> bool:
+    if entry["slot"] in wild:
+        return True
+    value = _req_value(chosen, spec, entry["slot"], entry["key"])
+    if _blank(value):
+        return False
+    parse = entry.get("parse")
+    return True if parse is None else bool(_READABLE[parse](value))
+
+
+def _missing_item(entry: dict, chosen, spec) -> dict:
+    slot = entry["slot"]
+    cand = chosen.get(slot)
+    item = {"slot": slot, "key": entry["key"], "side": "purchase" if cand is not None else "owned"}
+    if cand is not None:
+        item.update(name=cand.name, product_key=cand.product_key)
+    elif (spec.owned.get(slot) or {}).get("name"):
+        item["name"] = spec.owned[slot]["name"]
+    return item
+
+
+def _applicability(when: str | None, chosen, spec) -> tuple[bool, list[dict] | None]:
+    """(적용 여부, 강제 누락 항목). 적용 조건을 판정하는 데 필요한 값 자체가 없으면 그 값만 누락으로 돌려준다."""
+    if when is None:
+        return True, None
+    read = lambda slot, key: _req_value(chosen, spec, slot, key)  # noqa: E731
+    if when == "socket_not_failed":
+        cpu_socket, board_socket = read("CPU", "socket"), read("메인보드", "socket")
+        return not (cpu_socket and board_socket and cpu_socket != board_socket), None
+    if when in ("air_cooler", "liquid_cooler"):
+        cooling = read("쿨러", "cooling_type")
+        if _blank(cooling):
+            return True, [{"slot": "쿨러", "key": "cooling_type"}]
+        return _is_liquid(cooling) == (when == "liquid_cooler"), None
+    if when == "gpu_aux_power":
+        return not (str(read("GPU", "aux_power") or "").strip().upper() == "X"
+                    or "슬롯 전력" in str(read("GPU", "power_connector") or "")), None
+    if when == "m2_ssd":
+        form = read("저장장치", "form_factor")
+        if _blank(form):
+            return True, [{"slot": "저장장치", "key": "form_factor"}]
+        return "M.2" in str(form), None
+    return True, None     # user_ram_speed 는 호출부가 따로 본다
+
+
+def _count_missing(entries: list[dict], chosen, spec, wild=frozenset()) -> list[dict]:
+    """GPU 보조 전원 개수 — 개수까지 봐야 판정이 되는데 실제 연결 경로에 필요한 파워 개수가 없을 때만 그 개수를 누락으로 본다.
+    다른 경로로 이미 충족되거나(ok) 어댑터 경로로 판정되면 쓰지 않는 커넥터 개수는 요구하지 않는다."""
+    read = lambda slot, key: _req_value(chosen, spec, slot, key)  # noqa: E731
+    if any(e["slot"] in wild for e in entries):
+        return []
+    connector, aux = read("GPU", "power_connector"), read("GPU", "aux_power")
+    options = gpu_power_options(str(connector)) if not _blank(connector) else None
+    if not options:
+        return []                               # 보조 전원 종류를 못 읽으면 종류 검사가 누락으로 잡는다
+    by_role = {e.get("as"): e for e in entries if e.get("as")}
+    counts = {}
+    for role, entry in by_role.items():
+        value = read(entry["slot"], entry["key"])
+        counts[role] = value if _is_number(value) else None
+    pcie, sixteen = counts.get("pcie"), counts.get("sixteen")
+    state, _ = gpu_power_count_fit(connector, aux, pcie, sixteen)
+    if state is not None:
+        return []
+    need_pcie = any(p or s for p, s in options)      # 16핀 선택지는 PCIe 커넥터로 어댑터를 연결할 수도 있어 PCIe 개수도 본다
+    need_sixteen = any(s for _, s in options)
+    return [by_role[role] for role, need, have in (("pcie", need_pcie, pcie), ("sixteen", need_sixteen, sixteen))
+            if role in by_role and need and have is None]
+
+
+def _eval_required_axis(axis: str, check: dict, chosen, spec, *, detail: bool, wild=frozenset()) -> dict:
+    keys = check["keys"]
+    out = {"axis": axis, "row_axis": elig.row_axis(check, axis), "applicable": False, "required": False,
+           "deferred": False, "missing": [], "unmet": False, "detail": ""}
+    slots = {e["slot"] for e in keys}
+    if any(s in spec.targets and s not in chosen and s not in spec.owned and s not in wild for s in slots):
+        # 축에 걸린 슬롯 중 아직 정해지지 않은 구매 슬롯이 있다(탐색 중 부분 조합) — 판정을 미루고 누락으로 가지치기하지 않는다.
+        return {**out, "applicable": True, "required": True, "deferred": True}
+    if not any(s in chosen for s in slots):
+        return out                                # 이번 견적에서 바뀌는 부품이 없는 축 — 비적용
+    if spec.mode != "upgrade" and any(s not in chosen and s not in spec.owned and s not in spec.targets for s in slots):
+        return out                                # 신규 조립에서 빠진 부품(견적에서 뺀 항목)이 걸린 축 — 세트 완성 여부는 set 검사가 본다
+    when = check.get("when")
+    if wild and any(s in wild for s in _WHEN_SLOTS.get(when, ())):
+        return out                                # 낙관 판정: 적용 여부를 가르는 상대 부품이 아직 없다 — 누락으로 단정하지 않는다
+    applicable, forced = _applicability(when, chosen, spec)
+    if not applicable:
+        return out
+    out.update(applicable=True, required=True)
+    if when == "user_ram_speed":
+        need = (spec.targets.get("RAM") or {}).get("speed_mts_min")
+        if need is None:
+            out["required"] = False               # 사용자 필수 속도가 없으면 기존 '확인 필요' 안내 그대로
+            return out
+    if forced is not None:
+        out["missing"] = [_missing_item(e, chosen, spec) for e in forced]
+    elif axis == "gpu_connector_count":
+        out["missing"] = [_missing_item(e, chosen, spec) for e in _count_missing(keys, chosen, spec, wild)]
+    else:
+        groups: dict[str, list[tuple[dict, bool]]] = {}
+        entries: list[dict] = []
+        for e in keys:
+            ok = _req_present(e, chosen, spec, wild)
+            if e.get("any_of"):
+                groups.setdefault(e["any_of"], []).append((e, ok))
+            elif not ok:
+                entries.append(e)
+        for members in groups.values():
+            if not any(ok for _, ok in members):
+                entries.extend(e for e, _ in members)
+        out["missing"] = [_missing_item(e, chosen, spec) for e in entries]
+    if when == "user_ram_speed":
+        known = [v for v in (_req_value(chosen, spec, e["slot"], e["key"]) for e in keys) if _is_number(v)]
+        out["unmet"] = any(v < need for v in known)
+    if detail:
+        out["detail"] = _required_detail(axis, out)
+    return out
+
+
+def _required_detail(axis: str, finding: dict) -> str:
+    from src.engine.stage3c_verify import axis_label
+    bits = []
+    if finding["missing"]:
+        bits.append("필수 정보 없음 — " + elig.missing_text(finding["missing"]))
+    if finding["unmet"]:
+        bits.append("요청한 조건을 만족하지 못함")
+    return f"{axis_label(finding['row_axis'])}: " + "; ".join(bits) if bits else ""
+
+
+_AXIS_PLANS: list[tuple[dict, dict]] = []      # [(required_checks 객체, 계획)] — 같은 규칙 객체를 반복해서 읽을 때 축 색인을 다시 만들지 않는다
+
+
+def _axis_plan(rules: dict) -> dict:
+    """required_checks 를 (축, 규칙, 걸린 슬롯 튜플) 목록과 슬롯별 색인으로 — 탐색 노드마다 부르는 경로가 가볍도록 한 번만 만든다."""
+    checks = rules.get("required_checks") or {}
+    for known, plan in _AXIS_PLANS:
+        if known is checks:
+            return plan
+    items = [(axis, check, tuple(dict.fromkeys(e["slot"] for e in check["keys"]))) for axis, check in checks.items()]
+    plan = {"all": items, "by_slot": {slot: [i for i in items if slot in i[2]] for slot in {s for i in items for s in i[2]}}}
+    _AXIS_PLANS[:] = (_AXIS_PLANS + [(checks, plan)])[-8:]
+    return plan
+
+
+def required_info_findings(chosen: dict[str, Candidate], spec: RequirementSpec, rules: dict, *,
+                           focus: str | None = None, detail: bool = True, wild=frozenset()) -> list[dict]:
+    """조합의 필수 호환 정보 판정 — 축마다 {axis, row_axis, applicable, required, deferred, missing, unmet, detail}.
+
+    missing: [{slot, key, side: "purchase"|"owned", name?, product_key?}] — 값이 없거나 읽을 수 없는 항목(구매·유지 부품 같은 기준).
+    unmet: 값이 확인됐는데 사용자 필수 요구(현재 RAM 속도)에 미달. deferred: 걸린 구매 슬롯이 아직 안 정해져 판정을 미룸(탐색 중 부분 조합).
+    applicable=False 는 이 조합에 필요 없는 검사다(미확인·통과와 다르다). focus 를 주면 그 슬롯이 걸린 축만 본다(탐색에서 방금 정한 슬롯).
+    wild: 낙관 판정용 — 이 슬롯들은 "모든 값이 있다"고 보고 누락으로 세지 않는다(후보 하나가 어떤 상대와 짝이 돼도 못 피하는 누락만 가려낸다).
+    탐색·상세 검사·최종 검증·재검증이 모두 이 함수를 쓴다."""
+    plan = _axis_plan(rules)
+    items = plan["all"] if focus is None else plan["by_slot"].get(focus, ())
+    return [_eval_required_axis(axis, check, chosen, spec, detail=detail, wild=wild) for axis, check, _slots in items]
+
+
+def _scan_required(chosen, spec, rules, focus, memo, field: str) -> set[str]:
+    """필수 판정 결과 중 field(missing|unmet)가 있는 축의 행 이름. memo 를 주면 같은 축·같은 부품 조합의 판정을 한 번만 한다
+    (탐색은 마지막에 정한 슬롯만 바뀌므로 거의 다 적중한다) — 결과는 memo 없이 계산한 것과 같다."""
+    plan = _axis_plan(rules)
+    items = plan["all"] if focus is None else plan["by_slot"].get(focus, ())
+    out: set[str] = set()
+    for axis, check, slots in items:
+        if memo is None:
+            f = _eval_required_axis(axis, check, chosen, spec, detail=False)
+            flags = (f["row_axis"], bool(f["missing"]), f["unmet"])
+        else:
+            key = (axis, tuple(chosen[s].product_key if s in chosen else None for s in slots))
+            flags = memo.get(key)
+            if flags is None:
+                f = _eval_required_axis(axis, check, chosen, spec, detail=False)
+                flags = memo[key] = (f["row_axis"], bool(f["missing"]), f["unmet"])
+        if flags[1 if field == "missing" else 2]:
+            out.add(flags[0])
+    return out
+
+
+def _pc_required_missing(chosen: dict[str, Candidate], spec: RequirementSpec, rules: dict, *,
+                         focus: str | None = None, memo: dict | None = None) -> set[str]:
+    """필수 호환 정보가 빠진 축(호환 점검 상세의 행 이름). 문장 없이 가볍게 — 탐색 노드마다 부른다."""
+    return _scan_required(chosen, spec, rules, focus, memo, "missing")
+
+
+def _pc_requirement_unmet(chosen: dict[str, Candidate], spec: RequirementSpec, rules: dict, *,
+                          focus: str | None = None, memo: dict | None = None) -> set[str]:
+    """확인된 사용자 필수 요구 미충족 축(현재는 RAM 필수 속도 미달만)."""
+    if (spec.targets.get("RAM") or {}).get("speed_mts_min") is None:
+        return set()
+    return _scan_required(chosen, spec, rules, focus, memo, "unmet")
+
+
+def _unary_blocked(slot: str, cand: Candidate, spec: RequirementSpec, rules: dict) -> str | None:
+    """후보 하나가 어떤 상대와 짝이 돼도 못 피하는 필수 정보 누락·요구 미충족이 있는가 -> "missing" | "unmet" | None.
+
+    후보의 자기 값이나 유지 부품(상대 후보와 무관)에서 오는 것만 본다: 아직 안 정해진 다른 구매 슬롯은 모든 값이 있다고 가정한다(낙관).
+    탐색 전에 후보 풀에서 이런 후보를 빼고, 한 슬롯이 통째로 막혀 있으면 탐색 자체를 하지 않는다."""
+    wild = frozenset(s for s in spec.targets if s != slot)
+    found = required_info_findings({slot: cand}, spec, rules, detail=False, wild=wild)
+    if any(f["missing"] for f in found):
+        return "missing"
+    return "unmet" if any(f["unmet"] for f in found) else None
+
+
+def _drop_unary_blocked(pools: dict[str, list[Candidate]], slots: list[str], spec: RequirementSpec, rules: dict,
+                        counts: dict[str, int]) -> dict[str, list[Candidate]]:
+    """_unary_blocked 후보를 뺀 풀. 뺀 개수는 pruned_required_missing / pruned_requirement_unmet 에 더한다."""
+    out = dict(pools)
+    for slot in slots:
+        kept = []
+        for cand in pools[slot]:
+            blocked = _unary_blocked(slot, cand, spec, rules)
+            if blocked is None:
+                kept.append(cand)
+            else:
+                name = "pruned_required_missing" if blocked == "missing" else "pruned_requirement_unmet"
+                counts[name] = counts.get(name, 0) + 1
+        out[slot] = kept
+    return out
+
+
 class _NodeCap(Exception):
     """Raised inside a widened search when it exceeds its node budget."""
 
@@ -332,6 +615,9 @@ def _max_score_search(
 ) -> dict[str, Candidate]:
     """Exact branch-and-bound over ``pools``: best total score among compatible sets within
     budget. With ``node_cap`` the search stops early (keeping the best set found so far)."""
+    pools = _drop_unary_blocked(pools, order, spec, rules, counts)
+    if not all(pools[s] for s in order):
+        return {}                                 # 한 슬롯이 통째로 필수 정보 누락·요구 미충족 — 어떤 조합도 정상 추천이 안 된다
     min_price = [0] * (len(order) + 1)
     max_score = [0.0] * (len(order) + 1)
     for i in range(len(order) - 1, -1, -1):
@@ -342,6 +628,7 @@ def _max_score_search(
     best: dict[str, Candidate] = {}
     best_key: tuple | None = None
     chosen: dict[str, Candidate] = {}
+    memo: dict = {}                       # 필수 호환 정보 판정 캐시(축·부품 조합별)
 
     def key(score: float, price: int) -> tuple:
         return (-score, price, tuple(chosen[s].product_key for s in slots))
@@ -368,6 +655,10 @@ def _max_score_search(
             chosen[slot] = candidate
             if _pc_known_failures(chosen, spec, rules):
                 counts["pruned_compat"] += 1
+            elif _pc_required_missing(chosen, spec, rules, focus=slot, memo=memo):
+                counts["pruned_required_missing"] = counts.get("pruned_required_missing", 0) + 1
+            elif _pc_requirement_unmet(chosen, spec, rules, focus=slot, memo=memo):
+                counts["pruned_requirement_unmet"] = counts.get("pruned_requirement_unmet", 0) + 1
             else:
                 visit(i + 1, price + candidate.price, score + candidate.score)
             del chosen[slot]
@@ -386,6 +677,9 @@ def _cheapest_compatible(
     """Lowest-price set with no *known* incompatibility, ignoring the budget. Used when no
     compatible set fits the budget: the budget is soft, compatibility is not, so the
     least-over-budget compatible set is the honest answer."""
+    pools = _drop_unary_blocked(pools, order, spec, rules, counts)
+    if not all(pools[s] for s in order):
+        return {}
     by_price = {s: sorted(pools[s], key=lambda c: (c.price, c.product_key)) for s in order}
     min_price = [0] * (len(order) + 1)
     for i in range(len(order) - 1, -1, -1):
@@ -394,6 +688,7 @@ def _cheapest_compatible(
     best: dict[str, Candidate] = {}
     best_price: int | None = None
     chosen: dict[str, Candidate] = {}
+    memo: dict = {}
     nodes = 0
 
     def visit(i: int, price: int) -> None:
@@ -410,7 +705,13 @@ def _cheapest_compatible(
             if best_price is not None and price + candidate.price + min_price[i + 1] >= best_price:
                 break  # sorted ascending: nothing later in this slot can beat the incumbent
             chosen[slot] = candidate
-            if not _pc_known_failures(chosen, spec, rules):
+            if _pc_known_failures(chosen, spec, rules):
+                pass
+            elif _pc_required_missing(chosen, spec, rules, focus=slot, memo=memo):
+                counts["pruned_required_missing"] = counts.get("pruned_required_missing", 0) + 1
+            elif _pc_requirement_unmet(chosen, spec, rules, focus=slot, memo=memo):
+                counts["pruned_requirement_unmet"] = counts.get("pruned_requirement_unmet", 0) + 1
+            else:
                 visit(i + 1, price + candidate.price)
             del chosen[slot]
 
@@ -418,7 +719,8 @@ def _cheapest_compatible(
         visit(0, 0)
     except _NodeCap:
         counts["capped"] = 1
-    counts["widened_visited"] = nodes
+    # 확대 점수 탐색의 방문 수(widened_visited)와 따로 센다 — 같은 키에 쓰면 두 탐색이 다 돈 경우 앞의 값이 지워졌다.
+    counts["cheapest_visited"] = nodes
     return best
 
 
@@ -439,6 +741,7 @@ def _search_pc_build(
     order.extend(s for s in slots if s not in order)
     counts = {"considered": math.prod(len(pools[s]) for s in slots), "valid": 0,
               "visited": 0, "pruned_budget": 0, "pruned_compat": 0,
+              "pruned_required_missing": 0, "pruned_requirement_unmet": 0,
               "pruned_score": 0, "feasible": 0, "compatible": 0}
     if not all(pools[s] for s in slots):
         return {}, counts, False
@@ -454,6 +757,8 @@ def _search_pc_build(
         wide_counts = {"visited": 0, "pruned_budget": 0, "pruned_compat": 0, "pruned_score": 0, "valid": 0}
         best = _max_score_search(wide_pools, order, slots, budget, spec, rules, wide_counts, WIDEN_NODE_CAP)
         counts["widened_visited"] = wide_counts["visited"]
+        for name in ("pruned_required_missing", "pruned_requirement_unmet"):   # 확대 탐색에서 걸러낸 수도 같은 카운터에 더한다
+            counts[name] += wide_counts.get(name, 0)
         if best:
             if wide_counts.get("capped"):
                 counts["capped"] = 1
@@ -514,9 +819,11 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
                       qty: dict[str, int] | None = None) -> list[dict]:
     """호환 검사별 결과 — 무엇을 무엇과 비교했고 결과가 어땠는지. 화면의 "호환성 점검 상세"와 pc_link_check 가 같이 쓴다.
 
-    각 항목: {axis, label, state, detail, missing_slots, inputs}. state 는 ok(통과) / unknown(스펙을 몰라 확인 못 함) / fail(확정된 비호환) /
+    각 항목: {axis, label, state, detail, missing_slots, inputs, applicable, required, missing_keys, required_missing}. state 는 ok(통과) / unknown(스펙을 몰라 확인 못 함) / fail(확정된 비호환) /
     skipped(이번 견적에서 바뀌는 부품이 없어 보지 않음 — 업그레이드에서 GPU 만 바꾸는데 CPU 소켓을 묻지 않는다).
     missing_slots 는 값이 없어 근사(unknown)가 된 "쪽" 슬롯만(둘 다 알면 빈 튜플) — 재탐색 루프(E1)가 뺄 슬롯을 고르는 데 쓴다.
+    applicable/required/missing_keys/required_missing 는 조합의 필수 호환 정보 판정(required_info_findings) 그대로다 — 비적용 검사는
+    applicable=False, missing_keys 는 실제로 없는(또는 읽을 수 없는) [{slot, key}]. missing_slots 는 그와 별개로 설명·재탐색용이다.
     inputs 는 비교에 실제로 쓴 [{slot, key, value}] — [3-C](E5)가 후보의 provenance 와 엮어 근거(evidence)를
     만드는 데 쓴다. key 는 이 규칙 문서(verification 절)에 적힌 spec 키 이름과 같다. skipped 행은 빈 리스트.
     상세 문장은 코드가 아는 값만 옮긴다. `rules` 는 규칙 문서의 verification 절.
@@ -605,16 +912,15 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
             missing_slots=absent(("GPU", gl), ("케이스", mg)),
             inputs=(("GPU", r["gpu_spec"], gl), ("케이스", r["case_spec"], mg)))
 
-    # 쿨러 높이
+    # 쿨러 높이 — 공랭만. 수랭(AIO)은 아래 라디에이터 검사가 대신한다.
     r = rules["cooler_height"]
     ch, mc = specs_of("쿨러").get(r["cooler_spec"]), specs_of("케이스").get(r["case_spec"])
-    if ch is not None and mc is not None:
+    if _is_liquid(specs_of("쿨러").get("cooling_type")):
+        add("cooler_height", ("쿨러", "케이스"), "skipped", "수랭 쿨러는 라디에이터 검사가 대신함")
+    elif ch is not None and mc is not None:
         add("cooler_height", ("쿨러", "케이스"), "ok" if ch <= mc else "fail",
             f"쿨러 높이 {ch}mm {'≤' if ch <= mc else '>'} 케이스 허용 {mc}mm",
             inputs=(("쿨러", r["cooler_spec"], ch), ("케이스", r["case_spec"], mc)))
-    elif ch is None and "liquid" in str(specs_of("쿨러").get("cooling_type") or "").lower():
-        add("cooler_height", ("쿨러", "케이스"), "unknown",
-            "수랭(AIO) 쿨러는 높이 대신 라디에이터 크기로 확인해야 하는데 케이스의 라디에이터 지원 정보가 없어 확인하지 못했습니다.")
     else:
         add("cooler_height", ("쿨러", "케이스"), "unknown", missing(("쿨러 높이", ch), ("케이스 허용 높이", mc)),
             missing_slots=absent(("쿨러", ch), ("케이스", mc)),
@@ -776,29 +1082,33 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
     modules, dimm = parse_module_count(specs_of("RAM").get(r["ram_module_spec"])), specs_of("메인보드").get(r["board_slots_spec"])
     capacity, max_capacity = specs_of("RAM").get(r["ram_capacity_spec"]), specs_of("메인보드").get(r["board_max_capacity_spec"])
     parts, bad = [], False
-    n_ram = count("RAM")
-    if n_ram > 1:
-        # "램 2개로" — 모듈 수·총용량은 제품 하나 기준이라 수량만큼 곱한다
-        modules = modules * n_ram if modules is not None else None
-        capacity = capacity * n_ram if capacity is not None else None
-    if modules is not None and dimm is not None:
+    # RAM 수량은 호출자가 ram_config.with_purchase_qty 로 모듈 수·총용량에 이미 반영했다 — qty 로 다시 곱하지 않는다
+    n_ram = chosen["RAM"].purchase_qty if "RAM" in chosen else 1
+    module_known, capacity_known = modules is not None and dimm is not None, capacity is not None and max_capacity is not None
+    if module_known:
         parts.append(f"RAM 모듈 {modules}개{f'(제품 {n_ram}개)' if n_ram > 1 else ''} {'≤' if modules <= dimm else '>'}"
                      f" 메인보드 DIMM 슬롯 {dimm}개")
         bad = bad or modules > dimm
-    if capacity is not None and max_capacity is not None:
+    if capacity_known:
         parts.append(f"RAM 총 {capacity}GB {'≤' if capacity <= max_capacity else '>'} 메인보드 최대 {max_capacity}GB")
         bad = bad or capacity > max_capacity
     ram_slots_inputs = (("RAM", r["ram_module_spec"], specs_of("RAM").get(r["ram_module_spec"])),
                         ("RAM", r["ram_capacity_spec"], capacity),
                         ("메인보드", r["board_slots_spec"], dimm),
                         ("메인보드", r["board_max_capacity_spec"], max_capacity))
-    if parts:
+    if module_known and capacity_known:
         add("ram_slots", ("RAM", "메인보드"), "fail" if bad else "ok", " · ".join(parts), inputs=ram_slots_inputs)
+    elif bad:
+        # 한쪽만 알아도 이미 어긴 것이 확인되면 확정 비호환이다(나머지 조건을 몰라도 뒤집히지 않는다).
+        add("ram_slots", ("RAM", "메인보드"), "fail", " · ".join(parts), inputs=ram_slots_inputs)
     else:
-        add("ram_slots", ("RAM", "메인보드"), "unknown",
-            missing(("RAM 모듈 구성", specs_of("RAM").get(r["ram_module_spec"])), ("메인보드 DIMM 슬롯", dimm)), data_missing=True,
-            missing_slots=tuple(s for s, cond in (("RAM", modules is None and capacity is None),
-                                                    ("메인보드", dimm is None and max_capacity is None)) if cond),
+        # 두 하위 조건(모듈 수·총용량)을 모두 알아야 ok 다. 아는 쪽은 문장에 남기고, 모르는 쪽의 값을 가진 슬롯이 누락 슬롯이다.
+        unknown_pairs = ([] if module_known else [("RAM", modules), ("메인보드", dimm)]) + \
+                        ([] if capacity_known else [("RAM", capacity), ("메인보드", max_capacity)])
+        text = missing(("RAM 모듈 구성", specs_of("RAM").get(r["ram_module_spec"])), ("메인보드 DIMM 슬롯", dimm)) if not parts else \
+            " · ".join(parts) + " — 나머지 조건은 스펙 정보가 부족해 확인하지 못했습니다."
+        add("ram_slots", ("RAM", "메인보드"), "unknown", text, data_missing=True,
+            missing_slots=tuple(dict.fromkeys(slot for slot, value in unknown_pairs if value is None)),
             inputs=ram_slots_inputs)
 
     # RAM 속도 ↔ 메인보드 최대 속도 (넘어도 비호환이 아니라 낮은 속도로 동작)
@@ -847,6 +1157,16 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
             add("m2", ("저장장치", "메인보드"), "ok",
                 f"M.2 SSD {count('저장장치')}개 ≤ 메인보드 M.2 슬롯 {m2_slots}개" + (f" · SSD PCIe {max(ssd_gens):g} ≤ 슬롯 최대 {max(board_gens):g}" if ssd_gens and board_gens else ""),
                 inputs=m2_inputs)
+
+    # 필수 호환 정보 — 행마다 적용 여부·필수 여부·실제 누락 키. required_info_findings 결과를 그대로 옮긴다(따로 계산하지 않는다).
+    by_row: dict[str, list[dict]] = {}
+    for finding in required_info_findings(chosen, spec, rules):
+        by_row.setdefault(finding["row_axis"], []).append(finding)
+    for row in rows:
+        found = by_row.get(row["axis"], [])
+        keys = [{"slot": m["slot"], "key": m["key"]} for f in found for m in f["missing"]]
+        row.update(applicable=any(f["applicable"] for f in found), required=any(f["required"] for f in found),
+                   missing_keys=keys, required_missing=bool(keys), requirement_unmet=any(f["unmet"] for f in found))
     return rows
 
 
@@ -885,6 +1205,7 @@ def build_computer(
     def _make_item(s: str, cand: Candidate) -> BuildItem:
         return BuildItem(
             slot=s, product_key=cand.product_key, name=cand.name, price=cand.price,
+            qty=cand.purchase_qty, unit_price=cand.unit_price,
             variant_id=cand.variant_id,
             offer_observation_id=cand.offer_observation_id,
             perf_tier=float(cand.specs.get("perf_tier", 0)), score=cand.score,
@@ -918,12 +1239,19 @@ def build_computer(
         link_check["set"] = "fail"
     if budget and total > budget:
         link_check["budget"] = "fail"
+    # 정상 추천 가능 여부 — 신뢰도와 별개. 비호환·예산 초과·필수 정보 누락·요구 미충족이 하나라도 있으면 진단용 구성이다.
+    eligibility = elig.make_eligibility(elig.blocking_entries(
+        link_check, required_info_findings(selected, spec, rules, detail=False), budget_exceeded=link_check.get("budget") == "fail"))
+
+    from src.engine import build_margins    # build_margins 가 이 모듈의 읽기 함수를 쓰므로 순환을 피해 늦게 가져온다
+    # 전력·크기·냉각 여유는 최종 세트(정상·진단 모두)에 한 번만 기록한다 — 탐색 루프 안에서는 계산하지 않고, 판정에는 쓰지 않는다.
+    margins = build_margins.evaluate_margins(selected, spec, rules)
 
     return BuildResult(
         list_id=spec.list_id,
         items=picked,
-        totals={"price": total, "power_w": (cpu_w + gpu_w) if cpu_w is not None and gpu_w is not None else None, "avg_score": round(
-            sum(i.score for i in picked) / max(1, len(picked)), 3)},
+        totals={"price": total, "power_w": (cpu_w + gpu_w) if cpu_w is not None and gpu_w is not None else None, "avg_score": (
+            math.fsum(i.score for i in picked) / len(picked) if picked else 0.0)},
         budget={"max": budget, "used": total, "used_pct": used_pct,
                 "slack": (budget - total) if budget else 0},
         link_check=link_check,
@@ -932,6 +1260,8 @@ def build_computer(
                              "균형" if abs(gpu_t - cpu_t) <= rules["balance_max_tier_gap"] else "불균형")},
         alternatives=search,
         round=round_no,
+        eligibility=eligibility,
+        margins=margins,
     )
 
 

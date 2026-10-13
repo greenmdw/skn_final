@@ -24,7 +24,9 @@ def test_all_pass_no_budget_gives_full_confidence():
     r = s3c.verify_build(_build(), "computer", _noop)
     t = r.targets[0]
     assert t.confidence == 100
-    assert t.passed is True
+    # 4a단계: chosen/spec/rules 없이 부르면 필수 호환 정보를 판정할 수 없어 적격으로 두지 않는다(신뢰도·쟁점은 그대로).
+    assert t.passed is False and t.eligible is False
+    assert t.blocking == [{"code": "verification_inputs_missing"}]
     assert t.issues == []
     assert t.gray_axes == ["설명서·규격(RAG 미연결)", "호환성 정밀 검사(소켓·전력·크기는 근사값)"]
 
@@ -32,7 +34,10 @@ def test_all_pass_no_budget_gives_full_confidence():
 def test_fail_link_check_penalizes_20_and_judges_violation():
     r = s3c.verify_build(_build(link_check={"socket": "fail"}), "computer", _noop)
     t = r.targets[0]
-    assert t.confidence == 80 and t.passed is True   # 80 == CONFIDENCE_THRESHOLD, 경계값 포함
+    # 신뢰도 산식은 그대로(80 == CONFIDENCE_THRESHOLD)지만, 4a단계부터 확인된 위반 1건은 점수와 무관하게 탈락이다.
+    assert t.confidence == 80 and t.confidence >= CONFIDENCE_THRESHOLD
+    assert t.passed is False and t.eligible is False
+    assert {"code": "compat_violation", "axis": "socket"} in t.blocking
     assert len(t.issues) == 1
     issue = t.issues[0]
     assert issue.axis == "socket" and issue.judge == "위반" and issue.penalty == 20
