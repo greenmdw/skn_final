@@ -130,12 +130,21 @@ class PostAnalysis(BaseModel):
 
     def observations_with_kind(self, post: PostInput) -> list[tuple[str, FeelObservation]]:
         """`observations` 에 그 제품의 종류를 붙인 것. 종류별로 모아 점수 계산에 넘길 때 쓴다."""
+        return self._with_kind(post, include_other=False)
+
+    def evidence_with_kind(self, post: PostInput) -> list[tuple[str, FeelObservation]]:
+        """저장할 근거 전부: 점수에 들어가는 문장 + 맞는 속성이 없는 직접 겪은 문장(`attribute="other"`, 문장 검색 전용)."""
+        return self._with_kind(post, include_other=True)
+
+    def _with_kind(self, post: PostInput, *, include_other: bool) -> list[tuple[str, FeelObservation]]:
         if not self.analyzable:
             return []
         author = self.author
         out: list[tuple[str, FeelObservation]] = []
         for analyzed in self.items:
-            if not analyzed.scorable or analyzed.product_id is None or analyzed.kind is None:
+            if analyzed.status != "confirmed" or analyzed.product_id is None or analyzed.kind is None:
+                continue
+            if analyzed.item.attribute == OTHER and not include_other:
                 continue
             item = analyzed.item
             out.append((analyzed.kind, FeelObservation(

@@ -99,35 +99,6 @@ class MemoryIntakeStore:
     def analyses_started_since(self, since: datetime) -> int:
         return sum(1 for t in self._started if t >= since)
 
-    # 파일에 저장·복원한다(`peripheral_post_pipeline.FileState`). 테이블 위치가 정해지기 전의 임시 저장 방식이다.
-    def export(self) -> dict:
-        return {"rows": [record_to_dict(r) for r in self._rows.values()],
-                "started": [t.isoformat() for t in self._started]}
-
-    def restore(self, data: dict) -> None:
-        self._rows = {r["post_id"]: record_from_dict(r) for r in data.get("rows", [])}
-        self._started = [datetime.fromisoformat(t) for t in data.get("started", [])]
-
-
-def _dt(value: str | None) -> datetime | None:
-    return datetime.fromisoformat(value) if value else None
-
-
-def record_to_dict(r: IntakeRecord) -> dict:
-    return {"post_id": r.post_id, "status": r.status, "attempts": r.attempts, "last_error": r.last_error,
-            "analyzed_hash": r.analyzed_hash, "truncated": r.truncated,
-            "requested_at": r.requested_at.isoformat() if r.requested_at else None,
-            "started_at": r.started_at.isoformat() if r.started_at else None,
-            "processed_at": r.processed_at.isoformat() if r.processed_at else None}
-
-
-def record_from_dict(d: dict) -> IntakeRecord:
-    return IntakeRecord(
-        post_id=d["post_id"], status=d["status"], attempts=d.get("attempts", 0), last_error=d.get("last_error"),
-        analyzed_hash=d.get("analyzed_hash"), truncated=d.get("truncated", False),
-        requested_at=_dt(d.get("requested_at")), started_at=_dt(d.get("started_at")), processed_at=_dt(d.get("processed_at")),
-    )
-
 
 _default_store: IntakeStore = MemoryIntakeStore()
 

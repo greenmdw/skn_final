@@ -84,6 +84,8 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
 
     resolution = body.resolution or (pc_context or {}).get("resolution")
     interp, ignored = _intent_from_body(body)
+    candidates = load_peripheral_candidates(conn)
+    requested_candidates = {kind: candidates.get(kind, []) for kind in body.kinds}
     values = {
         "peripherals": body.kinds,
         "peripheral_budget_max": body.budget_max,
@@ -91,7 +93,8 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
         "peripheral_intent": interp,
         "peripheral_resolved": peripheral_intent.resolve(interp),
         # 사용기 분석이 쌓은 근거(종류 → 관측). 분석 결과가 없으면 비어 있고 체감 점수는 외부 리뷰만으로 계산된다.
-        "peripheral_feel_observations": peripheral_post_pipeline.current_observations(),
+        "peripheral_feel_observations": peripheral_post_pipeline.current_observations(
+            conn, [c.product_id for group in requested_candidates.values() for c in group if c.product_id]),
         # purpose 는 monitor.hard 의 주사율 상향(4K+game)과 리뷰 점수가, priority·noise_sensitive 는 리뷰 점수가 읽는
         # PC 견적 조건이다. 주변기기 목적(peripheral_resolved)과는 다른 말이라 그대로 넘긴다.
         "purpose": body.purpose,
@@ -99,8 +102,6 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
         "noise_sensitive": body.noise_sensitive,
         "resolution": resolution,
     }
-    candidates = load_peripheral_candidates(conn)
-    requested_candidates = {kind: candidates.get(kind, []) for kind in body.kinds}
     score_peripheral_candidates(conn, requested_candidates, values, catalog_source="db")
     result = run_peripherals(
         values, candidates, log=lambda *_: None, pc_context=pc_context,

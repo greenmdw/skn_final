@@ -26,6 +26,7 @@ EXPECTED_CHAIN = [
     "0007_peripheral_line.sql", "0008_review_aspect.sql", "0009_live_spec_lookup_cache.sql",
     "0010_live_spec_lookup_store.sql", "0011_message_metadata.sql",
     "0012_review_embedding_invalidate.sql", "0013_community_post.sql", "0014_community_post_image.sql",
+    "0015_peripheral_post_evidence.sql",
 ]
 # 현재 baseline의 명시적 계약. 같은 개수의 다른 테이블로 바뀌어도 실패해야 한다.
 EXPECTED_TABLES = {
@@ -72,6 +73,10 @@ EXPECTED_TABLES = {
     "engine.recommendation_run",
     "engine.validation_result",
     "engine.review_requirement_profile",
+    "engine.peripheral_post_intake",
+    "engine.peripheral_post_analysis_log",
+    "engine.peripheral_post_evidence",
+    "engine.peripheral_post_evidence_embedding",
     "evidence.review_document",
     "evidence.review_embedding",
     "evidence.review_aspect_rule",

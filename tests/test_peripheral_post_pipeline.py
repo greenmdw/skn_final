@@ -205,40 +205,101 @@ def test_model_errors_retry_then_fail(community):
     assert state.observations.by_kind() == {}
 
 
-def test_file_state_roundtrip_keeps_intake_known_signals_and_observations(community, tmp_path):
+def _mine(by_kind, post_id, kind="mouse"):
+    """DB 상태는 시험들이 함께 쓰므로 이 시험이 만든 글의 근거만 본다."""
+    return [o for o in by_kind.get(kind, []) if o.post_id == post_id]
+
+
+def _day(offset: int):
+    """분석 한도는 날짜별로 센다. 시험끼리 섞이지 않게 먼 미래의 서로 다른 날을 쓴다."""
+    return datetime(2040, 1, 1, 9, 0, tzinfo=timezone.utc) + timedelta(days=offset)
+
+
+def _isolated_db_state(conn, post_ids):
+    """DB 상태: 이 시험이 만든 글만 보게, 다른 글은 이미 본 것으로 표시한다(다른 시험이 만든 글을 분석하지 않도록)."""
+    from src.repo import peripheral_post_source as source
+
+    keep = {str(p) for p in post_ids}
+    with conn.cursor() as cur:
+        for pid, sig in source.change_signal(conn).items():
+            if pid not in keep:
+                cur.execute(
+                    "INSERT INTO engine.peripheral_post_intake (post_id, status, change_signal, analyzed_hash) "
+                    "VALUES (%s, 'done', %s, 'seen') ON CONFLICT (post_id) DO UPDATE SET change_signal = EXCLUDED.change_signal",
+                    (pid, sig))
+    return pipeline.DbState(conn)
+
+
+def test_db_state_runs_the_whole_flow_and_survives_a_new_connection(community):
+    from src.db import get_conn
+
     post_id = _review_post(community)
-    path = tmp_path / "state.json"
-    state = pipeline.FileState(path)
-    state.known = _state_for([post_id]).known
     analyzer = FakeAnalyzer()
-    _run(state, analyzer)
-    state.save()
+    with get_conn() as conn:
+        state = _isolated_db_state(conn, [post_id])
+        report = pipeline.run_once(conn, state, analyzer, daily_limit=100, now=_day(1))
+        assert (report.queued, report.analyzed, report.errors) == (1, 1, 0)
+    with get_conn() as conn:                         # 새 연결 = 서버가 다시 시작된 것과 같다
+        state = pipeline.DbState(conn)
+        record = state.intake.get(post_id)
+        assert record.status == "done" and record.analyzed_hash and record.attempts == 1
+        assert state.get_known()[post_id]
+        (obs,) = _mine(state.observations.by_kind(), post_id)
+        assert obs.sentence == "그립이 손에 착 감겨서 안정적입니다."
+        again = pipeline.run_once(conn, state, analyzer, daily_limit=100, now=_day(1))
+        assert again.queued == 0 and again.analyzed == 0
+    assert analyzer.calls == [post_id]               # 다시 시작해도 모델을 다시 부르지 않는다
 
-    again = pipeline.FileState(path)
-    assert again.intake.get(post_id).analyzed_hash == state.intake.get(post_id).analyzed_hash
-    assert again.known == state.known
-    (obs,) = again.observations.by_kind()["mouse"]
-    original = state.observations.by_kind()["mouse"][0]
-    assert obs == original
-    assert _run(again, analyzer).queued == 0 and len(analyzer.calls) == 1      # 다시 시작해도 다시 분석하지 않는다
+
+def test_db_state_daily_limit_counts_analyses_across_connections(community):
+    from src.db import get_conn
+
+    ids = [_review_post(community) for _ in range(2)]
+    analyzer = FakeAnalyzer()
+    with get_conn() as conn:
+        state = _isolated_db_state(conn, ids)
+        first = pipeline.run_once(conn, state, analyzer, daily_limit=1, now=_day(10))
+        assert first.analyzed == 1 and first.stopped_by_limit is True
+    with get_conn() as conn:
+        state = pipeline.DbState(conn)
+        same_day = pipeline.run_once(conn, state, analyzer, daily_limit=1, now=_day(10) + timedelta(hours=3))
+        assert same_day.analyzed == 0 and same_day.stopped_by_limit is True
+        next_day = pipeline.run_once(conn, state, analyzer, daily_limit=1, now=_day(11))
+        assert next_day.analyzed == 1
 
 
-def test_server_reads_the_state_file_and_feeds_the_recommendation(community, tmp_path, monkeypatch):
-    """분석 작업이 쓴 파일 → 서버가 읽어 추천의 체감 점수 입력(`peripheral_feel_observations`)으로 넘긴다."""
-    from src import config
+def test_db_state_removes_evidence_when_the_post_is_deleted(community):
+    from src.db import get_conn
+
+    post_id = _review_post(community)
+    analyzer = FakeAnalyzer()
+    with get_conn() as conn:
+        state = _isolated_db_state(conn, [post_id])
+        pipeline.run_once(conn, state, analyzer, daily_limit=10, now=_day(20))
+        assert _mine(state.observations.by_kind(), post_id)
+    assert community.delete(f"/community/posts/{post_id}").status_code == 204
+    with get_conn() as conn:
+        state = pipeline.DbState(conn)
+        report = pipeline.run_once(conn, state, analyzer, daily_limit=10, now=_day(20))
+        assert report.removed == 1
+        assert _mine(state.observations.by_kind(), post_id) == []
+        with conn.cursor() as cur:
+            cur.execute("SELECT count(*) FROM engine.peripheral_post_evidence WHERE post_id = %s", (post_id,))
+            assert cur.fetchone()[0] == 0
+
+
+def test_server_feeds_the_recommendation_from_the_database(community, monkeypatch):
+    """분석 작업이 DB 에 쓴 근거 → 서버가 후보 제품의 근거만 읽어 추천의 체감 점수 입력으로 넘긴다."""
+    from src import schemas
     from src.db import get_conn
     from src.engine import peripheral_select
     from src.services import peripherals_service
 
     post_id = _review_post(community)
-    path = tmp_path / "state.json"
-    state = pipeline.FileState(path)
-    state.known = _state_for([post_id]).known
-    _run(state, FakeAnalyzer())
-    state.save()
+    with get_conn() as conn:
+        state = _isolated_db_state(conn, [post_id])
+        pipeline.run_once(conn, state, FakeAnalyzer(), daily_limit=10, now=_day(30))
 
-    monkeypatch.setattr(config, "PERIPHERAL_POST_STATE_PATH", str(path))
-    pipeline._cache.clear()
     seen: dict = {}
     original = peripheral_select.run_peripherals
 
@@ -247,27 +308,22 @@ def test_server_reads_the_state_file_and_feeds_the_recommendation(community, tmp
         return original(values, *args, **kwargs)
 
     monkeypatch.setattr(peripheral_select, "run_peripherals", spy)
-    from src import schemas
-
     with get_conn() as conn:
         peripherals_service.recommend(conn, schemas.PeripheralsRecommendIn(kinds=["mouse"]), None)
-    feeding = seen["peripheral_feel_observations"]
-    assert [o.post_id for o in feeding.get("mouse", [])] == [post_id]
+    assert _mine(seen["peripheral_feel_observations"], post_id)
+    # 다른 종류만 요청하면 이 제품의 근거는 읽지 않는다(후보 제품만 읽는다)
+    seen.clear()
+    with get_conn() as conn:
+        peripherals_service.recommend(conn, schemas.PeripheralsRecommendIn(kinds=["keyboard"]), None)
+    assert "mouse" not in seen["peripheral_feel_observations"]
 
 
-def test_missing_or_broken_state_file_means_no_observations(tmp_path):
-    assert pipeline.load_observations(tmp_path / "nope.json") == {}
-    bad = tmp_path / "bad.json"
-    bad.write_text("{not json", encoding="utf-8")
-    assert pipeline.load_observations(bad) == {}
-
-
-def test_observation_source_can_be_replaced_for_a_db_store():
+def test_observation_source_can_be_replaced_in_tests():
     from src.engine.peripheral_feel import FeelObservation
 
     obs = FeelObservation(author_id="u", product_id="p", attribute="grip", direction="good")
     pipeline.set_observation_source(lambda: {"mouse": [obs]})
     try:
-        assert pipeline.current_observations() == {"mouse": [obs]}
+        assert pipeline.current_observations(None) == {"mouse": [obs]}
     finally:
         pipeline.set_observation_source(None)
