@@ -487,3 +487,68 @@ def test_orphan_quota(alice, monkeypatch):
     monkeypatch.setattr(svc, "ORPHAN_QUOTA", 2)
     assert _upload(a, _png()).status_code == 201 and _upload(a, _png()).status_code == 201
     assert _upload(a, _png()).status_code == 422
+
+
+# ── 사용기 분석에 글 변경 알리기(개발요청 B-4) ─────────────────────────────────────────
+def _intake(post_id: str):
+    from src.db import get_conn
+    with get_conn() as conn:
+        return conn.execute("SELECT status, requested_at FROM engine.peripheral_post_intake WHERE post_id = %s", (post_id,)).fetchone()
+
+
+def _last_link(client, post_id: str) -> str:
+    return client.get(f"/community/posts/{post_id}").json()["products"][-1]["id"]
+
+
+def _mark_done(post_id: str) -> None:
+    from src.db import get_conn
+    with get_conn() as conn:
+        conn.execute("UPDATE engine.peripheral_post_intake SET status = 'done' WHERE post_id = %s", (post_id,))
+
+
+def test_post_changes_are_queued_for_analysis(alice, monkeypatch):
+    a, a_id = alice
+    monkeypatch.setattr(svc, "COMMUNITY_ADMIN_USER_IDS", frozenset({a_id}))
+    draft = a.post("/community/posts", json={"board_type": "review", "title": "분석 대기", "body": "본문", "tags": []}).json()
+    assert _intake(draft["id"]) is None                                          # 임시 저장은 알리지 않는다
+    assert a.patch(f"/community/posts/{draft['id']}", json={"body": "초안 수정"}).status_code == 200
+    assert _intake(draft["id"]) is None
+    item = TestClient(app).get("/catalog/products", params={"kind": "마우스", "q": "Cobra"}).json()["items"][0]
+    assert a.post(f"/community/posts/{draft['id']}/products", json={"product_id": item["id"], "product_kind": "마우스"}).status_code == 201
+    assert _intake(draft["id"]) is None
+    assert a.post(f"/community/posts/{draft['id']}/publish").status_code == 200   # 게시 → 대기
+    assert _intake(draft["id"])[0] == "pending"
+    steps = [
+        ("본문 수정", lambda: a.patch(f"/community/posts/{draft['id']}", json={"body": "게시 후 수정"})),
+        ("제품 추가", lambda: a.post(f"/community/posts/{draft['id']}/products", json={"product_kind": "키보드", "custom_product_name": "직접 입력 키보드"})),
+        ("제품 삭제", lambda: a.delete(f"/community/posts/{draft['id']}/products/{_last_link(a, draft['id'])}")),
+        ("숨김", lambda: a.post(f"/community/posts/{draft['id']}/hide")),
+        ("복원", lambda: a.post(f"/community/posts/{draft['id']}/restore")),
+        ("삭제", lambda: a.delete(f"/community/posts/{draft['id']}")),
+    ]
+    for name, call in steps:
+        _mark_done(draft["id"])
+        assert call().status_code in (200, 201, 204), name
+        assert _intake(draft["id"])[0] == "pending", name                         # 바뀔 때마다 다시 대기로
+
+
+def test_reading_a_post_does_not_queue_analysis(alice):
+    a, _ = alice
+    post = _post(a, title="조회만")
+    _mark_done(post["id"])
+    before = _intake(post["id"])
+    for _ in range(3):
+        TestClient(app).get(f"/community/posts/{post['id']}")
+    assert _intake(post["id"]) == before                                         # 조회는 알림을 만들지 않는다
+
+
+def test_intake_failure_never_breaks_saving_a_post(alice, monkeypatch):
+    from src.repo import peripheral_post_repo
+
+    def boom(self, record):
+        raise RuntimeError("대기열 저장소 장애")
+    monkeypatch.setattr(peripheral_post_repo.DbIntakeStore, "put", boom)
+    a, _ = alice
+    r = a.post("/community/posts", json={"board_type": "free", "title": "저장은 성공", "body": "본문", "publish": True})
+    assert r.status_code == 201 and r.json()["status"] == "published"
+    assert a.patch(f"/community/posts/{r.json()['id']}", json={"body": "수정도 성공"}).status_code == 200

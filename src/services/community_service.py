@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import math
 import re
 from uuid import UUID
@@ -18,7 +19,11 @@ from src.config import (
 )
 from src.errors import Conflict, FileTooLarge, Forbidden, NotFound, Unauthorized, ValidationFailed
 from src.repo.community_repo import CommunityRepo
+from src.repo.peripheral_post_repo import DbIntakeStore
+from src.services.community_post_intake import on_post_changed
 from src.storage.community_images import InvalidImage, LocalImageStore, process_image
+
+log = logging.getLogger(__name__)
 
 BOARD_TYPES = ("question", "review", "tip", "free")
 SORTS = ("latest", "popular", "views", "recommend")
@@ -41,6 +46,18 @@ _BOARD_LABEL = {"question": "질문 · Q&A", "tip": "정보 · 팁", "free": "�
 
 def is_admin(user_id: UUID | None) -> bool:
     return user_id is not None and str(user_id) in COMMUNITY_ADMIN_USER_IDS
+
+
+def _notify_changed(conn, post_id: UUID, status: str) -> None:
+    """글이 게시·수정·삭제·숨김·복원되거나 제품·이미지가 바뀌었음을 주변기기 사용기 분석에 알린다(개발요청 B-4).
+
+    분석 작업은 별도 프로세스라서 대기 기록은 DB(engine.peripheral_post_intake)에 남긴다. 글 저장과 같은 트랜잭션이라
+    글이 저장되지 않으면 기록도 없고, 이 기록이 실패해도(0015 가 아직 적용되지 않은 DB 등) 글 저장은 성공한다 —
+    on_post_changed 가 예외를 삼키고, DbIntakeStore.put 이 세이브포인트 안에서 쓴다.
+    임시 저장(draft)은 아직 게시된 적이 없어 알리지 않는다."""
+    if status == "draft":
+        return
+    on_post_changed(post_id, store=DbIntakeStore(conn))
 
 
 def _require_user(user_id: UUID | None) -> UUID:
@@ -391,6 +408,7 @@ def create_post(conn, me: UUID | None, data: dict) -> dict:
         row = repo.get_post(post_id, me=user)
         _validate_publishable(repo, row, board_type=board_type, title=title, body=body)
         repo.publish_post(post_id, expected_version=None)
+        _notify_changed(conn, post_id, "published")
     return get_post(conn, user, post_id)
 
 
@@ -445,6 +463,7 @@ def update_post(conn, me: UUID | None, post_id: UUID, data: dict) -> dict:
     if row["status"] in ("published", "hidden"):
         current = repo.get_post(post_id, me=user)
         _validate_publishable(repo, current, board_type=board_type, title=title, body=body)
+    _notify_changed(conn, post_id, row["status"])
     return get_post(conn, user, post_id)
 
 
@@ -458,14 +477,16 @@ def publish_post(conn, me: UUID | None, post_id: UUID, *, version: int | None = 
     _validate_publishable(repo, row, board_type=row["board_type"], title=row["title"], body=row["body"])
     if not repo.publish_post(post_id, expected_version=version):
         raise Conflict("다른 곳에서 먼저 수정했습니다. 새로 고친 뒤 다시 시도해 주세요.", code="version_conflict")
+    _notify_changed(conn, post_id, "published")
     return get_post(conn, me, post_id)
 
 
 def delete_post(conn, me: UUID | None, post_id: UUID) -> None:
     repo = CommunityRepo(conn)
-    _load_owned(repo, post_id, me, allow_admin=True)
+    row = _load_owned(repo, post_id, me, allow_admin=True)
     repo.set_status(post_id, "deleted")
     _remove_files(repo.delete_post_images(post_id))
+    _notify_changed(conn, post_id, row["status"])
 
 
 def hide_post(conn, me: UUID | None, post_id: UUID) -> dict:
@@ -479,6 +500,7 @@ def hide_post(conn, me: UUID | None, post_id: UUID) -> dict:
     if row["status"] != "published":
         raise Conflict("게시 중인 글만 숨길 수 있습니다.", code="not_published")
     repo.set_status(post_id, "hidden")
+    _notify_changed(conn, post_id, "hidden")
     return get_post(conn, user, post_id)
 
 
@@ -491,6 +513,7 @@ def restore_post(conn, me: UUID | None, post_id: UUID) -> dict:
     if row is None or row["status"] != "hidden":
         raise NotFound("숨김 처리된 게시글을 찾을 수 없습니다.")
     repo.set_status(post_id, "published")
+    _notify_changed(conn, post_id, "published")
     return get_post(conn, user, post_id)
 
 
@@ -503,6 +526,7 @@ def add_product_link(conn, me: UUID | None, post_id: UUID, item: dict) -> dict:
     prepared = _prepare_products(repo, [item])[0]
     prepared["display_order"] = repo.product_count(post_id)
     repo.add_product(post_id, **prepared)
+    _notify_changed(conn, post_id, row["status"])
     return get_post(conn, me, post_id)
 
 
@@ -513,6 +537,7 @@ def remove_product_link(conn, me: UUID | None, post_id: UUID, link_id: UUID) -> 
         raise ValidationFailed("사용기 · 리뷰는 제품이 1개 이상 있어야 합니다.", field="products")
     if not repo.delete_product_link(post_id, link_id):
         raise NotFound("연결된 제품을 찾을 수 없습니다.")
+    _notify_changed(conn, post_id, row["status"])
     return get_post(conn, me, post_id)
 
 
