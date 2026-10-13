@@ -271,17 +271,44 @@ def test_hidden_and_missing_posts_are_removed_by_the_rules(community):
 
 
 @needs_db
-def test_find_changed_posts_returns_posts_after_a_time_oldest_first(community):
+def test_change_signal_ignores_views_but_follows_edits_and_status(community):
     from src.db import get_conn
     from src.repo import peripheral_post_source as source
 
-    created = []
-    for title in ("첫째", "둘째"):
-        r = community.post("/community/posts", json={"board_type": "free", "title": title, "body": "본문", "publish": True})
-        created.append(r.json()["id"])
+    r = community.post("/community/posts", json={"board_type": "free", "title": "신호", "body": "처음", "publish": True})
+    post_id = r.json()["id"]
+    def changed_ids(conn, known):
+        return {pid for pid, _ in source.find_changed_posts(conn, known, limit=10_000)}
+
     with get_conn() as conn:
-        everything = source.find_changed_posts(conn, None, limit=1000)
-        ids = [pid for pid, _ in everything]
-        assert created[0] in ids and created[1] in ids and ids.index(created[0]) < ids.index(created[1])
-        newest = everything[-1][1]
-        assert source.find_changed_posts(conn, newest) == []
+        first = source.change_signal(conn)[post_id]
+        assert post_id in changed_ids(conn, None)                        # 처음 보는 글은 바뀐 글이다
+        assert post_id not in changed_ids(conn, {post_id: first})        # 같은 신호면 바뀐 글이 아니다
+
+    for _ in range(3):                                                   # 조회는 updated_at 을 바꿔도 신호는 그대로다
+        community.get(f"/community/posts/{post_id}")
+    with get_conn() as conn:
+        assert source.change_signal(conn)[post_id] == first
+        assert post_id not in changed_ids(conn, {post_id: first})
+
+    current = community.get(f"/community/posts/{post_id}").json()
+    r = community.patch(f"/community/posts/{post_id}", json={"body": "고쳤다", "version": current["version"]})
+    assert r.status_code == 200, r.text
+    with get_conn() as conn:
+        edited = source.change_signal(conn)[post_id]
+        assert edited != first
+        assert post_id in changed_ids(conn, {post_id: first})
+        assert post_id not in changed_ids(conn, {post_id: edited})
+
+
+@needs_db
+def test_change_signal_excludes_drafts_and_filters_by_ids(community):
+    from src.db import get_conn
+    from src.repo import peripheral_post_source as source
+
+    draft = community.post("/community/posts", json={"board_type": "free", "title": "초안", "body": "임시"}).json()["id"]
+    published = community.post("/community/posts", json={"board_type": "free", "title": "게시", "body": "본문", "publish": True}).json()["id"]
+    with get_conn() as conn:
+        everything = source.change_signal(conn)
+        assert published in everything and draft not in everything
+        assert set(source.change_signal(conn, [published, draft])) == {published}
