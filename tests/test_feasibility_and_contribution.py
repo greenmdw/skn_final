@@ -106,8 +106,8 @@ def test_contribution_without_rank_is_empty_rather_than_invented():
 
 
 def test_negative_axis_value_does_not_push_another_axis_over_100():
-    rank = _rank({"가격": 1.0, "밸런스": 1.0}, {"GPU": {"ranked": [{"product_key": "g", "breakdown": {"가격": 0.5, "밸런스": -0.5}}]}})
-    assert _contribution(_build(_item("GPU", "g")), rank) == {"가격": 100, "밸런스": 0}
+    rank = _rank({"가격": 1.0, "리뷰": 1.0}, {"GPU": {"ranked": [{"product_key": "g", "breakdown": {"가격": 0.5, "리뷰": -0.5}}]}})
+    assert _contribution(_build(_item("GPU", "g")), rank) == {"가격": 100, "리뷰": 0}
 
 
 # ── 예산 남김 안내 ────────────────────────────────────────────────────────
