@@ -81,7 +81,7 @@ def test_fps_prefers_magnetic_and_rapid_trigger_keyboard():
 
 def test_fps_prefers_light_high_polling_mouse():
     prefs = _req({"purposes": ["fps"]}, ["mouse"])["mouse"].soft["preferences"]
-    assert {"key": "polling_hz_max", "op": "min", "value": 1000} in prefs
+    assert {"key": "polling_hz_max", "op": "min", "value": 4000} in prefs
     assert {"key": "weight_g", "op": "max", "value": 80} in prefs
 
 
@@ -107,7 +107,7 @@ def test_desk_casual_prefers_small_usb_powered_speaker():
 def test_creative_prefers_ips_and_high_resolution_monitor():
     prefs = _req({"purposes": ["creative"]}, ["monitor"], resolution="QHD_165")["monitor"].soft["preferences"]
     assert {"key": "panel_raw", "op": "contains_any", "value": ["IPS"]} in prefs
-    assert {"key": "resolution_h", "op": "min", "value": 1440} in prefs
+    assert {"key": "resolution_h", "op": "min", "value": 2160} in prefs
 
 
 def test_purpose_missing_from_a_kind_table_does_nothing_for_that_kind():

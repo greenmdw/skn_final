@@ -17,7 +17,7 @@
 # hard_filters·preferences 절은 쓰지 않는다 — E11 은 requirements.<kind>.hard/soft 를 그대로
 # 평가한다. 로더(src/engine/peripheral_rules.py)는 두 이름을 "알려진 선택 절"로 예약만 해 둔다.
 schema_version: 1
-rule_set_version: peripheral-rules-v3   # v2: verify 절(E12) 추가 · v3: 견적 입력 절 추가, requirements.soft 제거
+rule_set_version: peripheral-rules-v4   # v2: verify 절(E12) 추가 · v3: 견적 입력 절 추가, requirements.soft 제거 · v4: 변별력 없던 스펙 임계값 보정(해상도·응답속도·폴링레이트)
 
 kinds:
   monitor:
@@ -188,7 +188,7 @@ spec_conditions:
       label: 높은 해상도
       words: [고해상도, 해상도 높, 높은 해상도]
       filter: false
-      prefs: [{key: resolution_h, op: min, value: 1440}]          # QHD 이상. 잠정
+      prefs: [{key: resolution_h, op: min, value: 2160}]          # 4K 이상. 잠정(1440 은 카탈로그 97% 통과라 변별력이 없었다)
     high_refresh:
       label: 높은 주사율
       words: [고주사율, 주사율 높, 144hz, 165hz, 240hz]
@@ -198,7 +198,7 @@ spec_conditions:
       label: 빠른 응답속도
       words: [응답속도]
       filter: false
-      prefs: [{key: response_ms_gtg, op: max, value: 5}]          # GTG ms. 잠정
+      prefs: [{key: response_ms_gtg, op: max, value: 1}]          # GTG ms. 잠정(5 는 카탈로그 100% 통과)
     large_screen:
       label: 큰 화면
       words: [큰 화면, 대형]
@@ -288,7 +288,7 @@ spec_conditions:
       label: 높은 폴링레이트
       words: [폴링, 4000hz, 8000hz]
       filter: false
-      prefs: [{key: polling_hz_max, op: min, value: 1000}]
+      prefs: [{key: polling_hz_max, op: min, value: 4000}]        # Hz. 잠정(1000 은 값이 있는 제품의 96% 통과)
     small_size:        # ＊
       label: 작은 크기
       words: [작은 마우스, 작은 크기, 미니]
