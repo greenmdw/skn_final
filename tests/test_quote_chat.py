@@ -77,6 +77,16 @@ def test_price_and_balance_and_compare_facts_carry_the_stored_numbers(review):
     assert "우리 추천" in quote_facts.compare(review, "GPU")
 
 
+def test_compare_facts_carry_the_same_group_totals_the_note_promises(review):
+    """notes 가 "같은 부품군끼리의 합계를 따로 냈다"고 하면 그 합계가 실려야 한다 — 없어서 "가격 차이 얼마나 나?"에 모델이
+    "자료에 없다"고 하거나 견적 합계를 추천 전체 합계와 빼서 틀린 차이를 냈다(10/13 실측 3/3)."""
+    s = review["compare"]["summary"]
+    assert s["missing_in_quote"]
+    text = quote_facts.compare(review)
+    assert f"견적 {s['quote_total']:,}원" in text and f"우리 추천 {s['our_total_same_slots']:,}원" in text
+    assert f"{s['diff']:+,}원" in text
+
+
 def test_missing_blocks_explain_why_instead_of_inventing(review):
     bare = qrs.analyze({"GPU": "RTX 4060 Ti"}, None)                      # 조건·가격 없음
     assert "가격이 적혀 있지 않아" in quote_facts.prices(bare)
@@ -271,7 +281,41 @@ def test_price_claims_guard_skips_a_clause_whose_direction_is_ambiguous():
     from src.agent.quote_review_agent import price_claims_are_grounded
 
     review = _prices_review({"CPU": "cheaper", "GPU": "pricier"})
-    assert price_claims_are_grounded("CPU는 비싸고 GPU는 저렴합니다", review) is True
+    assert price_claims_are_grounded("CPU가 GPU보다 비싸서 저렴한 쪽을 찾았습니다", review) is True
+
+
+def test_price_claims_guard_splits_after_each_parts_own_predicate():
+    """"CPU는 비슷하고 GPU는 더 저렴하며" — 부품마다 서술어가 따로면 '~고/~며' 뒤에서 끊어 각자 검사한다. 끊지 않으면 "저렴"이
+    CPU(similar)에도 붙어 맞는 답을 버렸다(10/13 실측 2/3)."""
+    from src.agent.quote_review_agent import price_claims_are_grounded
+
+    review = _prices_review({"CPU": "similar", "GPU": "cheaper", "저장장치": "pricier"})
+    assert price_claims_are_grounded("CPU는 비슷하고 GPU는 더 저렴하며, 저장장치는 더 비쌉니다.", review) is True
+    assert price_claims_are_grounded("CPU는 비슷한 가격이고 GPU는 더 저렴하지만, 저장장치는 32,000원 더 비쌉니다.", review) is True
+    assert price_claims_are_grounded("CPU는 비싸고 GPU는 저렴합니다", _prices_review({"CPU": "cheaper", "GPU": "pricier"})) is False
+
+
+def test_price_claims_guard_does_not_split_inside_a_number():
+    """"55,000원"의 쉼표에서 끊으면 "000원 저렴하고 메인보드는 55"가 되어 앞 부품의 방향어가 메인보드에 붙었다(10/13 실측)."""
+    from src.agent.quote_review_agent import price_claims_are_grounded
+
+    review = _prices_review({"RAM": "cheaper", "메인보드": "pricier"})
+    assert price_claims_are_grounded("RAM은 30,000원 저렴하고 메인보드는 55,000원 비쌉니다.", review) is True
+
+
+def test_price_claims_guard_accepts_a_direction_from_the_comparison_with_our_recommendation(review):
+    """카탈로그와 비교하지 못한 부품(no_catalog)도 우리 추천과는 비교했다 — "RAM은 우리 추천보다 30,000원 저렴"은 사실이다.
+    'similar'라도 차이가 있으면 "10,000원 비싸다"는 사실이다. 어느 비교에도 없는 방향은 여전히 막는다."""
+    from src.agent.quote_review_agent import price_claims_are_grounded
+
+    review = {"prices": {"rows": [{"part": "CPU", "state": "similar", "diff": 10000},
+                                  {"part": "RAM", "state": "no_catalog", "diff": None}]},
+              "compare": {"rows": [{"part": "CPU", "price_state": "similar", "price_diff": 10000},
+                                   {"part": "RAM", "price_state": "cheaper", "price_diff": -30000}]}}
+    assert price_claims_are_grounded("RAM은 우리 추천보다 30,000원 저렴합니다.", review) is True
+    assert price_claims_are_grounded("CPU는 견적이 10,000원 비쌉니다.", review) is True
+    assert price_claims_are_grounded("RAM은 더 비쌉니다.", review) is False
+    assert price_claims_are_grounded("CPU는 더 저렴합니다.", review) is False
 
 
 def test_guard_accepts_the_same_value_written_as_a_percentage_but_not_a_new_number():

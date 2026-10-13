@@ -181,8 +181,9 @@ def _numbers(text: str) -> set[str]:
 
 
 _SLOT_NAMES = ("CPU", "GPU", "RAM", "메인보드", "저장장치", "파워", "케이스", "쿨러")
-_PRICIER_PAT = re.compile(r"비싸|비쌌|웃돌|더\s*비쌈|가격이\s*높")
-_CHEAPER_PAT = re.compile(r"저렴|더\s*쌈|가격이\s*낮|보다\s*낮")
+# "비쌉니다"·"더 쌉니다"(가장 흔한 존댓말)가 빠져 있어 그런 문장은 검사도 안 됐다(10/13)
+_PRICIER_PAT = re.compile(r"비싸|비쌌|비쌉|웃돌|더\s*비쌈|가격이\s*높")
+_CHEAPER_PAT = re.compile(r"저렴|더\s*쌈|더\s*쌉|더\s*싸|가격이\s*낮|보다\s*낮")
 
 
 def price_claims_are_grounded(reply: str, review: dict) -> bool:
@@ -196,10 +197,10 @@ def price_claims_are_grounded(reply: str, review: dict) -> bool:
     대조한다 — "A와 B는 X"는 A·B 둘 다 X 라는 뜻이라 한국어 문법상 안전하다. 실측(2026-09-28)으로 확인한
     사례: "CPU와 RAM은 견적이 비싸고"에서 RAM은 실제로 cheaper인데 검사를 건너뛰어 놓쳤다. 절 안에 비쌈·쌈
     방향어가 둘 다 있으면(어느 부품에 어느 방향이 붙는지 코드가 못 가른다) 그 절은 건너뛴다(과탐 방지)."""
-    rows = {r["part"]: r["state"] for r in (review.get("prices") or {}).get("rows") or []}
+    rows = _price_directions(review)
     if not rows:
         return True
-    for clause in re.split(r"[.,]|이며|지만|그러나|그리고", reply):
+    for clause in _CLAUSE_SPLIT.split(reply):
         present = [s for s in _SLOT_NAMES if s in clause]
         if not present:
             continue
@@ -208,10 +209,39 @@ def price_claims_are_grounded(reply: str, review: dict) -> bool:
             continue
         claimed = "pricier" if claims_pricier else "cheaper"
         for slot in present:
-            state = rows.get(slot)
-            if state is not None and state != claimed:
+            allowed = rows.get(slot)
+            if allowed is not None and claimed not in allowed:
                 return False
     return True
+
+
+# 절 나누기 — 숫자 안의 쉼표·소수점("55,000원", "20.5%")에서는 끊지 않는다: 끊으면 "000원 저렴하고 메인보드는 55"처럼 앞 부품의
+# 방향어가 뒤 부품에 붙어 맞는 답을 버렸다(10/13 실측 2/3). "CPU는 비슷하고 GPU는 더 저렴하며"처럼 부품마다 서술어가 따로 붙는
+# "~고 / ~며" 뒤에서도 끊는다 — 끊지 않으면 "저렴"이 CPU에도 붙는다(10/13 실측 2/3). "CPU와 RAM은 비싸고"는 서술어 앞에 두 부품이
+# 다 있어 그대로 함께 검사된다.
+_CLAUSE_SPLIT = re.compile(r"(?<!\d)[.,]|[.,](?!\d)|이며|지만|그러나|그리고|(?<=[가-힣])(?:고|며)\s")
+
+
+def _direction(state: str | None, diff) -> set[str]:
+    """한 비교의 가격 방향. 'similar'(차이가 작음)라도 차이가 있으면 "1만 원 비싸다"는 사실이라 그 부호 쪽도 맞다."""
+    if state in ("pricier", "cheaper"):
+        return {state}
+    if state == "similar" and diff:
+        return {"pricier" if diff > 0 else "cheaper"}
+    return set()
+
+
+def _price_directions(review: dict) -> dict[str, set[str]]:
+    """부품별로 사실인 가격 방향 — 카탈로그 비교(prices)와 우리 추천 비교(compare) 둘 다. 비교한 적 없는 부품(no_catalog)은 빈
+    집합이라 어떤 방향을 붙여도 걸린다. 추천 비교를 빼면 "RAM은 우리 추천보다 30,000원 저렴"(사실)을 카탈로그 미비교라며
+    버렸다(10/13 실측)."""
+    out: dict[str, set[str]] = {}
+    for r in (review.get("prices") or {}).get("rows") or []:
+        out.setdefault(r["part"], set()).update(_direction(r.get("state"), r.get("diff")))
+    for r in (review.get("compare") or {}).get("rows") or []:
+        if r.get("price_state") is not None:
+            out.setdefault(r["part"], set()).update(_direction(r["price_state"], r.get("price_diff")))
+    return out
 
 
 _PERCENT = re.compile(r"(\d+(?:\.\d+)?)\s*%")
