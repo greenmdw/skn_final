@@ -312,3 +312,15 @@ def test_change_signal_excludes_drafts_and_filters_by_ids(community):
         everything = source.change_signal(conn)
         assert published in everything and draft not in everything
         assert set(source.change_signal(conn, [published, draft])) == {published}
+
+
+def test_claim_next_sees_past_excluded_posts_beyond_the_scan_window():
+    """지정한 글만 돌릴 때(exclude), 제외된 대기 글이 scan 개를 넘어도 그 뒤의 글을 집어 온다."""
+    from datetime import datetime, timezone
+
+    store = intake.MemoryIntakeStore()
+    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    for i in range(6):
+        store.put(intake.IntakeRecord(post_id=f"p{i}", status="pending", requested_at=base.replace(minute=i)))
+    got = intake.claim_next(store, daily_limit=100, now=base, scan=2, exclude={"p0", "p1", "p2", "p3", "p4"})
+    assert got is not None and got.post_id == "p5"

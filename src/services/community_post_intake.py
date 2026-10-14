@@ -160,7 +160,8 @@ def claim_next(
     day_start = at.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     if store.analyses_started_since(day_start) >= daily_limit:
         return None
-    rows = [r for r in store.pending_oldest_first(scan) if r.post_id not in (exclude or ())]
+    # 제외한 글이 앞쪽 후보를 채워도 뒤쪽 대기 글을 볼 수 있게 제외 수만큼 더 읽는다(지정한 글만 돌릴 때 필요하다)
+    rows = [r for r in store.pending_oldest_first(scan + len(exclude or ())) if r.post_id not in (exclude or ())]
     if not rows:
         return None
     record = replace(rows[0], status="processing", started_at=at, attempts=rows[0].attempts + 1)

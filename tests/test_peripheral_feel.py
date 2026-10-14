@@ -252,6 +252,10 @@ def test_taste_split_and_mismatch_are_judged_separately():
     assert d.value < 0.5
 
 
+# 키보드 축을 모두 0 으로 둔 가중치(필요한 축만 켜서 쓴다)
+KEYBOARD0 = {"스위치소음": 0.0, "배열크기": 0.0, "연결": 0.0, "리뷰": 0.0, "가격": 0.0, "브랜드": 0.0, "무상AS": 0.0}
+
+
 # ── 순위 축 연결 ──────────────────────────────────────────────────────────
 def test_feel_value_replaces_the_review_axis_in_ranking():
     a = _cand("A", price=100_000, typing_noise=(10, 2))
@@ -260,7 +264,7 @@ def test_feel_value_replaces_the_review_axis_in_ranking():
     a2 = a.model_copy(update={"feel_detail": detail["A"]})
     b2 = b.model_copy(update={"feel_detail": detail["B"]})
     req = __import__("src.dto", fromlist=["PeripheralRequirement"]).PeripheralRequirement(kind="keyboard")
-    weights = {"가격": 0.0, "선호적합": 0.0, "데이터충실": 0.0, "리뷰": 1.0}
+    weights = {**KEYBOARD0, "리뷰": 1.0}
     ranked = rank_candidates("keyboard", req, [b2, a2], weights)
     assert [c.product_key for c in ranked] == ["A", "B"]
     assert ranked[0].breakdown["리뷰"] == detail["A"].value
@@ -269,7 +273,7 @@ def test_feel_value_replaces_the_review_axis_in_ranking():
 def test_ranking_falls_back_to_external_review_value_without_feel():
     a = _cand("A")
     req = __import__("src.dto", fromlist=["PeripheralRequirement"]).PeripheralRequirement(kind="keyboard")
-    ranked = rank_candidates("keyboard", req, [a], {"가격": 0.0, "선호적합": 0.0, "데이터충실": 0.0, "리뷰": 0.0})
+    ranked = rank_candidates("keyboard", req, [a], KEYBOARD0)
     assert ranked[0].breakdown["리뷰"] == 0.5          # review_detail.value
 
 
@@ -278,7 +282,7 @@ def test_run_peripherals_ranks_by_feel_when_review_axis_has_weight(monkeypatch):
     from src.engine import peripheral_select as sel
 
     rules = deepcopy(RULES)
-    rules["ranking"]["keyboard"]["weights"] = {"가격": 0.0, "선호적합": 0.0, "데이터충실": 0.0, "리뷰": 1.0}
+    rules["ranking"]["keyboard"]["weights"] = {**KEYBOARD0, "리뷰": 1.0}
     monkeypatch.setattr(sel, "load_peripheral_rules", lambda *a, **k: rules)
     a = _cand("A", typing_noise=(5, 5))
     b = _cand("B", typing_noise=(5, 5))
@@ -301,11 +305,12 @@ def test_payload_reports_the_review_weight_it_actually_used():
 
 
 def test_review_axis_is_on_in_every_kind_and_price_with_preference_stay_central():
-    """체감 R 이 순위에 반영된다(잠정 가중치). 가격과 스펙 선호가 여전히 합쳐 과반을 차지한다."""
+    """체감 R 이 순위에 반영된다(잠정 가중치). 가격과 스펙 기준이 여전히 합쳐 과반을 차지한다."""
     for kind in ("monitor", "keyboard", "mouse", "speaker"):
         weights = RULES["ranking"][kind]["weights"]
+        spec = sum(weights[name] for name in RULES["ranking"][kind]["criteria"])
         assert 0 < weights["리뷰"] <= 0.35
-        assert weights["가격"] + weights["선호적합"] > 0.5
+        assert weights["가격"] + spec > 0.5
         assert sum(weights.values()) == pytest.approx(1.0)
 
 

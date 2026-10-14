@@ -112,3 +112,20 @@ def test_sentence_check_matches_text_that_had_formatting():
     """서식 때문에 원문 일치 확인(sentence_not_in_body)이 실패하지 않는다 — 추출·확인 모두 글자 본문 기준."""
     body = plain_text("## 그립\n- **클로 그립**에서 손바닥 뒤쪽 지지가 적당합니다.")
     assert "클로 그립에서 손바닥 뒤쪽 지지가 적당합니다." in body
+
+
+# ── 예시 글 면책 문구 ───────────────────────────────────────────────────────
+def test_example_notice_line_is_removed_with_its_blank_line():
+    from src.engine.peripheral_post_text import strip_example_notice
+
+    body = "> 가상 예시 사용기입니다. 실제 구매자가 작성한 후기가 아닙니다.\n\n기숙사 책상에서 3주 썼습니다.\n\n## 소제목\n본문"
+    assert strip_example_notice(body) == "기숙사 책상에서 3주 썼습니다.\n\n## 소제목\n본문"
+    assert plain_text(strip_example_notice(body)).startswith("기숙사 책상에서")
+
+
+def test_text_without_the_notice_is_unchanged():
+    from src.engine.peripheral_post_text import strip_example_notice
+
+    body = "그립이 안정적입니다.\n\n> 인용문입니다.\n끝"
+    assert strip_example_notice(body) == body
+    assert strip_example_notice(None) == ""

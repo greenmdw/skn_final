@@ -22,7 +22,7 @@ def test_different_review_fit_is_visible_but_does_not_change_peripheral_rank_or_
         Candidate(product_key="a", slot="mouse", name="A", price=100, review_detail=_review(0.1)),
         Candidate(product_key="b", slot="mouse", name="B", price=100, review_detail=_review(0.9)),
     ]
-    weights = {"가격": 0.0, "선호적합": 0.5, "데이터충실": 0.5, "리뷰": 0.0}
+    weights = {"손맞춤": 0.5, "연결": 0.5, "기능": 0.0, "리뷰": 0.0, "가격": 0.0, "브랜드": 0.0, "무상AS": 0.0}
 
     baseline = rank_candidates("mouse", requirement,
                                [candidate.model_copy(update={"review_detail": None}) for candidate in candidates],
@@ -30,7 +30,7 @@ def test_different_review_fit_is_visible_but_does_not_change_peripheral_rank_or_
     ranked = rank_candidates("mouse", requirement, candidates, weights, require_review_details=True)
 
     assert [candidate.product_key for candidate in ranked] == ["a", "b"]
-    assert [candidate.score for candidate in ranked] == [0.75, 0.75]
+    assert [candidate.score for candidate in ranked] == [0.4, 0.4]       # 0.5 − 근거 부족 감점 0.10(관측 0건)
     assert [candidate.score for candidate in ranked] == [candidate.score for candidate in baseline]
     assert [candidate.breakdown["리뷰"] for candidate in ranked] == [0.1, 0.9]
     assert [candidate.review_detail.value for candidate in ranked] == [0.1, 0.9]

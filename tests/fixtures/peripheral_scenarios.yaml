@@ -1,0 +1,68 @@
+# 주변기기 시나리오 고정 순위표 — tests/test_peripheral_scenarios.py 가 쓴다. 손으로 고치지 말고
+# `PERIPHERAL_SCENARIOS_UPDATE=1 pytest tests/test_peripheral_scenarios.py` 로 다시 쓴 뒤 diff 를 검토한다.
+조건 없음:
+- [cheap_basic, 0.708]
+- [cheap_wireless, 0.664]
+- [unknown_specs, 0.649]
+- [trackball, 0.639]
+- [mid_light, 0.58]
+손목 부담:
+- [trackball, 0.718]
+- [cheap_basic, 0.637]
+- [mid_vertical, 0.622]
+- [unknown_specs, 0.602]
+- [cheap_wireless, 0.592]
+FPS:
+- [mid_light, 0.691]
+- [cheap_basic, 0.589]
+- [pro_light_rich, 0.589]
+- [no_review, 0.577]
+- [cheap_wireless, 0.545]
+버튼 많은 게임:
+- [cheap_basic, 0.672]
+- [cheap_wireless, 0.627]
+- [trackball, 0.603]
+- [unknown_specs, 0.602]
+- [mid_light, 0.544]
+가벼운 무게를 말함:
+- [mid_light, 0.7]
+- [no_review, 0.657]
+- [pro_light_rich, 0.612]
+- [unknown_specs, 0.579]
+- [cheap_basic, 0.551]
+무선을 말함:
+- [cheap_wireless, 0.664]
+- [trackball, 0.639]
+- [mid_light, 0.58]
+- [no_review, 0.546]
+- [mid_vertical, 0.544]
+예산 5만원:
+- [cheap_basic, 0.668]
+- [cheap_wireless, 0.597]
+- [unknown_specs, 0.568]
+- [trackball, 0.531]
+- [no_review, 0.452]
+가격 강조:
+- [cheap_basic, 0.725]
+- [cheap_wireless, 0.674]
+- [unknown_specs, 0.655]
+- [trackball, 0.634]
+- [mid_light, 0.559]
+리뷰 강조:
+- [cheap_basic, 0.726]
+- [cheap_wireless, 0.681]
+- [unknown_specs, 0.667]
+- [trackball, 0.666]
+- [mid_light, 0.614]
+Logitech 기피:
+- [cheap_basic, 0.691]
+- [cheap_wireless, 0.635]
+- [unknown_specs, 0.614]
+- [no_review, 0.506]
+- [pro_light_rich, 0.478]
+Razer 선호:
+- [cheap_basic, 0.704]
+- [cheap_wireless, 0.661]
+- [unknown_specs, 0.646]
+- [trackball, 0.636]
+- [mid_light, 0.578]

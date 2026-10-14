@@ -39,6 +39,29 @@ def _inline(line: str) -> str:
     return _CODE.sub(r"\1", line)
 
 
+_EXAMPLE_NOTICE = re.compile(r"^\s*>?\s*가상 예시 사용기입니다")
+
+
+def strip_example_notice(body: str | None) -> str:
+    """예시 글 맨 앞의 면책 문구 줄("> 가상 예시 사용기입니다. 실제 구매자가 작성한 후기가 아닙니다.")을 뺀다. 예시 글에만 쓴다.
+
+    독자에게 보이는 안내인데, 분석 입력에 두면 모델이 글을 "실제 후기가 아님"으로 보고 통째로 버린다."""
+    if not body:
+        return ""
+    out: list[str] = []
+    drop_blank = False
+    for line in body.split("\n"):
+        if _EXAMPLE_NOTICE.match(line):
+            drop_blank = True
+            continue
+        if drop_blank and not line.strip():
+            drop_blank = False
+            continue
+        drop_blank = False
+        out.append(line)
+    return "\n".join(out)
+
+
 def plain_text(body: str | None) -> str:
     """서식을 걷어낸 글자 본문. 서식이 없는 글은 입력과 같다."""
     if not body:
@@ -66,4 +89,4 @@ def plain_text(body: str | None) -> str:
     return "\n".join(out)
 
 
-__all__ = ["plain_text"]
+__all__ = ["plain_text", "strip_example_notice"]

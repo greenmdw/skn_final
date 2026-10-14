@@ -63,11 +63,16 @@ class ProfilePatchIn(BaseModel):
     display_name: Optional[str] = None
     email: Optional[str] = None
     marketing_agreed: Optional[bool] = None
+    current_password: Optional[str] = None      # 이메일을 바꿀 때만 필요(로그인 ID 를 바꾸는 일이라 비밀번호를 다시 확인한다)
 
 
 class PasswordChangeIn(BaseModel):
     current_password: str
     new_password: str
+
+
+class LogoutAllIn(BaseModel):
+    include_current: bool = False      # true 면 이 기기도 로그아웃(쿠키 삭제)
 
 
 class WithdrawIn(BaseModel):
@@ -886,15 +891,16 @@ class AlternativesOut(BaseModel):
 
 
 class PeripheralsRecommendIn(BaseModel):
-    """개발요청 6번 — 주변기기 추천. PC 견적 대화(category 선택)를 거치지 않고 바로 호출한다."""
+    """개발요청 6번 — 주변기기 추천. PC 견적 대화(category 선택)를 거치지 않고 바로 호출한다.
+
+    예전 입력(PC 견적 용도 `purpose`, `priority`, `noise_sensitive`)은 2026-10-14 에 없앴다. 목적·상황은 `purposes`·`situations`
+    로 받고(조용해야 함 = `situations: ["quiet_place"]`), PC 견적 용도는 `pc_list_id` 로 묶은 PC 견적에서 읽는다.
+    보내도 오류는 아니지만(알 수 없는 필드는 무시된다) 아무 영향이 없다."""
 
     kinds: list[Literal["monitor", "keyboard", "mouse", "speaker"]] = Field(min_length=1)
     budget_max: Optional[int] = Field(default=None, ge=0)
-    purpose: Optional[str] = None
-    priority: Optional[str] = None
-    noise_sensitive: Optional[bool] = None
     resolution: Optional[str] = None
-    # 주면 그 PC 견적의 해상도·GPU 스펙을 pc_context로 묶어 모니터 교차검사를 추가로 켠다
+    # 주면 그 PC 견적의 해상도·용도·GPU 스펙을 pc_context로 묶어 모니터 교차검사를 추가로 켠다
     # (principal 소유가 아니거나 못 찾으면 조용히 무시 — 독립 추천으로 그냥 진행한다).
     pc_list_id: Optional[str] = None
     # 견적 입력(POST /peripherals/interpret 의 결과를 그대로 넘긴다). 목록에 없는 값은 오류 없이 무시하고
@@ -903,6 +909,11 @@ class PeripheralsRecommendIn(BaseModel):
     situations: list[str] = Field(default_factory=list)
     stated: dict[str, list[str]] = Field(default_factory=dict)       # 종류 → 직접 말한 스펙 조건 이름
     kind_budget: dict[str, int] = Field(default_factory=dict)        # 종류 → 예산 상한(원). 합산 예산은 budget_max
+    # 선호·기피 브랜드(종류 → 브랜드 이름). 선호는 브랜드 축에서 1점, 기피는 후보에서 뺀다.
+    brand_like: dict[str, list[str]] = Field(default_factory=dict)
+    brand_avoid: dict[str, list[str]] = Field(default_factory=dict)
+    # 강조하는 축(종류 → 축 이름: 리뷰·가격·브랜드·무상AS 또는 그 종류의 스펙 기준 이름). 강조한 축 가중치 ×1.5.
+    emphasis: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class PeripheralProductOut(BaseModel):
@@ -933,6 +944,9 @@ class PeripheralAlternativeOut(BaseModel):
     review: ReviewScoreDetailDTO | None = None
     review_weight: float = 0.0
     review_note: str = "리뷰 점수 미반영"
+    evidence_count: int | None = None        # 이 대안의 리뷰 근거(관측) 수
+    score: float | None = None
+    why_not_first: str | None = None         # 1위가 아닌 이유 한 줄(없으면 숨긴다)
 
 
 class PeripheralItemOut(BaseModel):
@@ -952,6 +966,10 @@ class PeripheralItemOut(BaseModel):
     review_note: str
     feel: dict[str, Any] | None = None       # 체감 근거 블록. None 이면 보여 줄 근거가 없다
     feel_note: str | None = None             # feel 이 None 일 때만 있다("스펙과 가격 기준 추천")
+    score_detail: dict[str, Any] | None = None   # 축별 값·가중치·기여분, 감점, 근거 수, 가중 이유("어떻게 골랐나요?")
+    evidence_count: int | None = None            # 리뷰 근거(관측) 수 — 화면은 "근거 N건"
+    evidence_penalty: float | None = None        # 근거 부족 감점(0이면 없음)
+    close_call: bool = False                     # 1·2위가 접전이다(한 응답에서 최대 2개 품목)
 
 
 class PeripheralEmptyOut(BaseModel):

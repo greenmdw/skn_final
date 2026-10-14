@@ -31,7 +31,7 @@ from src.config import (
 from src.db import close_pool
 from src.errors import TruefitError
 from src.frontend_serving import mount_frontend
-from src.routers import auth, community, dev, lists, pc_check, peripherals, reviews, session
+from src.routers import auth, community, dev, lists, me, pc_check, peripherals, reviews, session
 
 
 log = logging.getLogger(__name__)
@@ -96,6 +96,7 @@ app.include_router(pc_check.router)
 app.include_router(peripherals.router)
 app.include_router(community.router)
 app.include_router(community.catalog_router)
+app.include_router(me.router)
 # /dev/* 는 DB 없이 파이프라인을 돌리는 개발용 진입점이라 운영(APP_ENV=production)에는 열지 않는다.
 if not IS_PRODUCTION:
     app.include_router(dev.router)

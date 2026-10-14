@@ -30,15 +30,17 @@ class PeripheralRuleError(ValueError):
 # 이름만 예약한다 — 파일에 없어도 되고, 있어도 최상위 키 오류가 나지 않는다.
 # parsing 은 E9가 채운다(resolution_classes) — schema_version을 올리지 않고 기존 "알려진
 # 선택 절" 자리를 그대로 쓴다(E8 테스트가 schema_version==1을 고정 기대하므로 건드리지 않는다).
-_REQUIRED_TOP_KEYS = {"schema_version", "rule_set_version", "kinds", "ranking"}
+_REQUIRED_TOP_KEYS = {"schema_version", "rule_set_version", "kinds", "ranking", "scoring"}
 _KNOWN_TOP_KEYS = _REQUIRED_TOP_KEYS | {
     "requirements", "hard_filters", "preferences", "verify", "parsing",
     "spec_conditions", "purposes", "situations", "pc_purpose_map", "interpretation", "adjust_chips", "feel",
+    "emphasis",
 }
 
 _KINDS = ("monitor", "keyboard", "mouse", "speaker")
 _KIND_REQUIRED_KEYS = {"label", "product_type", "spec_table", "columns"}
-_AXES = {"가격", "선호적합", "데이터충실", "리뷰"}
+# 스펙 기준(ranking.<kind>.criteria)과 별개로 모든 종류가 갖는 축. 가중치 축 = 스펙 기준 이름들 ∪ 이것들.
+_FIXED_AXES = {"리뷰", "가격", "브랜드", "무상AS"}
 
 # E10 — requirements 절 검증 상수.
 _MONITOR_HARD_KEYS = {
@@ -110,14 +112,100 @@ def _check_parsing(data: Any) -> None:
     _check_resolution_classes(data["resolution_classes"])
 
 
-def _check_weights(kind: str, weights: Any) -> None:
-    if not isinstance(weights, dict) or set(weights) != _AXES:
-        raise PeripheralRuleError(f"주변기기 랭킹 가중치 축 오류: {kind}")
+def _check_weights(kind: str, weights: Any, criteria: dict) -> None:
+    axes = set(criteria) | _FIXED_AXES
+    if not isinstance(weights, dict) or set(weights) != axes:
+        raise PeripheralRuleError(f"주변기기 랭킹 가중치 축 오류: {kind} (기대: {sorted(axes)})")
     for axis, value in weights.items():
         if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
             raise PeripheralRuleError(f"주변기기 랭킹 가중치 음수/타입 오류: {kind}.{axis}")
     if abs(sum(weights.values()) - 1) > 1e-9:
         raise PeripheralRuleError(f"주변기기 랭킹 가중치 합계가 1이 아님: {kind}")
+
+
+def _check_criteria(kind: str, criteria: Any, allowed_keys: set[str]) -> None:
+    """스펙 기준: 이름 → 스펙 키 목록. 키는 그 종류가 판정에 쓸 수 있는 키여야 하고 한 기준에만 속한다."""
+    if not isinstance(criteria, dict) or not criteria:
+        raise PeripheralRuleError(f"주변기기 ranking.{kind}.criteria 는 비어 있지 않은 표여야 함")
+    seen: dict[str, str] = {}
+    for name, keys in criteria.items():
+        if not isinstance(name, str) or not name or name in _FIXED_AXES:
+            raise PeripheralRuleError(f"주변기기 ranking.{kind}.criteria 이름 오류: {name!r}")
+        if not isinstance(keys, list) or not keys or not all(isinstance(k, str) for k in keys):
+            raise PeripheralRuleError(f"주변기기 ranking.{kind}.criteria.{name} 는 스펙 키 목록이어야 함")
+        for key in keys:
+            if key not in allowed_keys:
+                raise PeripheralRuleError(f"주변기기 ranking.{kind}.criteria.{name}: 판정에 쓸 수 없는 스펙 키 {key}")
+            if key in seen:
+                raise PeripheralRuleError(f"주변기기 ranking.{kind}: 스펙 키 {key} 가 두 기준({seen[key]}, {name})에 있음")
+            seen[key] = name
+
+
+_SCORING_KEYS = {
+    "evidence_penalty", "evidence_min_n", "missing_key_penalty", "missing_key_penalty_max",
+    "stated_criterion_boost", "emphasis_boost", "stated_pref_weight", "close_call_margin", "close_call_max_items",
+}
+
+
+_EMPHASIS_AXES = {"가격", "리뷰", "무상AS"}
+
+
+def _check_emphasis(data: dict) -> None:
+    """강조 낱말·브랜드 표. 낱말은 소문자 문자열, 같은 낱말이 두 곳에 있으면 어느 쪽인지 알 수 없어 거절한다."""
+    section = data.get("emphasis")
+    if section is None:
+        return
+    if not isinstance(section, dict) or set(section) != {"words", "brand_avoid_words", "brands"}:
+        raise PeripheralRuleError("주변기기 emphasis 절 키 오류(words·brand_avoid_words·brands)")
+    words = section["words"]
+    if not isinstance(words, dict) or not set(words) <= _EMPHASIS_AXES:
+        raise PeripheralRuleError(f"주변기기 emphasis.words 축은 {sorted(_EMPHASIS_AXES)} 안이어야 함")
+    seen: dict[str, str] = {}
+    for axis, items in words.items():
+        _check_word_list(f"emphasis.words.{axis}", items)
+        for w in items:
+            if w in seen:
+                raise PeripheralRuleError(f"주변기기 emphasis.words 낱말 {w!r} 가 두 축({seen[w]}, {axis})에 있음")
+            seen[w] = axis
+    _check_word_list("emphasis.brand_avoid_words", section["brand_avoid_words"])
+    brands = section["brands"]
+    if not isinstance(brands, dict) or not brands:
+        raise PeripheralRuleError("주변기기 emphasis.brands 는 비어 있지 않은 표여야 함")
+    for brand, aliases in brands.items():
+        if not isinstance(brand, str) or not brand.strip():
+            raise PeripheralRuleError(f"주변기기 emphasis.brands 이름 오류: {brand!r}")
+        _check_word_list(f"emphasis.brands.{brand}", aliases)
+
+
+def _check_word_list(where: str, items: Any) -> None:
+    if not isinstance(items, list) or not items or not all(isinstance(w, str) and w.strip() for w in items):
+        raise PeripheralRuleError(f"주변기기 {where} 는 비어 있지 않은 낱말 목록이어야 함")
+    if any(w != w.lower() for w in items):
+        raise PeripheralRuleError(f"주변기기 {where} 의 낱말은 소문자여야 함(문장을 소문자로 바꿔 비교한다)")
+
+
+def _check_criteria_cover_conditions(data: dict) -> None:
+    """spec_conditions 의 조건이 겨냥하는 스펙 키는 모두 그 종류의 어떤 스펙 기준에 속해야 한다 — 아니면 그 조건은 순위에
+    반영되지 않는다(조용히 빠진다)."""
+    for kind, conds in (data.get("spec_conditions") or {}).items():
+        covered = {key for keys in data["ranking"][kind]["criteria"].values() for key in keys}
+        for cond_id, cond in (conds or {}).items():
+            for pref in cond.get("prefs") or []:
+                if pref["key"] not in covered:
+                    raise PeripheralRuleError(
+                        f"주변기기 spec_conditions.{kind}.{cond_id}: 스펙 키 {pref['key']} 가 어떤 ranking 스펙 기준에도 없음")
+
+
+def _check_scoring(data: Any) -> None:
+    if not isinstance(data, dict) or set(data) != _SCORING_KEYS:
+        raise PeripheralRuleError(f"주변기기 scoring 절 키 오류(기대: {sorted(_SCORING_KEYS)})")
+    for key, value in data.items():
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or value < 0:
+            raise PeripheralRuleError(f"주변기기 scoring.{key} 는 0 이상의 숫자여야 함")
+    if data["evidence_min_n"] <= 0:
+        raise PeripheralRuleError("주변기기 scoring.evidence_min_n 은 0보다 커야 함")
+    if data["stated_criterion_boost"] < 1 or data["emphasis_boost"] < 1:
+        raise PeripheralRuleError("주변기기 scoring 의 배수는 1 이상이어야 함")
 
 
 # ── E10 — requirements 절 검증 ────────────────────────────────────────────
@@ -508,21 +596,25 @@ def _load_peripheral_rules(path: Path) -> dict:
     if not isinstance(ranking, dict) or set(ranking) != set(_KINDS):
         raise PeripheralRuleError(f"주변기기 ranking은 정확히 {_KINDS} 네 종류여야 함")
     for kind, rdef in ranking.items():
-        if not isinstance(rdef, dict) or set(rdef) != {"weights"}:
+        if not isinstance(rdef, dict) or set(rdef) != {"criteria", "weights"}:
             raise PeripheralRuleError(f"주변기기 ranking 절 키 오류: {kind}")
-        _check_weights(kind, rdef["weights"])
+        _check_criteria(kind, rdef["criteria"], _allowed_spec_keys(kind, data))
+        _check_weights(kind, rdef["weights"], rdef["criteria"])
+    _check_scoring(data.get("scoring"))
 
     if "parsing" in data:
         _check_parsing(data["parsing"])
 
     _check_requirements(data)
     _check_spec_conditions(data)
+    _check_criteria_cover_conditions(data)
     _check_purposes(data)
     _check_situations(data)
     _check_pc_purpose_map(data)
     _check_adjust_chips(data)
     _check_feel(data)
     _check_interpretation(data)
+    _check_emphasis(data)
 
     if "verify" in data:
         _check_verify(data["verify"])
@@ -538,6 +630,27 @@ def load_peripheral_rules(path: Path | None = None) -> dict:
 def peripheral_kinds(rules: dict | None = None) -> list[str]:
     """정의된 주변기기 종류 목록(고정 4종, 정렬)."""
     return sorted((rules or load_peripheral_rules())["kinds"])
+
+
+def ranking_def(kind: str, rules: dict | None = None) -> dict:
+    """종류 하나의 랭킹 정의 {criteria: 스펙 기준 → 스펙 키 목록, weights: 기본 축 가중치}."""
+    rules = rules or load_peripheral_rules()
+    try:
+        return rules["ranking"][kind]
+    except KeyError:
+        raise PeripheralRuleError(f"알 수 없는 주변기기 종류: {kind}") from None
+
+
+def emphasis_cfg(rules: dict | None = None) -> dict:
+    """강조 축·브랜드를 문장에서 읽는 표. 절이 없으면 빈 표(아무것도 읽지 않는다)."""
+    rules = rules or load_peripheral_rules()
+    return rules.get("emphasis") or {"words": {}, "brand_avoid_words": [], "brands": {}}
+
+
+def scoring_cfg(rules: dict | None = None) -> dict:
+    """점수식 상수(근거 부족 감점, 스펙 결손 감점, 기준 가중 배수, 접전 기준)."""
+    rules = rules or load_peripheral_rules()
+    return rules["scoring"]
 
 
 def kind_def(kind: str, rules: dict | None = None) -> dict:

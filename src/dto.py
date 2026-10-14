@@ -185,6 +185,8 @@ class Candidate(BaseModel):
     score: float = 0.0
     breakdown: dict[str, float] = Field(default_factory=dict)
     score_notes: list[str] = Field(default_factory=list)   # 점수 계산 중 남긴 표식(예: neutral:성능)
+    # 주변기기 점수 상세(축별 값·가중치·기여분, 감점, 리뷰 관측 수, 적용한 가중 이유). PC 후보는 비어 있다.
+    score_detail: dict[str, Any] = Field(default_factory=dict)
     review_detail: ReviewScoreDetail | None = None
     feel_detail: FeelDetail | None = None     # 주변기기 체감 적합도(R). 순위의 "리뷰" 축 값이 된다
     rank: int = 0
@@ -313,6 +315,9 @@ class PeripheralPick(BaseModel):
     verdict: Verdict = "Pass"
     checks: list[dict[str, Any]] = Field(default_factory=list)        # peripheral_payload().items[].checks
     alternatives: list[Candidate] = Field(default_factory=list)       # 차순위 후보(payload 가공 시 상위 2개만 노출)
+    # 접전 여부: 1·2위 점수 차가 기준(config scoring.close_call_margin) 안이다. 한 응답에서 최대 close_call_max_items 개 품목에만 true.
+    close_call: bool = False
+    score_gap: float | None = None                                     # 2위와의 점수 차(대안이 없으면 None)
 
 
 class PeripheralResult(BaseModel):

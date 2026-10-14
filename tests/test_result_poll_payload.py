@@ -105,6 +105,8 @@ def test_one_poll_borrows_a_single_pooled_connection(monkeypatch):
 
     client = _signed_up()
     lid, _rev, _data = _recommended_list(client)
+    from src.auth import session_check
+    monkeypatch.setattr(session_check, "TTL_SECONDS", 60.0)     # 로그인 세션 확인은 짧게 캐시된다(운영 기본 5초) — 폴링마다 풀을 더 빌리지 않는다
     client.get(f"/session/{lid}/result")                       # 캐시 데우기
     borrowed = []
     original = ConnectionPool.connection

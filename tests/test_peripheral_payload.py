@@ -30,7 +30,9 @@ _NOLOG = lambda _m: None  # noqa: E731
 _TOP_KEYS = {"status", "items", "empty", "totals"}
 _ITEM_KEYS = {"kind", "kind_label", "product", "price", "price_source", "price_note",
               "requirement", "checks", "reason", "alternatives", "guide", "review",
-              "review_weight", "review_note", "feel", "feel_note"}
+              "review_weight", "review_note", "feel", "feel_note",
+              "score_detail", "evidence_count", "evidence_penalty", "close_call"}
+_ALT_KEYS = {"name", "price", "diff", "review", "review_weight", "review_note", "evidence_count", "score", "why_not_first"}
 _PRODUCT_KEYS = {"name", "brand", "variant_id", "product_url", "image_url"}
 
 
@@ -100,7 +102,7 @@ def test_ready_top_and_item_key_sets_are_fixed():
             assert set(check) == {"axis", "label", "state", "detail"}
             assert check["state"] in ("ok", "unknown", "fail")
         for alt in item["alternatives"]:
-            assert set(alt) == {"name", "price", "diff", "review", "review_weight", "review_note"}
+            assert set(alt) == _ALT_KEYS
             assert alt["review_weight"] == _rules()["ranking"][item["kind"]]["weights"]["리뷰"]
             assert alt["review_note"]
         assert item["guide"].keys() == {"status", "text"}

@@ -12,10 +12,16 @@ pref 목록으로 바꿔 Fail만 제외한다. **조건을 완화하지 않는�
 
 ## [3-B] rank_candidates
 
-축 넷(가격/선호적합/데이터충실/리뷰) 중 "리뷰" 축의 값은 체감 적합도 R(`peripheral_feel`, 개발_확정사양 6장)이다.
-사용기 근거가 없으면 외부 리뷰 점수로 계산한 R이다. 그 축의 가중치는 `config/peripherals.yaml` `ranking` 이 정한다(0이면 R은
-설명용이고 순위에 영향을 주지 않는다). 예전 문구: 주변기기 R과 근거는
-설명용으로 전달하되 현재 순위 점수에는 반영하지 않는다.
+점수 S = Σ(축 가중치 × 축 값) − Pending 감점 − 스펙 결손 감점 − 근거 부족 감점 (기획 3.1~3.8, `config/peripherals.yaml` `ranking`·`scoring`).
+축은 스펙 기준(품목마다 3~4개) · 리뷰 · 가격 · 브랜드 · 무상AS 이다.
+
+- 스펙 기준의 값은 그 기준의 스펙 키를 겨냥한 소프트 조건을 판정한 가중 평균이다(직접 말한 조건 가중 2, 목적에서 풀린 조건 1).
+  조건이 없는 기준은 모든 후보가 0.5 라 후보를 가르지 않는다.
+- 가중치는 품목별 기본값에서 시작해 ① 강조한 축 ×1.5 ② 직접 말한 소프트 조건이 있는 스펙 기준 ×2 를 곱하고 합 1로 맞춘다.
+  하드 조건·예산 필터는 항상 먼저 적용되고(가중은 소프트 조건에만 영향), 점수는 코드가 정한다.
+- 가격 값: 종류별 예산이 있으면 `1 - 가격/예산`, 없으면 후보 중앙값 대비 식(`_price_axis`).
+- "리뷰" 축의 값은 체감 적합도 R 이다(`peripheral_feel`). 근거가 없으면 외부 리뷰로 계산한 R 이다.
+- 근거 부족 감점: 리뷰 관측 n 이 5건 미만이면 `0.10 x (1 - n/5)`. 후보에서 빼지 않고 점수에서만 뺀다.
 
 ## 조합(choose)
 
@@ -44,7 +50,7 @@ from src.dto import Candidate, PeripheralPick, PeripheralRequirement, Peripheral
 from src.engine import LogFn, spec_rules
 from src.engine.peripheral_feel import attach_feel
 from src.engine.peripheral_requirement import build_requirements
-from src.engine.peripheral_rules import kind_def, load_peripheral_rules, requested_kinds
+from src.engine.peripheral_rules import kind_def, load_peripheral_rules, ranking_def, requested_kinds, scoring_cfg
 
 # requirement.hard 의 키 이름은 "판정 기준 이름"이지 후보 specs 키와 항상 같지 않다.
 # resolution_class는 기준 이름과 specs 키가 같지만(peripheral_catalog.build_peripheral_specs가
@@ -103,16 +109,10 @@ def _price_axis(price: int, median_price: float) -> float:
     return max(0.0, min(1.0, 1 - price / (2 * median_price)))
 
 
-def _preference_axis(cand: Candidate, prefs: list[dict[str, Any]]) -> float:
-    """소프트 선호 충족 비율. Pending은 "모름"이지 "틀림"이 아니므로 0.5로 센다(계획 §3.3).
-    prefs가 없으면(해당 조건이 없거나 매칭 안 됨) 중립 0.5."""
-    if not prefs:
-        return 0.5
-    values = []
-    for pref in prefs:
-        verdict, _ = spec_rules.evaluate(pref, cand.specs)
-        values.append(1.0 if verdict == "Pass" else 0.5 if verdict == "Pending" else 0.0)
-    return sum(values) / len(values)
+def _verdict_value(pref: dict[str, Any], specs: dict[str, Any]) -> float:
+    """조건 하나의 값: 충족 1 / 미충족 0 / 정보 없음(Pending)은 "모름"이지 "틀림"이 아니므로 0.5."""
+    verdict, _ = spec_rules.evaluate(pref, specs)
+    return 1.0 if verdict == "Pass" else 0.5 if verdict == "Pending" else 0.0
 
 
 def _feel_axis(cand: Candidate) -> float:
@@ -122,50 +122,137 @@ def _feel_axis(cand: Candidate) -> float:
     return cand.review_detail.value if cand.review_detail else 0.5
 
 
-def _fullness_axis(cand: Candidate, judged_keys: list[str]) -> float:
-    """판정에 실제로 쓰인 키(hard ∪ soft) 중 값이 있는 비율. 판정용 키가 아예 없으면
-    (하드도 소프트도 매칭 안 됨) 결손을 논할 대상이 없으므로 1.0."""
-    if not judged_keys:
-        return 1.0
-    present = sum(1 for k in judged_keys if cand.specs.get(k) is not None)
-    return present / len(judged_keys)
+def evidence_count(cand: Candidate) -> int:
+    """리뷰 관측 수 n — 점수에 쓰는 등록 속성의 긍정 + 부정 관측 수의 합(혼합 제외, 기획 3.8).
+
+    외부 리뷰는 큰 속성(aspect)마다 한 번씩 센다(`review_detail.contributions` 의 p + n). 체감 속성 여러 개가 같은 외부 속성을
+    가리키므로 속성별 표에서 읽으면 같은 관측을 여러 번 세게 된다. 사용기(커뮤니티) 표는 체감 속성별 같은 조건·그 밖의
+    긍정·부정 표를 더한다(성향 속성은 세지 않는다). 후보 풀의 다른 상품과 비교하지 않는다 — 후보 풀이 달라져도 같은 값이다."""
+    total = 0
+    if cand.review_detail is not None:
+        total += sum(int(c.p) + int(c.n) for c in cand.review_detail.contributions)
+    if cand.feel_detail is not None:
+        for a in cand.feel_detail.attributes:
+            if a.type == "rating":
+                total += a.same_good + a.same_bad + a.rest_good + a.rest_bad
+    return total
+
+
+def evidence_penalty(n: int, cfg: dict[str, Any]) -> float:
+    return round(cfg["evidence_penalty"] * max(0.0, 1.0 - n / cfg["evidence_min_n"]), 4)
+
+
+def _brand_axis(cand: Candidate, like: set[str]) -> float:
+    """선호 브랜드를 말했으면 그 브랜드 후보는 1, 나머지는 0.5. 말하지 않았으면 모두 0.5(판매량으로 점수를 주지 않는다)."""
+    return 1.0 if like and cand.brand.strip().lower() in like else 0.5
+
+
+def _warranty_axis(cand: Candidate, months: dict[str, float]) -> float:
+    """무상 보증 기간(`specs["warranty_months"]`)의 같은 종류 후보 안 상대 위치. 정보가 없거나 값이 하나뿐이면 0.5."""
+    value = cand.specs.get("warranty_months")
+    if value is None or len(months) < 2:
+        return 0.5
+    lo, hi = min(months.values()), max(months.values())
+    if hi <= lo:
+        return 0.5
+    return max(0.0, min(1.0, (float(value) - lo) / (hi - lo)))
+
+
+def effective_weights(
+    base: dict[str, float], criteria: dict[str, list[str]], stated_criteria: set[str], emphasis: set[str], cfg: dict[str, Any],
+) -> tuple[dict[str, float], list[str]]:
+    """① 품목별 기본 가중치 → ② 강조한 축 ×emphasis_boost → ③ 직접 말한 소프트 조건이 있는 스펙 기준 ×stated_criterion_boost →
+    ④ 합 1 정규화. 스펙을 강조하면서 그 조건도 말하면 ×(1.5×2)=×3 이 된다. 적용한 배수의 이유를 문장으로 함께 낸다."""
+    raw = dict(base)
+    reasons: list[str] = []
+    for axis in sorted(emphasis & set(raw)):
+        raw[axis] *= cfg["emphasis_boost"]
+        reasons.append(f"강조한 '{axis}' 축 ×{cfg['emphasis_boost']:g}")
+    for name in criteria:
+        if name in stated_criteria:
+            raw[name] *= cfg["stated_criterion_boost"]
+            reasons.append(f"직접 말한 조건이 있는 '{name}' 기준 ×{cfg['stated_criterion_boost']:g}")
+    total = sum(raw.values())
+    return ({axis: value / total for axis, value in raw.items()} if total > 0 else dict(base)), reasons
 
 
 def rank_candidates(
-    kind: str, requirement: PeripheralRequirement, kept: list[Candidate], weights: dict[str, float],
-    *, budget: int | None = None, require_review_details: bool = False,
+    kind: str, requirement: PeripheralRequirement, kept: list[Candidate], weights: dict[str, float] | None = None,
+    *, budget: int | None = None, require_review_details: bool = False, kind_budget: int | None = None,
+    brand_like: set[str] | None = None, emphasis: set[str] | None = None, rules: dict | None = None,
 ) -> list[Candidate]:
-    """[3-B]. score/breakdown/rank를 채워 점수 내림차순으로 정렬한다.
+    """[3-B]. score/breakdown/score_detail/rank를 채워 점수 내림차순으로 정렬한다.
 
     동점 규칙(결정적): 점수 내림차순 → 가격 오름차순 → product_key 오름차순.
 
-    `budget`은 이 함수에서 쓰지 않는다 — 종류별 예산 배분이 없어(계획 §3.3 "예산") 가격
-    축은 항상 종류 내 중앙값 대비로만 계산하고, `peripheral_budget_max` 제약은 조합 단계
-    (`choose`)가 직접 처리한다. 시그니처에 남긴 건 호출부가 조건값을 그대로 넘길 수 있게
-    하기 위해서고(향후 축별 예산 배분이 생기면 이 자리에서 쓴다), 지금은 미사용이다.
+    `weights` 는 품목별 기본 가중치(없으면 설정의 값). `budget`(여러 종류 합계 예산)은 조합 단계(`choose`)가 쓰므로 여기서는
+    쓰지 않고, 종류별 예산 `kind_budget` 이 있으면 가격 축이 그 안에서의 위치가 된다. `brand_like`·`emphasis` 는 말한 선호
+    브랜드(소문자)와 강조한 축 이름이다.
     """
     if not kept:
         return []
     if require_review_details and any(c.review_detail is None for c in kept):
         raise ValueError(f"peripheral review score missing for {kind}")
+    rules = rules or load_peripheral_rules()
+    cfg = scoring_cfg(rules)
+    rdef = ranking_def(kind, rules)
+    criteria: dict[str, list[str]] = rdef["criteria"]
+    base = dict(weights if weights is not None else rdef["weights"])
+    key_to_criterion = {key: name for name, keys in criteria.items() for key in keys}
+
+    soft = requirement.soft or {}
+    preferences: list[dict[str, Any]] = spec_rules.dedupe_prefs(soft.get("preferences") or [])
+    stated = list(soft.get("stated") or [])
+    by_criterion: dict[str, list[tuple[dict[str, Any], float]]] = {name: [] for name in criteria}
+    for pref in preferences:
+        name = key_to_criterion.get(pref["key"])
+        if name is not None:
+            by_criterion[name].append((pref, cfg["stated_pref_weight"] if pref in stated else 1.0))
+    stated_criteria = {name for name, items in by_criterion.items() if any(pref in stated for pref, _ in items)}
+    final_weights, reasons = effective_weights(base, criteria, stated_criteria, set(emphasis or ()), cfg)
+
     median_price = statistics.median(c.price for c in kept)
-    soft_prefs = spec_rules.dedupe_prefs((requirement.soft or {}).get("preferences") or [])
-    hard_spec_keys = (_HARD_KEY_TO_PREF[name][0] for name in requirement.hard)
-    judged_keys = sorted({*hard_spec_keys, *(p["key"] for p in soft_prefs)})
+    hard_keys = (_HARD_KEY_TO_PREF[name][0] for name in requirement.hard)
+    judged_keys = sorted({*hard_keys, *(p["key"] for p in preferences), *(p["key"] for p in requirement.filters)})
+    available = {k for k in judged_keys if any(c.specs.get(k) is not None for c in kept)}
+    warranty = {c.product_key: float(c.specs["warranty_months"]) for c in kept if c.specs.get("warranty_months") is not None}
+    like = {b.strip().lower() for b in (brand_like or ()) if b and b.strip()}
 
     scored: list[Candidate] = []
     for cand in kept:
-        breakdown = {
-            "가격": round(_price_axis(cand.price, median_price), 3),
-            "선호적합": round(_preference_axis(cand, soft_prefs), 3),
-            "데이터충실": round(_fullness_axis(cand, judged_keys), 3),
-            # R/상세는 표시하되 peripheral_rules가 보장하는 외부 가중치 0을 유지한다.
-            "리뷰": _feel_axis(cand),
+        values: dict[str, float] = {}
+        for name in criteria:
+            items = by_criterion[name]
+            if not items:
+                values[name] = 0.5
+            else:
+                wsum = sum(w for _, w in items)
+                values[name] = sum(w * _verdict_value(p, cand.specs) for p, w in items) / wsum
+        values["리뷰"] = _feel_axis(cand)
+        values["가격"] = (max(0.0, min(1.0, 1 - cand.price / kind_budget)) if kind_budget
+                         else _price_axis(cand.price, median_price))
+        values["브랜드"] = _brand_axis(cand, like)
+        values["무상AS"] = _warranty_axis(cand, warranty)
+
+        pending = PENDING_SCORE_PENALTY if cand.verdict == "Pending" else 0.0
+        missing = [k for k in judged_keys if k in available and cand.specs.get(k) is None]
+        missing_pen = min(cfg["missing_key_penalty"] * len(missing), cfg["missing_key_penalty_max"])
+        n = evidence_count(cand)
+        evidence_pen = evidence_penalty(n, cfg)
+        raw = sum(final_weights[axis] * values[axis] for axis in final_weights) - pending - missing_pen - evidence_pen
+
+        detail = {
+            "axes": [{"axis": axis, "value": round(values[axis], 3), "weight": round(final_weights[axis], 4),
+                      "points": round(final_weights[axis] * values[axis], 4)} for axis in final_weights],
+            "penalties": {"pending": round(pending, 3), "missing_keys": round(missing_pen, 3), "evidence": round(evidence_pen, 3)},
+            "missing_keys": missing,
+            "evidence_count": n,
+            "weights_reason": reasons,
         }
-        raw = sum(weights.get(axis, 0.0) * value for axis, value in breakdown.items())
-        if cand.verdict == "Pending":
-            raw -= PENDING_SCORE_PENALTY
-        scored.append(cand.model_copy(update={"score": round(raw, 3), "breakdown": breakdown}))
+        scored.append(cand.model_copy(update={
+            "score": round(raw, 3), "score_detail": detail,
+            # 리뷰 값은 체감 적합도 R 그대로(반올림하지 않는다 — 응답의 R 과 같은 값이어야 한다). 나머지 축은 소수 셋째 자리.
+            "breakdown": {a: (v if a == "리뷰" else round(v, 3)) for a, v in values.items()}}))
 
     ranked = sorted(scored, key=lambda c: (-c.score, c.price, c.product_key))
     return [c.model_copy(update={"rank": i + 1}) for i, c in enumerate(ranked)]
@@ -234,6 +321,16 @@ def choose(
     counts["over_budget"] = 1
     assert cheapest is not None  # pools가 비지 않았으니 최소 한 조합은 반드시 있다
     return cheapest[0], counts
+
+
+def _mark_close_calls(picks: list[PeripheralPick], rules: dict) -> None:
+    """접전 표시: 1·2위 점수 차가 기준 안인 품목 중 차이가 작은 순으로 최대 close_call_max_items 개에만 true.
+    기준과 개수는 서버가 정한다 — 화면은 임계값을 알 필요가 없다(요청서 3.4)."""
+    cfg = scoring_cfg(rules)
+    close = sorted((p for p in picks if p.score_gap is not None and p.score_gap < cfg["close_call_margin"]),
+                   key=lambda p: (p.score_gap, p.kind))
+    for pick in close[: int(cfg["close_call_max_items"])]:
+        pick.close_call = True
 
 
 def _empty_reason(
@@ -311,7 +408,14 @@ def run_peripherals(
         cands = candidates.get(kind, [])
         req = requirements[kind]
         kind_budget = (values.get("peripheral_kind_budget") or {}).get(kind)
+        avoid = {b.strip().lower() for b in ((values.get("peripheral_brand_avoid") or {}).get(kind) or []) if b and b.strip()}
+        avoided = 0
+        if avoid:                                # 기피 브랜드는 "빼 달라"는 명시 요청이라 후보에서 뺀다(기획 3.7)
+            kept_cands = [c for c in cands if c.brand.strip().lower() not in avoid]
+            avoided, cands = len(cands) - len(kept_cands), kept_cands
         kept, stats = filter_candidates(kind, req, cands, max_price=kind_budget)
+        if avoided:
+            stats["avoided_brand"] = avoided
         counts[kind] = stats
         label = kind_def(kind, rules)["label"]
         if not kept:
@@ -323,7 +427,9 @@ def run_peripherals(
         kept = attach_feel(kind, cands, kept, values, rules)
         ranked = rank_candidates(
             kind, req, kept, weights, budget=values.get("peripheral_budget_max"),
-            require_review_details=require_review_details,
+            require_review_details=require_review_details, kind_budget=kind_budget,
+            brand_like={b.strip().lower() for b in ((values.get("peripheral_brand_like") or {}).get(kind) or []) if b},
+            emphasis=set((values.get("peripheral_emphasis") or {}).get(kind) or []), rules=rules,
         )
         interp = values.get("peripheral_intent")
         if interp is not None and "trending" in interp.situations and rules.get("feel"):
@@ -364,8 +470,10 @@ def run_peripherals(
         ranked = kinds_ranked[kind]
         alternatives = [c for c in ranked if c.product_key != cand.product_key][:2]
         checks = monitor_checks if kind == "monitor" else []
+        gap = round(cand.score - alternatives[0].score, 3) if alternatives else None
         picks.append(PeripheralPick(kind=kind, candidate=cand, score=cand.score, verdict=cand.verdict,
-                                     checks=checks, alternatives=alternatives))
+                                     checks=checks, alternatives=alternatives, score_gap=gap))
+    _mark_close_calls(picks, rules)
 
     verification = stage3c_verify.verify_per_item(
         {p.kind: p for p in picks}, requirements, log, extra_issues=extra_issues, rules=rules,

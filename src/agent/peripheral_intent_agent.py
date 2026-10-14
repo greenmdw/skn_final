@@ -17,7 +17,7 @@ from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, PERIP
 from src.engine import peripheral_intent
 from src.engine.peripheral_intent import Interpretation
 from src.engine.peripheral_rules import (
-    kind_def, load_peripheral_rules, peripheral_kinds, purposes, situations, spec_conditions,
+    emphasis_cfg, kind_def, load_peripheral_rules, peripheral_kinds, purposes, ranking_def, situations, spec_conditions,
 )
 
 
@@ -58,6 +58,8 @@ def build_system_prompt(rules: dict | None = None, kinds_hint: list[str] | None 
         "- '게임용'이라고만 하면 purposes 에 game 만 넣는다. 장르나 게임 이름이 드러났을 때만 fps 등을 넣는다.",
         "- 금액은 원 단위 정수로 쓴다. 종류가 하나뿐이거나 종류별로 말했으면 budget, 여러 종류를 합친 금액이면 budget_total.",
         "- 손 크기를 말했을 때만 hand_size(small/medium/large). 쥐는 법은 읽지 않는다.",
+        "- 가격·후기·AS 를 특히 중요하게 말했을 때만 emphasis 에 그 축을 넣는다(예: 가성비 → 가격, 평 좋은 → 리뷰).",
+        "- 브랜드는 목록의 이름만 쓴다. 고르고 싶다고 말하면 brand_like, 빼 달라거나 싫다고 하면 brand_avoid 다.",
         "- 종류를 알 수 없으면 kinds 를 비운다. 지어내지 않는다.",
         *([f"- 사용자가 이미 종류를 골랐다: {', '.join(kinds_hint)}. kinds 에 넣고, 종류를 가리지 않은 조건과 금액은 그 종류에 붙인다."]
           if kinds_hint else []),
@@ -72,6 +74,9 @@ def build_system_prompt(rules: dict | None = None, kinds_hint: list[str] | None 
         "",
         "stated (직접 말한 스펙 조건, 종류별):",
         *cond,
+        "",
+        "emphasis (강조 축, 종류별): 가격 / 리뷰 / 무상AS" + " / 그 종류의 스펙 기준 이름",
+        "brands (브랜드 이름): " + ", ".join(emphasis_cfg(rules)["brands"]),
     ])
 
 
@@ -93,6 +98,26 @@ def _output_schema(rules: dict) -> dict[str, Any]:
                     for kind in kinds
                 },
             },
+            "emphasis": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    kind: {"type": "array", "items": {"type": "string", "enum": ["가격", "리뷰", "무상AS", *ranking_def(kind, rules)["criteria"]]}}
+                    for kind in kinds
+                },
+            },
+            "brand_like": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {kind: {"type": "array", "items": {"type": "string", "enum": list(emphasis_cfg(rules)["brands"])}}
+                               for kind in kinds},
+            },
+            "brand_avoid": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {kind: {"type": "array", "items": {"type": "string", "enum": list(emphasis_cfg(rules)["brands"])}}
+                               for kind in kinds},
+            },
             "hand_size": {"type": ["string", "null"], "enum": ["small", "medium", "large", None]},
             "budget": {
                 "type": "object",
@@ -102,7 +127,8 @@ def _output_schema(rules: dict) -> dict[str, Any]:
             "budget_total": {"type": ["integer", "null"]},
             "unrecognized": {"type": "array", "items": {"type": "string"}},
         },
-        "required": ["kinds", "purposes", "situations", "stated", "hand_size", "budget", "budget_total", "unrecognized"],
+        "required": ["kinds", "purposes", "situations", "stated", "emphasis", "brand_like", "brand_avoid", "hand_size",
+                     "budget", "budget_total", "unrecognized"],
     }
 
 

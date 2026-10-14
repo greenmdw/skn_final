@@ -152,34 +152,58 @@ def test_recommend_kind_budget_filters_by_price_and_explains_when_nothing_fits()
 
 
 @needs_db
-def test_recommend_legacy_inputs_still_map_to_quiet_preference():
-    """화면이 새 입력으로 바뀌기 전까지 예전 입력(noise_sensitive, priority)도 같은 선호로 풀린다."""
+def test_recommend_ignores_the_removed_legacy_inputs():
+    """예전 입력(noise_sensitive·priority·purpose)은 없앴다. 보내도 오류는 아니지만 아무 영향이 없다(조용해야 함은
+    situations 로 말한다)."""
     c = _signed_up()
-    old = _recommend(c, kinds=["keyboard"], noise_sensitive=True)
-    new = _recommend(c, kinds=["keyboard"], situations=["quiet_place"])
-    assert old["items"][0]["requirement"] == new["items"][0]["requirement"] != []
+    plain = _recommend(c, kinds=["keyboard"])
+    old = _recommend(c, kinds=["keyboard"], noise_sensitive=True, priority="quiet", purpose="game")
+    assert old["status"] == plain["status"] == "ready"
+    assert old["items"][0]["requirement"] == plain["items"][0]["requirement"] == []
+    assert old["ignored_inputs"] == []
 
 
 @needs_db
-def test_recommend_still_passes_pc_conditions_to_review_scoring(monkeypatch):
-    """리뷰 점수는 PC 견적 조건(purpose·priority·noise_sensitive)을 읽는다. 견적 입력으로 바꾸면서 이 값이
-    사라지면 리뷰 가중치가 조용히 달라진다 — 그대로 넘어가는지 고정한다."""
+def test_quiet_situation_reaches_review_scoring_as_noise_sensitive_and_pc_purpose_comes_from_the_pc(monkeypatch):
+    """외부 리뷰 점수는 PC 견적 조건 이름(purpose·noise_sensitive)을 읽는다. 새 입력에서는 noise_sensitive 를 "조용해야 함"
+    상황에서, purpose 를 묶은 PC 견적(pc_context)에서 얻는다 — 그대로 넘어가는지 고정한다."""
     from src import schemas
     from src.db import get_conn
     from src.services import peripherals_service, review_ranking
 
-    seen: dict = {}
+    seen: list[dict] = []
     original = review_ranking.score_peripheral_candidates
 
     def spy(conn, candidates, values, **kwargs):
-        seen.update(values)
+        seen.append(dict(values))
         return original(conn, candidates, values, **kwargs)
 
     monkeypatch.setattr(review_ranking, "score_peripheral_candidates", spy)
-    body = schemas.PeripheralsRecommendIn(kinds=["keyboard"], purpose="game", priority="quiet", noise_sensitive=True)
+    pc = {"resolution": None, "gpu_specs": None, "purpose": "game"}
     with get_conn() as conn:
-        peripherals_service.recommend(conn, body, None)
-    assert (seen["purpose"], seen["priority"], seen["noise_sensitive"]) == ("game", "quiet", True)
+        peripherals_service.recommend(conn, schemas.PeripheralsRecommendIn(kinds=["keyboard"], situations=["quiet_place"]), pc)
+        peripherals_service.recommend(conn, schemas.PeripheralsRecommendIn(kinds=["keyboard"]), None)
+    quiet, plain = seen
+    assert (quiet["purpose"], quiet["noise_sensitive"], quiet["priority"]) == ("game", True, None)
+    assert (plain["purpose"], plain["noise_sensitive"], plain["priority"]) == (None, None, None)
+
+
+def test_pc_purpose_is_mapped_to_peripheral_purposes_only_through_the_pc_context():
+    from src import schemas
+    from src.services import peripherals_service
+
+    body = schemas.PeripheralsRecommendIn(kinds=["mouse"])
+    alone, _ = peripherals_service._intent_from_body(body)
+    linked, _ = peripherals_service._intent_from_body(body, "game")
+    assert alone.purposes == [] and linked.purposes != []                   # PC 견적 용도가 목적으로 풀린다
+
+
+def test_request_schema_no_longer_declares_the_legacy_inputs():
+    from src import schemas
+
+    fields = set(schemas.PeripheralsRecommendIn.model_fields)
+    assert not ({"purpose", "priority", "noise_sensitive"} & fields)
+    assert {"purposes", "situations", "stated", "kind_budget", "pc_list_id", "resolution"} <= fields
 
 
 @needs_db

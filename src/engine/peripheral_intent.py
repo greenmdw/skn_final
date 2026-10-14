@@ -16,14 +16,14 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
 
 from src.engine import spec_rules
 from src.engine.peripheral_rules import (
-    kind_def, load_peripheral_rules, pc_purpose_map, peripheral_kinds, purpose_codes, purposes, situations,
-    spec_conditions,
+    emphasis_cfg, kind_def, load_peripheral_rules, pc_purpose_map, peripheral_kinds, purpose_codes, purposes, ranking_def,
+    situations, spec_conditions,
 )
 
 Kind = Literal["monitor", "keyboard", "mouse", "speaker"]
@@ -59,6 +59,9 @@ class Interpretation(BaseModel):
     hand_size: HandSize | None = None
     budget: dict[Kind, int] = Field(default_factory=dict)            # 종류별 예산 상한(원)
     budget_total: int | None = None                                   # 여러 종류를 합친 예산(원)
+    emphasis: dict[Kind, list[str]] = Field(default_factory=dict)    # 강조한 축(종류 → 가격·리뷰·무상AS·브랜드·스펙 기준 이름)
+    brand_like: dict[Kind, list[str]] = Field(default_factory=dict)  # 선호 브랜드(카탈로그 이름)
+    brand_avoid: dict[Kind, list[str]] = Field(default_factory=dict)  # 기피 브랜드 — 후보에서 뺀다
     unrecognized: list[str] = Field(default_factory=list)
 
 
@@ -85,6 +88,11 @@ class ResolvedKind(BaseModel):
 
     def filter_prefs(self) -> list[dict[str, Any]]:
         return spec_rules.dedupe_prefs([p for c in self.filters for p in c.prefs])
+
+    def stated_preference_prefs(self) -> list[dict[str, Any]]:
+        """선호 중 사용자가 **직접 말한** 조건의 스펙 조건. 점수식이 이 조건을 속한 스펙 기준의 가중(×2)과 기준 값의 가중(2)에
+        쓴다. 목적·상황에서 풀린 조건(`sources` 가 목적 코드뿐)은 여기 들어가지 않는다."""
+        return spec_rules.dedupe_prefs([p for c in self.preferences if "stated" in c.sources for p in c.prefs])
 
 
 def kinds_all_order(kinds: list[str]) -> list[str]:
@@ -155,6 +163,26 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
         if text and not looks_like_injected_instruction(text):
             unrecognized.append(text)
 
+    brands = set(emphasis_cfg(rules)["brands"])
+
+    def _per_kind(value: Any, allowed_for: Callable[[str], set[str]]) -> dict[str, list[str]]:
+        out: dict[str, list[str]] = {}
+        for kind, items in (value if isinstance(value, dict) else {}).items():
+            if kind in kinds_all:
+                kept = _names(items, allowed_for(kind))
+                if kept:
+                    out[kind] = kept
+        return out
+
+    emphasis = _per_kind(data.get("emphasis"), lambda k: {*_EMPHASIS_AXIS_NAMES, *ranking_def(k, rules)["criteria"]})
+    brand_like = _per_kind(data.get("brand_like"), lambda k: brands)
+    brand_avoid = _per_kind(data.get("brand_avoid"), lambda k: brands)
+    for kind, liked in brand_like.items():                # 같은 브랜드를 선호이면서 기피로 둘 수 없다 — 기피가 이긴다
+        brand_like[kind] = [b for b in liked if b not in brand_avoid.get(kind, [])]
+    brand_like = {k: v for k, v in brand_like.items() if v}
+    for kind in brand_like:                                # 선호 브랜드를 말했으면 브랜드 축을 강조한다(기획 3.3)
+        emphasis[kind] = _unique([*emphasis.get(kind, []), "브랜드"])
+
     sit_codes = set(situations(rules))
     purpose_hits = _names(data.get("purposes"), set(purpose_vocabulary(rules)) | sit_codes)
     return Interpretation(
@@ -165,8 +193,13 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
         hand_size=data.get("hand_size") if data.get("hand_size") in ("small", "medium", "large") else None,
         budget=budget,
         budget_total=_positive_won(data.get("budget_total")),
+        emphasis=emphasis, brand_like=brand_like, brand_avoid=brand_avoid,
         unrecognized=_unique(unrecognized)[:UNRECOGNIZED_MAX_ITEMS],
     )
+
+
+def _union_per_kind(a: dict[str, list[str]], b: dict[str, list[str]]) -> dict[str, list[str]]:
+    return {kind: _unique([*a.get(kind, []), *b.get(kind, [])]) for kind in {*a, *b}}
 
 
 def merge(previous: Interpretation | None, new: Interpretation) -> Interpretation:
@@ -184,6 +217,9 @@ def merge(previous: Interpretation | None, new: Interpretation) -> Interpretatio
         hand_size=new.hand_size or previous.hand_size,
         budget={**previous.budget, **new.budget},
         budget_total=new.budget_total if new.budget_total is not None else previous.budget_total,
+        emphasis=_union_per_kind(previous.emphasis, new.emphasis),
+        brand_like=_union_per_kind(previous.brand_like, new.brand_like),
+        brand_avoid=_union_per_kind(previous.brand_avoid, new.brand_avoid),
         unrecognized=_unique([*previous.unrecognized, *new.unrecognized])[:UNRECOGNIZED_MAX_ITEMS],
     )
 
@@ -259,6 +295,51 @@ def _contains_any(text: str, words) -> bool:
     return any(w.lower() in text for w in words)
 
 
+_EMPHASIS_AXIS_NAMES = ("가격", "리뷰", "무상AS", "브랜드")
+_BRAND_AVOID_WINDOW = 8          # 브랜드 이름 뒤 몇 글자 안의 기피 낱말을 그 브랜드에 건 것으로 본다
+
+
+def _alias_positions(lowered: str, alias: str) -> list[int]:
+    """낱말 경계를 지킨 위치. "델"이 "모델" 안에서 잡히지 않게 앞 글자가 한글·영숫자이면 건너뛴다. 영문 별칭은 뒤 글자도 본다
+    ("hp" 가 "hpc" 안에서 잡히지 않게). 한글 뒤의 조사("로지텍은")는 허용한다."""
+    out, start = [], 0
+    while True:
+        pos = lowered.find(alias, start)
+        if pos < 0:
+            return out
+        start = pos + 1
+        before = lowered[pos - 1] if pos > 0 else " "
+        after = lowered[pos + len(alias)] if pos + len(alias) < len(lowered) else " "
+        if before.isalnum():
+            continue
+        if alias.isascii() and after.isascii() and after.isalnum():
+            continue
+        out.append(pos)
+
+
+def _read_emphasis_and_brands(lowered: str, scope: list[str], rules: dict) -> tuple[dict, dict, dict]:
+    """낱말 규칙으로 강조 축과 선호·기피 브랜드를 읽는다. 종류를 모르면(scope 가 비면) 붙일 곳이 없어 읽지 않는다."""
+    cfg = emphasis_cfg(rules)
+    if not scope:
+        return {}, {}, {}
+    axes = [axis for axis, words in cfg["words"].items() if _contains_any(lowered, words)]
+    like: list[str] = []
+    avoid: list[str] = []
+    for brand, aliases in cfg["brands"].items():
+        for alias in aliases:
+            hits = _alias_positions(lowered, alias)
+            if not hits:
+                continue
+            tail = lowered[hits[0] + len(alias): hits[0] + len(alias) + _BRAND_AVOID_WINDOW]
+            (avoid if _contains_any(tail, cfg["brand_avoid_words"]) else like).append(brand)
+            break
+    like = [b for b in _unique(like) if b not in avoid]
+    emphasis_axes = _unique([*axes, *(["브랜드"] if like else [])])
+    emphasis = {k: list(emphasis_axes) for k in scope} if emphasis_axes else {}
+    return (emphasis, {k: list(like) for k in scope} if like else {},
+            {k: _unique(avoid) for k in scope} if avoid else {})
+
+
 def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[str] | None = None) -> Interpretation:
     """낱말 일치로만 읽는다. 언어 모델의 한도·실패·부재 때 물러나는 경로라 정확도보다 안전을 택한다:
     확신할 수 있는 말(종류 이름, 목록의 낱말, 금액)만 읽고, 못 읽은 말을 `unrecognized` 로 지어내지 않는다.
@@ -308,6 +389,7 @@ def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[st
         # 종류를 모르는 금액은 버린다 — 어느 기기의 예산인지 가릴 수 없다
 
     hand = "small" if _HAND_SMALL.search(lowered) else "large" if _HAND_LARGE.search(lowered) else None
+    emphasis, brand_like, brand_avoid = _read_emphasis_and_brands(lowered, scope if kinds else [], rules)
     return Interpretation(
         kinds=[k for k in kinds],
         purposes=purpose_hits,
@@ -316,4 +398,5 @@ def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[st
         hand_size=hand,
         budget=budget,
         budget_total=budget_total,
+        emphasis=emphasis, brand_like=brand_like, brand_avoid=brand_avoid,
     )

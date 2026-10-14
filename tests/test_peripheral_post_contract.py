@@ -94,6 +94,13 @@ def test_other_attribute_is_kept_but_not_scored():
     assert analysis.observations(post) == []
 
 
+def test_other_attribute_never_carries_a_direction_when_stored():
+    """모델이 기타 문장에 방향(bad)을 붙여 와도 저장 대상에서는 값이 없다 — 0015 value_check 제약(기타는 방향·쪽 없음)."""
+    post, analysis = _analyze([_item("그립이 손에 착 감겨서 안정적입니다.", "other", direction="bad")])
+    ((_, obs),) = analysis.evidence_with_kind(post)
+    assert obs.attribute == "other" and obs.direction is None and obs.side is None
+
+
 def test_check_4_only_experienced_statements():
     _, analysis = _analyze([_item("그립이 손에 착 감겨서 안정적입니다.", experienced=False)])
     assert _status(analysis) == ("excluded", ["not_experienced"])
@@ -200,3 +207,32 @@ def test_summary_counts_by_status():
 def test_extraction_schema_is_exportable_for_the_model_output():
     schema = pc.PostExtraction.model_json_schema()
     assert {"is_review", "author", "items"} <= set(schema["properties"])
+
+
+# ── 작성자 조건의 근거 문장 ─────────────────────────────────────────────────
+def _author_analysis(statements, body="저는 문서 작업을 많이 합니다. 그립이 손에 착 감겨서 안정적입니다. 숫자를 입력할 때 편합니다."):
+    post = _post(body=body)
+    extraction = pc.PostExtraction(
+        is_review=True, items=[_item("그립이 손에 착 감겨서 안정적입니다.")],
+        author=pc.ExtractedAuthor(purposes=["office"], situations=["quiet_place"], statements=statements),
+    )
+    return pc.analyze_post(post, extraction, RULES).author
+
+
+def test_author_purposes_are_kept_when_the_author_stated_them_in_the_body():
+    author = _author_analysis(["저는 문서 작업을 많이 합니다."])
+    assert author.purposes == ["office"] and author.situations == ["quiet_place"]
+
+
+def test_author_purposes_are_dropped_without_a_stated_sentence():
+    assert _author_analysis([]).purposes == [] and _author_analysis([]).situations == []
+
+
+def test_author_purposes_are_dropped_when_the_statement_is_not_in_the_body():
+    author = _author_analysis(["저는 사무실에서 문서만 씁니다."])       # 본문에 없는 문장 = 지어낸 근거
+    assert author.purposes == [] and author.situations == []
+
+
+def test_author_without_statements_field_is_not_checked():
+    """직접 구성한 입력(시험·다른 호출)은 근거 문장을 요구하지 않는다."""
+    assert _author_analysis(None).purposes == ["office"]

@@ -43,7 +43,7 @@ services:
       - -c
       - |
         if [ "$${PERIPHERAL_POST_AGENT:-0}" = "1" ]; then
-          exec python -m src.workers.peripheral_post_analysis
+          exec python -u -m src.workers.peripheral_post_analysis
         fi
         echo "사용기 분석 작업이 꺼져 있습니다(PERIPHERAL_POST_AGENT=1 로 켠 뒤 docker compose up -d worker). 대기합니다."
         exec sleep infinity

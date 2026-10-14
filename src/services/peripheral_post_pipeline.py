@@ -3,7 +3,8 @@
 지금까지 따로 만든 부품을 한 줄로 잇는다.
 
 ```
-community.post 변경 신호(peripheral_post_source.change_signal)
+커뮤니티가 글을 저장하면 on_post_changed 로 대기 기록을 직접 남긴다(B-4) ── 평소 경로, 대기 글 수에 비례
+community.post 변경 신호(peripheral_post_source.change_signal) ── 안전망: 전체를 훑어 놓친 변경을 대기에 올린다(느린 주기)
    └▶ sync_changes: 바뀐 글을 on_post_changed 로 대기에 올린다
         └▶ run_once: 대기 글을 하나씩 community_post_intake.process_one 으로 처리
              ├ analyze  → peripheral_post_agent.analyze(추출 + 확인 여섯 가지) → 근거 문장을 저장
@@ -129,11 +130,26 @@ def sync_changes(conn, state, now: datetime | None = None) -> int:
     return len(changed) + len(gone)
 
 
+def _remember_signal(conn, state, post_id: str) -> None:
+    """처리한 글의 현재 변경 신호를 "이미 본 값"으로 남긴다 — 다음 전체 훑기가 같은 글을 또 대기에 올리지 않게 한다.
+    글이 사라졌으면 기록에서 뺀다. 글 하나만 조회하므로 전체 글 수와 무관하다."""
+    signal = source.change_signal(conn, [post_id]).get(post_id)
+    if signal is not None:
+        state.set_known({post_id: signal})
+    else:
+        state.set_known({}, [post_id])
+
+
 def run_once(
     conn, state, analyzer: Analyzer, *, daily_limit: int, max_posts: int = 100, now: datetime | None = None,
+    only: set[str] | None = None, scan: bool = True,
 ) -> RunReport:
-    """대기 글을 `max_posts` 개까지 처리한다. 분석 한도에 닿으면 멈춘다."""
-    report = RunReport(queued=sync_changes(conn, state, now))
+    """대기 글을 `max_posts` 개까지 처리한다. 분석 한도에 닿으면 멈춘다.
+
+    `only` 를 주면 그 글만 처리한다(다른 대기 글은 그대로 남는다). 실패한 일부 글만 다시 돌릴 때 쓴다.
+    `scan=False` 면 전체 글을 훑지 않고 이미 대기 중인 글만 처리한다(커뮤니티가 남긴 대기 기록 — 평소 경로).
+    훑기는 놓친 변경을 찾는 안전망이라 작업이 느린 주기로 부른다."""
+    report = RunReport(queued=sync_changes(conn, state, now) if scan else 0)
 
     def _load_snapshot(post_id: str):
         return source.load_snapshot(conn, post_id)
@@ -147,6 +163,8 @@ def run_once(
         return run.input_hash, run.truncated
 
     failed_now: set[str] = set()          # 이번 실행에서 실패한 글은 다음 실행에서 다시 시도한다(바로 반복하지 않는다)
+    if only is not None:                  # 지정하지 않은 대기 글은 이번 실행에서 건너뛴다(대기 상태는 그대로)
+        failed_now |= {r.post_id for r in state.intake.pending_oldest_first(100000)} - {str(x) for x in only}
     for _ in range(max_posts):
         outcome = intake.process_one(
             state.intake, _load_snapshot, _analyze, daily_limit=daily_limit, now=now,
@@ -158,6 +176,8 @@ def run_once(
         record, action = outcome
         if action == "error":
             failed_now.add(record.post_id)
+        else:
+            _remember_signal(conn, state, record.post_id)
         if action == "analyze":
             report.analyzed += 1
         elif action == "skip":

@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 # API 가 쓰는 최상위 경로. SPA 폴백이 가로채지 않는다(라우터가 먼저 등록되므로 실제 API 는 영향 없고,
 # 없는 하위 경로만 404 로 남는다).
-API_PREFIXES = frozenset({"auth", "session", "lists", "reviews", "pc", "dev", "docs", "redoc", "openapi.json", "health", "catalog"})
+API_PREFIXES = frozenset({"auth", "session", "lists", "reviews", "pc", "dev", "docs", "redoc", "openapi.json", "health", "catalog", "me"})
 
 
 def _mount_spa(app: FastAPI, web_dist: Path) -> None:

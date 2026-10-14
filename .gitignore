@@ -110,3 +110,12 @@ artifacts/screen-spec/
 
 # 예시 글 스냅샷(분석·임베딩 결과 덤프) — 팀 내 파일로 공유. data/community_examples/README.md 참고
 data/community_examples/dump/
+
+# 예시 글 이미지 원본(PNG, 팀 내 파일로 공유 — 저장소에 올리지 않는다)
+/data/community_example_images_original/
+
+# 평가 라벨링 열쇠·시트(라벨러에게 따로 전달 — 저장소에 올리지 않는다)
+/data/eval_extraction/label_key.json
+/data/eval_extraction/label_sheets_*.xlsx
+/data/eval_extraction/model_runs/
+/data/eval_extraction/gold*.json

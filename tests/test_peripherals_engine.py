@@ -123,7 +123,7 @@ def test_filter_candidates_never_relaxes_condition_when_pool_is_empty():
     assert kept == []
 
 
-# ── [3-B] rank_candidates: 선호적합 순서 ──────────────────────────────────
+# ── [3-B] rank_candidates: 스펙 기준(기능) 순서 ───────────────────────────
 def test_rank_candidates_preference_axis_orders_pass_over_pending_over_fail():
     req = PeripheralRequirement(
         kind="mouse", hard={}, soft={"preferences": [{"key": "polling_hz_max", "op": "min", "value": 1000}]},
@@ -133,12 +133,13 @@ def test_rank_candidates_preference_axis_orders_pass_over_pending_over_fail():
     cand_pending = Candidate(product_key="p2", slot="mouse", name="공란", price=50000, specs={})
     cand_fail = Candidate(product_key="p3", slot="mouse", name="미달", price=50000,
                           specs={"polling_hz_max": 500.0})
-    weights = {"가격": 0.0, "선호적합": 1.0, "데이터충실": 0.0, "리뷰": 0.0}
+    # polling_hz_max 는 마우스의 "기능" 스펙 기준이 본다. 그 기준만 켠다.
+    weights = {**{"손맞춤": 0, "연결": 0, "기능": 0, "리뷰": 0, "가격": 0, "브랜드": 0, "무상AS": 0}, "기능": 1.0}
     ranked = rank_candidates("mouse", req, [cand_pass, cand_pending, cand_fail], weights)
     by_key = {c.product_key: c for c in ranked}
-    assert by_key["p1"].breakdown["선호적합"] == 1.0
-    assert by_key["p2"].breakdown["선호적합"] == 0.5
-    assert by_key["p3"].breakdown["선호적합"] == 0.0
+    assert by_key["p1"].breakdown["기능"] == 1.0
+    assert by_key["p2"].breakdown["기능"] == 0.5
+    assert by_key["p3"].breakdown["기능"] == 0.0
     assert by_key["p1"].score > by_key["p2"].score > by_key["p3"].score
     assert [c.product_key for c in ranked] == ["p1", "p2", "p3"]
 
@@ -146,13 +147,13 @@ def test_rank_candidates_preference_axis_orders_pass_over_pending_over_fail():
 def test_rank_candidates_no_matching_soft_prefs_is_neutral():
     req = PeripheralRequirement(kind="speaker", hard={}, soft={})
     cand = Candidate(product_key="s1", slot="speaker", name="s1", price=10000)
-    ranked = rank_candidates("speaker", req, [cand], {"가격": 0, "선호적합": 1, "데이터충실": 0, "리뷰": 0})
-    assert ranked[0].breakdown["선호적합"] == 0.5
+    ranked = rank_candidates("speaker", req, [cand], {**{"형태크기": 0, "출력채널": 0, "연결전원": 0, "리뷰": 0, "가격": 0, "브랜드": 0, "무상AS": 0}, "출력채널": 1})
+    assert ranked[0].breakdown["출력채널"] == 0.5          # 조건이 없는 기준은 중립 0.5
 
 
 def test_rank_candidates_deterministic_tie_break_price_then_key():
     req = PeripheralRequirement(kind="speaker", hard={}, soft={})
-    weights = {"가격": 0.0, "선호적합": 0.0, "데이터충실": 0.0, "리뷰": 0.0}   # 전 축 0 → 전부 동점
+    weights = {"형태크기": 0, "출력채널": 0, "연결전원": 0, "리뷰": 0, "가격": 0, "브랜드": 0, "무상AS": 0}   # 전 축 0 → 전부 동점
     cands = [
         Candidate(product_key="z", slot="speaker", name="z", price=20000),
         Candidate(product_key="a", slot="speaker", name="a", price=10000),
@@ -166,7 +167,7 @@ def test_rank_candidates_pending_hard_verdict_gets_penalty():
     from src.config import PENDING_SCORE_PENALTY
 
     req = PeripheralRequirement(kind="monitor", hard={"resolution_class": ["QHD"]}, soft={})
-    weights = {"가격": 0.0, "선호적합": 0.0, "데이터충실": 0.0, "리뷰": 0.0}
+    weights = {"화면": 0, "움직임": 0, "화질사양": 0, "연결": 0, "리뷰": 0, "가격": 0, "브랜드": 0, "무상AS": 0}
     passing = Candidate(product_key="m1", slot="monitor", name="m1", price=10000, verdict="Pass")
     pending = Candidate(product_key="m2", slot="monitor", name="m2", price=10000, verdict="Pending")
     ranked = rank_candidates("monitor", req, [passing, pending], weights)

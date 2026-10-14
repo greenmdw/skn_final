@@ -21,7 +21,8 @@ from typing import Any
 from pydantic import ValidationError
 
 from src.clients.llm_client import call_llm
-from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, PERIPHERAL_POST_AGENT
+from src.config import (LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, PERIPHERAL_POST_AGENT,
+                        PERIPHERAL_POST_LLM_TIMEOUT_SECONDS)
 from src.engine import peripheral_post_contract as contract
 from src.engine.peripheral_post_contract import ExtractedItem, PostAnalysis, PostExtraction, PostInput
 from src.engine.peripheral_rules import (
@@ -91,6 +92,10 @@ def build_system_prompt(post: PostInput, rules: dict | None = None) -> str:
         "1. 먼저 이 글이 사용기인지 판단한다. 아니면 is_review=false 와 reject_reason 을 낸다:",
         "   " + ", ".join(f"{r}={_REASON_TEXT[r]}" for r in REJECT_REASONS),
         "2. 사용기이면 작성자 조건(author)을 글에 밝힌 것만 채운다. 밝히지 않았으면 비운다. 지어내지 않는다.",
+        "   - 목적·상황은 글쓴이가 \"나는 이걸 무엇에/어디서 쓴다\"고 스스로 밝힌 문장이 있을 때만 쓴다.",
+        "     그 문장을 본문에서 한 글자도 바꾸지 말고 statements 에 넣는다. statements 가 비면 purposes·situations 도 비운다.",
+        "   - 기능이나 느낌을 평가하다가 스친 장면은 밝힌 것이 아니다(예: '숫자를 여러 번 고칠 때 편하다', '문서를 읽다가 영상을",
+        "     틀어도 손이 편하다'). 제품 종류(키보드니까 타이핑·문서)나 문장 분위기로 짐작해 채우지도 않는다.",
         f"   - purposes: {', '.join(purpose_codes(rules))}",
         f"   - situations: {', '.join(sit)}",
         "   - hand_cm: 손 길이를 cm 로 적었을 때만. hand_size: 작은 편/보통/큰 편이라고만 적었을 때(small/medium/large).",
@@ -152,8 +157,9 @@ def _output_schema(post: PostInput, rules: dict) -> dict[str, Any]:
                     "situations": {"type": "array", "items": {"type": "string", "enum": list(situations(rules))}},
                     "hand_size": {"type": ["string", "null"], "enum": ["small", "medium", "large", None]},
                     "hand_cm": {"type": ["number", "null"]},
+                    "statements": {"type": "array", "items": {"type": "string"}},
                 },
-                "required": ["purposes", "situations", "hand_size", "hand_cm"],
+                "required": ["purposes", "situations", "hand_size", "hand_cm", "statements"],
             },
             "items": {"type": "array", "items": item},
         },
@@ -184,7 +190,9 @@ def parse_extraction(raw: Any, rules: dict | None = None) -> PostExtraction:
         if len(items) >= cap:
             break
     try:
-        author = contract.ExtractedAuthor.model_validate(raw.get("author") or {})
+        author_raw = dict(raw.get("author") or {})
+        author_raw.setdefault("statements", [])          # 모델 경로는 근거 문장을 요구한다 — 빠지면 비어 있는 것으로 본다
+        author = contract.ExtractedAuthor.model_validate(author_raw)
     except ValidationError:
         author = contract.ExtractedAuthor()           # 작성자 조건은 비워 둔다(지어내지 않는다)
     reason = raw.get("reject_reason")
@@ -205,7 +213,8 @@ def extract(post: PostInput, rules: dict | None = None) -> PostExtraction:
     """글 한 편에서 추출 결과를 낸다. 호출 전에 `available()` 을 보는 건 호출자 몫이다. 길이 상한은 여기서 적용한다."""
     rules = rules or load_peripheral_rules()
     body, _ = prepare_body(post.body, rules)
-    raw = call_llm(body, system=build_system_prompt(post, rules), output_schema=_output_schema(post, rules))
+    raw = call_llm(body, system=build_system_prompt(post, rules), output_schema=_output_schema(post, rules),
+                   timeout=PERIPHERAL_POST_LLM_TIMEOUT_SECONDS)
     return parse_extraction(raw, rules)
 
 
