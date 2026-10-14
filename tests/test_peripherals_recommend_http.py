@@ -7,7 +7,7 @@ C안(독립 엔드포인트) + 선택적 PC 맥락 결합: PC 견적 대화 없�
 from __future__ import annotations
 
 import os
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -173,3 +173,51 @@ def test_pc_list_purpose_is_carried_into_the_peripheral_request(monkeypatch):
     r = c.post(f"/session/{lid}/peripherals/recommend", json={"kinds": ["monitor"], "pc_list_id": pc_lid})
     assert r.status_code == 200, r.text
     assert seen and seen[0]["purpose"] == "game"
+
+
+def test_pc_context_carries_the_selected_gpu_specs(monkeypatch):
+    """pc_list_id 를 주면 그 PC 견적에서 선택된 GPU 의 스펙(단자 값 포함)이 pc_context["gpu_specs"] 로 실린다(B-9)."""
+    from src.db import get_conn
+    from src.repo.engine_repo import EngineRepo
+    from src.repo.plan_repo import PlanRepo
+    from src.services import peripherals_service
+
+    seen: list = []
+    original = peripherals_service.recommend
+
+    def spy(conn, body, pc_context):
+        seen.append(pc_context)
+        return original(conn, body, pc_context)
+
+    monkeypatch.setattr(peripherals_service, "recommend", spy)
+    c = _signed_up()
+    pc_lid = _pc_list(c)
+    lid = _new_session(c)
+    r = c.post(f"/session/{lid}/peripherals/recommend", json={"kinds": ["monitor"], "pc_list_id": pc_lid})
+    assert r.status_code == 200, r.text
+    gpu_specs = seen[0]["gpu_specs"]
+
+    with get_conn() as conn:
+        revision = PlanRepo(conn).get_current_revision(UUID(pc_lid))
+        erepo = EngineRepo(conn)
+        run = erepo.get_latest_run_state(revision["id"])
+        gpu = next(x for x in erepo.get_candidates(run["id"]) if x["product_type"] == "gpu" and x["selected"])
+    assert gpu_specs is not None
+    assert gpu_specs.get("vram_gb") is not None   # GPU 스펙 행이 실렸다(다른 부품 스펙이 아니다)
+    assert gpu["variant_id"]
+
+
+def test_pc_context_gpu_specs_is_none_without_a_completed_recommendation():
+    """추천을 아직 안 돌린 PC 견적은 gpu_specs 가 None 이다 — 단자 검사는 확인 불가로 남는다."""
+    from src.db import get_conn
+    from src.services import peripherals_service
+
+    c = _signed_up()
+    lid = _new_session(c)
+    assert c.post(f"/session/{lid}/category", json={"category": "computer", "mode": "build"}).status_code == 200
+    r = c.post(f"/session/{lid}/answer", json={"question_id": "q_resolution", "selected": ["QHD_165"]})
+    assert r.status_code == 200, r.text
+    with get_conn() as conn:
+        from src.repo.plan_repo import PlanRepo
+        revision = PlanRepo(conn).get_current_revision(UUID(lid))
+        assert peripherals_service._selected_gpu_specs(conn, revision["id"]) is None

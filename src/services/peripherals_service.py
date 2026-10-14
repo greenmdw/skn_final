@@ -22,9 +22,9 @@ def pc_context_from_list(conn, pc_list_id: UUID, principal: Principal) -> dict |
 
     `purpose` 는 그 PC 견적의 용도(game 등)다 — 모니터 요구사양의 주사율 상향(4K+game)과 PC 용도에서 풀리는 주변기기 목적이
     읽는다. 예전에는 요청 바디가 직접 받던 값이다.
-    GPU의 HDMI/DP 포트 스펙(`config/peripherals.yaml`의 `verify.gpu_keys`)은 지금
-    `catalog.gpu_spec`에 해당 컬럼이 아예 없어 늘 None이다 — 모니터 교차검사는 그 축만
-    "확인 필요"로 남는다(정보 없음을 틀렸다고 단정하지 않는 기존 원칙과 같다).
+    `gpu_specs` 는 그 PC 견적에서 선택된 GPU 의 스펙이다(HDMI/DP 버전·USB-C 영상 출력은 0016, B-9).
+    선택 GPU 가 없거나 단자 값이 비어 있으면 모니터 교차검사는 그 축만 "확인 필요"로 남는다
+    (정보 없음을 틀렸다고 단정하지 않는 기존 원칙과 같다).
     소유가 아니거나 못 찾으면 조용히 None — 독립 추천으로 그냥 진행한다(이 필드는 선택이다)."""
     from src.repo.plan_repo import PlanRepo
     from src.services.session_service import _owned
@@ -37,7 +37,26 @@ def pc_context_from_list(conn, pc_list_id: UUID, principal: Principal) -> dict |
              for r in PlanRepo(conn).load_full(revision["id"])["conditions"]}
     if cvals.get("category") != "computer":
         return None
-    return {"resolution": cvals.get("resolution"), "gpu_specs": None, "purpose": cvals.get("purpose")}
+    return {"resolution": cvals.get("resolution"), "gpu_specs": _selected_gpu_specs(conn, revision["id"]),
+            "purpose": cvals.get("purpose")}
+
+
+def _selected_gpu_specs(conn, revision_id: UUID) -> dict | None:
+    """PC 견적의 최신 완료 추천에서 선택된 GPU 의 스펙(`hdmi_version`·`dp_version`·`usb_c_video_out` 포함).
+
+    완료된 추천이 없거나 GPU 를 고르지 않았으면 None — 모니터 교차검사는 그 축을 "확인 필요"로 둔다."""
+    from src.repo.catalog_repo import load_specs_by_variant
+    from src.repo.engine_repo import EngineRepo
+
+    erepo = EngineRepo(conn)
+    run = erepo.get_latest_run_state(revision_id)
+    if run is None or run["status"] != "completed":
+        return None
+    gpu = next((c for c in erepo.get_candidates(run["id"])
+                if c.get("product_type") == "gpu" and c.get("selected")), None)
+    if gpu is None:
+        return None
+    return load_specs_by_variant(conn, [("gpu", str(gpu["variant_id"]))]).get(str(gpu["variant_id"])) or None
 
 
 def _intent_from_body(body, pc_purpose: str | None = None):
