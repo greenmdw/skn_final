@@ -1,0 +1,72 @@
+# B(키보드) 예시 글 정답표 초안 — 병합 전 검토용. 병합하려면 아래 `posts:` 아래 항목을 expectations.yaml 의 posts 에 붙인다.
+# 점검: python scripts/check_example_expectations.py --expectations data/community_examples/expectations_B_draft.yaml --only B1-1,...
+#
+# 출처: docs/local/예시_사용기_작성_기획.md 5장 묶음 B 표의 "좋게 쓸 것 / 아쉽게 쓸 것 / 성향" 열(2026-10-14, Claude 초안).
+# 사람이 확인해야 하는 초안이다. 기획 문구를 속성 코드로 옮긴 규칙:
+#   타건감 / 구분감 / 부드럽게 내려감 / 누르는 맛        → typing_feel (없다·부족 = bad)
+#   반응이 빠름 / 입력이 안정적                           → input_response
+#   무선 연결·기기 전환 / 블루투스 끊김 없음               → wireless
+#   손목이 편함·받침 / 손목 당김·부담·꺾임                 → wrist (good / bad)
+#   한/영·키 위치·키 간격 적응 / 배열이 익숙함             → layout (bad / good)
+#   전용 프로그램이 무겁다·설정이 어렵다·익히는 데 시간      → software bad
+#   통울림 적음 → hollow good, 스페이스바 잡음 → key_noise
+#   성향: 키압 가벼움→key_force light, 묵직→heavy / 소리 크기 조용→sound_volume quiet, 큼→loud /
+#         소리 톤 낮고 둥금→sound_tone low, 높고 또렷→high / 반발감 무름→rebound soft
+#   "중간", "중간 이하", "매끈" 같은 중간값·애매한 말은 적지 않았다(A 의 규칙과 같다).
+#   "소리가 좋음", "조용함" 같은 평가는 sound_volume 성향 쪽으로만 적고 평가 속성(key_noise 등)에는 넣지 않았다.
+# B 의 -4 글은 용도를 상황 단위로 말하는 글이라 목적이 추출될 수 있다(2026-10-14 확인). hidden_conditions 규칙을 B 에는
+# 적용하지 않을지 정해야 한다 — 표의 B-4 항목은 평가 속성만 점검한다.
+
+version: 1
+reference_date: 2026-10-12
+
+posts:
+  B1-1: {product: "AULA F75", must: {typing_feel: good, sound_volume: quiet, sound_tone: low, wireless: good, wrist: bad, layout: bad}}
+  B1-2: {product: "AULA F75", must: {typing_feel: good}}
+  B1-3: {product: "AULA F75", must: {wireless: good, wrist: bad}}
+  B1-4: {product: "AULA F75", must: {sound_tone: low}}
+
+  B2-1: {product: "Logitech MX Keys S", must: {sound_volume: quiet, key_force: light, layout: bad}}
+  B2-2: {product: "Logitech MX Keys S", must: {sound_volume: quiet, software: bad}}
+  B2-3: {product: "Logitech MX Keys S", must: {typing_feel: bad, layout: good, key_force: light, rebound: soft}}
+  B2-4: {product: "Logitech MX Keys S", must: {sound_volume: quiet, layout: bad}}
+
+  B3-1: {product: "Corsair K70 CORE RGB", must: {hollow: good, software: bad, key_force: heavy}}
+  B3-2: {product: "Corsair K70 CORE RGB", must: {key_force: heavy}}
+  B3-3: {product: "Corsair K70 CORE RGB", must: {}}
+  B3-4: {product: "Corsair K70 CORE RGB", must: {key_force: heavy}}
+
+  B4-1: {product: "SteelSeries Apex Pro TKL Gen 3", must: {software: bad, key_force: light}}
+  B4-2: {product: "SteelSeries Apex Pro TKL Gen 3", must: {key_force: light}}
+  B4-3: {product: "SteelSeries Apex Pro TKL Gen 3", must: {wrist: good, typing_feel: bad, key_force: light}}
+  B4-4: {product: "SteelSeries Apex Pro TKL Gen 3", must: {sound_volume: quiet, wrist: good}}
+
+  B5-1: {product: "Leopold FC900RBT MX2A", must: {sound_volume: quiet, key_force: light, typing_feel: good}}
+  B5-2: {product: "Leopold FC900RBT MX2A", must: {typing_feel: good, sound_volume: loud, sound_tone: high, key_force: heavy}}
+  B5-3: {product: "Leopold FC900RBT MX2A", must: {typing_feel: good, key_noise: good, wireless: bad}}
+  B5-4: {product: "Leopold FC900RBT MX2A", must: {wireless: good, key_force: heavy}}
+
+  B6-1: {product: "Logitech MX Mechanical", must: {wrist: good, wireless: good, layout: bad, sound_volume: quiet}}
+  B6-2: {product: "Logitech MX Mechanical", must: {typing_feel: good, layout: bad}}
+  B6-3: {product: "Logitech MX Mechanical", must: {typing_feel: good, sound_volume: loud, sound_tone: high}}
+  B6-4: {product: "Logitech MX Mechanical", must: {wireless: good}}
+
+  B7-1: {product: "Razer BlackWidow V4 75%", must: {typing_feel: good, wrist: good, key_force: heavy, sound_tone: high}}
+  B7-2: {product: "Razer BlackWidow V4 75%", must: {software: bad}}
+  B7-3: {product: "Razer BlackWidow V4 75%", must: {key_force: heavy, typing_feel: bad, layout: bad}}
+  B7-4: {product: "Razer BlackWidow V4 75%", must: {typing_feel: good, key_force: heavy, layout: bad}}
+
+  B8-1: {product: "Logitech G915 X LIGHTSPEED", must: {wrist: good, wireless: good, sound_volume: quiet}}
+  B8-2: {product: "Logitech G915 X LIGHTSPEED", must: {input_response: good, wireless: good, key_force: light}}
+  B8-3: {product: "Logitech G915 X LIGHTSPEED", must: {typing_feel: bad, rebound: soft}}
+  B8-4: {product: "Logitech G915 X LIGHTSPEED", must: {wireless: good}}
+
+  B9-1: {product: "DrunkDeer A75 Pro", must: {input_response: good, software: bad, key_force: light}}
+  B9-2: {product: "DrunkDeer A75 Pro", must: {input_response: good, key_force: light}}
+  B9-3: {product: "DrunkDeer A75 Pro", must: {sound_volume: quiet, key_noise: bad, wrist: bad}}
+  B9-4: {product: "DrunkDeer A75 Pro", must: {input_response: good, software: bad, key_force: light}}
+
+  B10-1: {product: "한성 GK898B PRO", must: {sound_volume: quiet, key_force: light}}
+  B10-2: {product: "한성 GK898B PRO", must: {sound_volume: quiet, typing_feel: good, key_force: light}}
+  B10-3: {product: "한성 GK898B PRO", must: {typing_feel: bad, key_force: light, rebound: soft}}
+  B10-4: {product: "한성 GK898B PRO", must: {wireless: good, key_force: light}}
