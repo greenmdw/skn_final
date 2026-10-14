@@ -886,15 +886,16 @@ class AlternativesOut(BaseModel):
 
 
 class PeripheralsRecommendIn(BaseModel):
-    """개발요청 6번 — 주변기기 추천. PC 견적 대화(category 선택)를 거치지 않고 바로 호출한다."""
+    """개발요청 6번 — 주변기기 추천. PC 견적 대화(category 선택)를 거치지 않고 바로 호출한다.
+
+    예전 입력(PC 견적 용도 `purpose`, `priority`, `noise_sensitive`)은 2026-10-14 에 없앴다. 목적·상황은 `purposes`·`situations`
+    로 받고(조용해야 함 = `situations: ["quiet_place"]`), PC 견적 용도는 `pc_list_id` 로 묶은 PC 견적에서 읽는다.
+    보내도 오류는 아니지만(알 수 없는 필드는 무시된다) 아무 영향이 없다."""
 
     kinds: list[Literal["monitor", "keyboard", "mouse", "speaker"]] = Field(min_length=1)
     budget_max: Optional[int] = Field(default=None, ge=0)
-    purpose: Optional[str] = None
-    priority: Optional[str] = None
-    noise_sensitive: Optional[bool] = None
     resolution: Optional[str] = None
-    # 주면 그 PC 견적의 해상도·GPU 스펙을 pc_context로 묶어 모니터 교차검사를 추가로 켠다
+    # 주면 그 PC 견적의 해상도·용도·GPU 스펙을 pc_context로 묶어 모니터 교차검사를 추가로 켠다
     # (principal 소유가 아니거나 못 찾으면 조용히 무시 — 독립 추천으로 그냥 진행한다).
     pc_list_id: Optional[str] = None
     # 견적 입력(POST /peripherals/interpret 의 결과를 그대로 넘긴다). 목록에 없는 값은 오류 없이 무시하고

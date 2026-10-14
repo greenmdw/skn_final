@@ -55,7 +55,7 @@ def test_standalone_recommend_needs_no_pc_quote():
     c = _signed_up()
     lid = _new_session(c)
     r = c.post(f"/session/{lid}/peripherals/recommend",
-               json={"kinds": ["keyboard"], "purpose": "game", "priority": "quiet"})
+               json={"kinds": ["keyboard"], "purposes": ["game"], "situations": ["quiet_place"]})
     assert r.status_code == 200, r.text
     data = r.json()
     assert data["status"] in ("ready", "empty")
@@ -153,3 +153,23 @@ def test_explicit_resolution_overrides_pc_context():
         axes = {c["axis"]: c["detail"] for c in item["checks"]}
         # PC는 QHD인데 모니터 요구사양은 명시한 4K로 갔다 — 둘이 다르면 fail, 교차검사 자체는 여전히 돈다.
         assert "monitor_resolution" in axes
+
+
+def test_pc_list_purpose_is_carried_into_the_peripheral_request(monkeypatch):
+    """pc_list_id 를 주면 그 PC 견적의 용도("게임" → game)가 요청 바디의 purpose 없이도 이어진다."""
+    from src.services import review_ranking
+
+    seen: list[dict] = []
+    original = review_ranking.score_peripheral_candidates
+
+    def spy(conn, candidates, values, **kwargs):
+        seen.append(dict(values))
+        return original(conn, candidates, values, **kwargs)
+
+    monkeypatch.setattr(review_ranking, "score_peripheral_candidates", spy)
+    c = _signed_up()
+    pc_lid = _pc_list(c, resolution="QHD_165")
+    lid = _new_session(c)
+    r = c.post(f"/session/{lid}/peripherals/recommend", json={"kinds": ["monitor"], "pc_list_id": pc_lid})
+    assert r.status_code == 200, r.text
+    assert seen and seen[0]["purpose"] == "game"
