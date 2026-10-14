@@ -342,3 +342,57 @@ def test_image_marker_only_edit_is_not_analyzed_again_and_analyzer_sees_plain_te
     assert r.status_code == 200, r.text
     again = _run(state, analyzer)
     assert again.analyzed == 0 and analyzer.calls == [post_id]
+
+
+def test_only_option_analyzes_just_the_given_posts_and_leaves_the_rest_pending(community):
+    first, second = _review_post(community), _review_post(community)
+    state, analyzer = _state_for([first, second]), FakeAnalyzer()
+    report = _run(state, analyzer, only={first})
+    assert report.analyzed == 1 and analyzer.calls == [first]
+    assert state.intake.get(second).status == "pending"           # 건드리지 않고 대기로 남는다
+    assert _run(state, analyzer).analyzed == 1 and analyzer.calls == [first, second]
+
+
+def test_without_scan_only_waiting_posts_are_processed_and_the_next_scan_does_not_requeue(community):
+    """평소 경로: 전체를 훑지 않고 커뮤니티가 남긴 대기 기록만 처리한다. 처리한 글의 신호는 기록해 안전망 훑기가 다시 올리지 않는다."""
+    from src.db import get_conn
+
+    post_id = _review_post(community)                 # API 로 글을 쓰면 B-4 가 대기 기록을 남긴다
+    analyzer = FakeAnalyzer()
+    with get_conn() as conn:
+        _isolated_db_state(conn, [post_id])           # 다른 시험의 글은 본 것으로 표시
+        with conn.cursor() as cur:                    # 이 글만 아직 보지 못한 대기 글로 되돌린다
+            cur.execute("UPDATE engine.peripheral_post_intake SET status='pending', change_signal=NULL, analyzed_hash=NULL "
+                        "WHERE post_id=%s", (post_id,))
+    with get_conn() as conn:
+        state = pipeline.DbState(conn)
+        first = pipeline.run_once(conn, state, analyzer, daily_limit=100, now=_day(20), scan=False)
+        assert (first.queued, first.analyzed, first.errors) == (0, 1, 0)      # 훑지 않았는데도 대기 글을 분석했다
+        assert state.get_known()[post_id]                                      # 처리하면서 본 신호를 기록했다
+    with get_conn() as conn:
+        later = pipeline.run_once(conn, pipeline.DbState(conn), analyzer, daily_limit=100, now=_day(20), scan=True)
+        assert later.queued == 0 and later.analyzed == 0                      # 안전망 훑기가 같은 글을 또 올리지 않는다
+    assert analyzer.calls == [post_id]
+
+
+def test_scan_finds_a_change_the_community_never_reported(community):
+    """안전망: 대기 기록 없이 바뀐 글(알림 누락)은 전체 훑기에서만 잡힌다."""
+    from src.db import get_conn
+
+    post_id = _review_post(community)
+    analyzer = FakeAnalyzer()
+    with get_conn() as conn:
+        state = _isolated_db_state(conn, [post_id])
+        pipeline.run_once(conn, state, analyzer, daily_limit=100, now=_day(21))
+    current = community.get(f"/community/posts/{post_id}").json()
+    r = community.patch(f"/community/posts/{post_id}", json={"body": "그립이 아주 불편합니다. " + BODY, "version": current["version"]})
+    assert r.status_code == 200, r.text
+    with get_conn() as conn:                          # 알림이 누락된 것처럼 대기 기록을 완료로 되돌린다
+        with conn.cursor() as cur:
+            cur.execute("UPDATE engine.peripheral_post_intake SET status='done' WHERE post_id=%s", (post_id,))
+    with get_conn() as conn:
+        none = pipeline.run_once(conn, pipeline.DbState(conn), analyzer, daily_limit=100, now=_day(21), scan=False)
+        assert none.analyzed == 0                                              # 훑지 않으면 모른다
+    with get_conn() as conn:
+        found = pipeline.run_once(conn, pipeline.DbState(conn), analyzer, daily_limit=100, now=_day(21), scan=True)
+        assert found.queued == 1 and found.analyzed == 1

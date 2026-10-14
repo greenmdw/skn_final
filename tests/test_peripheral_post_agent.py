@@ -94,7 +94,7 @@ def test_parse_unknown_reject_reason_is_dropped_and_bad_author_is_emptied():
 def fake_llm(monkeypatch):
     calls: list[dict] = []
 
-    def fake(prompt, *, system=None, output_schema=None, model=None):
+    def fake(prompt, *, system=None, output_schema=None, model=None, timeout=None):
         calls.append({"prompt": prompt, "system": system, "schema": output_schema})
         return fake.response
 
@@ -170,3 +170,23 @@ def test_available_requires_the_flag_a_key_and_real_mode(monkeypatch):
     monkeypatch.setattr(agent, "PERIPHERAL_POST_AGENT", True)
     monkeypatch.setattr(agent, "MOCK_MODE", True)
     assert agent.available() is False
+
+
+def test_prompt_forbids_guessing_purposes_from_the_product_kind():
+    """조건을 밝히지 않은 글(-4)에서 키보드라는 이유로 타이핑 목적을 채우는 일을 막는 규칙이 프롬프트에 있다."""
+    prompt = agent.build_system_prompt(_post(), RULES)
+    assert "statements" in prompt and "짐작해 채우지도 않는다" in prompt
+
+
+def test_extraction_call_uses_its_own_longer_timeout(monkeypatch):
+    """여러 제품 글은 기본 제한(45초)에 못 끝나서, 사용기 분석 호출만 별도 제한을 넘긴다."""
+    seen = {}
+
+    def fake_call_llm(body, **kwargs):
+        seen.update(kwargs)
+        return {"is_review": False, "reject_reason": "chatter", "author": {"purposes": [], "situations": [],
+                "hand_size": None, "hand_cm": None, "statements": []}, "items": []}
+
+    monkeypatch.setattr(agent, "call_llm", fake_call_llm)
+    agent.analyze(_post())
+    assert seen["timeout"] == agent.PERIPHERAL_POST_LLM_TIMEOUT_SECONDS and seen["timeout"] > 45

@@ -94,7 +94,7 @@ def _create_within(client, kwargs: dict, deadline: float):
 
 
 def _call_openai(prompt: str, *, system: str | None, output_schema: dict | None, model: str,
-                 deadline: float | None = None) -> dict:
+                 deadline: float | None = None, timeout: float | None = None) -> dict:
     client = _get_client()
     messages = []
     if system:
@@ -115,7 +115,9 @@ def _call_openai(prompt: str, *, system: str | None, output_schema: dict | None,
         # 시간 예산이 있으면 HTTP 재시도까지 그 안에서 센다(_create_within). 없으면 클라이언트 설정(제한 시간·SDK 재시도) 그대로.
         if deadline is None:
             with llm_call_slot():
-                response = client.chat.completions.create(**kwargs)
+                # timeout: 출력이 긴 호출(사용기 분석 등)만 기본 제한(LLM_TIMEOUT_SECONDS)보다 길게 준다. 호출마다만 바뀐다.
+                active = client.with_options(timeout=timeout) if timeout else client
+                response = active.chat.completions.create(**kwargs)
         else:
             response = _create_within(client, kwargs, deadline)
         content = response.choices[0].message.content or ""
@@ -135,6 +137,7 @@ def call_llm(
     output_schema: dict | None = None,
     model: str = LLM_MODEL,
     deadline: float | None = None,
+    timeout: float | None = None,
 ) -> dict:
     """LLM 호출.
 
@@ -144,12 +147,13 @@ def call_llm(
         output_schema: 주어지면 스키마에 맞는 dict, 없으면 {"text": str} 반환.
         model: 모델 식별자 (env 주입).
         deadline: time.monotonic() 기준 마감 시각. 주면 파싱 재시도·HTTP 재시도까지 이 안에서 끝내고, 넘기면 TimeoutError.
+        timeout: 요청 한 번의 제한 시간(초). 없으면 클라이언트 기본(LLM_TIMEOUT_SECONDS). deadline 이 있으면 쓰지 않는다.
 
     Returns:
         output_schema 가 있으면 dict, 없으면 {"text": str}.
     """
     if not MOCK_MODE:
-        return _call_openai(prompt, system=system, output_schema=output_schema, model=model, deadline=deadline)
+        return _call_openai(prompt, system=system, output_schema=output_schema, model=model, deadline=deadline, timeout=timeout)
 
     preview = prompt.replace("\n", " ")[:36]
     print(f"[MOCK] LLM 호출: {preview}...")

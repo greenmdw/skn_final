@@ -79,6 +79,9 @@ class ExtractedAuthor(BaseModel):
     situations: list[str] = Field(default_factory=list)
     hand_size: HandSize | None = None
     hand_cm: float | None = Field(default=None, gt=0)       # cm 가 적혀 있으면 원래 값도 함께 둔다
+    # 글쓴이가 "내가 무엇에·어디서 쓰는지"를 직접 밝힌 본문 문장(그대로 복사). 목적·상황의 근거다.
+    # 평가 문장 속에 스친 장면("숫자를 입력할 때 편하다")은 근거가 아니다. None = 근거를 요구하지 않는 호출(시험·직접 구성).
+    statements: list[str] | None = None
 
 
 class ExtractedItem(BaseModel):
@@ -147,9 +150,11 @@ class PostAnalysis(BaseModel):
             if analyzed.item.attribute == OTHER and not include_other:
                 continue
             item = analyzed.item
+            # "기타"는 값이 없는 문장이다(검색 전용). 모델이 방향을 붙여 와도 저장하지 않는다 — 0015 의 value_check 제약.
+            is_other = item.attribute == OTHER
             out.append((analyzed.kind, FeelObservation(
                 author_id=post.author_id, product_id=analyzed.product_id, attribute=item.attribute,
-                direction=item.direction, side=item.side,
+                direction=None if is_other else item.direction, side=None if is_other else item.side,
                 purposes=frozenset(author.purposes), situations=frozenset(author.situations),
                 hand_size=author.hand_size, evaluated_in=frozenset(item.evaluated_in),
                 written_at=post.written_at, is_example=post.is_example,
@@ -176,11 +181,17 @@ def hand_size_from_cm(cm: float | None, rules: dict | None = None) -> HandSize |
     return "medium"
 
 
-def _normalize_author(author: ExtractedAuthor, rules: dict) -> ExtractedAuthor:
+def _normalize_author(author: ExtractedAuthor, rules: dict, body: str | None = None) -> ExtractedAuthor:
     sit = set(situations(rules))
     codes = set(purpose_codes(rules)) | sit
     purposes = [c for c in dict.fromkeys(author.purposes) if c in codes and c not in sit]
     sits = [c for c in dict.fromkeys([*author.situations, *(c for c in author.purposes if c in sit)]) if c in sit]
+    if author.statements is not None:
+        # 목적·상황은 글쓴이가 직접 밝힌 문장이 본문에 그대로 있을 때만 남긴다(사양 4.1 "밝히지 않은 조건은 모름").
+        squashed = _squash(body or "")
+        grounded = any(_squash(s) and _squash(s) in squashed for s in author.statements)
+        if not grounded:
+            purposes, sits = [], []
     return ExtractedAuthor(
         purposes=purposes, situations=sits,
         hand_size=hand_size_from_cm(author.hand_cm, rules) or author.hand_size, hand_cm=author.hand_cm,
@@ -217,7 +228,7 @@ def analyze_post(post: PostInput, extraction: PostExtraction, rules: dict | None
     products = {p.index: p for p in post.products}
     body = _squash(post.body)
     injected = looks_like_injected_instruction(post.body)       # 본문 속 지시문은 따르지 않고 글을 보류한다(사양 3장)
-    author = _normalize_author(extraction.author, rules)
+    author = _normalize_author(extraction.author, rules, post.body)
 
     items: list[AnalyzedItem] = []
     for item in extraction.items:
