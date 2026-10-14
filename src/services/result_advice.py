@@ -1033,3 +1033,48 @@ def rule_reply(conn, revision_id: UUID, text: str, slot: str | None) -> str | No
     if slot is None and any(w in text for w in _UPGRADE_WORDS):
         return for_user(upgrade_options(conn, revision_id, _parse_won(text)))
     return None
+
+
+# ── 추천 질문 칩 (P2-2) ──────────────────────────────────────────────────────
+# 결과 화면 채팅 아래에 띄울 질문 — PC를 모르는 사용자를 이 채팅이 잘 답하는 범위로 이끈다(10/3 멘토링).
+# 10/13 실제 로그 집계에서 결과 채팅 말의 60%가 규칙이 못 가른 말(other)이었다. 문장은 결과 채팅 평가 세트
+# (scripts/result_chat_eval.py)에서 맞는 도구를 불러 답한다고 확인된 것만 쓴다 — 칩을 눌렀는데 엉뚱한 답이 오면
+# 안내가 아니라 함정이 된다. 고르는 기준은 결과 상태뿐이라(모델 없음) 같은 구성이면 언제나 같은 칩이 나온다.
+SUGGEST_UPGRADE_MIN = 100_000            # 이보다 적게 남으면 "업그레이드" 대신 "줄이기"를 띄운다 — 10만원 아래로는 올릴 후보가 거의 없다
+_WHY_SLOT_WORD = {"GPU": "그래픽카드", "CPU": "CPU"}
+_GAME_SPLIT_RE = re.compile(r"[,·/、]|\s+(?:그리고|랑|이랑|하고)\s+")
+
+
+def _first_game(games) -> str | None:
+    if isinstance(games, str):
+        games = _GAME_SPLIT_RE.split(games)
+    for name in games or []:
+        name = str(name).strip()
+        if name:
+            return name
+    return None
+
+
+def suggested_questions(result: dict, values: dict, budget_notice: dict | None = None) -> list[str]:
+    """결과 상태에 맞는 질문 최대 3개 — ① 예산 상황 ② 고른 이유 ③ 용도 점검. PC 구성이 다 나온 뒤에만."""
+    items = [i for i in result.get("items") or [] if i.get("selected")]
+    if result.get("category") != "computer" or result.get("status") != "done" or not items:
+        return []
+    totals = result.get("totals") or {}
+    remaining = totals.get("budget_remaining")
+    out: list[str] = []
+    if totals.get("over_budget"):
+        out.append("뭘 바꾸면 제일 싸져?")                       # savings_options
+    elif budget_notice and (budget_notice.get("remaining") or 0) > 0:
+        out.append("왜 예산을 다 안 썼어?")                      # budget_reason (규칙 6-1)
+    elif remaining is not None and remaining >= SUGGEST_UPGRADE_MIN:
+        out.append("남은 돈으로 할 만한 업그레이드 있어?")         # upgrade_options
+    else:
+        out.append("뭘 바꾸면 제일 싸져?")
+    slots = {i.get("slot") for i in items}
+    why = next((s for s in ("GPU", "CPU") if s in slots), None)
+    if why:
+        out.append(f"왜 이 {_WHY_SLOT_WORD[why]} 골랐어?")          # explain (규칙 4)
+    game = _first_game(values.get("games")) if values.get("purpose") == "game" else None
+    out.append(f"이 구성으로 {game} 잘 돌아가?" if game else "호환 문제 없어?")   # game_check / check_build
+    return out[:3]
