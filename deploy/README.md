@@ -53,8 +53,9 @@ worker 가 `PERIPHERAL_POST_INTERVAL_SECONDS`(기본 60초)마다 읽어 분석�
   docker compose -f docker-compose.aws.yml exec worker python -m src.workers.peripheral_post_analysis --dry-run
   ```
 - **한 번만 돌리기:** `docker compose -f docker-compose.aws.yml exec worker python -m src.workers.peripheral_post_analysis --once`
-- **로그:** `docker compose -f docker-compose.aws.yml logs --tail=100 -f worker` — 한 번 돌 때마다 `대기 · 분석 · 건너뜀 · 닫음 · 근거 제거 · 오류` 줄이 남는다.
+- **로그:** `docker compose -f docker-compose.aws.yml logs --tail=100 -f worker` — (켜져 있으면) 한 번 돌 때마다 `대기 · 분석 · 건너뜀 · 닫음 · 근거 제거 · 오류` 줄이 남는다.
 - **DB 연결:** worker 는 연결 하나만 쓴다(연결 한도 계산에 +1).
+- **켜져 있는지 확인:** 꺼져 있으면 로그에 "꺼져 있습니다" 안내가 남는다. 로그가 비어 있으면 켜져 있다는 뜻이다 — 켜져 있어도 대기 중인 글이 없으면 한 줄만 나온다. 바로 보려면 `docker compose -f docker-compose.aws.yml exec worker python -m src.workers.peripheral_post_analysis --dry-run`(분류만, 모델 호출·쓰기 없음).
 
 ## 확인·문제 해결
 
