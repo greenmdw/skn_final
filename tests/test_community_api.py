@@ -572,3 +572,54 @@ def test_withdrawn_authors_posts_and_comments_stay_with_anonymous_name(alice, bo
     assert tree[0]["body"] == "내 댓글" and tree[0]["author"]["name"] == "탈퇴한 사용자" and tree[0]["id"] == comment["id"]
     assert anon.get(f"/community/posts/{other['id']}").json()["author"]["name"] == "밥"        # 다른 사람 글은 영향 없음
     assert a.patch(f"/community/posts/{post['id']}", json={"title": "탈퇴 후 수정"}).status_code == 401   # 탈퇴한 계정은 더 쓸 수 없다
+
+
+# ── 본문 이미지 마커(개발요청 B-1 ④⑤⑥) ─────────────────────────────────────────────────
+def _marker(image_id: str, alt: str = "설명") -> str:
+    return f"![{alt}](image:{image_id})"
+
+
+def test_list_excerpt_drops_image_markers_entirely(alice):
+    a, _ = alice
+    img = _upload(a, _png()).json()
+    marker = _marker(img["id"], "책상 위에 올려 둔 모습")
+    post = _post(a, title="요약 시험", body=f"첫 문단입니다.\n\n{marker}\n\n둘째 문단입니다.".replace("\n", "\n"), image_ids=[img["id"]])
+    item = TestClient(app).get("/community/posts", params={"q": "요약 시험"}).json()["items"][0]
+    assert item["excerpt"] == "첫 문단입니다. 둘째 문단입니다."
+    assert "image:" not in item["excerpt"] and "책상 위에" not in item["excerpt"]
+    assert post["body"].count(marker) == 1                                         # 본문 원문에는 마커가 그대로 있다
+
+
+def test_foreign_image_markers_are_removed_on_save(alice, bob):
+    a, _ = alice
+    b, _ = bob
+    mine = _upload(a, _png()).json()
+    theirs = _upload(b, _png(color=(0, 0, 200))).json()
+    stranger = "7f3c2a1e-5b9d-4a6e-8c1f-2d4e6a8b0c1d"
+    body = "\n\n".join(["앞 문단", _marker(mine["id"], "내 사진"), _marker(theirs["id"], "남의 사진"), _marker(stranger, "없는 사진"), "뒤 문단"])
+    post = _post(a, title="마커 정리", body=body, image_ids=[mine["id"]])
+    assert _marker(mine["id"], "내 사진") in post["body"]                          # 이 글의 이미지 마커는 남는다
+    assert theirs["id"] not in post["body"] and stranger not in post["body"] and "남의 사진" not in post["body"]
+    assert "\n\n\n" not in post["body"]                                            # 지운 자리가 빈 줄로 남지 않는다
+    # 수정으로 남의 마커를 넣어도 같다
+    again = a.patch(f"/community/posts/{post['id']}", json={"body": body, "version": post["version"]}).json()
+    assert theirs["id"] not in again["body"] and _marker(mine["id"], "내 사진") in again["body"]
+    # image_ids 없이 만든 글에는 어떤 마커도 남지 않는다
+    bare = _post(a, title="이미지 없는 글", body=f"본문\n\n{_marker(mine['id'])}\n\n끝")
+    assert "image:" not in bare["body"] and bare["body"] == "본문\n\n끝"
+
+
+def test_marker_is_removed_when_its_image_leaves_the_post(alice):
+    a, _ = alice
+    first, second = _upload(a, _png()).json(), _upload(a, _png(color=(0, 150, 0))).json()
+    body = "\n\n".join(["가", _marker(first["id"], "첫째"), "나", _marker(second["id"], "둘째"), "다"])
+    post = _post(a, title="이미지 교체", body=body, image_ids=[first["id"], second["id"]])
+    assert _marker(first["id"], "첫째") in post["body"] and _marker(second["id"], "둘째") in post["body"]
+    # 본문은 그대로 두고 image_ids 에서 첫째를 뺀다 → 첫째 마커가 본문에서 사라진다(⑤)
+    r = a.patch(f"/community/posts/{post['id']}", json={"image_ids": [second["id"]], "version": post["version"]})
+    assert r.status_code == 200
+    body = r.json()["body"]
+    assert first["id"] not in body and "첫째" not in body and _marker(second["id"], "둘째") in body
+    # image_ids 를 주지 않고 본문만 고치면 지금 글에 붙은 이미지 기준으로 판단한다
+    r = a.patch(f"/community/posts/{post['id']}", json={"body": body + "\n\n" + _marker(first["id"], "다시"), "version": r.json()["version"]})
+    assert first["id"] not in r.json()["body"] and _marker(second["id"], "둘째") in r.json()["body"]

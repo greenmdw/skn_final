@@ -116,8 +116,13 @@ def _board(board_type: str | None) -> str:
 
 
 # ── 직렬화 ──────────────────────────────────────────────────────────────────────────
+_ANY_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")                     # 마크다운 이미지 전체(설명 문구 포함)
+_IMAGE_MARKER_RE = re.compile(r"!\[[^\]]*\]\(image:([^)\s]*)\)")           # 본문 이미지 마커 ![설명](image:<id>)
+
+
 def _excerpt(body: str, limit: int = 120) -> str:
-    text = re.sub(r"[#>*`|\[\]]+", " ", body or "")
+    text = _ANY_IMAGE_RE.sub(" ", body or "")
+    text = re.sub(r"[#>*`|\[\]]+", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text if len(text) <= limit else text[:limit].rstrip() + "…"
 
@@ -388,11 +393,38 @@ def _apply_images(repo: CommunityRepo, user: UUID, post_id: UUID, raw_ids) -> No
     _remove_files(repo.attach_images(post_id, ids))
 
 
+def _uuid_set(raw_ids) -> set[str]:
+    out: set[str] = set()
+    for value in raw_ids or []:
+        try:
+            out.add(str(UUID(str(value))))
+        except ValueError:
+            continue                                   # 형식이 틀린 id 는 _apply_images 가 422 로 거절한다
+    return out
+
+
+def _strip_foreign_image_markers(body: str, allowed: set[str]) -> str:
+    """본문의 이미지 마커 중 `allowed`(이 글의 이미지 id)에 없는 것을 지운다. 저장이 실패하지 않고 조용히 정리된다.
+    프론트 미리보기가 "이 글의 이미지가 아니면 그리지 않는다"로 그리는 것과 같은 결과다."""
+    def keep(match: re.Match) -> str:
+        try:
+            image_id = str(UUID(match.group(1)))
+        except ValueError:
+            return ""
+        return match.group(0) if image_id in allowed else ""
+
+    cleaned = _IMAGE_MARKER_RE.sub(keep, body)
+    if cleaned != body:
+        cleaned = re.sub(r"\n[ \t]*(?:\n[ \t]*){2,}", "\n\n", cleaned).strip()     # 마커 줄이 빠진 자리의 빈 줄 정리
+    return cleaned
+
+
 def create_post(conn, me: UUID | None, data: dict) -> dict:
     user = _require_user(me)
     repo = CommunityRepo(conn)
     board_type = _board(data.get("board_type"))
     title, body = (data.get("title") or "").strip(), (data.get("body") or "").strip()
+    body = _strip_foreign_image_markers(body, _uuid_set(data.get("image_ids")))
     _check_lengths(title, body)
     _check_banned(title, body)
     tags = _clean_tags(data.get("tags"))
@@ -435,6 +467,14 @@ def update_post(conn, me: UUID | None, post_id: UUID, data: dict) -> dict:
         title = data["title"].strip(); fields["title"] = title
     if data.get("body") is not None:
         body = data["body"].strip(); fields["body"] = body
+    if data.get("body") is not None or data.get("image_ids") is not None:
+        # 이미지가 글에서 빠졌거나(⑤) 본문에 남의 이미지 마커가 들어온 경우(④) 본문에서 그 마커를 지운다
+        allowed = (_uuid_set(data["image_ids"]) if data.get("image_ids") is not None
+                   else {str(i["id"]) for i in repo.images_for([post_id]).get(post_id, [])})
+        cleaned = _strip_foreign_image_markers(body, allowed)
+        if cleaned != body:
+            body = cleaned
+            fields["body"] = body
     _check_lengths(title, body)
     _check_banned(title, body)
     if data.get("tags") is not None:

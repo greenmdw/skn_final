@@ -17,7 +17,8 @@
         kind: 키보드
     title: "[4주 사용] 클로 그립으로 써본 G PRO X SUPERLIGHT 2"
     tags: [마우스, FPS]     # 선택
-    images: [a1-1_1.jpg, a1-1_2.png]   # 선택 — 글 파일과 같은 폴더(하위 폴더 가능)의 이미지, 첫 장이 대표. 최대 5장, 장당 5MB
+    images: [a1-1_1.jpg, a1-1_2.png]   # 선택(본문 마커 ![설명](a1-1_1.jpg) 의 파일 이름은 모두 여기 있어야 하고, 적재할 때 이미지 id 로 바뀐다)
+    # 선택 — 글 파일과 같은 폴더(하위 폴더 가능)의 이미지, 첫 장이 대표. 최대 5장, 장당 5MB
     ---
     본문…
 
@@ -201,7 +202,27 @@ def _load_images(path: Path, names: list[str]) -> list:
     return processed
 
 
-def _attach_images(repo: CommunityRepo, report: Report, post_id, owner_id, images: list) -> None:
+_FILE_MARKER_RE = re.compile(r"!\[([^\]]*)\]\(([^)\s]+)\)")
+
+
+def _check_markers(body: str, names: list[str] | None) -> None:
+    """본문의 `![설명](파일이름)` 마커는 모두 머리말 images 에 있는 파일이어야 한다(적재할 때 이미지 id 로 바뀐다).
+    머리말에는 있는데 본문에 마커가 없는 이미지는 허용한다 — 본문 맨 아래에 붙는다."""
+    listed = set(names or [])
+    for _alt, target in _FILE_MARKER_RE.findall(body):
+        if target.startswith("image:"):
+            raise ValueError(f"본문에 이미지 id 마커({target})를 직접 쓰지 않는다 — 파일 이름을 쓴다")
+        if target not in listed:
+            raise ValueError(f"본문 마커 '{target}' 이(가) 머리말 images 에 없다")
+
+
+def _replace_markers(body: str, names: list[str], ids: list) -> str:
+    by_name = {name: str(image_id) for name, image_id in zip(names, ids)}
+    return _FILE_MARKER_RE.sub(lambda m: f"![{m.group(1)}](image:{by_name[m.group(2)]})", body)
+
+
+def _store_images(repo: CommunityRepo, report: Report, owner_id, images: list) -> list:
+    """이미지 파일을 저장하고 id 를 돌려준다(아직 글에 붙이지 않는다 — 본문 마커를 id 로 바꾼 뒤 붙인다)."""
     store = _store()
     ids = []
     for item in images:
@@ -210,7 +231,7 @@ def _attach_images(repo: CommunityRepo, report: Report, post_id, owner_id, image
         report.saved_keys.append(key)
         ids.append(repo.insert_image(owner_id=owner_id, storage_key=key, content_type=item.content_type, width=item.width,
                                      height=item.height, byte_size=len(item.data))["id"])
-    report.stale_keys.extend(repo.attach_images(post_id, ids))
+    return ids
 
 
 def _resolve_products(repo: CommunityRepo, items: list) -> list[dict]:
@@ -254,6 +275,7 @@ def load_examples(conn, files: list[Path], *, apply: bool, update: bool = False,
             seen.add(post["id"])
             products = _resolve_products(repo, post["products"])
             images = _load_images(path, post["images"]) if post["images"] is not None else None
+            _check_markers(post["body"], post["images"])
             existing = repo.get_post_by_external_id(post["id"])
             if existing is not None and not update:
                 report.skipped.append(post["id"])
@@ -262,25 +284,32 @@ def load_examples(conn, files: list[Path], *, apply: bool, update: bool = False,
                 (report.updated if existing else report.created).append(post["id"])
                 continue
             published_at = (post["written_at"] or base) - timedelta(minutes=index)
+            body = post["body"]
             if existing is None:
                 author = _author_id(conn, post["author"])
                 owner = author
-                post_id = repo.create_post(author_id=author, board_type=post["board"], title=post["title"], body=post["body"],
+                image_ids = _store_images(repo, report, owner, images) if images is not None else None
+                if image_ids is not None:
+                    body = _replace_markers(body, post["images"], image_ids)
+                post_id = repo.create_post(author_id=author, board_type=post["board"], title=post["title"], body=body,
                                            tags=post["tags"], status="published", is_example=post["is_example"],
                                            external_id=post["id"], published_at=published_at)
                 report.created.append(post["id"])
             else:
                 post_id = existing["id"]
                 owner = existing["author_user_id"]
+                image_ids = _store_images(repo, report, owner, images) if images is not None else None
+                if image_ids is not None:
+                    body = _replace_markers(body, post["images"], image_ids)
                 repo.update_post(post_id, expected_version=None,
-                                 fields={"board_type": post["board"], "title": post["title"], "body": post["body"],
+                                 fields={"board_type": post["board"], "title": post["title"], "body": body,
                                          "tags": post["tags"], "is_example": post["is_example"]})
                 repo.delete_all_products(post_id)
                 report.updated.append(post["id"])
             for item in products:
                 repo.add_product(post_id, **item)
-            if images is not None:
-                _attach_images(repo, report, post_id, owner, images)
+            if image_ids is not None:
+                report.stale_keys.extend(repo.attach_images(post_id, image_ids))
         except Exception as exc:  # noqa: BLE001 — 글 하나의 문제가 나머지 적재를 막지 않게 한다
             report.errors.append((path.name, str(exc)))
     return report

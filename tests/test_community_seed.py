@@ -258,3 +258,70 @@ def test_example_posts_are_held_to_the_same_rules_as_user_posts(tmp_path, monkey
     monkeypatch.setattr(svc, "COMMUNITY_BANNED_WORDS", ("금칙어",))
     with pytest.raises(ValueError, match="사용할 수 없는 표현"):
         parse(base + "title: 금칙어 포함")
+
+
+# ── 본문 이미지 마커(개발요청 B-1 ⑦) ─────────────────────────────────────────────────────
+def test_file_name_markers_become_image_ids_on_apply(tmp_path, upload_dir):
+    tag = f"T{os.urandom(3).hex()}"
+    src = tmp_path / "posts"
+    src.mkdir()
+    _img(src, "a.png"); _img(src, "b.png", (800, 400)); _img(src, "c.png")
+    path = _write(src, f"{tag}-1.md", f"id: {tag}-1\nboard: free\nauthor: P01\ntitle: {tag} 마커 글\nimages: [a.png, b.png, c.png]",
+                  body="첫 문단입니다.\n\n![책상 위 모습](b.png)\n\n둘째 문단입니다.\n\n![같은 사진 또 한 번](b.png)\n\n![손에 쥔 모습](a.png)\n\n끝.")
+    with get_conn() as conn:
+        report = seed.load_examples(conn, [path], apply=True)
+    assert not report.errors and report.created == [f"{tag}-1"]
+    item = TestClient(app).get("/community/posts", params={"q": tag}).json()["items"][0]
+    detail = TestClient(app).get(f"/community/posts/{item['id']}").json()
+    ids = [i["id"] for i in detail["images"]]
+    assert len(ids) == 3                                               # c.png 는 마커가 없어도 붙는다(본문 아래에 보인다)
+    a_id, b_id = ids[0], ids[1]                                        # 머리말 순서 = 이미지 순서(첫 장이 대표)
+    body = detail["body"]
+    assert f"![책상 위 모습](image:{b_id})" in body and f"![손에 쥔 모습](image:{a_id})" in body
+    assert body.count(f"(image:{b_id})") == 2                          # 같은 파일 마커가 두 번이어도 모두 치환
+    assert "(b.png)" not in body and "(a.png)" not in body            # 파일 이름이 본문에 남지 않는다
+    assert "image:" not in item["excerpt"] and "책상 위 모습" not in item["excerpt"]
+
+
+def test_marker_problems_are_reported_in_dry_run(tmp_path, upload_dir):
+    tag = f"T{os.urandom(3).hex()}"
+    src = tmp_path / "posts"
+    src.mkdir()
+    _img(src, "a.png")
+    files = [
+        _write(src, f"{tag}-1.md", f"id: {tag}-1\nboard: free\nauthor: P01\ntitle: t1\nimages: [a.png]", body="본문\n\n![x](missing.png)\n\n끝"),
+        _write(src, f"{tag}-2.md", f"id: {tag}-2\nboard: free\nauthor: P01\ntitle: t2", body="본문\n\n![x](a.png)\n\n끝"),                 # images 없음
+        _write(src, f"{tag}-3.md", f"id: {tag}-3\nboard: free\nauthor: P01\ntitle: t3\nimages: [a.png]",
+               body="본문\n\n![x](image:7f3c2a1e-5b9d-4a6e-8c1f-2d4e6a8b0c1d)\n\n끝"),                                            # id 를 직접 씀
+        _write(src, f"{tag}-4.md", f"id: {tag}-4\nboard: free\nauthor: P01\ntitle: t4\nimages: [a.png]", body="본문\n\n![x](a.png)\n\n끝"),
+    ]
+    with get_conn() as conn:
+        report = seed.load_examples(conn, files, apply=False)
+    messages = {name: msg for name, msg in report.errors}
+    assert report.created == [f"{tag}-4"] and set(messages) == {f"{tag}-1.md", f"{tag}-2.md", f"{tag}-3.md"}
+    assert "머리말 images 에 없다" in messages[f"{tag}-1.md"] and "머리말 images 에 없다" in messages[f"{tag}-2.md"]
+    assert "직접 쓰지 않는다" in messages[f"{tag}-3.md"]
+    assert _stored(upload_dir) == 0                                    # 점검은 아무것도 저장하지 않는다
+
+
+def test_update_rewrites_markers_with_the_new_image_ids(tmp_path, upload_dir):
+    tag = f"T{os.urandom(3).hex()}"
+    src = tmp_path / "posts"
+    src.mkdir()
+    _img(src, "a.png"); _img(src, "b.png")
+    front = f"id: {tag}-1\nboard: free\nauthor: P01\ntitle: {tag} 갱신 글\nimages: [a.png]"
+    path = _write(src, f"{tag}-1.md", front, body="본문\n\n![사진](a.png)\n\n끝")
+    with get_conn() as conn:
+        seed.load_examples(conn, [path], apply=True)
+    first = TestClient(app).get("/community/posts", params={"q": tag}).json()["items"][0]
+    old_id = TestClient(app).get(f"/community/posts/{first['id']}").json()["images"][0]["id"]
+    _write(src, f"{tag}-1.md", front.replace("images: [a.png]", "images: [b.png]"), body="본문\n\n![새 사진](b.png)\n\n끝")
+    with get_conn() as conn:
+        report = seed.load_examples(conn, [path], apply=True, update=True)
+    assert report.updated == [f"{tag}-1"] and not report.errors
+    seed._remove_files(report.stale_keys)
+    detail = TestClient(app).get(f"/community/posts/{first['id']}").json()
+    new_id = detail["images"][0]["id"]
+    assert len(detail["images"]) == 1 and new_id != old_id
+    assert f"![새 사진](image:{new_id})" in detail["body"] and old_id not in detail["body"]
+    assert _stored(upload_dir) == 1
