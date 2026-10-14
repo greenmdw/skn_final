@@ -162,6 +162,10 @@ LOGIN_MAX_FAILURES: int = int(os.getenv("LOGIN_MAX_FAILURES", "5"))
 LOGIN_LOCK_MINUTES: int = int(os.getenv("LOGIN_LOCK_MINUTES", "15"))
 TERMS_VERSION: str = os.getenv("TERMS_VERSION", "2026-09-11")
 EMAIL_CHECK_LIMIT_PER_MIN: int = int(os.getenv("EMAIL_CHECK_LIMIT_PER_MIN", "30"))
+# 로그인·가입 시도 한도(같은 IP 기준, 분당). 계정 잠금(LOGIN_MAX_FAILURES)은 계정 하나에 대한 연타만 막는다 — 여러 계정을 돌려 가며
+# 비밀번호를 시도하거나 대량 가입하는 것은 IP 한도가 막는다. 한 공유기·학교 안의 정상 사용자도 쓰도록 넉넉하게 둔다.
+LOGIN_LIMIT_PER_MIN_IP: int = int(os.getenv("LOGIN_LIMIT_PER_MIN_IP", "20"))
+SIGNUP_LIMIT_PER_MIN_IP: int = int(os.getenv("SIGNUP_LIMIT_PER_MIN_IP", "10"))
 # 견적 점검(pc_check) 생성·수정·대화 — 비로그인 호출 가능이라 남용 방지가 없었다(발견 사항,
 # docs/전체_테스트_시나리오_실행_기획.md §10). LLM 호출(이미지·텍스트 추출, 대화)이 끼어 있어
 # email-availability보다 더 비싼 호출이라 기본 한도를 더 낮게 둔다.

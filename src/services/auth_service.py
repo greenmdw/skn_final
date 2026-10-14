@@ -178,7 +178,7 @@ def get_me(conn, principal: Principal) -> dict:
 
 
 def update_profile(conn, principal: Principal, *, display_name: str | None, email: str | None,
-                    marketing_agreed: bool | None) -> dict:
+                    marketing_agreed: bool | None, current_password: str | None = None) -> dict:
     user = require_active_user(conn, principal)
     repo = UserRepo(conn)
 
@@ -190,8 +190,18 @@ def update_profile(conn, principal: Principal, *, display_name: str | None, emai
     normalized_email = None
     if email is not None:
         normalized_email = _normalize_email(email)
-        if normalized_email != user["email"] and repo.is_email_taken(normalized_email):
-            raise Conflict("이미 사용 중인 이메일입니다.", field="email", code="email_taken")
+        if normalized_email != user["email"]:
+            # 이메일은 로그인 ID 다 — 세션만 탈취해도 계정을 가져가지 못하게, 바꿀 때 비밀번호를 다시 확인한다.
+            if not current_password:
+                raise ValidationFailed("이메일을 바꾸려면 현재 비밀번호를 입력해야 합니다.",
+                                       field="current_password", code="password_required")
+            login_row = repo.get_for_login(user["email"])
+            if login_row is None or login_row["password_hash"] is None or not passwords.verify_password(
+                login_row["password_hash"], current_password
+            ):
+                raise Unauthorized("현재 비밀번호가 올바르지 않습니다.", code="invalid_password")
+            if repo.is_email_taken(normalized_email):
+                raise Conflict("이미 사용 중인 이메일입니다.", field="email", code="email_taken")
 
     row = repo.update_profile(
         principal.user_id,

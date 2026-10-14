@@ -63,6 +63,7 @@ class ProfilePatchIn(BaseModel):
     display_name: Optional[str] = None
     email: Optional[str] = None
     marketing_agreed: Optional[bool] = None
+    current_password: Optional[str] = None      # 이메일을 바꿀 때만 필요(로그인 ID 를 바꾸는 일이라 비밀번호를 다시 확인한다)
 
 
 class PasswordChangeIn(BaseModel):

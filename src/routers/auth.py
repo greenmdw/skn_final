@@ -10,7 +10,9 @@ from fastapi import APIRouter, Depends, Request, Response
 from src import schemas
 from src.auth import ratelimit
 from src.auth.deps import Principal, optional_principal
-from src.config import COOKIE_NAME, COOKIE_SECURE, EMAIL_CHECK_LIMIT_PER_MIN, JWT_TTL_DAYS
+from src.config import (
+    COOKIE_NAME, COOKIE_SECURE, EMAIL_CHECK_LIMIT_PER_MIN, JWT_TTL_DAYS, LOGIN_LIMIT_PER_MIN_IP, SIGNUP_LIMIT_PER_MIN_IP,
+)
 from src.db import get_conn
 from src.errors import RateLimited
 from src.services import auth_service
@@ -18,6 +20,12 @@ from src.services import auth_service
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 _client_ip = ratelimit.client_ip
+
+
+def _limit_by_ip(request: Request, kind: str, per_min: int) -> None:
+    """같은 IP 의 분당 시도 한도. 계정 잠금과 별개로 여러 계정을 돌려 가며 시도하는 것을 막는다."""
+    if not ratelimit.allow(f"{kind}:{_client_ip(request)}", limit=per_min, window_seconds=60):
+        raise RateLimited("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")
 
 
 def _set_session_cookie(response: Response, token: str, *, remember: bool) -> None:
@@ -43,8 +51,9 @@ def verify(body: schemas.VerifyCodeIn) -> schemas.TokenOut:
 
 @router.post("/signup", response_model=schemas.UserEnvelopeOut, status_code=201)
 def signup(
-    body: schemas.SignupIn, response: Response, principal: Principal = Depends(optional_principal)
+    body: schemas.SignupIn, request: Request, response: Response, principal: Principal = Depends(optional_principal)
 ) -> schemas.UserEnvelopeOut:
+    _limit_by_ip(request, "signup", SIGNUP_LIMIT_PER_MIN_IP)
     with get_conn() as conn:
         user, token = auth_service.signup(
             conn, principal,
@@ -58,8 +67,9 @@ def signup(
 
 @router.post("/login", response_model=schemas.UserEnvelopeOut)
 def login(
-    body: schemas.LoginIn, response: Response, principal: Principal = Depends(optional_principal)
+    body: schemas.LoginIn, request: Request, response: Response, principal: Principal = Depends(optional_principal)
 ) -> schemas.UserEnvelopeOut:
+    _limit_by_ip(request, "login", LOGIN_LIMIT_PER_MIN_IP)
     with get_conn() as conn:
         user, token = auth_service.login(
             conn, principal, email=body.email, password=body.password, remember=body.remember
@@ -82,20 +92,24 @@ def me(principal: Principal = Depends(optional_principal)) -> schemas.UserEnvelo
 
 @router.patch("/me", response_model=schemas.UserEnvelopeOut)
 def update_profile(
-    body: schemas.ProfilePatchIn, principal: Principal = Depends(optional_principal)
+    body: schemas.ProfilePatchIn, request: Request, principal: Principal = Depends(optional_principal)
 ) -> schemas.UserEnvelopeOut:
+    if body.email is not None:
+        _limit_by_ip(request, "credential-check", LOGIN_LIMIT_PER_MIN_IP)       # 현재 비밀번호를 대 보는 시도를 막는다
     with get_conn() as conn:
         user = auth_service.update_profile(
             conn, principal,
             display_name=body.display_name, email=body.email, marketing_agreed=body.marketing_agreed,
+            current_password=body.current_password,
         )
     return schemas.UserEnvelopeOut(user=schemas.UserOut(**user))
 
 
 @router.post("/password", status_code=204)
 def change_password(
-    body: schemas.PasswordChangeIn, response: Response, principal: Principal = Depends(optional_principal)
+    body: schemas.PasswordChangeIn, request: Request, response: Response, principal: Principal = Depends(optional_principal)
 ) -> None:
+    _limit_by_ip(request, "credential-check", LOGIN_LIMIT_PER_MIN_IP)
     with get_conn() as conn:
         token = auth_service.change_password(
             conn, principal, current_password=body.current_password, new_password=body.new_password
@@ -105,8 +119,9 @@ def change_password(
 
 @router.post("/withdraw", status_code=204)
 def withdraw(
-    body: schemas.WithdrawIn, response: Response, principal: Principal = Depends(optional_principal)
+    body: schemas.WithdrawIn, request: Request, response: Response, principal: Principal = Depends(optional_principal)
 ) -> None:
+    _limit_by_ip(request, "credential-check", LOGIN_LIMIT_PER_MIN_IP)
     with get_conn() as conn:
         auth_service.withdraw(conn, principal, password=body.password)
     response.delete_cookie(COOKIE_NAME, path="/")

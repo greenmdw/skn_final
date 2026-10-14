@@ -1,7 +1,7 @@
 """FastAPI 인증 의존성."""
 from __future__ import annotations
 from uuid import UUID
-from fastapi import Cookie, Depends, Header
+from fastapi import Cookie, Depends, Header, Response
 from src.auth import jwt
 from src.config import COOKIE_NAME
 from src.errors import Unauthorized
@@ -13,6 +13,7 @@ class Principal:
         self.session_iat = session_iat  # 로그인 토큰 발급 시각(초, 마이크로초 포함) — 비밀번호 변경 이전 토큰 무효화용
 
 def optional_principal(
+    response: Response,
     authorization: str | None = Header(default=None),
     session_cookie: str | None = Cookie(default=None, alias=COOKIE_NAME),
     browser_token_header: str | None = Header(default=None, alias="X-Browser-Token"),
@@ -30,9 +31,19 @@ def optional_principal(
     user_id = None
     session_iat = None
     if token is not None:
-        claims = jwt.verify(token)
-        user_id = UUID(claims["sub"])
-        session_iat = claims["iat"]
+        try:
+            claims = jwt.verify(token)
+        except Unauthorized:
+            # 명시적으로 보낸 Authorization 토큰이 잘못됐으면 호출자가 알아야 하니 401 을 그대로 낸다.
+            # 쿠키의 토큰은 만료·손상돼도 브라우저가 알아서 보내는 값이라 로그아웃 상태로 취급하고, 낡은 쿠키는 지워 준다 —
+            # 그러지 않으면 "로그인 유지"를 끈 사용자는 12시간 뒤 글 목록 같은 공개 화면도 401 로 막힌다.
+            # 로그인이 필요한 API 는 user_id 가 없으니 원래대로 401("로그인이 필요합니다")을 낸다.
+            if authorization is not None:
+                raise
+            response.delete_cookie(COOKIE_NAME, path="/")
+        else:
+            user_id = UUID(claims["sub"])
+            session_iat = claims["iat"]
 
     browser_token = browser_token_header or browser_token_cookie
     if browser_token is not None and not browser_token.strip():
