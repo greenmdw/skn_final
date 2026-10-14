@@ -3,12 +3,18 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, Query
+from typing import Any
+
+from fastapi import APIRouter, Depends, Header, Query, Response, status
+from pydantic import BaseModel, Field
 
 from src import schemas
 from src.auth.deps import Principal, optional_principal
+from src.auth import ratelimit
+from src.config import ME_WRITE_LIMIT_PER_MIN
 from src.db import get_conn
-from src.services import list_history, list_service, notification_service
+from src.errors import RateLimited
+from src.services import list_history, list_service, me_service, notification_service
 
 router = APIRouter(prefix="/lists", tags=["lists"])
 
@@ -27,6 +33,45 @@ def my_lists(
     with get_conn() as conn:
         items = list_service.list_conversations(conn, principal, limit=limit, offset=offset)
     return schemas.ListsOut(items=[schemas.ListSummaryOut(**item) for item in items])
+
+
+class ExtrasIn(BaseModel):
+    extras: dict[str, Any] = Field(description="견적서에 붙일 화면 전용 값 전부(조건 문장·책상 치수·점검 스냅샷 …). 모양은 서버가 보지 않는다")
+
+
+def _write_limit(principal: Principal) -> None:
+    if principal.user_id is not None and not ratelimit.allow(f"me-write:{principal.user_id}", limit=ME_WRITE_LIMIT_PER_MIN, window_seconds=60):
+        raise RateLimited("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")
+
+
+@router.get("/extras")
+def all_extras(principal: Principal = Depends(optional_principal)) -> dict:
+    """내 목록 전체의 부가 정보를 한 번에(사이드바·마이페이지용). `{items: {list_id: {extras, updated_at}}}`, 최근 수정순 200개."""
+    with get_conn() as conn:
+        return me_service.list_extras(conn, principal)
+
+
+@router.get("/{list_id}/extras")
+def get_extras(list_id: UUID, principal: Principal = Depends(optional_principal)) -> dict:
+    """이 견적서의 부가 정보. 저장한 적이 없으면 `extras: null`. 로그인한 소유자만(아니면 401·404)."""
+    with get_conn() as conn:
+        return me_service.get_extras(conn, principal, list_id)
+
+
+@router.put("/{list_id}/extras")
+def put_extras(list_id: UUID, body: ExtrasIn, principal: Principal = Depends(optional_principal)) -> dict:
+    """통째로 교체한다(문서 256KB·깊이 32까지)."""
+    _write_limit(principal)
+    with get_conn() as conn:
+        return me_service.put_extras(conn, principal, list_id, body.extras)
+
+
+@router.delete("/{list_id}/extras", status_code=status.HTTP_204_NO_CONTENT)
+def delete_extras(list_id: UUID, principal: Principal = Depends(optional_principal)) -> Response:
+    _write_limit(principal)
+    with get_conn() as conn:
+        me_service.delete_extras(conn, principal, list_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.patch("/{list_id}", response_model=schemas.ListSummaryOut)

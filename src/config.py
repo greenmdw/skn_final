@@ -166,6 +166,8 @@ EMAIL_CHECK_LIMIT_PER_MIN: int = int(os.getenv("EMAIL_CHECK_LIMIT_PER_MIN", "30"
 # 비밀번호를 시도하거나 대량 가입하는 것은 IP 한도가 막는다. 한 공유기·학교 안의 정상 사용자도 쓰도록 넉넉하게 둔다.
 LOGIN_LIMIT_PER_MIN_IP: int = int(os.getenv("LOGIN_LIMIT_PER_MIN_IP", "20"))
 SIGNUP_LIMIT_PER_MIN_IP: int = int(os.getenv("SIGNUP_LIMIT_PER_MIN_IP", "10"))
+# 마이페이지 서버 저장(/me/pc·/me/data·/lists/{id}/extras) 쓰기 한도(사용자별 분당) — 작성 중 상태를 자동 저장하는 화면도 쓰므로 넉넉하게 둔다
+ME_WRITE_LIMIT_PER_MIN: int = int(os.getenv("ME_WRITE_LIMIT_PER_MIN", "120"))
 # 견적 점검(pc_check) 생성·수정·대화 — 비로그인 호출 가능이라 남용 방지가 없었다(발견 사항,
 # docs/전체_테스트_시나리오_실행_기획.md §10). LLM 호출(이미지·텍스트 추출, 대화)이 끼어 있어
 # email-availability보다 더 비싼 호출이라 기본 한도를 더 낮게 둔다.

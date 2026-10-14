@@ -26,7 +26,7 @@ EXPECTED_CHAIN = [
     "0007_peripheral_line.sql", "0008_review_aspect.sql", "0009_live_spec_lookup_cache.sql",
     "0010_live_spec_lookup_store.sql", "0011_message_metadata.sql",
     "0012_review_embedding_invalidate.sql", "0013_community_post.sql", "0014_community_post_image.sql",
-    "0015_peripheral_post_evidence.sql", "0016_peripheral_spec_columns.sql", "0017_community_activity.sql",
+    "0015_peripheral_post_evidence.sql", "0016_peripheral_spec_columns.sql", "0017_community_activity.sql", "0018_user_data.sql",
 ]
 # 현재 baseline의 명시적 계약. 같은 개수의 다른 테이블로 바뀌어도 실패해야 한다.
 EXPECTED_TABLES = {
@@ -92,6 +92,8 @@ EXPECTED_TABLES = {
     "evidence.review_summary",
     "evidence.source",
     "identity.app_user",
+    "identity.user_data",
+    "identity.user_pc",
     "identity.conversation",
     "identity.message",
     "identity.preference_signal",
@@ -100,6 +102,7 @@ EXPECTED_TABLES = {
     "notification.notification_event",
     "planning.peripheral_line",
     "planning.plan",
+    "planning.plan_extras",
     "planning.plan_condition",
     "planning.plan_node",
     "planning.plan_revision",
