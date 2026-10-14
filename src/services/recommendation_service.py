@@ -1057,6 +1057,8 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
     result["totals"].update(avg_fit_score=avg["score"], avg_fit_score_count=avg["count"], avg_fit_score_of=avg["of"])
 
     result["budget_notice"] = budget_notice(result["totals"], values)
+    from src.services.result_advice import suggested_questions
+    result["suggested_questions"] = suggested_questions(result, values, result["budget_notice"])
 
     validations = erepo.get_validations(run["id"])
     penalty = sum((v["measured_values"] or {}).get("penalty", 0) for v in validations)
@@ -1586,8 +1588,11 @@ def _handle_result_message_inner(
         if advice is not None:
             return {"reply": advice, "result": result}
     if slot is None:
+        # 못 알아들은 말에는 화면의 질문 칩(P2-2)과 같은 질문을 예로 든다 — 무엇을 물을 수 있는지 보여 준다
+        chips = (result or {}).get("suggested_questions") or []
+        ask = (" 이렇게 물어보셔도 돼요: " + " / ".join(f"'{q}'" for q in chips)) if chips else ""
         return {"reply": "무엇을 바꿀지 이해하지 못했어요. 부품 이름(예: 그래픽카드)과 원하시는 "
-                          "방향(더 저렴한/더 좋은)을 함께 말씀해 주세요.",
+                          "방향(더 저렴한/더 좋은)을 함께 말씀해 주세요." + ask,
                 "result": get_stored_result(conn, revision_id)}
     hint = ({"cheaper": "더 저렴한", "pricier": "더 좋은"}.get(direction) or "더 저렴한/더 좋은")
     whatif = intent == "ask"

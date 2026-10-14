@@ -1118,6 +1118,8 @@ class RecommendResultOut(BaseModel):
     data_notice: str = "상품·가격·리뷰는 합성 데이터입니다."
     # 04 리스트 확정 "메모" 초기값 — 조건·구성·직접 바꾼 것·확인 필요 사항을 코드가 정리한 문장 (done 일 때만)
     memo_suggestion: str = ""
+    # 결과 채팅 아래 질문 칩(P2-2) — 이 구성에서 채팅이 답할 수 있는 질문 최대 3개. 누르면 그 문장을 그대로 보낸다 (done 일 때만)
+    suggested_questions: list[str] = Field(default_factory=list)
     error: RecommendErrorOut | None = None
 
 
