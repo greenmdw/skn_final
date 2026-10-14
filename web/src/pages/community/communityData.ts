@@ -1,5 +1,5 @@
 export type CommunityBoard = 'all' | 'popular' | 'question' | 'review' | 'tip' | 'free'
-export type CommunityView = 'home' | 'board' | 'post' | 'write' | 'deals' | 'search'
+export type CommunityView = 'home' | 'board' | 'post' | 'write' | 'search'
 
 export interface CommunityPost {
   id: string
@@ -153,15 +153,6 @@ const exampleCommunityPosts: Array<Omit<CommunityPost, 'is_example'>> = [
 ]
 
 export const communityPosts: CommunityPost[] = exampleCommunityPosts.map(post => ({ ...post, is_example: true }))
-
-export const deals = [
-  { id: 'ssd', discount: '-27%', badge: '무료배송', title: 'NVMe SSD 2TB 고성능 모델 특가', price: '129,000원', note: '역대가 근접', stats: '좋아요 218 · 댓글 64', time: '12분 전' },
-  { id: 'ram', discount: '-31%', badge: '쿠폰', title: 'DDR5 6000 32GB 메모리 패키지', price: '98,500원', note: '평균가 -18%', stats: '좋아요 172 · 댓글 38', time: '34분 전' },
-  { id: 'monitor', discount: '-22%', badge: '카드할인', title: '27인치 QHD 180Hz 게이밍 모니터', price: '249,000원', note: '배송 포함', stats: '좋아요 144 · 댓글 51', time: '1시간 전' },
-  { id: 'power', discount: '-18%', badge: 'PC부품', title: '750W 골드 풀모듈러 파워서플라이', price: '109,000원', note: '회원 추천', stats: '좋아요 98 · 댓글 27', time: '2시간 전' },
-  { id: 'keyboard', discount: '-25%', badge: '주변기기', title: '저소음 기계식 키보드 텐키리스', price: '79,900원', note: '한정 수량', stats: '좋아요 87 · 댓글 22', time: '3시간 전' },
-  { id: 'cooler', discount: '-20%', badge: '종료 임박', title: '듀얼타워 공랭 CPU 쿨러 패키지', price: '45,000원', note: '오늘 종료', stats: '좋아요 76 · 댓글 19', time: '4시간 전' },
-]
 
 export const productCatalog = [
   { id: 'mouse-1', kind: '마우스', maker: 'TrueFit Lab', name: 'AeroFit M8 Wireless', detail: '58g · 무선 · 26K 센서', options: [] },

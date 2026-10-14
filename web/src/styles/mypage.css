@@ -267,6 +267,7 @@ dialog.mp-dialog::backdrop { background:#000a; backdrop-filter:blur(3px); }
 .mpc-activity-row { display:grid; grid-template-columns:76px minmax(0,1fr) 90px 54px; gap:14px; align-items:center; min-height:108px; padding:16px 18px; border-bottom:1px solid var(--line); }
 .mpc-activity-copy { min-width:0; }
 .mpc-activity-copy > a { display:block; overflow:hidden; color:var(--text); font-weight:800; text-decoration:none; text-overflow:ellipsis; white-space:nowrap; }
+.mpc-activity-copy > strong { display:block; overflow:hidden; color:var(--muted); font-weight:800; text-overflow:ellipsis; white-space:nowrap; }
 .mpc-activity-copy p { margin:6px 0; overflow:hidden; color:var(--muted); font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
 .mpc-activity-copy small { color:var(--muted); font-size:11px; }
 .mpc-status { justify-self:end; padding:5px 8px; border-radius:999px; color:var(--info); background:color-mix(in srgb,var(--info) 12%,transparent); font-size:11px; font-weight:700; white-space:nowrap; }
