@@ -24,6 +24,15 @@ function resolutionText(field: { display: string | null; status: string } | unde
   if (!field?.display) return null
   return field.status === 'assumed' ? field.display + ' (기본값)' : field.display
 }
+// 첫 화면에서 바로 누를 수 있는 용도 선택지. 서버의 첫 질문(q_purpose) 선택지와 같은 항목이고, 아직 세션이 없으므로
+// 누르면 그 말을 첫 메시지로 보낸다(서버가 용도를 뽑고 다음 질문을 이어서 한다).
+const INITIAL_CHOICES: ChatChoice[] = [
+  { label: '게임', value: '게임용 PC를 맞추고 싶어요' },
+  { label: '창작·작업', value: '영상·디자인 같은 창작·작업용 PC를 맞추고 싶어요' },
+  { label: '사무', value: '사무용 PC를 맞추고 싶어요' },
+  { label: '학습', value: '학습용 PC를 맞추고 싶어요' },
+  { label: '기타', value: '기타 용도로 PC를 맞추고 싶어요' },
+]
 function makeMessage(role: ChatMessage['role'], text: string, choices?: ChatChoice[], tag?: ChatMessage['tag']): ChatMessage {
   return { id: newId(), role, text, choices, tag }
 }
@@ -46,7 +55,7 @@ function chatFromLoaded(loaded: LoadedConversation, withChoices: boolean): ChatM
   const chat = loaded.messages.map(m => makeMessage(m.role, m.text))
   const last = chat[chat.length - 1]
   if (withChoices && last?.role === 'bot' && loaded.turn.choices?.length) last.choices = loaded.turn.choices
-  return chat.length ? chat : [makeMessage('bot', INITIAL_GREETING)]
+  return chat.length ? chat : [makeMessage('bot', INITIAL_GREETING, INITIAL_CHOICES)]
 }
 export function PlanProvider({ children }: { children: ReactNode }) {
   const { showToast } = useToast()
@@ -54,7 +63,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   // 예전에 저장된 작업(sessionId·fields·canRecommend가 없던 버전)을 복원해도 기본값으로 채워지게 initialState와 합친다.
   const [state, setState] = useState<PlanState>(restored?.state ? { ...initialState, ...restored.state } : initialState)
   const [checkDraft, setCheckDraft] = useState<CheckDraft>(restored?.checkDraft ?? createCheckDraft())
-  const [messages, setMessages] = useState<ChatMessage[]>(() => [makeMessage('bot', restored?.state.stage ? '작성 중인 구성을 복원했습니다. 입력한 조건을 확인하고 이어서 진행하세요.' : INITIAL_GREETING)])
+  const [messages, setMessages] = useState<ChatMessage[]>(() => [makeMessage('bot', restored?.state.stage ? '작성 중인 구성을 복원했습니다. 입력한 조건을 확인하고 이어서 진행하세요.' : INITIAL_GREETING, restored?.state.stage ? undefined : INITIAL_CHOICES)])
   const [busy, setBusy] = useState(false)
   const [analyzingIndex, setAnalyzingIndex] = useState(0)
   const [customHeading, setCustomHeading] = useState<{ title: string; desc: string } | null>(null)
@@ -103,7 +112,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     cancelPending()
     updateState(() => ({ ...initialState }))
     setCheckDraft(createCheckDraft())
-    setMessages([makeMessage('bot', INITIAL_GREETING), makeMessage('bot', notice)])
+    setMessages([makeMessage('bot', INITIAL_GREETING), makeMessage('bot', notice, INITIAL_CHOICES)])
     setAnalyzingIndex(0)
     setCustomHeading(null)
     setBusy(false)
@@ -234,14 +243,14 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       api.conditions.respondPreferenceHint(stateRef.current.sessionId, signalId, accepted)
         .then(({ sessionId: id }) => {
           updateState(prev => ({ ...prev, sessionId: prev.sessionId ?? id }))
-          addMessage('bot', accepted ? '알겠어요. 이번 견적에 반영할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.' : '알겠어요. 이번에는 반영하지 않을게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.')
+          addMessage('bot', accepted ? '알겠어요. 이번 견적에 반영할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.' : '알겠어요. 이번에는 반영하지 않을게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.', INITIAL_CHOICES)
         })
         .catch(error => addMessage('bot', errorMessage(error, '응답을 저장하지 못했어요. 잠시 후 다시 시도해주세요.')))
       return
     }
     if (choice.startFresh) {
       addMessage('user', choice.label)
-      addMessage('bot', '좋아요, 새로 시작할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.')
+      addMessage('bot', '좋아요, 새로 시작할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.', INITIAL_CHOICES)
       return
     }
     if (choice.questionId && sessionId && stateRef.current.stage <= 2) {
@@ -423,7 +432,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     cancelPending()
     updateState(() => ({ ...initialState }))
     setCheckDraft(createCheckDraft())
-    setMessages([makeMessage('bot', INITIAL_GREETING)])
+    setMessages([makeMessage('bot', INITIAL_GREETING, INITIAL_CHOICES)])
     setAnalyzingIndex(0)
     setCustomHeading(null)
     setResetCount(n => n + 1)
