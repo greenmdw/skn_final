@@ -141,6 +141,28 @@ def test_quotes_prefer_same_condition_then_recent_and_respect_the_limit():
     assert limit == 2 and len(ids) == 2
 
 
+def test_one_post_is_quoted_only_once_per_product_across_attributes():
+    """예시 글 한 편이 제품의 여러 면을 쓰므로, 속성마다 같은 글을 되풀이 인용하지 않는다(같은 글로 가는 '원문 보기'가 여러 개 보이던 문제)."""
+    attrs = RULES["feel"]["attributes"]["mouse"]
+    codes = [code for code, entry in attrs.items() if entry.get("type") == "rating"][:3]
+    assert len(codes) >= 2
+    obs = []
+    for i, code in enumerate(codes):
+        # 같은 글 p1 이 모든 속성에 문장을 갖고, 속성마다 다른 글 하나씩이 더 있다
+        obs.append(Obs(f"u{i}a", "pid-A", code, direction="good", written_at=NOW - timedelta(days=1),
+                       post_id="p1", quote_id=f"p1-{code}", sentence=f"p1 {code}"))
+        obs.append(Obs(f"u{i}b", "pid-A", code, direction="good", written_at=NOW - timedelta(days=10 + i),
+                       post_id=f"p-{code}", quote_id=f"x-{code}", sentence=f"{code} 다른 글"))
+    interp = pi.Interpretation(kinds=["mouse"])
+    cand = _cand()
+    out = compute_feel("mouse", [cand], [cand], interp, pi.resolve(interp, RULES)["mouse"], obs, RULES, now=NOW)
+    cited = [q.post_id for a in out["A"].attributes for q in a.quotes]
+    assert len(cited) == len(set(cited)), cited                  # 어떤 글도 두 번 나오지 않는다
+    assert all(len(a.quotes) <= RULES["feel"]["quotes_per_attribute"] for a in out["A"].attributes)
+    first = next(a for a in out["A"].attributes if a.code == codes[0])
+    assert [q.post_id for q in first.quotes][0] == "p1"          # 앞선 속성이 가장 최근 글을 먼저 가져간다
+
+
 def test_recent_authors_counts_distinct_authors_within_the_window():
     obs = [
         Obs("u1", "pid-A", "grip", direction="good", written_at=NOW - timedelta(days=10)),

@@ -301,6 +301,7 @@ def compute_feel(
         mine = by_product.get(cand.product_id or "", [])
         details: list[FeelAttributeDetail] = []
         used_community = False
+        shown_posts: set[str] = set()      # 앞선 속성이 이미 인용한 글 — 뒤 속성은 다른 글을 먼저 보여 준다
         for code, alpha in alphas.items():
             entry = attrs[code]
             attr_votes = [v for v in mine if v.attribute == code]
@@ -369,7 +370,7 @@ def compute_feel(
             else:
                 state = "no_evidence"
             used_community = used_community or bool(same.total or rest.total)
-            quotes = _quotes(attr_votes, group, use_groups, req, cfg["quotes_per_attribute"])
+            quotes = _quotes(attr_votes, group, use_groups, req, cfg["quotes_per_attribute"], shown_posts)
             details.append(FeelAttributeDetail(
                 code=code, label=entry["label"], type=entry["type"], alpha=round(alpha, 4), value=round(value, 4),
                 state=state, same_good=same.good, same_bad=same.bad, rest_good=rest.good, rest_bad=rest.bad,
@@ -388,15 +389,29 @@ def compute_feel(
     return out
 
 
-def _quotes(votes: list[FeelObservation], group: str, use_groups: bool, req: _Requester, limit: int) -> list[FeelQuote]:
-    """속성의 표 가운데 문장이 있는 것을 같은 조건 먼저, 최근 순으로 `limit` 개."""
+def _quotes(votes: list[FeelObservation], group: str, use_groups: bool, req: _Requester, limit: int,
+            shown_posts: set[str] | None = None) -> list[FeelQuote]:
+    """속성의 표 가운데 문장이 있는 것을 같은 조건 먼저, 최근 순으로 `limit` 개.
+
+    한 글이 여러 속성에 걸쳐 문장을 갖는 경우가 많아서(예시 글 한 편이 제품의 여러 면을 쓴다) 그대로 두면 같은 글이 속성마다
+    되풀이해서 인용되고 "원문 보기"도 같은 글로 여러 번 걸린다. 그래서 **한 제품에서 한 글은 한 번만** 인용한다: 이 제품의 앞선
+    속성이 이미 인용한 글(`shown_posts`)과 이 속성에서 이미 고른 글은 건너뛴다. 다른 글이 없으면 그 속성은 인용 없이 점수·건수 문구만
+    보인다(근거 집계는 그대로다). 고른 글은 `shown_posts` 에 더한다."""
     usable = [o for o in votes if o.sentence and o.quote_id and o.post_id]
     def _recency(o: FeelObservation) -> float:
         return -o.written_at.replace(tzinfo=None).timestamp() if o.written_at else 0.0
 
     usable.sort(key=lambda o: (not (use_groups and _same_condition(group, o, req)), _recency(o)))
+    seen = shown_posts if shown_posts is not None else set()
+    picked: list[FeelObservation] = []
+    for o in usable:                               # 같은 조건 먼저·최근 순 그대로, 이미 인용한 글은 건너뛴다
+        if len(picked) >= limit:
+            break
+        if o.post_id not in seen:
+            picked.append(o)
+            seen.add(o.post_id)
     return [FeelQuote(quote_id=o.quote_id, post_id=o.post_id, sentence=o.sentence, is_example=o.is_example,
-                      photo_url=o.photo_url) for o in usable[:limit]]
+                      photo_url=o.photo_url) for o in picked]
 
 
 def _merge(a: _Tally, b: _Tally) -> _Tally:
