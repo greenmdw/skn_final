@@ -150,7 +150,7 @@ def _item(row: dict, products: list[dict]) -> dict:
         "author": {"id": str(row["author_user_id"]), "name": row["author_name"]},
         "is_example": row["is_example"], "status": row["status"],
         "comment_count": int(row["comment_count"]), "like_count": int(row["like_count"]), "view_count": int(row["view_count"]),
-        "liked_by_me": bool(row["liked_by_me"]), "tags": list(row["tags"] or []),
+        "liked_by_me": bool(row["liked_by_me"]), "saved_by_me": bool(row.get("saved_by_me")), "tags": list(row["tags"] or []),
         "products": [_product_out(p) for p in products],
         "published_at": row["published_at"].isoformat() if row["published_at"] else None,
         "image_count": int(row.get("image_count") or 0),
@@ -661,6 +661,8 @@ def add_comment(conn, me: UUID | None, post_id: UUID, text: str | None) -> dict:
         raise Conflict("게시된 글에만 댓글을 달 수 있습니다.", code="not_published")
     body = _comment_body(text)
     comment_id = repo.create_comment(post_id=post_id, author_id=user, body=body, parent_id=None)
+    if row["author_user_id"] != user:                                          # 내가 내 글에 단 댓글은 알리지 않는다
+        repo.upsert_notification(user_id=row["author_user_id"], type_="new_comment", post_id=post_id, comment_id=comment_id, actor_id=user)
     return _comment_out(repo.get_comment(comment_id), user) | {"replies": []}
 
 
@@ -679,6 +681,10 @@ def add_reply(conn, me: UUID | None, comment_id: UUID, text: str | None) -> dict
         raise Conflict("삭제된 댓글에는 답글을 달 수 없습니다.", code="comment_deleted")
     body = _comment_body(text)
     reply_id = repo.create_comment(post_id=parent["post_id"], author_id=user, body=body, parent_id=comment_id)
+    if parent["author_user_id"] != user:                                       # 내 댓글에 답글 → 댓글 작성자에게
+        repo.upsert_notification(user_id=parent["author_user_id"], type_="new_reply", post_id=parent["post_id"], comment_id=reply_id, actor_id=user)
+    if row["author_user_id"] not in (user, parent["author_user_id"]):          # 내 글에 달린 대화 → 글 작성자에게(이미 답글 알림을 받는 사람은 제외)
+        repo.upsert_notification(user_id=row["author_user_id"], type_="new_comment", post_id=parent["post_id"], comment_id=reply_id, actor_id=user)
     return _comment_out(repo.get_comment(reply_id), user)
 
 
@@ -716,3 +722,129 @@ def set_like(conn, me: UUID | None, post_id: UUID, liked: bool) -> dict:
         raise Conflict("게시된 글만 추천할 수 있습니다.", code="not_published")
     (repo.add_like if liked else repo.remove_like)(post_id, user)
     return {"post_id": str(post_id), "like_count": repo.like_count(post_id), "liked_by_me": liked}
+
+
+# ── 저장(북마크) ────────────────────────────────────────────────────────────────────
+def set_save(conn, me: UUID | None, post_id: UUID, saved: bool) -> dict:
+    user = _require_user(me)
+    repo = CommunityRepo(conn)
+    row = _load_visible(repo, post_id, user)
+    if row["status"] != "published":
+        raise Conflict("게시된 글만 저장할 수 있습니다.", code="not_published")
+    (repo.add_save if saved else repo.remove_save)(post_id, user)
+    return {"post_id": str(post_id), "saved_by_me": saved}
+
+
+# ── 내 활동(마이페이지 "나의 커뮤니티") ─────────────────────────────────────────────────
+ME_SORTS = ("latest", "popular", "comments")
+_GONE_TITLE = {"hidden": "숨겨진 글입니다", "deleted": "삭제된 글입니다"}
+
+
+def _me_list_args(board_type: str | None, sort: str, page: int, page_size: int) -> tuple[str | None, str, int, int]:
+    if sort not in ME_SORTS:
+        raise ValidationFailed("지원하지 않는 정렬입니다.", field="sort")
+    if board_type is not None:
+        _board(board_type)
+    return board_type, sort, max(1, int(page)), min(max(1, int(page_size)), PAGE_SIZE_MAX)
+
+
+def _page_out(items: list[dict], page: int, page_size: int, total: int) -> dict:
+    return {"items": items, "page": page, "page_size": page_size, "total": total,
+            "total_pages": max(1, math.ceil(total / page_size)) if total else 0}
+
+
+def me_summary(conn, me: UUID | None) -> dict:
+    user = _require_user(me)
+    row = CommunityRepo(conn).activity_summary(user)
+    return {key: int(value) for key, value in row.items()}
+
+
+def _me_posts(conn, me: UUID | None, kind: str, board_type, sort, page, page_size) -> dict:
+    user = _require_user(me)
+    board_type, sort, page, page_size = _me_list_args(board_type, sort, page, page_size)
+    repo = CommunityRepo(conn)
+    rows, total = repo.list_user_posts(me=user, kind=kind, board_type=board_type, sort=sort, limit=page_size, offset=(page - 1) * page_size)
+    products = repo.products_for([r["id"] for r in rows if r["status"] == "published"])
+    when_key = "liked_at" if kind == "liked" else "saved_at"
+    items = []
+    for r in rows:
+        if r["status"] == "published":
+            item = _item(r, products.get(r["id"], []))
+        else:                                                   # 숨김·삭제된 글: 항목은 남기되 본문 요약·제품·이미지는 비운다
+            item = _item(r, [])
+            item.update(title=_GONE_TITLE[r["status"]], excerpt="", tags=[], image_count=0, cover_image_url=None)
+        item["post_status"] = r["status"]
+        item[when_key] = r["rel_at"].isoformat()
+        items.append(item)
+    return _page_out(items, page, page_size, total)
+
+
+def me_liked_posts(conn, me: UUID | None, *, board_type: str | None = None, sort: str = "latest", page: int = 1, page_size: int = 10) -> dict:
+    return _me_posts(conn, me, "liked", board_type, sort, page, page_size)
+
+
+def me_saved_posts(conn, me: UUID | None, *, board_type: str | None = None, sort: str = "latest", page: int = 1, page_size: int = 10) -> dict:
+    return _me_posts(conn, me, "saved", board_type, sort, page, page_size)
+
+
+def me_comments(conn, me: UUID | None, *, board_type: str | None = None, sort: str = "latest", page: int = 1, page_size: int = 10) -> dict:
+    user = _require_user(me)
+    board_type, sort, page, page_size = _me_list_args(board_type, sort, page, page_size)
+    rows, total = CommunityRepo(conn).list_my_comments(me=user, board_type=board_type, sort=sort, limit=page_size, offset=(page - 1) * page_size)
+    items = []
+    for r in rows:
+        gone = r["post_status"] != "published"
+        items.append({
+            "id": str(r["id"]), "body": r["body"], "created_at": r["created_at"].isoformat(), "updated_at": r["updated_at"].isoformat(),
+            "parent_comment_id": str(r["parent_comment_id"]) if r["parent_comment_id"] else None,
+            "reply_count": int(r["reply_count"]), "post_status": r["post_status"],
+            "post": {"id": str(r["post_id"]), "title": _GONE_TITLE[r["post_status"]] if gone else r["post_title"],
+                     "board_type": r["board_type"], "board_label": _board_label(r["board_type"], r["first_product_kind"]),
+                     "status": r["post_status"]},
+        })
+    return _page_out(items, page, page_size, total)
+
+
+# ── 알림(폴링) ──────────────────────────────────────────────────────────────────────
+_BOARD_NOUN = {"question": "질문", "review": "사용기", "tip": "정보 글", "free": "글"}
+
+
+def _notification_out(row: dict) -> dict:
+    count = int(row["event_count"])
+    if row["type"] == "new_reply":
+        title = "내 댓글에 답글이 달렸어요" if count == 1 else f"내 댓글에 새 답글이 {count}개 달렸어요"
+    else:
+        noun = _BOARD_NOUN.get(row["board_type"], "글")
+        title = f"내 {noun}에 새 댓글이 달렸어요" if count == 1 else f"내 {noun}에 새 댓글이 {count}개 달렸어요"
+    return {"id": str(row["id"]), "type": row["type"], "title": title, "message": row["post_title"], "count": count,
+            "post_id": str(row["post_id"]), "comment_id": str(row["comment_id"]) if row["comment_id"] else None,
+            "read": row["read_at"] is not None, "created_at": row["latest_at"].isoformat()}
+
+
+def me_notifications(conn, me: UUID | None, *, unread: bool = False, page: int = 1, page_size: int = 20) -> dict:
+    user = _require_user(me)
+    page, page_size = max(1, int(page)), min(max(1, int(page_size)), PAGE_SIZE_MAX)
+    repo = CommunityRepo(conn)
+    rows, total = repo.list_notifications(me=user, unread_only=unread, limit=page_size, offset=(page - 1) * page_size)
+    out = _page_out([_notification_out(r) for r in rows], page, page_size, total)
+    return {"unread_count": repo.unread_notification_count(user), **out}
+
+
+def me_unread_count(conn, me: UUID | None) -> dict:
+    user = _require_user(me)
+    return {"unread_count": CommunityRepo(conn).unread_notification_count(user)}
+
+
+def mark_notification_read(conn, me: UUID | None, notification_id: UUID) -> dict:
+    user = _require_user(me)
+    repo = CommunityRepo(conn)
+    if repo.notification_owner(notification_id) != user:
+        raise NotFound("알림을 찾을 수 없습니다.")
+    repo.mark_notification_read(notification_id)
+    return {"id": str(notification_id), "read": True, "unread_count": repo.unread_notification_count(user)}
+
+
+def mark_all_notifications_read(conn, me: UUID | None) -> dict:
+    user = _require_user(me)
+    changed = CommunityRepo(conn).mark_all_notifications_read(user)
+    return {"updated": changed, "unread_count": 0}

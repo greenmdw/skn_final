@@ -229,6 +229,89 @@ def unlike(post_id: UUID, principal: Principal = Depends(optional_principal)) ->
         return svc.set_like(conn, principal.user_id, post_id, False)
 
 
+@router.post("/posts/{post_id}/save")
+def save_post(post_id: UUID, principal: Principal = Depends(optional_principal)) -> dict:
+    _limit(principal.user_id, "like", COMMUNITY_LIKE_LIMIT_PER_MIN)
+    with get_conn() as conn:
+        return svc.set_save(conn, principal.user_id, post_id, True)
+
+
+@router.delete("/posts/{post_id}/save")
+def unsave_post(post_id: UUID, principal: Principal = Depends(optional_principal)) -> dict:
+    _limit(principal.user_id, "like", COMMUNITY_LIKE_LIMIT_PER_MIN)
+    with get_conn() as conn:
+        return svc.set_save(conn, principal.user_id, post_id, False)
+
+
+# ── 내 활동(마이페이지 "나의 커뮤니티") — 모두 로그인 필요 ─────────────────────────────────
+@router.get("/me/summary")
+def me_summary(principal: Principal = Depends(optional_principal)) -> dict:
+    with get_conn() as conn:
+        return svc.me_summary(conn, principal.user_id)
+
+
+@router.get("/me/comments")
+def me_comments(
+    principal: Principal = Depends(optional_principal),
+    board_type: str | None = None,
+    sort: str = Query("latest", description="latest · popular(원문 글 추천 순) · comments(원문 글 댓글 순)"),
+    page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=svc.PAGE_SIZE_MAX),
+) -> dict:
+    with get_conn() as conn:
+        return svc.me_comments(conn, principal.user_id, board_type=board_type, sort=sort, page=page, page_size=page_size)
+
+
+@router.get("/me/liked-posts")
+def me_liked_posts(
+    principal: Principal = Depends(optional_principal),
+    board_type: str | None = None,
+    sort: str = Query("latest", description="latest(추천한 시각 순) · popular · comments"),
+    page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=svc.PAGE_SIZE_MAX),
+) -> dict:
+    with get_conn() as conn:
+        return svc.me_liked_posts(conn, principal.user_id, board_type=board_type, sort=sort, page=page, page_size=page_size)
+
+
+@router.get("/me/saved-posts")
+def me_saved_posts(
+    principal: Principal = Depends(optional_principal),
+    board_type: str | None = None,
+    sort: str = Query("latest", description="latest(저장한 시각 순) · popular · comments"),
+    page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=svc.PAGE_SIZE_MAX),
+) -> dict:
+    with get_conn() as conn:
+        return svc.me_saved_posts(conn, principal.user_id, board_type=board_type, sort=sort, page=page, page_size=page_size)
+
+
+@router.get("/me/notifications")
+def me_notifications(
+    principal: Principal = Depends(optional_principal),
+    unread: bool = False,
+    page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=svc.PAGE_SIZE_MAX),
+) -> dict:
+    with get_conn() as conn:
+        return svc.me_notifications(conn, principal.user_id, unread=unread, page=page, page_size=page_size)
+
+
+@router.get("/me/notifications/unread-count")
+def me_unread_count(principal: Principal = Depends(optional_principal)) -> dict:
+    """상단 종이 주기적으로(60초 안쪽 폴링) 부르는 가벼운 조회."""
+    with get_conn() as conn:
+        return svc.me_unread_count(conn, principal.user_id)
+
+
+@router.patch("/me/notifications/read-all")
+def mark_all_notifications_read(principal: Principal = Depends(optional_principal)) -> dict:
+    with get_conn() as conn:
+        return svc.mark_all_notifications_read(conn, principal.user_id)
+
+
+@router.patch("/me/notifications/{notification_id}/read")
+def mark_notification_read(notification_id: UUID, principal: Principal = Depends(optional_principal)) -> dict:
+    with get_conn() as conn:
+        return svc.mark_notification_read(conn, principal.user_id, notification_id)
+
+
 @catalog_router.get("/products")
 def catalog_products(
     kind: str | None = Query(None, description="모니터·키보드·마우스·스피커 …(또는 monitor·keyboard 코드)"),

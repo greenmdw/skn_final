@@ -24,6 +24,7 @@ _POST_COLUMNS = """
     (SELECT count(*) FROM community.post_like l WHERE l.post_id = p.id) AS like_count,
     (SELECT count(*) FROM community.post_comment c WHERE c.post_id = p.id AND c.status = 'published') AS comment_count,
     EXISTS (SELECT 1 FROM community.post_like l WHERE l.post_id = p.id AND l.user_id = %(me)s) AS liked_by_me,
+    EXISTS (SELECT 1 FROM community.post_save sv WHERE sv.post_id = p.id AND sv.user_id = %(me)s) AS saved_by_me,
     (SELECT count(*) FROM community.post_view v WHERE v.post_id = p.id AND v.bucket > now() - interval '7 days') AS recent_views,
     (SELECT pp.product_kind FROM community.post_product pp WHERE pp.post_id = p.id ORDER BY pp.display_order LIMIT 1) AS first_product_kind,
     (SELECT count(*) FROM community.post_image i WHERE i.post_id = p.id) AS image_count,
@@ -281,3 +282,111 @@ class CommunityRepo(Repo):
                    AND created_at < now() - make_interval(hours => %s) ORDER BY created_at LIMIT %s) RETURNING storage_key""",
             (older_than_hours, limit))
         return [r["storage_key"] for r in rows]
+
+    # ── 저장(북마크) ────────────────────────────────────────────────────────────────
+    def add_save(self, post_id: UUID, user_id: UUID) -> None:
+        self._exec("INSERT INTO community.post_save (post_id, user_id) VALUES (%s, %s) ON CONFLICT DO NOTHING", (post_id, user_id))
+
+    def remove_save(self, post_id: UUID, user_id: UUID) -> None:
+        self._exec("DELETE FROM community.post_save WHERE post_id = %s AND user_id = %s", (post_id, user_id))
+
+    # ── 내 활동 목록 ────────────────────────────────────────────────────────────────
+    _USER_POST_SORT = {
+        "latest": "t.rel_at DESC, t.id DESC",
+        "popular": "t.like_count DESC, t.rel_at DESC, t.id DESC",
+        "comments": "t.comment_count DESC, t.rel_at DESC, t.id DESC",
+    }
+
+    def list_user_posts(self, *, me: UUID, kind: str, board_type: str | None, sort: str, limit: int, offset: int) -> tuple[list[dict], int]:
+        """내가 추천(liked)하거나 저장(saved)한 글. 삭제·숨김된 글도 항목은 남긴다(서비스가 본문을 비운다). 기본 정렬은 추천·저장한 시각 내림차순."""
+        table, time_col = {"liked": ("community.post_like", "created_at"), "saved": ("community.post_save", "saved_at")}[kind]
+        where = "r.user_id = %(me)s AND p.status IN ('published', 'hidden', 'deleted')"
+        params: dict[str, Any] = {"me": me, "limit": limit, "offset": offset}
+        if board_type:
+            where += " AND p.board_type = %(board_type)s"
+            params["board_type"] = board_type
+        frm = f"FROM {table} r JOIN community.post p ON p.id = r.post_id JOIN identity.app_user u ON u.id = p.author_user_id"
+        total = self._one(f"SELECT count(*) AS n {frm} WHERE {where}", params)["n"]
+        rows = self._all(
+            f"SELECT * FROM (SELECT {_POST_COLUMNS}, r.{time_col} AS rel_at {frm} WHERE {where}) t "
+            f"ORDER BY {self._USER_POST_SORT[sort]} LIMIT %(limit)s OFFSET %(offset)s", params)
+        return rows, int(total)
+
+    def list_my_comments(self, *, me: UUID, board_type: str | None, sort: str, limit: int, offset: int) -> tuple[list[dict], int]:
+        """내가 쓴 댓글·답글(삭제한 것은 뺀다). 정렬의 popular·comments 는 원문 글의 추천 수·댓글 수 기준이다."""
+        where = "c.author_user_id = %(me)s AND c.status = 'published' AND p.status IN ('published', 'hidden', 'deleted')"
+        params: dict[str, Any] = {"me": me, "limit": limit, "offset": offset}
+        if board_type:
+            where += " AND p.board_type = %(board_type)s"
+            params["board_type"] = board_type
+        frm = "FROM community.post_comment c JOIN community.post p ON p.id = c.post_id"
+        total = self._one(f"SELECT count(*) AS n {frm} WHERE {where}", params)["n"]
+        order = {"latest": "t.created_at DESC, t.id DESC", "popular": "t.like_count DESC, t.created_at DESC, t.id DESC",
+                 "comments": "t.post_comment_count DESC, t.created_at DESC, t.id DESC"}[sort]
+        rows = self._all(
+            f"""SELECT * FROM (
+                    SELECT c.id, c.post_id, c.parent_comment_id, c.body, c.created_at, c.updated_at,
+                           (SELECT count(*) FROM community.post_comment r WHERE r.parent_comment_id = c.id AND r.status = 'published') AS reply_count,
+                           p.title AS post_title, p.board_type, p.status AS post_status,
+                           (SELECT pp.product_kind FROM community.post_product pp WHERE pp.post_id = p.id ORDER BY pp.display_order LIMIT 1) AS first_product_kind,
+                           (SELECT count(*) FROM community.post_like l WHERE l.post_id = p.id) AS like_count,
+                           (SELECT count(*) FROM community.post_comment c2 WHERE c2.post_id = p.id AND c2.status = 'published') AS post_comment_count
+                    {frm} WHERE {where}) t
+                ORDER BY {order} LIMIT %(limit)s OFFSET %(offset)s""", params)
+        return rows, int(total)
+
+    def activity_summary(self, me: UUID) -> dict:
+        return self._one(
+            """SELECT
+                 (SELECT count(*) FROM community.post p WHERE p.author_user_id = %(me)s AND p.status = 'published') AS post_count,
+                 (SELECT count(*) FROM community.post_comment c JOIN community.post p ON p.id = c.post_id
+                   WHERE c.author_user_id = %(me)s AND c.status = 'published' AND p.status = 'published') AS comment_count,
+                 (SELECT count(*) FROM community.post_comment c JOIN community.post p ON p.id = c.post_id
+                   WHERE p.author_user_id = %(me)s AND p.status = 'published' AND c.status = 'published' AND c.author_user_id <> %(me)s) AS received_comment_count,
+                 (SELECT count(*) FROM community.post_like l JOIN community.post p ON p.id = l.post_id
+                   WHERE p.author_user_id = %(me)s AND p.status = 'published' AND l.user_id <> %(me)s) AS received_like_count,
+                 (SELECT count(*) FROM community.post_like l JOIN community.post p ON p.id = l.post_id
+                   WHERE l.user_id = %(me)s AND p.status = 'published') AS liked_post_count,
+                 (SELECT count(*) FROM community.post_save sv JOIN community.post p ON p.id = sv.post_id
+                   WHERE sv.user_id = %(me)s AND p.status = 'published') AS saved_post_count,
+                 (SELECT count(*) FROM community.notification n JOIN community.post p ON p.id = n.post_id
+                   WHERE n.user_id = %(me)s AND n.read_at IS NULL AND p.status = 'published') AS unread_notification_count""",
+            {"me": me})
+
+    # ── 알림 ────────────────────────────────────────────────────────────────────────
+    def upsert_notification(self, *, user_id: UUID, type_: str, post_id: UUID, comment_id: UUID, actor_id: UUID) -> None:
+        """읽기 전의 같은 (받는 사람, 글, 종류) 알림이 있으면 건수를 늘리고 최신으로 갱신, 없으면 새로 만든다."""
+        self._exec(
+            """INSERT INTO community.notification (user_id, type, post_id, comment_id, actor_user_id)
+               VALUES (%s, %s, %s, %s, %s)
+               ON CONFLICT (user_id, post_id, type) WHERE read_at IS NULL
+               DO UPDATE SET event_count = community.notification.event_count + 1, comment_id = EXCLUDED.comment_id,
+                             actor_user_id = EXCLUDED.actor_user_id, latest_at = now()""",
+            (user_id, type_, post_id, comment_id, actor_id))
+
+    def list_notifications(self, *, me: UUID, unread_only: bool, limit: int, offset: int) -> tuple[list[dict], int]:
+        where = "n.user_id = %(me)s AND p.status = 'published'" + (" AND n.read_at IS NULL" if unread_only else "")
+        params = {"me": me, "limit": limit, "offset": offset}
+        frm = "FROM community.notification n JOIN community.post p ON p.id = n.post_id"
+        total = self._one(f"SELECT count(*) AS n {frm} WHERE {where}", params)["n"]
+        rows = self._all(
+            f"""SELECT n.id, n.type, n.post_id, n.comment_id, n.event_count, n.latest_at, n.read_at,
+                       p.title AS post_title, p.board_type
+                {frm} WHERE {where} ORDER BY n.latest_at DESC, n.id LIMIT %(limit)s OFFSET %(offset)s""", params)
+        return rows, int(total)
+
+    def unread_notification_count(self, me: UUID) -> int:
+        return int(self._one(
+            "SELECT count(*) AS n FROM community.notification n JOIN community.post p ON p.id = n.post_id "
+            "WHERE n.user_id = %s AND n.read_at IS NULL AND p.status = 'published'", (me,))["n"])
+
+    def notification_owner(self, notification_id: UUID) -> UUID | None:
+        row = self._one("SELECT user_id FROM community.notification WHERE id = %s", (notification_id,))
+        return row["user_id"] if row else None
+
+    def mark_notification_read(self, notification_id: UUID) -> None:
+        self._exec("UPDATE community.notification SET read_at = now() WHERE id = %s AND read_at IS NULL", (notification_id,))
+
+    def mark_all_notifications_read(self, me: UUID) -> int:
+        rows = self._all("UPDATE community.notification SET read_at = now() WHERE user_id = %s AND read_at IS NULL RETURNING id", (me,))
+        return len(rows)
