@@ -123,7 +123,7 @@ ranking:
     weights: {화면: 0.20, 움직임: 0.10, 화질사양: 0.10, 연결: 0.05, 리뷰: 0.22, 가격: 0.23, 브랜드: 0.04, 무상AS: 0.06}   # 잠정값
   keyboard:
     criteria:
-      스위치소음: [switch_clicky, switch_magnetic, rapid_trigger]
+      스위치소음: [switch_clicky, switch_magnetic, rapid_trigger, key_force_min_g, key_force_max_g]
       배열크기: [size_longest_mm, size_height_mm]
       연결: [connectivity_wireless, connectivity_bluetooth]
     weights: {스위치소음: 0.12, 배열크기: 0.10, 연결: 0.08, 리뷰: 0.35, 가격: 0.27, 브랜드: 0.04, 무상AS: 0.04}   # 잠정값
@@ -304,6 +304,19 @@ spec_conditions:
       words: [저상, 로우프로파일, 낮은 키보드]
       filter: false
       prefs: [{key: size_height_mm, op: max, value: 30}]          # mm. 잠정
+    # 키압(요청서 B-8, 0016). 스위치를 고르는 상품은 키압이 범위(min~max)로 적혀 있어, 가벼운 쪽은 가장 가벼운 스위치(min)로,
+    # 묵직한 쪽은 가장 묵직한 스위치(max)로 판정한다 — 45~60g 처럼 두 조건을 모두 충족하는 상품이 있을 수 있다.
+    # 값이 없는 상품은 Pending(모름 = 0.5)이라 가볍다고도 무겁다고도 판정하지 않는다. 둘 다 거르지 않는 선호 조건이다.
+    light_key_force:
+      label: 가벼운 키압
+      words: [가벼운 키압, 키압이 가벼, 키압 가벼, 가벼운 타건, 가볍게 눌리, 가벼운 키감]
+      filter: false
+      prefs: [{key: key_force_min_g, op: max, value: 45}]         # g. 잠정(요청서 B-8)
+    heavy_key_force:
+      label: 묵직한 키압
+      words: [묵직한 키압, 키압이 묵직, 키압 묵직, 키압이 높, 키압 높, 묵직한 타건, 묵직한 키감, 무거운 키압]
+      filter: false
+      prefs: [{key: key_force_max_g, op: min, value: 50}]         # g. 잠정(요청서 B-8)
   mouse:
     wireless:
       label: 무선
@@ -403,7 +416,7 @@ purposes:
     game:
       {label: 게임(일반), words: [게임], prefer: [], feel: [입력 반응, 타건감], taste: []}
     fps:
-      {label: 경쟁 게임, words: [fps, 리듬 게임, 발로란트, 배그], prefer: [rapid_trigger, magnetic], feel: [입력 반응, 설정 편의], taste: [키압 가벼운 쪽]}
+      {label: 경쟁 게임, words: [fps, 리듬 게임, 발로란트, 배그], prefer: [rapid_trigger, magnetic, light_key_force], feel: [입력 반응, 설정 편의], taste: [키압 가벼운 쪽]}
     quiet_place:
       {label: 조용한 곳, words: [사무실, 밤에, 조용, 저소음], prefer: [quiet_switch], feel: [타건 소리, 큰 키 잡음], taste: [소리 조용한 쪽]}
     wrist:
@@ -580,8 +593,8 @@ feel:
 # adjust_chips: 추천 결과 아래 "더 맞추기" 칩의 후보(견적 입력 설계 6.2, 5장의 칩 목록).
 # 칩 하나 = 눌렀을 때 입력에 더해지는 값(add). 서버는 후보마다 "더했을 때 지금 보이는 순서(1위와 대안 2개)가
 # 바뀌는가"를 계산해서 바꾸는 것만, 최대 3개 내보낸다(src/engine/peripheral_suggest.py). 이미 말한 조건의 칩은 내지 않는다.
-# 손 크기·키압 쪽 칩은 체감 점수(구현 순서 6)와 키압 컬럼(요청서 B-8)이 들어온 뒤에 더한다 — 지금은 순서를
-# 바꾸지 못하므로 어차피 나오지 않는다.
+# 키압 칩(키보드)은 키압 컬럼(요청서 B-8, 0016)이 들어와 더했다. 손 크기 칩은 아직 없다 — 손 크기는 체감 점수가
+# 같은 조건 작성자를 가를 때만 순서가 바뀌므로, 사용기가 쌓인 뒤에 더한다.
 #   add.purposes / add.situations — 목적·상황 코드. add.stated — 직접 말한 스펙 조건 이름(그 종류의 spec_conditions).
 adjust_chips:
   monitor:
@@ -590,6 +603,8 @@ adjust_chips:
   keyboard:
     - {id: quiet_place, label: 조용해야 해요, add: {situations: [quiet_place]}}
     - {id: numbers, label: 숫자 키가 필요해요, add: {purposes: [numbers]}}
+    - {id: light_key_force, label: 키압이 가벼웠으면 해요, add: {stated: [light_key_force]}}
+    - {id: heavy_key_force, label: 키압이 묵직했으면 해요, add: {stated: [heavy_key_force]}}
   mouse:
     - {id: quiet_place, label: 조용해야 해요, add: {situations: [quiet_place]}}
   speaker:
