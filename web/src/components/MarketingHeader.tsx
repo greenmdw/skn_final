@@ -1,6 +1,7 @@
 import { Link, NavLink } from 'react-router-dom'
 import { useAuthUser } from '../state/authStore'
 import Brand from './Brand'
+import CommunityNotifications from './CommunityNotifications'
 import ThemeToggle from './ThemeToggle'
 import UserMenu from './UserMenu'
 
@@ -22,7 +23,7 @@ export default function MarketingHeader() {
       </nav>
       <div className="tf-home-spacer" />
       {user ? (
-        <UserMenu name={user.name} />
+        <><UserMenu name={user.name} /><CommunityNotifications /></>
       ) : (
         <div className="tf-home-auth">
           <Link to="/login"><button type="button">로그인</button></Link>

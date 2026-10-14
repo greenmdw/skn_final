@@ -36,6 +36,14 @@ body { line-height: 1.45; }
 .tf-user-pop a, .tf-user-pop button { color: var(--text); }
 .tf-user-pop a:hover, .tf-user-pop button:hover { background: var(--ink); color: var(--mint); }
 .tf-user-pop .out, .tf-user-pop .out:hover { color: var(--bad); }
+.tf-notification-button { border-color:var(--line2); color:var(--text); background:var(--panel); }
+.tf-notification-button:hover,.tf-notification-button[aria-expanded='true'] { border-color:var(--mint); color:var(--mint); }
+.tf-notification-dot { border-color:var(--panel); }
+.tf-notification-pop { border-color:var(--line); background:var(--panel); box-shadow:0 16px 40px var(--shadow); color:var(--text); }
+.tf-notification-pop header,.tf-notification-list article { border-color:var(--line); }
+.tf-notification-pop header button,.tf-notification-list p,.tf-notification-list small,.tf-notification-pop footer { color:var(--muted); }
+.tf-notification-kind { color:var(--mint); background:color-mix(in srgb,var(--mint) 12%,var(--panel2)); }
+.tf-notification-list a,.tf-notification-pop footer a { color:var(--mint); }
 
 /* ===== 남색 사이드바 (좌측 패널·마이페이지 메뉴) ===== */
 .sp-root, .mp-sidebar {

@@ -11,6 +11,7 @@ import { authErrorMessage } from './auth/messages'
 import Dashboard from './mypage/Dashboard'
 import { ConfigsPage, ConsultsPage, ReportsPage } from './mypage/ListPages'
 import MyPcPage from './mypage/MyPcPage'
+import MyCommunityPage from './mypage/MyCommunityPage'
 import ProfilePage from './mypage/ProfilePage'
 import { NAV, type MyPageId } from './mypage/nav'
 import { PC_FIELDS, configKey, dateText, pcQuestion, readMyPc, reportPath, setupSpecs, setupTotal, writeMyPc, type MyPc, type PcParts } from './mypage/model'
@@ -155,6 +156,7 @@ export default function MyPage() {
     configs: <ConfigsPage openConfig={setConfigId} />,
     consults: <ConsultsPage />,
     reports: <ReportsPage />,
+    community: <MyCommunityPage />,
     profile: <ProfilePage user={user} onWithdraw={() => setWithdrawOpen(true)} />,
   }
 
