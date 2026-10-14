@@ -848,3 +848,22 @@ def mark_all_notifications_read(conn, me: UUID | None) -> dict:
     user = _require_user(me)
     changed = CommunityRepo(conn).mark_all_notifications_read(user)
     return {"updated": changed, "unread_count": 0}
+
+
+def get_quote(conn, quote_id: str) -> dict:
+    """주변기기 추천이 인용한 문장 하나(`quote_id` → 문장·글·연결 제품). 링크를 복사해 열거나 새로고침해도 글에서 문장을 찾아 강조할 수 있게 한다.
+    공개된(published) 글의 문장만 돌려준다 — 지워지거나 숨겨진 글의 문장은 404."""
+    rows = conn.execute(
+        "SELECT e.post_id, e.sentence, e.photo_url, e.is_example, e.product_id, p.title "
+        "FROM engine.peripheral_post_evidence e JOIN community.post p ON p.id = e.post_id "
+        "WHERE e.quote_id = %s AND p.status = 'published' AND p.deleted_at IS NULL ORDER BY e.created_at, e.id",
+        (quote_id,)).fetchall()
+    if not rows:
+        raise NotFound("인용 문장을 찾을 수 없습니다.")
+    post_id, sentence, photo_url, is_example, _product, title = rows[0]
+    product_ids: list[str] = []
+    for r in rows:
+        if str(r[4]) not in product_ids:
+            product_ids.append(str(r[4]))
+    return {"quote_id": quote_id, "post_id": str(post_id), "post_title": title, "sentence": sentence,
+            "is_example": bool(is_example), "photo_url": photo_url, "product_ids": product_ids}

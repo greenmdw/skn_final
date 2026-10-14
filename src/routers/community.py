@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Path, Query, Request, Response, UploadFile, status
 from pydantic import BaseModel, Field
 
 from src.auth import ratelimit
@@ -99,6 +99,13 @@ def search(
     page_size: int = Query(10, ge=1, le=svc.PAGE_SIZE_MAX),
 ) -> dict:
     return _list(principal.user_id, board_type=board_type, sort=sort, q=q, page=page, page_size=page_size)
+
+
+@router.get("/quotes/{quote_id}")
+def get_quote(quote_id: str = Path(min_length=1, max_length=64)) -> dict:
+    """주변기기 추천의 인용 문장 하나 — `quote_id` → 문장·글 id·연결 제품. 공개된 글의 문장만, 없으면 404."""
+    with get_conn() as conn:
+        return svc.get_quote(conn, quote_id)
 
 
 @router.get("/posts/{post_id}")
