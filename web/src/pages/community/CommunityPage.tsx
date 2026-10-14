@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type DependencyList, type FormEvent } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState, type DependencyList, type FormEvent } from 'react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError } from '../../api/types'
 import {
   communityApi,
@@ -21,6 +21,8 @@ import {
   type CommunityPost,
   type CommunityView,
 } from './communityData'
+import MarkdownBody from '../../components/MarkdownBody'
+import type { WireCommunityImage } from '../../api/http/community'
 import '../../styles/community.css'
 
 const validViews: CommunityView[] = ['home', 'board', 'post', 'write', 'deals', 'search']
@@ -191,6 +193,9 @@ function Pagination({ page, pageCount, onPage, compact = false }: { page: number
 
 export default function CommunityPage() {
   const [params, setParams] = useSearchParams()
+  // 주변기기 견적 화면의 인용 문장에서 들어왔으면 그 문장(라우터 state)과 식별자(?quote=)가 따라온다.
+  const quoteSentence = (useLocation().state as { quoteSentence?: unknown } | null)?.quoteSentence
+  const quote = { id: params.get('quote'), sentence: typeof quoteSentence === 'string' ? quoteSentence : null }
   const { showToast } = useToast()
   const user = useAuthUser()
   const rawView = params.get('view') as CommunityView | null
@@ -257,7 +262,7 @@ export default function CommunityPage() {
           <BoardView counts={counts} board={board} query={boardQuery} page={boardPage} onQuery={setBoardQuery} onPage={setBoardPage} onBoard={value => { setBoardPage(1); openBoard(value) }} onPost={openPost} onWrite={() => navigate('write')} />
         )}
         {view === 'post' && (postId
-          ? <PostView postId={postId} user={user ? { name: user.name } : null} reactionOf={reactionOf} onBack={() => openBoard('all')} onBoard={openBoard} onPost={openPost} onWrite={() => navigate('write')} onLike={toggleLike} onDeleted={() => { setDataVersion(value => value + 1); showToast('게시글을 삭제했습니다.'); openBoard('all') }} />
+          ? <PostView postId={postId} quote={quote} user={user ? { name: user.name } : null} reactionOf={reactionOf} onBack={() => openBoard('all')} onBoard={openBoard} onPost={openPost} onWrite={() => navigate('write')} onLike={toggleLike} onDeleted={() => { setDataVersion(value => value + 1); showToast('게시글을 삭제했습니다.'); openBoard('all') }} />
           : <p className="cm-empty">게시글을 선택해 주세요.</p>)}
         {view === 'write' && (
           <WriteView userName={user?.name ?? null} onCancel={() => navigate('home')} onPublished={id => { setDataVersion(value => value + 1); showToast('게시했습니다.'); openPost(id) }} />
@@ -376,8 +381,8 @@ function BoardView({ counts, board, query, page, onQuery, onPage, onBoard, onPos
   )
 }
 
-function PostView({ postId, user, reactionOf, onBack, onBoard, onPost, onWrite, onLike, onDeleted }: {
-  postId: string; user: { name: string } | null; reactionOf: ReactionOf; onBack: () => void; onBoard: (board: CommunityBoard) => void; onPost: (id: string) => void; onWrite: () => void; onLike: (post: CommunityPost) => void; onDeleted: () => void
+function PostView({ postId, quote, user, reactionOf, onBack, onBoard, onPost, onWrite, onLike, onDeleted }: {
+  postId: string; quote: { id: string | null; sentence: string | null }; user: { name: string } | null; reactionOf: ReactionOf; onBack: () => void; onBoard: (board: CommunityBoard) => void; onPost: (id: string) => void; onWrite: () => void; onLike: (post: CommunityPost) => void; onDeleted: () => void
 }) {
   const { showToast } = useToast()
   const detail = useAsync(() => communityApi.get(postId), [postId])
@@ -452,8 +457,7 @@ function PostView({ postId, user, reactionOf, onBack, onBoard, onPost, onWrite, 
             <div className="cm-article-meta"><span><Avatar name={post.author} /><span><strong>{post.author}</strong><small>{post.time}</small></span></span><span>조회 {wire.view_count} · 댓글 {commentTotal}</span></div>
             {post.is_example && <div className="review-disclosure" role="note"><strong>예시 리뷰</strong><span>서비스 구성을 보여주기 위해 팀이 작성한 글입니다. 실제 구매·사용 후기가 아닙니다.</span></div>}
             <div className="cm-article-body">
-              {wire.body.split(/\n{2,}/).map((paragraph, index) => <p key={index} style={{ whiteSpace: 'pre-wrap' }}>{paragraph}</p>)}
-              {wire.images.map(image => <img key={image.id} src={image.url} width={image.width} height={image.height} alt="첨부 이미지" loading="lazy" style={{ maxWidth: '100%', height: 'auto', borderRadius: 12, display: 'block', margin: '12px 0' }} />)}
+              <MarkdownBody key={wire.id} body={wire.body} images={wire.images} quoteSentence={quote.sentence} />
             </div>
             <div className="cm-article-actions"><button type="button" className={reaction.liked ? 'active' : ''} onClick={() => onLike(post)}>♡ 추천 {reaction.likes}</button><button type="button" onClick={() => navigator.clipboard?.writeText(window.location.href)}>공유</button>{wire.can_delete && <button type="button" onClick={removePost}>삭제</button>}</div>
           </article>
@@ -493,6 +497,21 @@ function PostBoardList({ currentPostId, initialBoard, onPost, onBoard, onWrite }
   )
 }
 
+/** 본문에 넣을 이미지 마커 한 줄. 설명(alt)에서 마커를 깨뜨리는 글자(대괄호·줄바꿈)는 뺀다. */
+function imageMarker(id: string, alt: string): string {
+  const clean = alt.replace(/[\[\]\r\n]+/g, ' ').replace(/\s+/g, ' ').trim()
+  return `![${clean}](image:${id})`
+}
+
+const MARKER_LINE = /\]\(image:([0-9a-f-]{8,})\)/gi
+const usedImageIds = (body: string) => new Set(Array.from(body.matchAll(MARKER_LINE), match => match[1].toLowerCase()))
+
+/** 이미지를 지울 때 본문의 그 이미지 마커 줄을 같이 지운다(앞뒤 빈 줄이 겹치지 않게 정리). */
+function removeImageMarkers(body: string, id: string): string {
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return body.replace(new RegExp(`^[ \\t]*!\\[[^\\]\\n]*\\]\\(image:${escaped}\\)[ \\t]*\\n?`, 'gim'), '').replace(/\n{3,}/g, '\n\n')
+}
+
 function WriteView({ userName, onCancel, onPublished }: { userName: string | null; onCancel: () => void; onPublished: (id: string) => void }) {
   const { showToast } = useToast()
   const [category, setCategory] = useState('')
@@ -506,7 +525,11 @@ function WriteView({ userName, onCancel, onPublished }: { userName: string | nul
   const [results, setResults] = useState<CatalogProduct[]>([])
   const [draft, setDraft] = useState<{ id: string; version: number } | null>(null)
   const [saving, setSaving] = useState(false)
-  const [images, setImages] = useState<Array<{ id: string; url: string }>>([])
+  const [images, setImages] = useState<WireCommunityImage[]>([])
+  // 이미지별 설명(alt). 본문에 넣을 때 ![설명](image:<id>) 의 설명이 된다.
+  const [alts, setAlts] = useState<Record<string, string>>({})
+  const [preview, setPreview] = useState(false)
+  const bodyRef = useRef<HTMLTextAreaElement>(null)
   const [uploading, setUploading] = useState(false)
 
   useEffect(() => {
@@ -553,7 +576,7 @@ function WriteView({ userName, onCancel, onPublished }: { userName: string | nul
       for (const file of Array.from(files)) {
         if (count >= 5) { showToast('이미지는 최대 5장까지 첨부할 수 있습니다.'); break }
         const uploaded = await communityApi.uploadImage(file)
-        setImages(current => [...current, { id: uploaded.id, url: uploaded.url }])
+        setImages(current => [...current, uploaded])
         count += 1
       }
     } catch (error) {
@@ -564,8 +587,25 @@ function WriteView({ userName, onCancel, onPublished }: { userName: string | nul
   }
   const removeImage = (id: string) => {
     setImages(current => current.filter(image => image.id !== id))
+    setBody(current => removeImageMarkers(current, id))
+    setAlts(current => { const { [id]: _removed, ...rest } = current; return rest })
     // 아직 글에 붙지 않은 임시 이미지는 바로 지운다(임시 저장된 글에 붙은 것은 저장할 때 빠진다).
     if (!draft) communityApi.removeUpload(id).catch(() => undefined)
+  }
+  // 이미지를 본문 커서 자리에 넣는다. 마커는 빈 줄로 둘러싼 한 줄이어야 해서 앞뒤 줄바꿈을 맞춘다.
+  const insertImage = (image: WireCommunityImage) => {
+    const area = bodyRef.current
+    const at = area ? area.selectionStart : body.length
+    const marker = imageMarker(image.id, alts[image.id] ?? '')
+    const before = body.slice(0, at)
+    const after = body.slice(at)
+    const lead = before === '' ? '' : before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n'
+    const tail = after === '' ? '\n\n' : after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n'
+    const next = before + lead + marker + tail + after
+    setBody(next)
+    setPreview(false)
+    const cursor = (before + lead + marker + tail).length
+    window.requestAnimationFrame(() => { area?.focus(); area?.setSelectionRange(cursor, cursor) })
   }
   const guard = () => {
     if (!userName) { showToast('글 작성은 로그인 후 이용할 수 있어요.'); return false }
@@ -616,9 +656,47 @@ function WriteView({ userName, onCancel, onPublished }: { userName: string | nul
         <label>제품 종류<select value={productKind} onChange={event => { setProductKind(event.target.value); setProductQuery('') }}><option>모니터</option><option>키보드</option><option>마우스</option><option>스피커</option></select></label>
         <fieldset className="full"><legend>연결 제품 <small>{category === '사용기 · 리뷰' ? '1개 이상 필수' : '선택'} · {selected.length} / 5개</small></legend><div className="cm-product-entry"><label>제품 검색<input value={productQuery} onChange={event => setProductQuery(event.target.value)} placeholder="제조사 또는 모델명 입력" /></label><label>목록에 없는 제품<span><input value={unlistedName} onChange={event => setUnlistedName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addUnlisted() } }} placeholder="제조사와 모델명을 입력하세요" /><button type="button" className="cm-btn" onClick={addUnlisted}>추가</button></span></label></div>{productQuery ? <div className="cm-product-results">{results.length ? results.map(product => { const on = selected.some(item => item.key === product.id); return <button type="button" key={product.id} className={on ? 'selected' : ''} onClick={() => toggleCatalog(product)}><span><strong>{product.name}</strong><small>{product.maker} · {product.detail}</small></span><b>{on ? '추가됨' : '추가'}</b></button> }) : <p>검색 결과가 없습니다. 목록에 없는 제품으로 추가할 수 있습니다.</p>}</div> : <p className="cm-product-help">검색어를 입력하면 선택한 제품 종류의 카탈로그가 표시됩니다.</p>}<div className="cm-selected-product-cards">{selected.map(item => <div key={item.key}><span><strong>{item.name}</strong><small>{item.productId ? `${item.kind} · ${item.detail}` : item.detail}</small></span><label>옵션 (선택)<input value={item.option} list={item.options.length ? `options-${item.key}` : undefined} onChange={event => setOption(item.key, event.target.value)} placeholder="예: 저소음 적축, 색상" />{item.options.length > 0 && <datalist id={`options-${item.key}`}>{item.options.map(option => <option value={option} key={option} />)}</datalist>}</label><button type="button" className="cm-btn" onClick={() => add(item)}>삭제</button></div>)}</div>{category === '사용기 · 리뷰' && <p className="cm-review-notice">사용기 글의 내용은 제품 추천에 참고 자료로 활용될 수 있습니다.</p>}</fieldset>
         <label className="full">제목<input required maxLength={80} value={title} onChange={event => setTitle(event.target.value)} placeholder="내용을 구체적으로 알 수 있는 제목을 입력하세요" /></label>
-        <label className="full">내용<textarea required value={body} onChange={event => setBody(event.target.value)} placeholder="질문이라면 사용 환경, 예산, 시도한 방법을 함께 적어주세요." /></label>
+        <div className="full cm-images">
+          <label>이미지 <small>(선택 · 최대 5장, JPEG·PNG·WebP, 장당 5MB · 첫 장이 대표 이미지)</small><input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={uploading || images.length >= 5} onChange={event => { addImages(event.target.files); event.target.value = '' }} /></label>
+          {uploading && <p className="cm-product-help">이미지를 올리는 중…</p>}
+          {images.length > 0 && <>
+            <p className="cm-product-help">"본문에 넣기"를 누르면 내용의 커서 자리에 이미지가 들어가요. 본문에 넣지 않은 이미지는 글 아래쪽에 붙어요.</p>
+            <ul className="cm-image-list">
+              {images.map((image, index) => {
+                const placed = usedImageIds(body).has(image.id.toLowerCase())
+                return (
+                  <li key={image.id}>
+                    <img src={image.url} alt={`첨부 ${index + 1}`} />
+                    <div>
+                      <label>설명 <small>(무엇이 보이는지 한 줄)</small>
+                        <input value={alts[image.id] ?? ''} maxLength={80} onChange={event => setAlts(current => ({ ...current, [image.id]: event.target.value }))} placeholder="예: 책상 위에 올려 둔 모습" />
+                      </label>
+                      <div className="cm-image-actions">
+                        {placed && <span className="cm-badge accent">본문에 넣음</span>}
+                        <button type="button" className="cm-btn" onClick={() => insertImage(image)}>{placed ? '한 번 더 넣기' : '본문에 넣기'}</button>
+                        <button type="button" className="cm-btn" onClick={() => removeImage(image.id)} aria-label={`첨부 ${index + 1} 삭제`}>삭제</button>
+                      </div>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </>}
+        </div>
+        <div className="full cm-body-field">
+          <div className="cm-body-head">
+            <label htmlFor="cm-write-body">내용</label>
+            <span className="cm-body-tabs" role="tablist" aria-label="본문 보기">
+              <button type="button" role="tab" aria-selected={!preview} className={!preview ? 'on' : ''} onClick={() => setPreview(false)}>쓰기</button>
+              <button type="button" role="tab" aria-selected={preview} className={preview ? 'on' : ''} onClick={() => setPreview(true)}>미리보기</button>
+            </span>
+          </div>
+          {preview
+            ? <div className="cm-body-preview cm-article-body">{body.trim() ? <MarkdownBody body={body} images={images} quoteSentence={null} /> : <p className="cm-product-help">아직 쓴 내용이 없어요.</p>}</div>
+            : <textarea id="cm-write-body" ref={bodyRef} required value={body} onChange={event => setBody(event.target.value)} placeholder="질문이라면 사용 환경, 예산, 시도한 방법을 함께 적어주세요." />}
+          <p className="cm-product-help">서식: <code>## 소제목</code> · <code>**굵게**</code> · <code>- 목록</code> · <code>&gt; 인용</code> · 표(<code>| 항목 | 내용 |</code>) · 이미지는 아래 "본문에 넣기"</p>
+        </div>
         <label className="full">태그 <small>(선택)</small><input value={tags} onChange={event => setTags(event.target.value)} placeholder="예: 영상편집, 200만원견적, 조립초보" /></label>
-        <div className="full"><label>이미지 <small>(선택 · 최대 5장, JPEG·PNG·WebP, 장당 5MB · 첫 장이 대표 이미지)</small><input type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={uploading || images.length >= 5} onChange={event => { addImages(event.target.files); event.target.value = '' }} /></label>{uploading && <p className="cm-product-help">이미지를 올리는 중…</p>}{images.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 8 }}>{images.map((image, index) => <div key={image.id} style={{ position: 'relative' }}><img src={image.url} alt={`첨부 ${index + 1}`} style={{ width: 96, height: 96, objectFit: 'cover', borderRadius: 8, display: 'block' }} /><button type="button" className="cm-btn" onClick={() => removeImage(image.id)} style={{ position: 'absolute', top: 2, right: 2, padding: '0 6px' }} aria-label={`첨부 ${index + 1} 삭제`}>×</button></div>)}</div>}</div>
         <div className="cm-form-actions full"><button type="button" className="cm-btn" disabled={saving} onClick={saveDraft}>{draft ? '임시 저장 갱신' : '임시 저장'}</button><button type="button" className="cm-btn" onClick={onCancel}>취소</button><button type="submit" className="cm-btn primary" disabled={saving}>게시하기</button></div>
       </form>
     </>
