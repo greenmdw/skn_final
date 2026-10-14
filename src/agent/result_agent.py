@@ -369,14 +369,21 @@ class ResultSession:
             return no
         return self._record(call, result_advice.budget_reason(self.conn, self.revision_id))
 
-    def savings_options(self, target: str = "") -> str:
+    def savings_options(self, target: str = "", keep: str = "") -> str:
         from src.agent.conditions_agent import _parse_amount
+        from src.engine.brands import canonical_slot
         from src.services import result_advice
-        call = f"savings_options(target={target!r})"
+        call = f"savings_options(target={target!r}" + (f", keep={keep!r}" if keep.strip() else "") + ")"
         if (no := self._pc_only(call)) is not None:
             return no
         amount = _parse_amount(target) if target.strip() else None
-        return self._record(call, result_advice.savings_options(self.conn, self.revision_id, amount))
+        slots = []
+        for name in (n for n in re.split(r"[,·/]", keep) if n.strip()):
+            it = self.item(name) or self.item(canonical_slot(name))
+            if it is None:
+                return self._record(call, f"오류: '{name.strip()}' 슬롯이 없습니다. keep 은 부품 이름(예: CPU, 그래픽카드)입니다.")
+            slots.append(it["slot"])
+        return self._record(call, result_advice.savings_options(self.conn, self.revision_id, amount, keep=slots))
 
     def game_check(self, game: str) -> str:
         from src.services import result_advice
@@ -529,14 +536,15 @@ def make_tools(s: ResultSession) -> list:
         return s.budget_reason()
 
     @tool
-    def savings_options(target: str = "") -> str:
+    def savings_options(target: str = "", keep: str = "") -> str:
         """요구 사양을 지키면서 더 싸게 바꿀 수 있는 부품과 절약액, 요구 사양을 낮추면 줄일 수 있는 것을 돌려준다.
         target 을 주면 그 금액을 줄이는 조합을 계산한다. 바꾸지는 않는다. "뭘 바꾸면 싸져?", "20만원 줄이려면?" 에 쓴다.
 
         Args:
             target: 줄이고 싶은 금액(예: "20만원"). 없으면 비움
+            keep: 바꾸지 않을 부품(예: "CPU", 여러 개면 "CPU, 그래픽카드"). "CPU는 그대로 두고"처럼 말했으면 반드시 채움. 없으면 비움
         """
-        return s.savings_options(target)
+        return s.savings_options(target, keep)
 
     @tool
     def check_build() -> str:
@@ -767,7 +775,7 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         # 6번 문장 뒤에 이어 붙였더니 "가격에 맞게 예산 줄여줘"에 RAM 을 바꾸는 일이 생겼다(10/8 평가 D-1 2/4) — 따로 둔다
         "6-1. '왜 예산을 다 안 썼어?', '왜 300만원에 짰어?'처럼 예산을 남긴 이유를 물으면 budget_reason 의 방식 설명과 CPU·GPU 등급을 옮기고, "
         "'→' 줄을 결론으로 전합니다. '예산을 다 쓰지 못했다'처럼 실패로 말하지 않습니다 — 예산은 상한입니다.",
-        "7. '뭘 바꾸면 싸져?', 'N만원 줄이고 싶어' → savings_options(target). 금액을 말했으면 '→ … 성능을 가장 적게 잃는 조합' 줄을 먼저 전합니다 "
+        "7. '뭘 바꾸면 싸져?', 'N만원 줄이고 싶어' → savings_options(target). 'CPU는 그대로 두고'처럼 바꾸지 말라는 부품이 있으면 keep 에 넣습니다. 금액을 말했으면 '→ … 성능을 가장 적게 잃는 조합' 줄을 먼저 전합니다 "
         "— 가장 많이 줄어드는 후보를 대신 권하지 않습니다. 요구 사양을 낮춰야 하는 항목은 그 사실(⚠)과 함께 전합니다.",
         "8. '파워 충분해?', '호환 문제 없어?', '이대로 사도 돼?', 'CPU가 발목 잡아?(병목)' → check_build. '쿨러 꼭 사야 돼?', '기본 쿨러 들어 있어?' → explain('쿨러') 의 'CPU 기본 쿨러' 값으로 답합니다. 이 게임 돌아가? → game_check(게임 이름). 도구 결과에 있는 항목만 말하고 fps·체감 성능은 말하지 않습니다.",
         "9. **이 견적**의 부품 우열, 리뷰의 진위, 호환 여부를 스스로 판정하지 않고 도구 결과에 없는 수치·사실을 만들지 않습니다. 금액을 직접 더하거나 빼지 말고 도구가 계산한 금액을 옮깁니다. "

@@ -225,7 +225,8 @@ def _isolated_db_state(conn, post_ids):
             if pid not in keep:
                 cur.execute(
                     "INSERT INTO engine.peripheral_post_intake (post_id, status, change_signal, analyzed_hash) "
-                    "VALUES (%s, 'done', %s, 'seen') ON CONFLICT (post_id) DO UPDATE SET change_signal = EXCLUDED.change_signal",
+                    "VALUES (%s, 'done', %s, 'seen') ON CONFLICT (post_id) DO UPDATE SET change_signal = EXCLUDED.change_signal, "
+                    "status = 'done', analyzed_hash = 'seen'",   # 커뮤니티가 글 변경을 알리면(B-4) 다른 시험의 글도 이미 대기 중이다
                     (pid, sig))
     return pipeline.DbState(conn)
 

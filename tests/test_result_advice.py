@@ -314,6 +314,27 @@ def test_target_plan_loses_the_least_performance_not_the_most_money(conn):
     assert "성능을 가장 적게 잃는 조합" in out
 
 
+def test_savings_options_never_touches_a_kept_slot(conn):
+    """"CPU는 그대로 두고 10만원 줄여줘" — 그대로 둘 부품은 조합·단일 후보·기준을 낮춘 후보 어디에도 나오지 않는다(10/13 A-5)."""
+    from src.agent.result_agent import ResultSession
+
+    revision_id = _build(conn)
+    plain = result_advice.savings_options(conn, revision_id, 100_000)
+    swapped = re.findall(r"^\s*[-·] (\S+): .+candidate_id=", plain, re.M)
+    assert swapped, plain
+    slot = swapped[0]                       # 고정하지 않으면 바뀌는 부품을 고정해 본다
+    out = result_advice.savings_options(conn, revision_id, 100_000, keep=[slot])
+    assert f"그대로 둘 부품: {slot}" in out, out
+    assert not re.search(rf"^\s*[-·] {re.escape(slot)}: ", out, re.M), out
+    assert "아직 아무것도 바꾸지 않았습니다" in out
+
+    result = recommendation_service.get_stored_result(conn, revision_id)
+    session = ResultSession(conn=conn, revision_id=revision_id, result=result)
+    via_tool = session.savings_options("10만원", keep={"CPU": "씨피유", "GPU": "그래픽카드"}.get(slot, slot))
+    assert f"그대로 둘 부품: {slot}" in via_tool, via_tool
+    assert session.savings_options("10만원", keep="모니터").startswith("오류: '모니터' 슬롯이 없습니다")
+
+
 def test_relaxed_target_plan_is_summed_by_code(conn):
     """"20만원 줄이려면" — 요구 사양을 지켜선 안 될 때, 기준을 낮춘 조합의 합계도 코드가 낸다(모델이 더하다 틀렸다)."""
     revision_id = _build(conn)

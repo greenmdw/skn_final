@@ -853,13 +853,18 @@ def _target_plan(ctx: _Ctx, options: dict, target: int, max_swaps: int = 3):
     return best
 
 
-def savings_options(conn, revision_id: UUID, target: int | None = None) -> str:
+def savings_options(conn, revision_id: UUID, target: int | None = None, keep: list[str] | None = None) -> str:
     """요구 사양을 채우면서 더 싸게 바꿀 수 있는 부품. target 이 있으면 그 금액 이상 줄이면서 성능을 가장 적게 잃는
-    조합(바꾼 부품끼리의 호환도 확인)을 먼저 낸다. 요구 사양을 낮춰야 줄어드는 것은 따로 ⚠ 로 적는다."""
+    조합(바꾼 부품끼리의 호환도 확인)을 먼저 낸다. 요구 사양을 낮춰야 줄어드는 것은 따로 ⚠ 로 적는다.
+
+    keep — 바꾸지 않을 슬롯("CPU는 그대로 두고"). 조합·단일 후보·기준을 낮춘 후보 어디에도 넣지 않는다. 예전엔 이 입력이
+    없어 "CPU는 그대로 두고 10만원 줄여줘"에 CPU 를 바꾸는 조합을 냈고 모델이 그대로 권했다(10/13 시나리오 A-5)."""
     ctx = _context(conn, revision_id)
     total = ctx.total()
+    kept = [r["slot"] for r in ctx.picked if r["slot"] in set(keep or ())]
+    picked = [r for r in ctx.picked if r["slot"] not in kept]
     options, relaxed = {}, []
-    for row in ctx.picked:
+    for row in picked:
         slot = row["slot"]
         options[slot] = _cheaper_options(ctx, slot)
         cur = _current(ctx, slot, row)
@@ -894,6 +899,8 @@ def savings_options(conn, revision_id: UUID, target: int | None = None) -> str:
                 f" (절약 {fmt_money(saving)}){perf}{warn} · candidate_id={cand.variant_id}")
 
     lines = [f"지금 총액 {fmt_money(total)}" + (f" · 줄이고 싶은 금액 {fmt_money(target)}" if target else "")]
+    if kept:
+        lines.append(f"그대로 둘 부품: {', '.join(kept)} — 아래 조합과 후보에서 뺐습니다.")
     if target:
         plan = _target_plan(ctx, options, target)
         if plan is not None:
@@ -908,7 +915,7 @@ def savings_options(conn, revision_id: UUID, target: int | None = None) -> str:
             lines.append(f"→ 요구 사양을 지키면서 {fmt_money(target)}을 줄이는 조합(부품 3개까지)은 없습니다"
                          f" — 슬롯마다 가장 싼 후보를 다 더해도 최대 {fmt_money(reach)}.")
             # 기준을 낮추면 되는가도 코드가 더한다 — 모델이 "둘 다 낮춰도 못 미친다"(153,380+85,520 > 200,000)고 틀렸다
-            loose = {r["slot"]: _cheaper_options(ctx, r["slot"], allow_fail=True) for r in ctx.picked}
+            loose = {r["slot"]: _cheaper_options(ctx, r["slot"], allow_fail=True) for r in picked}
             relaxed_plan = _target_plan(ctx, loose, target)
             if relaxed_plan is not None:
                 (_, _, saving), swaps = relaxed_plan

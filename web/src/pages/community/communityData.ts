@@ -19,7 +19,7 @@ export interface CommunityPost {
   mediaCount?: number
   badge?: string
   specs?: Array<{ label: string; value: string }>
-  products?: Array<{ kind: string; name: string; detail: string }>
+  products?: Array<{ kind: string; name: string; detail: string; imageUrl?: string | null }>
 }
 
 export const boardInfo: Record<CommunityBoard, { label: string; description: string }> = {
