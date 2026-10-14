@@ -125,18 +125,17 @@ def _feel_axis(cand: Candidate) -> float:
 def evidence_count(cand: Candidate) -> int:
     """리뷰 관측 수 n — 점수에 쓰는 등록 속성의 긍정 + 부정 관측 수의 합(혼합 제외, 기획 3.8).
 
-    체감 R 이 있으면 R 에 들어간 평가 속성별 표(사용기 같은 조건·그 밖 + 외부 리뷰의 p·n)를 더한다. 없으면 외부 리뷰
-    계산의 속성별 (p + n)을 더한다. 후보 풀의 다른 상품과 비교하지 않는다 — 후보 풀이 달라져도 같은 값이다."""
-    if cand.feel_detail is not None:
-        total = 0
-        for a in cand.feel_detail.attributes:
-            if a.type != "rating":
-                continue
-            total += a.same_good + a.same_bad + a.rest_good + a.rest_bad + (a.external_p or 0) + (a.external_n or 0)
-        return total
+    외부 리뷰는 큰 속성(aspect)마다 한 번씩 센다(`review_detail.contributions` 의 p + n). 체감 속성 여러 개가 같은 외부 속성을
+    가리키므로 속성별 표에서 읽으면 같은 관측을 여러 번 세게 된다. 사용기(커뮤니티) 표는 체감 속성별 같은 조건·그 밖의
+    긍정·부정 표를 더한다(성향 속성은 세지 않는다). 후보 풀의 다른 상품과 비교하지 않는다 — 후보 풀이 달라져도 같은 값이다."""
+    total = 0
     if cand.review_detail is not None:
-        return sum(int(c.p) + int(c.n) for c in cand.review_detail.contributions)
-    return 0
+        total += sum(int(c.p) + int(c.n) for c in cand.review_detail.contributions)
+    if cand.feel_detail is not None:
+        for a in cand.feel_detail.attributes:
+            if a.type == "rating":
+                total += a.same_good + a.same_bad + a.rest_good + a.rest_bad
+    return total
 
 
 def evidence_penalty(n: int, cfg: dict[str, Any]) -> float:

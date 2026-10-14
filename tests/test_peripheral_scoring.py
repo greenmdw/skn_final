@@ -27,12 +27,14 @@ def _w(**axes):
 def _cand(key, price=50_000, brand="B", specs=None, n=None, value=0.5, verdict="Pass"):
     """n 이 있으면 외부 리뷰 관측 수를 n 건(긍정)으로 가진 체감 근거를 붙인다."""
     feel = None
+    review = None
     if n is not None:
         attr = FeelAttributeDetail(code="grip", label="그립", type="rating", alpha=1.0, value=value, state="external_only",
                                    external_p=n, external_n=0)
         feel = FeelDetail(value=value, attributes=[attr])
+        review = _review_detail(("ergonomics", n, 0))
     return Candidate(product_key=key, slot="mouse", name=key, price=price, brand=brand, specs=specs or {},
-                     feel_detail=feel, verdict=verdict)
+                     feel_detail=feel, review_detail=review, verdict=verdict)
 
 
 def _req(preferences=None, stated=None):
@@ -117,23 +119,32 @@ def test_evidence_penalty_values(n, penalty):
     assert sel.evidence_penalty(n, CFG) == pytest.approx(penalty)
 
 
-def test_evidence_count_ignores_taste_attributes_and_sums_both_sides():
+def _review_detail(*contribs):
+    return ReviewScoreDetail(
+        profile=ReviewRequirementProfile(profile_version="p", analysis_version="a", part_type="mouse"), value=0.6,
+        contributions=[ReviewAspectContribution(aspect_code=a, context_code="actual_use", rule_id="r", aggregate_id=a,
+                                                alpha=1.0, p=p, n=n, mixed=7, k=4, q=0.6, alpha_q=0.6, evidence_state="observed")
+                       for a, p, n in contribs])
+
+
+def test_evidence_count_counts_each_external_aspect_once_plus_community_votes():
+    """외부 리뷰는 aspect 마다 한 번(체감 속성이 같은 aspect 를 가리켜도 다시 세지 않는다), 사용기 표는 평가 속성만 더한다."""
     attrs = [
-        FeelAttributeDetail(code="grip", label="g", type="rating", alpha=0.5, value=0.5, state="same_condition",
+        # 같은 외부 aspect(ergonomics)를 가리키는 두 평가 속성 — 외부 p·n 이 속성마다 복제돼 있다
+        FeelAttributeDetail(code="grip", label="g", type="rating", alpha=0.3, value=0.5, state="same_condition",
                             same_good=2, same_bad=1, rest_good=1, rest_bad=0, external_p=3, external_n=2),
-        FeelAttributeDetail(code="weight_feel", label="w", type="taste", alpha=0.5, value=0.5, state="same_condition",
-                            same_good=9, same_bad=9),
+        FeelAttributeDetail(code="wrist", label="w", type="rating", alpha=0.3, value=0.5, state="same_condition",
+                            same_good=0, same_bad=0, rest_good=0, rest_bad=1, external_p=3, external_n=2),
+        FeelAttributeDetail(code="weight_feel", label="w", type="taste", alpha=0.4, value=0.5, state="same_condition",
+                            same_good=9, same_bad=9),                                    # 성향은 세지 않는다
     ]
-    cand = Candidate(product_key="a", slot="mouse", name="a", price=1, feel_detail=FeelDetail(value=0.5, attributes=attrs))
-    assert sel.evidence_count(cand) == 2 + 1 + 1 + 0 + 3 + 2
+    cand = Candidate(product_key="a", slot="mouse", name="a", price=1, feel_detail=FeelDetail(value=0.5, attributes=attrs),
+                     review_detail=_review_detail(("ergonomics", 3, 2), ("battery_runtime", 4, 0)))
+    assert sel.evidence_count(cand) == (3 + 2) + (4 + 0) + (2 + 1 + 1 + 0) + (0 + 0 + 0 + 1)
 
 
 def test_evidence_count_falls_back_to_external_review_contributions():
-    detail = ReviewScoreDetail(
-        profile=ReviewRequirementProfile(profile_version="p", analysis_version="a", part_type="mouse"), value=0.6,
-        contributions=[ReviewAspectContribution(aspect_code="x", context_code="actual_use", rule_id="r", aggregate_id="g",
-                                                alpha=1.0, p=3, n=1, mixed=7, k=4, q=0.6, alpha_q=0.6, evidence_state="observed")])
-    cand = Candidate(product_key="a", slot="mouse", name="a", price=1, review_detail=detail)
+    cand = Candidate(product_key="a", slot="mouse", name="a", price=1, review_detail=_review_detail(("x", 3, 1)))
     assert sel.evidence_count(cand) == 4                       # 혼합(mixed)은 세지 않는다
 
 
