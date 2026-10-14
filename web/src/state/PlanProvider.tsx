@@ -243,14 +243,14 @@ export function PlanProvider({ children }: { children: ReactNode }) {
       api.conditions.respondPreferenceHint(stateRef.current.sessionId, signalId, accepted)
         .then(({ sessionId: id }) => {
           updateState(prev => ({ ...prev, sessionId: prev.sessionId ?? id }))
-          addMessage('bot', accepted ? '알겠어요. 이번 견적에 반영할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.' : '알겠어요. 이번에는 반영하지 않을게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.')
+          addMessage('bot', accepted ? '알겠어요. 이번 견적에 반영할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.' : '알겠어요. 이번에는 반영하지 않을게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.', INITIAL_CHOICES)
         })
         .catch(error => addMessage('bot', errorMessage(error, '응답을 저장하지 못했어요. 잠시 후 다시 시도해주세요.')))
       return
     }
     if (choice.startFresh) {
       addMessage('user', choice.label)
-      addMessage('bot', '좋아요, 새로 시작할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.')
+      addMessage('bot', '좋아요, 새로 시작할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.', INITIAL_CHOICES)
       return
     }
     if (choice.questionId && sessionId && stateRef.current.stage <= 2) {
