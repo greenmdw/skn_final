@@ -34,6 +34,7 @@ _REQUIRED_TOP_KEYS = {"schema_version", "rule_set_version", "kinds", "ranking", 
 _KNOWN_TOP_KEYS = _REQUIRED_TOP_KEYS | {
     "requirements", "hard_filters", "preferences", "verify", "parsing",
     "spec_conditions", "purposes", "situations", "pc_purpose_map", "interpretation", "adjust_chips", "feel",
+    "emphasis",
 }
 
 _KINDS = ("monitor", "keyboard", "mouse", "speaker")
@@ -144,6 +145,43 @@ _SCORING_KEYS = {
     "evidence_penalty", "evidence_min_n", "missing_key_penalty", "missing_key_penalty_max",
     "stated_criterion_boost", "emphasis_boost", "stated_pref_weight", "close_call_margin", "close_call_max_items",
 }
+
+
+_EMPHASIS_AXES = {"가격", "리뷰", "무상AS"}
+
+
+def _check_emphasis(data: dict) -> None:
+    """강조 낱말·브랜드 표. 낱말은 소문자 문자열, 같은 낱말이 두 곳에 있으면 어느 쪽인지 알 수 없어 거절한다."""
+    section = data.get("emphasis")
+    if section is None:
+        return
+    if not isinstance(section, dict) or set(section) != {"words", "brand_avoid_words", "brands"}:
+        raise PeripheralRuleError("주변기기 emphasis 절 키 오류(words·brand_avoid_words·brands)")
+    words = section["words"]
+    if not isinstance(words, dict) or not set(words) <= _EMPHASIS_AXES:
+        raise PeripheralRuleError(f"주변기기 emphasis.words 축은 {sorted(_EMPHASIS_AXES)} 안이어야 함")
+    seen: dict[str, str] = {}
+    for axis, items in words.items():
+        _check_word_list(f"emphasis.words.{axis}", items)
+        for w in items:
+            if w in seen:
+                raise PeripheralRuleError(f"주변기기 emphasis.words 낱말 {w!r} 가 두 축({seen[w]}, {axis})에 있음")
+            seen[w] = axis
+    _check_word_list("emphasis.brand_avoid_words", section["brand_avoid_words"])
+    brands = section["brands"]
+    if not isinstance(brands, dict) or not brands:
+        raise PeripheralRuleError("주변기기 emphasis.brands 는 비어 있지 않은 표여야 함")
+    for brand, aliases in brands.items():
+        if not isinstance(brand, str) or not brand.strip():
+            raise PeripheralRuleError(f"주변기기 emphasis.brands 이름 오류: {brand!r}")
+        _check_word_list(f"emphasis.brands.{brand}", aliases)
+
+
+def _check_word_list(where: str, items: Any) -> None:
+    if not isinstance(items, list) or not items or not all(isinstance(w, str) and w.strip() for w in items):
+        raise PeripheralRuleError(f"주변기기 {where} 는 비어 있지 않은 낱말 목록이어야 함")
+    if any(w != w.lower() for w in items):
+        raise PeripheralRuleError(f"주변기기 {where} 의 낱말은 소문자여야 함(문장을 소문자로 바꿔 비교한다)")
 
 
 def _check_criteria_cover_conditions(data: dict) -> None:
@@ -576,6 +614,7 @@ def _load_peripheral_rules(path: Path) -> dict:
     _check_adjust_chips(data)
     _check_feel(data)
     _check_interpretation(data)
+    _check_emphasis(data)
 
     if "verify" in data:
         _check_verify(data["verify"])
@@ -600,6 +639,12 @@ def ranking_def(kind: str, rules: dict | None = None) -> dict:
         return rules["ranking"][kind]
     except KeyError:
         raise PeripheralRuleError(f"알 수 없는 주변기기 종류: {kind}") from None
+
+
+def emphasis_cfg(rules: dict | None = None) -> dict:
+    """강조 축·브랜드를 문장에서 읽는 표. 절이 없으면 빈 표(아무것도 읽지 않는다)."""
+    rules = rules or load_peripheral_rules()
+    return rules.get("emphasis") or {"words": {}, "brand_avoid_words": [], "brands": {}}
 
 
 def scoring_cfg(rules: dict | None = None) -> dict:

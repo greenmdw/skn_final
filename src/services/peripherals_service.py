@@ -56,11 +56,19 @@ def _intent_from_body(body):
         "situations": situations,
         "stated": body.stated,
         "budget": body.kind_budget,
+        "emphasis": body.emphasis,
+        "brand_like": body.brand_like,
+        "brand_avoid": body.brand_avoid,
     }
     interp = peripheral_intent.sanitize(raw)
 
-    sent = {*body.purposes, *body.situations, *(c for ids in body.stated.values() for c in ids)}
-    kept = {*interp.purposes, *interp.situations, *(c for ids in interp.stated.values() for c in ids)}
+    def _names(per_kind: dict) -> set[str]:
+        return {n for items in per_kind.values() for n in items}
+
+    sent = {*body.purposes, *body.situations, *(c for ids in body.stated.values() for c in ids),
+            *_names(body.emphasis), *_names(body.brand_like), *_names(body.brand_avoid)}
+    kept = {*interp.purposes, *interp.situations, *(c for ids in interp.stated.values() for c in ids),
+            *_names(interp.emphasis), *_names(interp.brand_like), *_names(interp.brand_avoid)}
     ignored = sorted(sent - kept)
     return interp, ignored
 
@@ -92,9 +100,10 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
         "peripheral_kind_budget": interp.budget,
         "peripheral_intent": interp,
         "peripheral_resolved": peripheral_intent.resolve(interp),
-        "peripheral_brand_like": {k: list(v) for k, v in (body.brand_like or {}).items() if k in body.kinds},
-        "peripheral_brand_avoid": {k: list(v) for k, v in (body.brand_avoid or {}).items() if k in body.kinds},
-        "peripheral_emphasis": {k: list(v) for k, v in (body.emphasis or {}).items() if k in body.kinds},
+        # 선호·기피 브랜드와 강조 축은 목록 안의 값으로 정리한 해석에서 온다(예전 입력과 같은 경로).
+        "peripheral_brand_like": {k: list(v) for k, v in interp.brand_like.items() if k in body.kinds},
+        "peripheral_brand_avoid": {k: list(v) for k, v in interp.brand_avoid.items() if k in body.kinds},
+        "peripheral_emphasis": {k: list(v) for k, v in interp.emphasis.items() if k in body.kinds},
         # 사용기 분석이 쌓은 근거(종류 → 관측). 분석 결과가 없으면 비어 있고 체감 점수는 외부 리뷰만으로 계산된다.
         "peripheral_feel_observations": peripheral_post_pipeline.current_observations(
             conn, [c.product_id for group in requested_candidates.values() for c in group if c.product_id]),
