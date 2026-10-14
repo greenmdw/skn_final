@@ -218,3 +218,13 @@ def _reset_request_rate_limits():
     from src.auth import ratelimit
     ratelimit.reset_all()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _session_check_no_cache(monkeypatch):
+    """로그인 토큰 폐기 확인 결과를 프로세스에 두는 캐시가 테스트 사이에 새지 않게 하고, 요청마다 DB 로 확인하게 한다."""
+    from src.auth import session_check
+    monkeypatch.setattr(session_check, "TTL_SECONDS", 0.0)
+    session_check.reset_cache()
+    yield
+    session_check.reset_cache()

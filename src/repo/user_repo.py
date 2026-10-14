@@ -82,7 +82,7 @@ class UserRepo(Repo):
     _PUBLIC_COLUMNS = (
         "id, email_normalized AS email, display_name, "
         "(marketing_agreed_at IS NOT NULL) AS marketing_agreed, created_at, "
-        "status, password_updated_at"
+        "status, password_updated_at, sessions_revoked_at"
     )
 
     def is_email_taken(self, email_normalized: str) -> bool:
@@ -188,6 +188,20 @@ class UserRepo(Repo):
             (password_hash, user_id),
         )
         return row["password_updated_at"]
+
+    def revoke_session(self, user_id: UUID, jti: str, expires_at_epoch: int) -> None:
+        """로그아웃한 토큰을 만료 시각까지 폐기 목록에 둔다(이미 있으면 그대로). 지난 만료분은 이때 같이 지운다."""
+        self._exec("DELETE FROM identity.revoked_session WHERE expires_at < now() - interval '1 day'")
+        self._exec(
+            "INSERT INTO identity.revoked_session (jti, user_id, expires_at) VALUES (%s, %s, to_timestamp(%s)) ON CONFLICT (jti) DO NOTHING",
+            (jti, user_id, expires_at_epoch),
+        )
+
+    def revoke_all_sessions(self, user_id: UUID):
+        """이 시각 이전에 발급된 토큰을 모두 무효로 한다. 그 시각(DB now())을 돌려준다 — 이어서 쓸 새 토큰은 이 시각 뒤에 발급해야 한다."""
+        row = self._one(
+            "UPDATE identity.app_user SET sessions_revoked_at = now() WHERE id=%s RETURNING sessions_revoked_at", (user_id,))
+        return row["sessions_revoked_at"]
 
     def withdraw(self, user_id: UUID) -> None:
         """소프트 삭제 + 개인정보 제거(§A-3 회원 탈퇴)."""

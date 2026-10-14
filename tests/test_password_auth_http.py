@@ -444,7 +444,7 @@ def test_au06_email_change_clears_email_verified_at(client: TestClient, raw_conn
         "UPDATE identity.app_user SET email_verified_at = now() WHERE email_normalized=%s",
         ("au06b@example.com",),
     )
-    r = client.patch("/auth/me", json={"email": "au06b-new@example.com"})
+    r = client.patch("/auth/me", json={"email": "au06b-new@example.com", "current_password": "abcd1234"})   # 이메일 변경은 비밀번호 확인이 필요하다
     assert r.status_code == 200, r.text
     row = raw_conn.execute(
         "SELECT email_verified_at FROM identity.app_user WHERE email_normalized=%s",
@@ -456,7 +456,7 @@ def test_au06_email_change_clears_email_verified_at(client: TestClient, raw_conn
 def test_au06_email_change_conflict_409(client: TestClient):
     _signup(_fresh_client(), "au06-taken@example.com")
     _signup(client, "au06-mine@example.com")
-    r = client.patch("/auth/me", json={"email": "au06-taken@example.com"})
+    r = client.patch("/auth/me", json={"email": "au06-taken@example.com", "current_password": "abcd1234"})
     assert r.status_code == 409
     assert r.json()["error"]["code"] == "email_taken"
 
