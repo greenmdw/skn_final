@@ -160,6 +160,19 @@ SELECT count(*) FROM engine.peripheral_post_evidence e
 LEFT JOIN engine.peripheral_post_evidence_embedding m ON m.evidence_id = e.id WHERE m.evidence_id IS NULL;   -- 0 이어야 한다
 ```
 
+**정답표 자동 점검**(읽기 전용): 기획 문서 표를 속성 코드로 옮긴 `data/community_examples/expectations.yaml`과 비교한다.
+
+```bash
+PYTHONPATH=. uv run python scripts/check_example_expectations.py            # 요약
+PYTHONPATH=. uv run python scripts/check_example_expectations.py --verbose  # 글마다 놓친 속성
+```
+
+- 평가 속성 적중률(글마다 반드시 나와야 하는 속성·성향) — 보고만 한다. `--min-coverage 0.8`을 주면 미달 시 실패한다.
+- 규칙 위반(있으면 종료 코드 1): 사용기가 아닌 글의 근거 · `-4` 글(조건을 밝히지 않는 글)에 잡힌 손 크기·목적 ·
+  6개월 미만 글의 내구성 근거 · 본문에 없는 근거 문장.
+- 짐작·가정 문장으로 보이는 근거는 의심 목록으로만 보인다(사람이 확인).
+- 손 크기·목적·상황·성향 쪽 비교는 `scripts/eval_peripheral_post_extraction.py`가 한다(짝 도구).
+
 확인할 것: F 묶음 글은 근거가 없어야 한다 · 같은 글은 한 번만 세어진다(E21~E24) · F12는 수정본 적재 뒤 원글 근거가 사라진다 ·
 제품별 최근 3개월 글 수가 기획표(`최근에 몰림` 8종, `예전에 몰림` 8종)와 같다.
 
