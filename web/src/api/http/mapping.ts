@@ -170,7 +170,7 @@ export function itemFromWire(item: WireItem): PlanItem {
   const tags = [item.price_source === 'observed' ? '수집 가격' : '데모 가격']
   if (item.alternatives_count > 0) tags.push('대안 ' + item.alternatives_count + '개')
   return {
-    id: item.item_id, key, type: item.slot_label, name: item.product.name,
+    id: item.item_id, key, type: item.slot_label, name: item.product.name, productKey: item.product.product_key ?? null,
     price: item.price * item.qty, qty: item.qty, unitPrice: item.price,
     meta: item.slot_label + ' · ' + (item.product.spec_summary || item.product.brand || item.product.name),
     source: priceSourceText(item),

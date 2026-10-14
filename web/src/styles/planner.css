@@ -249,3 +249,63 @@
 .tf-link { color: var(--mint); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
 .tf-link:hover { text-decoration-thickness: 2px; }
 .pl-msg-user .tf-link { color: var(--on-mint); font-weight: 700; }
+
+/* 확정 리포트의 목표가 알림 */
+.pl-pricewatch-body { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
+.pl-pricewatch-body > p { margin: 0; line-height: 1.6; }
+.pl-pricewatch-state { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel2); font-size: 13px; }
+.pl-pricewatch-state b { padding: 3px 9px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted); font-size: 12px; }
+.pl-pricewatch-state.tracking b { background: color-mix(in srgb, var(--info) 16%, transparent); color: var(--info); }
+.pl-pricewatch-state.reached b { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.pl-pricewatch-state.waiting b { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
+.pl-pricewatch-state small { color: var(--muted); font-size: 11px; }
+.pl-pricewatch-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.pl-pricewatch-form label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); flex: 1 1 200px; max-width: 280px; }
+.pl-pricewatch-form input { height: 42px; padding: 0 13px; border: 1px solid var(--line2); border-radius: 9px; background: var(--ink); color: var(--text); font: inherit; font-size: 14px; }
+.pl-pricewatch-form input:focus { outline: none; border-color: var(--mint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--mint) 22%, transparent); }
+.pl-pricewatch-form .pl-btn { padding: 11px 18px; font-size: 14px; }
+.pl-link-btn { margin-left: 8px; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+
+/* 추천 결과의 "이전 견적과 비교" */
+.pl-prevcmp-head { display: flex; align-items: center; gap: 16px; width: 100%; padding: 14px 20px; border: 0; background: transparent; color: var(--text); font-size: 13px; text-align: left; cursor: pointer; }
+.pl-prevcmp-head:hover { color: var(--mint); }
+.pl-prevcmp-head > span:first-child { flex: 1; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pl-prevcmp-head b { font-size: 14px; }
+.pl-prevcmp-head small { color: var(--muted); font-size: 11px; }
+.pl-prevcmp-sum { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); font-size: 12px; }
+.pl-prevcmp-head .chev { color: var(--muted); font-size: 12px; }
+.pl-prevcmp .diff { font-style: normal; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pl-prevcmp .diff.up, .pl-prevcmp em.up { color: var(--bad); }
+.pl-prevcmp .diff.down, .pl-prevcmp em.down { color: var(--ok); }
+.pl-prevcmp .diff.same, .pl-prevcmp em.same { color: var(--muted); }
+.pl-prevcmp-body { display: flex; flex-direction: column; gap: 18px; padding: 4px 20px 20px; border-top: 1px solid var(--line); padding-top: 16px; }
+.pl-prevcmp-total { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px; font-size: 14px; }
+.pl-prevcmp-total span { color: var(--muted); }
+.pl-prevcmp-total b { font-size: 20px; }
+.pl-prevcmp-total em { font-style: normal; font-weight: 700; }
+.pl-prevcmp-list { margin: 8px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.pl-prevcmp-list b { display: inline-block; min-width: 76px; margin-right: 6px; color: var(--muted); font-weight: 600; }
+.pl-prevcmp-list i { color: var(--muted); font-style: normal; }
+.pl-prevcmp-parts { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.pl-prevcmp-part { display: grid; grid-template-columns: 76px minmax(0, 1fr) auto; gap: 6px 14px; align-items: baseline; padding: 11px 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel2); font-size: 13px; }
+.pl-prevcmp-part .cat { color: var(--muted); font-weight: 600; font-size: 12px; }
+.pl-prevcmp-part .names { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.pl-prevcmp-part .names > i { color: var(--muted); font-style: normal; }
+.pl-prevcmp-part .names span { display: inline-flex; flex-direction: column; gap: 1px; min-width: 0; overflow-wrap: anywhere; }
+.pl-prevcmp-part .names .before { color: var(--muted); }
+.pl-prevcmp-part .names .after { font-weight: 700; }
+.pl-prevcmp-part .names small { font-weight: 400; color: var(--muted); font-size: 11px; }
+.pl-prevcmp-part .why { grid-column: 2 / -1; display: flex; flex-direction: column; gap: 2px; padding-top: 6px; border-top: 1px dashed var(--line); line-height: 1.55; }
+.pl-prevcmp-part .why small { color: var(--muted); font-size: 11px; }
+
+/* 부품 줄의 리뷰 요약 */
+.pl-revsum { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.pl-revsum-toggle { align-self: flex-start; padding: 5px 11px; border: 1px solid var(--line2); border-radius: 999px; background: transparent; color: var(--mint); font-size: 12px; font-weight: 700; cursor: pointer; }
+.pl-revsum-toggle:hover { background: color-mix(in srgb, var(--mint) 10%, transparent); }
+.pl-revsum-body { display: flex; flex-direction: column; gap: 10px; padding: 12px 13px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel2); font-size: 12px; }
+.pl-revsum-nums { display: flex; flex-wrap: wrap; gap: 8px 22px; }
+.pl-revsum-nums span { display: flex; flex-direction: column; gap: 2px; }
+.pl-revsum-nums small { color: var(--muted); font-size: 11px; }
+.pl-revsum-nums b { font-size: 15px; }
+.pl-revsum-facts { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 4px; line-height: 1.55; }
+.pl-revsum-notice { color: var(--muted); font-size: 11px; }

@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import ListHistory from '../components/ListHistory'
 import PlannerShell from '../components/PlannerShell'
+import PriceWatchPanel from '../components/PriceWatchPanel'
 import ProductThumb from '../components/ProductThumb'
 import { peripheralsTotal, planTotal } from '../state/planModel'
 import { usePlan } from '../state/PlanContext'
@@ -152,6 +153,8 @@ export default function ReportPage() {
 
           <ListHistory listId={setup.id} revisionNo={setup.revisionNo} />
         </article>
+        {/* 목표가 알림은 서버가 가장 최근 확정 견적서에만 건다 — 예전 견적서를 볼 때는 보이지 않는다. */}
+        {!needsOlder && setup.revisionNo != null && <PriceWatchPanel listId={setup.id} confirmedTarget={setup.target} />}
       </div>
     </PlannerShell>
   )

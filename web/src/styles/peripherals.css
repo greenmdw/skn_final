@@ -192,3 +192,43 @@
 .pf-alternatives li em { font-style: normal; color: var(--muted); font-size: 11px; }
 .pf-alternatives li em.up { color: #ffb3a8; }
 .pf-alternatives li em.down { color: var(--ok); }
+
+/* ===== F-8: 서버가 읽은 "이해한 내용", 종류 카드, 더 맞추기, 체감 근거 ===== */
+.pf-understood-hint { display: block; margin: -4px 0 12px; color: var(--muted); font-size: 11px; }
+.pf-understood-body { display: grid; gap: 10px; }
+.pf-understood-row { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 10px; align-items: start; }
+.pf-understood-row > b { padding-top: 6px; font-size: 12px; }
+.pf-understood-row em, .pf-understood-empty { color: var(--muted); font-size: 12px; font-style: normal; align-self: center; }
+.pf-understood-empty { margin: 0; }
+.pf-understood .pf-unrecognized { margin: 4px 0 0; color: #d39b37; font-size: 12px; }
+.pf-chip-x { margin-left: 2px; width: 18px; height: 18px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); font-size: 14px; line-height: 1; cursor: pointer; }
+.pf-chip-x:hover { background: color-mix(in srgb, var(--bad) 18%, transparent); color: var(--bad); }
+
+.pf-adjust { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 12px 16px; border: 1px dashed var(--line2); border-radius: 14px; background: var(--panel); }
+.pf-adjust > b { font-size: 12px; color: var(--muted); }
+.pf-adjust > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.pf-adjust button { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border: 1px solid color-mix(in srgb, var(--mint) 35%, var(--line)); border-radius: 999px; background: color-mix(in srgb, var(--mint) 8%, var(--panel)); color: var(--mint); font-size: 12px; font-weight: 700; cursor: pointer; }
+.pf-adjust button i { color: var(--muted); font-style: normal; font-weight: 500; }
+.pf-adjust button:hover:not(:disabled) { background: color-mix(in srgb, var(--mint) 16%, var(--panel)); }
+.pf-adjust button:disabled { opacity: .55; cursor: not-allowed; }
+
+/* "어떤 기기를 찾으세요?" 카드(채팅 안) */
+.pf-kind-card { align-self: stretch; display: grid; gap: 10px; padding: 12px 14px; border: 1px solid var(--line2); border-radius: 12px; background: var(--panel2); }
+.pf-kind-card > b { font-size: 13px; }
+.pf-kind-card > div { display: flex; flex-wrap: wrap; gap: 7px; }
+.pf-kind-card button { padding: 7px 12px; border: 1px solid var(--line2); border-radius: 999px; background: var(--panel); color: var(--text); font-size: 12px; font-weight: 700; cursor: pointer; }
+.pf-kind-card button.on { border-color: transparent; background: var(--grad); color: #fff; }
+.pf-kind-card .pf-kind-card-go { border-radius: 9px; border-color: transparent; background: var(--grad); color: #fff; }
+.pf-kind-card button:disabled { opacity: .5; cursor: not-allowed; }
+
+/* 체감 근거 블록 */
+.pf-feel { display: grid; gap: 10px; }
+.pf-feel-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px; font-size: 12px; }
+.pf-feel-head b { padding: 3px 8px; border-radius: 999px; background: color-mix(in srgb, var(--mint) 13%, var(--panel)); color: var(--mint); }
+.pf-feel-head span { color: var(--muted); }
+.pf-feel-attr { display: grid; gap: 7px; }
+.pf-feel-line { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 10px; font-size: 12px; align-items: baseline; }
+.pf-feel-line b { color: var(--muted); }
+.pf-feel-line span { line-height: 1.55; }
+.pf-example-tag { margin-left: 8px; padding: 2px 6px; border-radius: 5px; background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); font-size: 10px; font-style: normal; font-weight: 700; white-space: nowrap; }
+@media (max-width: 720px) { .pf-understood-row { grid-template-columns: 1fr; } .pf-feel-line { grid-template-columns: 1fr; gap: 2px; } }

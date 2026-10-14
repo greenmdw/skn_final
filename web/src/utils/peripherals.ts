@@ -1,4 +1,6 @@
-import type { PeripheralKind, PeripheralRecommendRequest, PeripheralReviewAspect } from '../api/types'
+import type {
+  PeripheralAdjustChip, PeripheralInterpretation, PeripheralKind, PeripheralResolvedKind, PeripheralReviewAspect,
+} from '../api/types'
 
 export const PERIPHERAL_KINDS: { id: PeripheralKind; label: string; description: string }[] = [
   { id: 'monitor', label: '모니터', description: '해상도·주사율·화면 크기' },
@@ -43,31 +45,112 @@ export function reviewEvidence(aspects: PeripheralReviewAspect[], limit = 3): Re
     .slice(0, limit)
 }
 
-export interface ParsedPeripheralConditions {
-  spec: string[]
-  feel: string[]
-  budgetMax?: number
-  resolution?: PeripheralRecommendRequest['resolution']
-  noiseSensitive?: boolean
+// ---- 문장 해석(서버 /peripherals/interpret) 결과를 화면 상태로 다루는 도구 ----
+
+export const EMPTY_INTERPRETATION: PeripheralInterpretation = {
+  kinds: [], purposes: [], situations: [], stated: {}, handSize: null, budget: {}, budgetTotal: null, unrecognized: [],
 }
 
-/** 대화 문장에서 조건을 뽑는다. 서버가 받는 값(예산·해상도·소음)과, 화면에만 쌓아 두는 체감 문구를 나눈다. */
-export function parsePeripheralCondition(text: string): ParsedPeripheralConditions {
-  const spec: string[] = []
-  const feel: string[] = []
-  const parsed: ParsedPeripheralConditions = { spec, feel }
-  const budget = text.match(/(\d+(?:[.,]\d+)?)\s*만\s*원/)
-  if (budget) {
-    spec.push(`예산 ${budget[1]}만 원`)
-    parsed.budgetMax = Math.round(Number(budget[1].replace(',', '')) * 10_000)
+/** 화면이 들고 있는 "이해한 내용". 칩을 지우거나 "더 맞추기"를 누르면 이 값만 바뀌고, 추천만 다시 부른다. */
+export interface UnderstoodState {
+  interpretation: PeripheralInterpretation
+  resolved: Partial<Record<PeripheralKind, PeripheralResolvedKind>>
+  /** "더 맞추기" 칩으로 더한 것 — 칩을 다시 지우면 add 를 입력에서 뺀다 */
+  adjusted: { key: string; label: string; kind: PeripheralKind; add: PeripheralAdjustChip['add'] }[]
+}
+
+export const EMPTY_UNDERSTOOD: UnderstoodState = { interpretation: EMPTY_INTERPRETATION, resolved: {}, adjusted: [] }
+
+const without = (list: string[], values: string[]) => list.filter(value => !values.includes(value))
+const union = (a: string[], b: string[]) => [...new Set([...a, ...b])]
+
+function mergeStated(a: PeripheralInterpretation['stated'], b: PeripheralInterpretation['stated'] | undefined) {
+  const next: PeripheralInterpretation['stated'] = { ...a }
+  for (const [kind, conditions] of Object.entries(b ?? {}) as [PeripheralKind, string[]][]) next[kind] = union(next[kind] ?? [], conditions)
+  return next
+}
+
+/** 아직 입력에 남아 있는 근거(목적·상황 코드, 또는 직접 말한 조건)가 하나라도 있는 선호만 남긴다 */
+function pruneResolved(state: UnderstoodState): UnderstoodState {
+  const { interpretation } = state
+  const alive = (kind: PeripheralKind, condition: string, source: string) => (
+    source === 'stated' ? (interpretation.stated[kind] ?? []).includes(condition)
+      : interpretation.purposes.includes(source) || interpretation.situations.includes(source)
+  )
+  const resolved: UnderstoodState['resolved'] = {}
+  for (const [key, entry] of Object.entries(state.resolved) as [PeripheralKind, PeripheralResolvedKind][]) {
+    resolved[key] = {
+      ...entry,
+      purposes: entry.purposes.filter(purpose => interpretation.purposes.includes(purpose.code)),
+      preferences: entry.preferences.filter(item => item.sources.length === 0 || item.sources.some(source => alive(key, item.condition, source))),
+      filters: entry.filters.filter(item => (interpretation.stated[key] ?? []).includes(item.condition)),
+    }
   }
-  if (/QHD|1440/i.test(text)) { spec.push(/165\s*Hz/i.test(text) ? 'QHD 165Hz' : 'QHD'); parsed.resolution = 'QHD_165' }
-  else if (/FHD|1080/i.test(text)) { spec.push(/144\s*Hz/i.test(text) ? 'FHD 144Hz' : 'FHD'); parsed.resolution = 'FHD_144' }
-  else if (/4K|UHD|2160/i.test(text)) { spec.push('4K'); parsed.resolution = '4K' }
-  if (/조용|저소음|소음/.test(text)) { feel.push('조용한 사용감'); parsed.noiseSensitive = true }
-  if (/쫀득|타건/.test(text)) feel.push('쫀득한 타건감')
-  if (/가벼|경량/.test(text)) feel.push('가벼운 무게')
-  if (/손이?\s*작|작은\s*손/.test(text)) feel.push('작은 손')
-  if (/눈.*편|눈부심|피로/.test(text)) feel.push('눈이 편한 화면')
-  return parsed
+  return { ...state, resolved }
+}
+
+export type UnderstoodRemoval =
+  | { type: 'purpose'; code: string }
+  | { type: 'preference'; kind: PeripheralKind; condition: string; sources: string[] }
+  | { type: 'filter'; kind: PeripheralKind; condition: string }
+  | { type: 'budget'; kind: PeripheralKind | null }
+  | { type: 'adjusted'; key: string }
+
+/** 칩 하나를 입력에서 뺀다. 서버를 다시 부르지 않고(문장 해석 비용 없음) 화면이 가진 값만 고친다. */
+export function removeUnderstood(state: UnderstoodState, removal: UnderstoodRemoval): UnderstoodState {
+  const interp = state.interpretation
+  let next: UnderstoodState = state
+  if (removal.type === 'purpose') {
+    next = { ...state, interpretation: { ...interp, purposes: without(interp.purposes, [removal.code]) } }
+  } else if (removal.type === 'filter') {
+    next = { ...state, interpretation: { ...interp, stated: { ...interp.stated, [removal.kind]: without(interp.stated[removal.kind] ?? [], [removal.condition]) } } }
+  } else if (removal.type === 'preference') {
+    const codes = removal.sources.filter(source => source !== 'stated')
+    const stated = removal.sources.includes('stated')
+      ? { ...interp.stated, [removal.kind]: without(interp.stated[removal.kind] ?? [], [removal.condition]) } : interp.stated
+    next = { ...state, interpretation: { ...interp, purposes: without(interp.purposes, codes), situations: without(interp.situations, codes), stated } }
+  } else if (removal.type === 'budget') {
+    if (removal.kind === null) next = { ...state, interpretation: { ...interp, budgetTotal: null } }
+    else {
+      const budget = { ...interp.budget }
+      delete budget[removal.kind]
+      next = { ...state, interpretation: { ...interp, budget } }
+    }
+  } else {
+    const chip = state.adjusted.find(item => item.key === removal.key)
+    if (!chip) return state
+    const stated = { ...interp.stated }
+    for (const [kind, conditions] of Object.entries(chip.add.stated ?? {}) as [PeripheralKind, string[]][]) stated[kind] = without(stated[kind] ?? [], conditions)
+    next = {
+      ...state,
+      interpretation: { ...interp, purposes: without(interp.purposes, chip.add.purposes ?? []), situations: without(interp.situations, chip.add.situations ?? []), stated },
+      adjusted: state.adjusted.filter(item => item.key !== removal.key),
+    }
+  }
+  return pruneResolved(next)
+}
+
+/** "더 맞추기" 칩의 add 를 입력에 더한다. 이미 더한 칩이면 그대로 둔다. */
+export function applyAdjustChip(state: UnderstoodState, chip: PeripheralAdjustChip): UnderstoodState {
+  const key = `${chip.kind}:${chip.id}`
+  if (state.adjusted.some(item => item.key === key)) return state
+  const interp = state.interpretation
+  return {
+    ...state,
+    interpretation: {
+      ...interp,
+      purposes: union(interp.purposes, chip.add.purposes ?? []),
+      situations: union(interp.situations, chip.add.situations ?? []),
+      stated: mergeStated(interp.stated, chip.add.stated),
+    },
+    adjusted: [...state.adjusted, { key, label: chip.label, kind: chip.kind, add: chip.add }],
+  }
+}
+
+/** 추천 요청에 실을 값(문장 해석 결과를 그대로) */
+export function recommendInputs(interp: PeripheralInterpretation) {
+  return {
+    budgetMax: interp.budgetTotal ?? undefined,
+    purposes: interp.purposes, situations: interp.situations, stated: interp.stated, kindBudget: interp.budget,
+  }
 }

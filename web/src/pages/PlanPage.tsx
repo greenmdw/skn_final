@@ -3,7 +3,9 @@ import { Link, useNavigate } from 'react-router-dom'
 import AlternativesDialog from '../components/AlternativesDialog'
 import BudgetDonut from '../components/BudgetDonut'
 import PlannerShell from '../components/PlannerShell'
+import PreviousComparison from '../components/PreviousComparison'
 import QuantityWarnings from '../components/QuantityWarnings'
+import ReviewSummaryPanel from '../components/ReviewSummaryPanel'
 import ProductThumb from '../components/ProductThumb'
 import { usePlan } from '../state/PlanContext'
 import { useSetups } from '../state/SetupsContext'
@@ -111,6 +113,7 @@ function PartRow({ item, open, busy, excluded, readOnly, confirming, lastOne, on
             {item.rating !== '-' || item.reviews !== '없음'
               ? <p><b style={{ fontSize: 20 }}>★ {item.rating}</b> <span style={{ marginLeft: 8 }}>리뷰 {item.reviews}</span></p>
               : <p style={{ color: 'var(--muted)' }}>이 제품의 리뷰 관측이 아직 없어요.</p>}
+            {item.productKey && <ReviewSummaryPanel productKey={item.productKey} />}
           </div>
           {!readOnly && <div className="pl-compare-bar">
             <div>
@@ -225,6 +228,7 @@ export default function PlanPage() {
           </div>
         )}
         {!viewOnly && <QuantityWarnings items={multiQtyItems(plan)} />}
+        {!viewOnly && plan.mode === 'new' && <PreviousComparison listId={plan.id} signature={plan.items.map(item => `${item.id}:${item.price}:${item.qty ?? 1}`).join('|')} />}
 
         <div className="pl-card">
           {excludedIds.size > 0 && <div className="pl-out-note">{excludedIds.size}개 부품을 뺐어요 · 뺀 부품은 합계와 확정에서 빠져요</div>}

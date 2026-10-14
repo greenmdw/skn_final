@@ -5,7 +5,7 @@ import {
   alternativesFromWire, currentSpecsFromRows, gamesFromText, planFromResult, priorityFromText, purposeFromText, resolutionFromText, upgradePartsFromText,
 } from './mapping'
 import { asSessionGone } from './session'
-import type { WireAlternative, WireResult, WireSessionState } from './wire'
+import type { WireAlternative, WirePreviousComparison, WireResult, WireSessionState } from './wire'
 
 const POLL_MS = 700
 const RESULT_TIMEOUT_MS = 60_000
@@ -53,6 +53,25 @@ async function answerRemainingQuestions(session: string): Promise<void> {
 // 추천을 요청할 때마다 새 목록(세션)을 만든다 — 단, 인터뷰(조건 대화 세션)에서 이미 조건을 채운 sessionId가
 // 있으면 그 세션을 그대로 쓴다(조건을 다시 만들지 않는다). 그 list_id 가 화면의 plan.id 가 되고, 확정도 같은 id 로 한다.
 export const plans: Api['plans'] = {
+  async previousComparison(listId) {
+    const wire = await request<WirePreviousComparison>('GET', `/session/${encodeURIComponent(listId)}/previous-comparison`)
+    if (!wire.available) return { available: false, reason: wire.reason || wire.text || '비교할 이전 견적이 없어요.' }
+    return {
+      available: true,
+      previousLabel: wire.previous_label ?? '이전',
+      previousListId: wire.previous_list_id ?? null,
+      text: wire.text,
+      conditionChanges: wire.condition_changes ?? [],
+      partChanges: (wire.part_changes ?? []).map(part => ({
+        slot: part.slot, label: part.label, before: part.before, after: part.after,
+        beforePrice: part.before_price, afterPrice: part.after_price, priceDiff: part.price_diff,
+      })),
+      unchanged: wire.unchanged ?? [],
+      reasons: (wire.reasons ?? []).map(reason => ({ slot: reason.slot, label: reason.label, kind: reason.kind, claim: reason.claim, evidence: reason.evidence ?? [] })),
+      totals: wire.totals ?? { before: 0, after: 0, diff: 0 },
+    }
+  },
+
   async recommend({ mode, budget, conditions, checkSnapshot, sessionId }) {
     if (budget === null) throw new ApiError('예산을 입력해주세요. 예산 안에서 구성을 추천합니다.', 'BUDGET_REQUIRED')
     let listId: string

@@ -430,12 +430,64 @@ export interface QuoteDraftChatReply {
 // ---- 주변기기 추천(백엔드 POST /session/{id}/peripherals/recommend) ----
 export type PeripheralKind = 'monitor' | 'keyboard' | 'mouse' | 'speaker'
 
+/** 서버(POST /peripherals/interpret)가 한 문장을 정해진 목록의 값으로 읽은 결과. 이어서 말하면 이 값에 더해진다. */
+export interface PeripheralInterpretation {
+  kinds: PeripheralKind[]
+  /** 목적 코드(예: 게임용). 이름은 resolved[종류].purposes 의 label 로 보인다 */
+  purposes: string[]
+  /** 상황 코드(예: trending) */
+  situations: string[]
+  /** 직접 말해서 거르는 스펙 조건(종류 → 조건 이름) */
+  stated: Partial<Record<PeripheralKind, string[]>>
+  handSize: 'small' | 'medium' | 'large' | null
+  /** 종류별 예산 상한(원) */
+  budget: Partial<Record<PeripheralKind, number>>
+  /** 여러 종류를 합친 예산(원) */
+  budgetTotal: number | null
+  /** 서버가 목록에서 찾지 못해 반영하지 못한 말 */
+  unrecognized: string[]
+}
+
+export interface PeripheralResolvedCondition { condition: string; label: string; sources: string[] }
+
+/** 한 종류에 대한 풀이. preferences 는 순위만 바꾸는 선호, filters 는 직접 말해서 거르는 조건이다 */
+export interface PeripheralResolvedKind {
+  kind: PeripheralKind
+  label: string
+  purposes: { code: string; label: string }[]
+  preferences: PeripheralResolvedCondition[]
+  filters: PeripheralResolvedCondition[]
+}
+
+export interface PeripheralInterpretRequest {
+  text: string
+  /** 직전 응답의 interpretation. 주면 이어서 말한 것으로 더해 읽는다 */
+  previous?: PeripheralInterpretation | null
+  /** 종류 카드로 고른 값. 같은 문장을 이 값과 함께 다시 보낸다 */
+  kinds?: PeripheralKind[]
+}
+
+export interface PeripheralInterpretResult {
+  interpretation: PeripheralInterpretation
+  /** 종류 → 풀이 */
+  resolved: Partial<Record<PeripheralKind, PeripheralResolvedKind>>
+  /** true 면 "어떤 기기를 찾으세요?" 카드를 띄운다 */
+  needsKind: boolean
+  /** llm | rules — 규칙으로 읽었어도 오류가 아니다 */
+  source: 'llm' | 'rules'
+  /** 문장이 길어 앞부분만 읽었다 */
+  truncated: boolean
+}
+
 export interface PeripheralRecommendRequest {
   kinds: PeripheralKind[]
+  /** 여러 종류를 합친 예산(interpretation.budgetTotal) */
   budgetMax?: number
-  resolution?: 'FHD_144' | 'QHD_165' | '4K'
-  priority?: 'performance' | 'value' | 'quiet'
-  noiseSensitive?: boolean
+  /** 아래 네 값은 interpretation 의 같은 이름 필드를 그대로 싣는다 */
+  purposes?: string[]
+  situations?: string[]
+  stated?: Partial<Record<PeripheralKind, string[]>>
+  kindBudget?: Partial<Record<PeripheralKind, number>>
   /** 주면 그 PC 견적의 해상도로 모니터 교차검사를 켠다(내 것이 아니면 서버가 조용히 무시) */
   pcListId?: string
 }
@@ -473,6 +525,51 @@ export interface PeripheralItem {
   reviewNote: string
   /** 다른 선택지. 리뷰 근거는 1위와 같은 형식이고, 서버가 사양 점검·제품 식별자는 주지 않아 담기는 할 수 없다 */
   alternatives: { name: string; price: number; diff: number; reviewAspects: PeripheralReviewAspect[]; reviewNote: string }[]
+  /** 체감 근거(사용기 분석). null 이면 보여 줄 근거가 없고 feelNote 만 보인다 */
+  feel: PeripheralFeel | null
+  feelNote: string | null
+}
+
+/** 체감 근거에 인용한 사용기 문장 하나. postId 로 커뮤니티 글을 연다 */
+export interface PeripheralFeelQuote {
+  quoteId: string
+  postId: string
+  sentence: string
+  isExample: boolean
+  /** 없으면 사진을 보여 주지 않는다 */
+  photoUrl: string | null
+}
+
+export interface PeripheralFeelAttribute {
+  code: string
+  label: string
+  /** 그대로 보여 줄 문구(예: "손이 큰 사용자 5명 중 4명이 좋게 평가했습니다") */
+  text: string
+  state: string
+  split: boolean
+  mismatch: boolean
+  quotes: PeripheralFeelQuote[]
+}
+
+export interface PeripheralFeel {
+  /** 순위에 반영된 체감 적합도(0~1). 숫자로 보여 주지 않고 문구를 쓴다 */
+  value: number
+  basis: 'community' | 'example' | 'external_only'
+  /** "예시 글 기준"·"외부 리뷰 기준" 같은 근거 이름 */
+  basisText: string
+  /** 최근 3개월 사용기 작성자 수. null 이면 표시하지 않는다 */
+  recentAuthors: number | null
+  attributes: PeripheralFeelAttribute[]
+}
+
+/** "더 맞추기" 칩. 누르면 add 를 추천 입력에 더해 추천만 다시 부른다 */
+export interface PeripheralAdjustChip {
+  kind: PeripheralKind
+  id: string
+  label: string
+  add: { purposes?: string[]; situations?: string[]; stated?: Partial<Record<PeripheralKind, string[]>> }
+  /** 눌렀을 때 순서가 바뀌는 자리 수 */
+  moved: number
 }
 
 export interface PeripheralsResult {
@@ -482,6 +579,76 @@ export interface PeripheralsResult {
   empty: { kind: string; reason: string }[]
   referencePrice: number
   priceNote: string
+  /** 목록에 없어 반영하지 않은 이름. 오류가 아니라 안내다 */
+  ignoredInputs: string[]
+  adjustChips: PeripheralAdjustChip[]
+}
+
+// ---- 제품 리뷰 요약(GET /reviews/summary/{product_key}) ----
+/** 실제로 모은 리뷰에서 나온 값만 담는다. 서버의 합성 데모 블록은 실사용자에게 보이면 안 되는 값이라 읽지 않는다. */
+export interface ReviewSummary {
+  productKey: string
+  productName: string | null
+  /** 모은 리뷰 수. 서버가 모르면 0 */
+  totalCount: number
+  ratingRaw: number | null
+  /** 검수 승인된 분석이 있을 때만 값이 있다 */
+  ratingRefined: number | null
+  excludedCount: number | null
+  excludedRatio: number | null
+  /** 상품 단위로 관측된 사실 문장들(점수가 아니다) */
+  riskEvidence: string[]
+  /** ready 면 분석이 있다, unavailable 이면 서버가 이 제품의 분석을 아직 갖고 있지 않다 */
+  status: 'ready' | 'unavailable'
+  dataNotice: string
+}
+
+// ---- 이전 견적과 비교(GET /session/{id}/previous-comparison) ----
+export interface PreviousComparisonChange { key: string; label: string; before: string; after: string }
+export interface PreviousComparisonPart {
+  slot: string
+  label: string
+  /** 이전 견적의 제품 이름. 이전에 없던 부품이면 null */
+  before: string | null
+  /** 이번 견적의 제품 이름. 이번에 없는 부품이면 null */
+  after: string | null
+  beforePrice: number | null
+  afterPrice: number | null
+  /** 줄 금액(단가×수량) 차이. 이번 − 이전 */
+  priceDiff: number
+}
+/** 바뀐 부품 하나의 이유. requirement 는 요구 사양이 달라져서, unexplained 는 요구가 그대로라 원인을 짐작하지 않은 것 */
+export interface PreviousComparisonReason { slot: string; label: string; kind: 'requirement' | 'unexplained'; claim: string; evidence: string[] }
+
+export type PreviousComparison =
+  | { available: false; reason: string }
+  | {
+    available: true
+    /** 비교한 이전 견적을 가리키는 말(예: 10월 6일) */
+    previousLabel: string
+    previousListId: string | null
+    /** 서버가 규칙으로 만든 요약 문장 */
+    text: string
+    conditionChanges: PreviousComparisonChange[]
+    partChanges: PreviousComparisonPart[]
+    /** 그대로인 부품 이름 */
+    unchanged: string[]
+    reasons: PreviousComparisonReason[]
+    totals: { before: number; after: number; diff: number }
+  }
+
+// ---- 목표가 알림(확정한 견적서의 가격 추적) ----
+export interface PriceWatch {
+  /** 알림을 켜 둔 상태인가 */
+  enabled: boolean
+  /** 목표 총액(원). 한 번도 정하지 않았으면 확정할 때의 목표 금액이 올 수 있다 */
+  targetAmount: number | null
+  /** waiting 아직 가격을 확인하지 못함(또는 꺼짐) · tracking 추적 중 · reached 목표가에 닿음 */
+  status: 'waiting' | 'tracking' | 'reached'
+  /** 가장 최근에 확인한 지금 카탈로그 기준 총액(원). 확정 당시 가격과 다를 수 있다 */
+  latestTotal: number | null
+  /** 그 가격을 확인한 시각(ISO) */
+  observedAt: string | null
 }
 
 // ---- 저장한 구성 ----
@@ -540,6 +707,12 @@ export interface Api {
     swap(plan: CurrentPlan, itemId: string, candidateId: string): Promise<CurrentPlan>
     /** 수량·구매 시점을 바꾸고 바뀐 구성을 돌려준다 */
     updateItem(plan: CurrentPlan, itemId: string, patch: ItemPatch): Promise<CurrentPlan>
+    /** 이번 추천을 이전 견적(이어서 하기로 가져온 목록, 없으면 가장 최근 추천)과 견준다. 비교할 수 없으면 available=false 와 이유 */
+    previousComparison(listId: string): Promise<PreviousComparison>
+  }
+  reviews: {
+    /** 제품 하나의 리뷰 요약. 서버에 요약이 없는 제품이면 NOT_FOUND */
+    summary(productKey: string): Promise<ReviewSummary>
   }
   checks: {
     /** 저장된 받은 견적 점검 결과(분석)를 읽는다. 분석 전이면 오류 */
@@ -550,6 +723,8 @@ export interface Api {
   peripherals: {
     /** 주변기기(모니터·키보드·마우스·스피커)를 추천받는다. sessionId 가 없으면 서버에 빈 세션을 만들어 쓴다. */
     recommend(request: PeripheralRecommendRequest, sessionId?: string | null): Promise<PeripheralsResult>
+    /** 문장 한 줄을 정해진 목록의 값으로 읽는다(로그인 불필요, 주소별 분당 20회) */
+    interpret(request: PeripheralInterpretRequest): Promise<PeripheralInterpretResult>
   }
   quoteDrafts: {
     /** 서버가 받을 수 있는 업로드 한도·이미지 인식 가능 여부. 화면 진입 때 확인한다 */
@@ -594,5 +769,9 @@ export interface Api {
     /** 같은 id가 있으면 갱신합니다. 저장된 구성을 돌려줍니다. */
     save(setup: SavedSetup): Promise<SavedSetup>
     remove(id: string): Promise<void>
+    /** 확정한 견적(가장 최근 견적서)의 목표가 알림 상태. 로그인한 소유자만 */
+    priceWatch(id: string): Promise<PriceWatch>
+    /** 목표가 알림을 켜거나 끄고 목표 금액을 바꾼다. 켤 때 금액을 안 주면 서버가 지난 값·확정 목표 금액을 쓴다 */
+    setPriceWatch(id: string, request: { enabled: boolean; targetAmount?: number }): Promise<PriceWatch>
   }
 }
