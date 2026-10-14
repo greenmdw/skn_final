@@ -74,3 +74,4 @@ worker 가 `PERIPHERAL_POST_INTERVAL_SECONDS`(기본 60초)마다 읽어 분석�
   프로세스가 `UVICORN_WORKERS`(2)개라 최대 32개다. 배포용 컨테이너를 같은 RDS 에 붙이면 합계가 60 을 넘지 않게 줄인다.
 - **프로세스마다 따로 세는 값:** IP별 요청 한도, LLM 동시 호출 상한, 추천 작업자 수. 프로세스를 늘리면 합이 배수가 된다.
 - 비밀번호·API 키·JWT 비밀은 채팅·이슈·커밋에 붙여 넣지 않는다.
+- **`docker compose config`·`docker inspect` 는 `.env` 의 값을 그대로 펼쳐 출력한다**(OPENAI_API_KEY·JWT_SECRET·DB 비밀번호 포함). 화면 공유·채팅·로그에 붙여 넣기 전에 확인하고, 새어 나갔다면 그 키를 폐기하고 새로 발급받는다. 구성만 확인하려면 `docker compose -f docker-compose.aws.yml config --no-env-resolution` 으로 `.env` 값을 풀지 않고 본다(비밀값이 출력되지 않는 것을 확인함).
