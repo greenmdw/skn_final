@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import math
 
+from src.engine.engine_config import price_alpha
+
 AXES = ("가격", "성능", "리뷰")
 _WEIGHT_TOLERANCE = 1e-9
 
@@ -28,13 +30,23 @@ def clip01(x) -> float:
     return min(1.0, max(0.0, _finite_real(x, "점수 축 값")))
 
 
-def price_axis(price, ref_budget) -> float:
-    """가격 축 = B / (B + P). 싸고 예산이 클수록 1에 가깝다. 범위가 (0, 1)이라 clip하지 않는다."""
+def price_axis(price, ref_budget, alpha=None) -> float:
+    """가격 축 = 1 / (1 + (P/B)^alpha) — 로그 가격 Sigmoid. P = B이면 0.5, 쌀수록 1, 비쌀수록 0에 가깝다.
+
+    alpha를 주지 않으면 config/recommendation_engine.yaml 값을 쓴다. alpha=1은 이전 식 B / (B + P)와 같다.
+    범위가 [0, 1]이라 clip하지 않는다."""
     p = _finite_real(price, "가격")
     b = _finite_real(ref_budget, "참고 예산")
     if p <= 0 or b <= 0:
         raise ScoreInputError(f"가격과 참고 예산은 양수여야 합니다: 가격={price!r}, 참고 예산={ref_budget!r}")
-    return b / (b + p)
+    a = price_alpha() if alpha is None else _finite_real(alpha, "가격 축 alpha")
+    if a <= 0:
+        raise ScoreInputError(f"가격 축 alpha는 양수여야 합니다: {alpha!r}")
+    try:
+        ratio_pow = (p / b) ** a
+    except OverflowError:       # P/B가 매우 크면 점수는 0에 수렴한다
+        return 0.0
+    return 1.0 / (1.0 + ratio_pow)
 
 
 def validate_axis_weights(weights, where: str) -> None:

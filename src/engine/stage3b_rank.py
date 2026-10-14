@@ -2,7 +2,8 @@
 
 [3-A] 통과분을 슬롯별 점수화 → 슬롯별 top-N. LLM·RAG 없음.
 S_base = clip01(Σ w_axis · s_axis), 축은 가격 / 성능 / 리뷰 세 개(src/engine/score_policy.py).
-  가격 = B / (B + P)   (B: 슬롯 참고 예산 = 총예산 × 슬롯 배분, P: 후보 가격)
+  가격 = 1 / (1 + (P/B)^α)   (B: 슬롯 참고 예산 = 총예산 × 슬롯 배분, P: 후보 가격,
+                              α: config/recommendation_engine.yaml 의 scoring.price_axis.alpha)
   성능 = clip01(perf_tier / 10)   (등급이 없는 CPU·GPU는 오류, 그 밖의 슬롯은 중립 0.5)
   리뷰 = clip01(리뷰 적합도)
 점수·breakdown은 반올림하지 않고, 후보 한 개의 점수는 다른 후보와 무관하다.

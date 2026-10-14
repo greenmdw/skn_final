@@ -339,7 +339,14 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--limit", type=int)
+    ap.add_argument("--engine-config", help="점수식 설정 YAML 경로(기본: config/recommendation_engine.yaml). "
+                                           "가격 축 alpha 등을 저장소 설정을 고치지 않고 바꿔 비교할 때 쓴다")
     args = ap.parse_args()
+
+    from src.engine import engine_config
+    if args.engine_config:
+        engine_config._ENGINE_CONFIG_PATH = Path(args.engine_config).resolve()
+    engine_cfg = engine_config.load_engine_config()
 
     from src.categories import load_category
     from src.db import get_conn
@@ -357,6 +364,8 @@ def main() -> None:
             "git_commit": _git("rev-parse", "HEAD"),
             "git_dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
             "rule_set_version": load_computer_rules().get("rule_set_version"),
+            "engine_config_version": engine_cfg["config_version"],
+            "price_alpha": engine_cfg["scoring"]["price_axis"]["alpha"],
             "catalog_counts": {s: len(c) for s, c in master.items()},
             "ram_pair_prices": ram_pair_prices(master),
             "requests": [],

@@ -166,13 +166,15 @@ def start_recommendation(
 
 
 def _engine_versions(category: str) -> dict:
-    """run 의 엔진 버전 기록. PC 는 규칙 버전과 점수 방식을 함께 남긴다 — score_method 가 있으면 새 방식 run 이고
-    결과의 부품 적합도(fit)를 snapshot 원본에서 읽는다(없으면 legacy_method)."""
+    """run 의 엔진 버전 기록. PC 는 규칙 버전과 점수 방식, 점수식 설정 버전(가격 축 alpha 등)을 함께 남긴다 —
+    score_method 가 있으면 새 방식 run 이고 결과의 부품 적합도(fit)를 snapshot 원본에서 읽는다(없으면 legacy_method)."""
     versions = {"pipeline": "computer-v1"}
     if category == "computer":
+        from src.engine.engine_config import load_engine_config
         from src.engine.stage2_requirement import load_computer_rules
         rules = load_computer_rules()
-        versions.update(computer_rules=rules["rule_set_version"], score_method=rules["ranking"]["score_method"])
+        versions.update(computer_rules=rules["rule_set_version"], score_method=rules["ranking"]["score_method"],
+                        engine_config=load_engine_config()["config_version"])
     return versions
 
 

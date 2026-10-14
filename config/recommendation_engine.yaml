@@ -1,0 +1,15 @@
+# PC 추천 엔진의 점수식 설정. 값을 바꾸면 config_version 을 올린다 — run 의 engine_versions 에 기록된다.
+# 요구 사양·호환 규칙·축 가중치는 computer_verification_rules.yaml 이 맡고, 이 파일은 점수식의 모양을 정하는 값만 둔다.
+# 읽는 곳: src/engine/engine_config.py → src/engine/score_policy.py(price_axis)
+schema_version: 1
+config_version: recommendation-engine-v1-20261014
+
+scoring:
+  price_axis:
+    # 가격 축 s = 1 / (1 + (P/B)^alpha) — 로그 가격 Sigmoid(log-logistic).
+    # P: 후보 가격, B: 슬롯 참고 예산(총예산 × 슬롯 배분). P = B 이면 0.5, 싸질수록 1, 비싸질수록 0 에 수렴한다.
+    # alpha 가 클수록 B 근처에서 빠르게, B 에서 먼 가격에서는 느리게 변한다(P = B 의 기울기 = alpha/4).
+    # alpha = 1 은 이전 식 B / (B + P) 와 같다.
+    # 2026-10-14 잠정값 2: 슬롯별 예산 배분 검증 전의 시작값이다. 근거와 남은 검증은
+    # docs/추천점수_예산배분_검증방향_종합_20261014.md §4.2(E3·예산 배분 하한 점검).
+    alpha: 2

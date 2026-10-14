@@ -5,6 +5,7 @@ import pytest
 
 from src.dto import Candidate, HardFilterResult, RequirementSpec, ReviewRequirementProfile, ReviewScoreDetail, Slots
 from src.engine import stage3b_rank as ranker
+from src.engine.engine_config import price_alpha
 
 
 def _detail(value, part_type='gpu'):
@@ -37,7 +38,7 @@ def test_ram_pair_has_no_bonus_and_score_is_the_plain_weighted_sum():
     cand = Candidate(product_key='ram',slot='RAM',name='RAM',price=20000,
                      specs={'capacity_gb':16,'module_config':'8GB x 2'},review_detail=_detail(.525,'ram'))
     result = ranker._score(cand,80000.0,'RAM')
-    price_axis = 80000 / (80000 + 20000)
+    price_axis = 1 / (1 + (20000 / 80000) ** price_alpha())
     base = sum(rules['weights'][k]*v for k, v in {'가격':price_axis,'성능':.5,'리뷰':.525}.items())
     assert result.score == pytest.approx(base, abs=1e-14)      # S_final = S_base — 감점 없음
     assert result.score_notes == ['neutral:성능']

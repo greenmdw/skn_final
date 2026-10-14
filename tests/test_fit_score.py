@@ -23,7 +23,7 @@ from src.services.fit_score import avg_fit, display_points, fit_for_item
 from src.services.recommendation_review_snapshot import SNAPSHOT_STEP, clear_snapshot_cache, snapshot_step
 
 WEIGHTS = {"가격": 0.45, "성능": 0.30, "리뷰": 0.25}
-NEW = {"pipeline": "computer-v1", "computer_rules": "computer-rules-v12", "score_method": "pc-fit-v2"}
+NEW = {"pipeline": "computer-v1", "computer_rules": "computer-rules-v12", "score_method": "pc-fit-v3"}
 
 
 # ── display_points ────────────────────────────────────────────────────────────
@@ -48,7 +48,7 @@ def _candidate(slot, raw_axes, *, weights=WEIGHTS, score=None, product=None, var
     product, variant = product or str(uuid.uuid4()), variant or str(uuid.uuid4())
     score = math.fsum(weights[a] * raw_axes[a] for a in AXES) if score is None else score
     return {"slot": slot, "product_id": product, "variant_id": variant, "rank_score": score,
-            "rank_breakdown": raw_axes, "rank_weights": weights, "score_method": "pc-fit-v2"}
+            "rank_breakdown": raw_axes, "rank_weights": weights, "score_method": "pc-fit-v3"}
 
 
 def _snap(*cands):
@@ -58,7 +58,7 @@ def _snap(*cands):
 def test_fit_for_item_scored_uses_raw_axes_and_one_rounding():
     cand = _candidate("GPU", {"가격": 0.8, "성능": 0.6, "리뷰": 0.5})
     fit = fit_for_item(_snap(cand), NEW, variant_id=cand["variant_id"], product_id=cand["product_id"], slot="GPU")
-    assert fit["status"] == "scored" and fit["method_version"] == "pc-fit-v2" and fit["reason"] is None
+    assert fit["status"] == "scored" and fit["method_version"] == "pc-fit-v3" and fit["reason"] is None
     assert fit["score"] == 66.5
     assert [a["axis"] for a in fit["axes"]] == list(AXES)
     assert fit["axes"][0] == {"axis": "가격", "points": 80.0, "weight": 0.45, "weighted_points": 36.0}
@@ -146,7 +146,7 @@ def test_snapshot_step_stores_raw_score_axes_weights_and_method():
     rank, build, cand = _rank(axes)
     entry = snapshot_step(rank, build, uuid.uuid4(), {})["review_snapshot"]["candidates"][cand["variant_id"]]
     assert entry["rank_score"] == cand["score"]                  # 반올림하지 않은 값 그대로
-    assert entry["rank_breakdown"] == axes and entry["rank_weights"] == WEIGHTS and entry["score_method"] == "pc-fit-v2"
+    assert entry["rank_breakdown"] == axes and entry["rank_weights"] == WEIGHTS and entry["score_method"] == "pc-fit-v3"
 
 
 @pytest.mark.parametrize("mutate", ["score", "missing_axis", "bad_weights"])
@@ -237,7 +237,7 @@ def test_run_stores_new_method_versions(conn):
     run = _run(conn, revision_id)
     assert {k: run["engine_versions"][k] for k in NEW} == NEW
     rows = EngineRepo(conn).get_candidates(run["id"])
-    assert rows and {r["score_method_version"] for r in rows} == {"pc-fit-v2"}
+    assert rows and {r["score_method_version"] for r in rows} == {"pc-fit-v3"}
 
 
 @pytest.mark.db
@@ -251,7 +251,7 @@ def test_result_fit_matches_raw_snapshot_not_the_four_digit_column(conn):
     for item in result["items"]:
         cand = snapshot["candidates"][item["product"]["variant_id"]]
         fit = item["fit"]
-        assert fit["status"] == "scored" and fit["method_version"] == "pc-fit-v2"
+        assert fit["status"] == "scored" and fit["method_version"] == "pc-fit-v3"
         assert fit["score"] == display_points(cand["rank_score"])
         assert [a["axis"] for a in fit["axes"]] == list(AXES)
         assert math.isclose(sum(a["weighted_points"] for a in fit["axes"]), fit["score"], abs_tol=0.31)

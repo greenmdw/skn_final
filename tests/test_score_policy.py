@@ -1,6 +1,6 @@
 """부품 점수식(정책 §2~§4) — 세 축 가중합, 입력 검증, 설정 검증.
 
-가격 = B/(B+P), 성능 = perf_tier/10, 리뷰 = 리뷰 적합도, S_base = clip01(Σ w·s). 반올림하지 않는다."""
+가격 = 1/(1+(P/B)^α)(α는 config/recommendation_engine.yaml), 성능 = perf_tier/10, 리뷰 = 리뷰 적합도, S_base = clip01(Σ w·s). 반올림하지 않는다."""
 from __future__ import annotations
 
 import math
@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 from src.dto import Candidate, HardFilterResult, RequirementSpec, ReviewRequirementProfile, ReviewScoreDetail, Slots
-from src.engine import stage2_requirement, stage3b_rank
+from src.engine import score_policy, stage2_requirement, stage3b_rank
 from src.engine.score_policy import AXES, ScoreInputError, clip01, price_axis, validate_axis_weights
 from src.services.review_aspect_score import build_review_requirement_profile
 
@@ -44,11 +44,41 @@ def _run(cands, spec=None, slot="GPU", **values):
 
 # ── 가격 축 ───────────────────────────────────────────────────────────────────
 
+@pytest.mark.parametrize("price, expected", [(50_000, 16 / 17), (100_000, 0.8), (200_000, 0.5),
+                                              (400_000, 0.2), (800_000, 1 / 17)])
+def test_price_axis_table_at_a_200k_reference_budget(price, expected):
+    """설정 alpha=2: 1 / (1 + (P/B)^2)."""
+    assert price_axis(price, 200_000) == pytest.approx(expected)
+    assert price_axis(price, 200_000) == price_axis(price, 200_000, alpha=2)
+
+
 @pytest.mark.parametrize("price, expected", [(50_000, 0.8), (100_000, 2 / 3), (200_000, 0.5),
                                               (400_000, 1 / 3), (800_000, 0.2)])
-def test_price_axis_table_at_a_200k_reference_budget(price, expected):
-    assert price_axis(price, 200_000) == pytest.approx(expected)
-    assert round(price_axis(price, 200_000), 4) == pytest.approx(round(expected, 4))
+def test_price_axis_alpha_1_is_the_previous_formula(price, expected):
+    assert price_axis(price, 200_000, alpha=1) == pytest.approx(expected)
+    assert price_axis(price, 200_000, alpha=1) == pytest.approx(200_000 / (200_000 + price), abs=1e-15)
+
+
+@pytest.mark.parametrize("alpha", [1, 2, 3])
+def test_price_axis_is_half_at_the_budget_and_steeper_there_as_alpha_grows(alpha):
+    b = 200_000
+    assert price_axis(b, b, alpha=alpha) == pytest.approx(0.5)
+    slope = (price_axis(b * 0.999, b, alpha=alpha) - price_axis(b * 1.001, b, alpha=alpha)) / 0.002
+    assert slope == pytest.approx(alpha / 4, rel=1e-4)       # P = B의 기울기 = alpha/4 (x = P/B 기준)
+
+
+def test_price_axis_is_monotone_and_stays_in_the_unit_interval():
+    prices = [1, 1_000, 50_000, 199_999, 200_000, 200_001, 1_000_000, 1e12, 1e300]
+    for alpha in (0.5, 1, 2, 3):
+        values = [price_axis(p, 200_000, alpha=alpha) for p in prices]
+        assert all(0.0 <= v <= 1.0 for v in values)
+        assert values == sorted(values, reverse=True)
+
+
+@pytest.mark.parametrize("alpha", [0, -1, True, math.nan, math.inf, "2"])
+def test_price_axis_rejects_bad_alpha(alpha):
+    with pytest.raises(ScoreInputError):
+        price_axis(100_000, 200_000, alpha=alpha)
 
 
 @pytest.mark.parametrize("price, budget", [
@@ -119,7 +149,7 @@ def test_removed_policy_keys_are_rejected(tmp_path, key, value):
 
 def test_default_and_priority_weights_match_the_policy_table():
     ranking = _ranking()
-    assert ranking["score_method"] == "pc-fit-v2"
+    assert ranking["score_method"] == "pc-fit-v3"
     assert ranking["weights"] == {"가격": 0.45, "성능": 0.30, "리뷰": 0.25}
     assert ranking["priority_weights"] == {
         "performance": {"가격": 0.20, "성능": 0.60, "리뷰": 0.20},
@@ -130,7 +160,13 @@ def test_default_and_priority_weights_match_the_policy_table():
 
 # ── 점수 계산 ─────────────────────────────────────────────────────────────────
 
-def test_policy_example_7_1_reproduces_0_665():
+@pytest.fixture
+def alpha_1(monkeypatch):
+    """수정계획 §7의 계산 예시는 이전 가격식 B/(B+P)(alpha=1) 기준이다."""
+    monkeypatch.setattr(score_policy, "price_alpha", lambda: 1.0)
+
+
+def test_policy_example_7_1_reproduces_0_665(alpha_1):
     # 가격 0.8 · 성능 0.6 · 리뷰 0.5, 기본 가중치.
     scored = stage3b_rank._score(_cand(price=50_000, perf_tier=6), 200_000.0, "GPU",
                                  review_detail=_detail(0.5))
@@ -138,12 +174,22 @@ def test_policy_example_7_1_reproduces_0_665():
     assert scored.score == pytest.approx(0.665)
 
 
-def test_policy_example_7_2_reproduces_0_605():
+def test_policy_example_7_2_reproduces_0_605(alpha_1):
     # 가격 0.4 · 성능 1.0 · 리뷰 0.5.
     scored = stage3b_rank._score(_cand(price=300_000, perf_tier=10), 200_000.0, "GPU",
                                  review_detail=_detail(0.5))
     assert scored.breakdown["가격"] == pytest.approx(0.4)
     assert scored.score == pytest.approx(0.605)
+
+
+@pytest.mark.parametrize("price, price_score, score", [
+    (50_000, 16 / 17, 0.45 * 16 / 17 + 0.30 * 0.6 + 0.25 * 0.5),       # P/B = 0.25
+    (300_000, 1 / 3.25, 0.45 / 3.25 + 0.30 * 0.6 + 0.25 * 0.5),        # P/B = 1.5
+])
+def test_same_examples_with_the_configured_alpha_2(price, price_score, score):
+    scored = stage3b_rank._score(_cand(price=price, perf_tier=6), 200_000.0, "GPU", review_detail=_detail(0.5))
+    assert scored.breakdown["가격"] == pytest.approx(price_score)
+    assert scored.score == pytest.approx(score)
 
 
 def test_score_and_breakdown_are_not_rounded():
