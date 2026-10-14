@@ -1,4 +1,4 @@
-import type { Api, ConversationSummary, HistoryEventKind, HistoryStepKind, SetupsListResult } from '../types'
+import type { Api, ConversationSummary, HistoryEventKind, HistoryStepKind, PriceWatch, SetupsListResult } from '../types'
 import { ApiError } from '../types'
 import type { SavedSetup } from '../../state/types'
 import { isCheckDraft, isDesk, object } from '../../state/validators'
@@ -6,7 +6,7 @@ import { request } from './client'
 import { loadedFromWire } from './conditions'
 import { lists } from './lists'
 import { setupFromReport, type SetupExtras } from './mapping'
-import type { WireConditionState, WireListHistory, WireReport } from './wire'
+import type { WireConditionState, WireListHistory, WirePriceWatch, WireReport } from './wire'
 
 // 서버에 저장하는 것: 확정한 목록(이름·구매 예정일·목표 금액·메모)과 부품·가격. 서버에 필드가 없는 화면 전용 값
 // (책상 치수 · 점검 초안 · 입력한 조건 문장)은 이 브라우저에만 보관한다 — 다른 기기에서는 기본값으로 보인다.
@@ -47,7 +47,22 @@ function toConfirmError(error: unknown): unknown {
 const HISTORY_KINDS: HistoryEventKind[] = ['condition', 'request', 'recommend', 'swap', 'remove', 'confirm']
 const STEP_KINDS: HistoryStepKind[] = ['start', 'change', 'swap', 'remove', 'unapplied', 'confirm']
 
+const priceWatchFromWire = (wire: WirePriceWatch): PriceWatch => ({
+  enabled: wire.enabled, targetAmount: wire.target_amount ?? null, status: wire.status ?? 'waiting',
+  latestTotal: wire.latest_total ?? null, observedAt: wire.observed_at ?? null,
+})
+
 export const setups: Api['setups'] = {
+  async priceWatch(id) {
+    return priceWatchFromWire(await request<WirePriceWatch>('GET', '/lists/' + id + '/alert'))
+  },
+  async setPriceWatch(id, { enabled, targetAmount }) {
+    const body: Record<string, unknown> = { enabled }
+    if (targetAmount !== undefined) body.target_amount = targetAmount
+    // 켜거나 바꾼 뒤의 상태는 { price_watch } 로 감싸서 온다(GET 은 감싸지 않는다)
+    const result = await request<{ price_watch: WirePriceWatch }>('POST', '/lists/' + id + '/alert', body)
+    return priceWatchFromWire(result.price_watch)
+  },
   async history(id, revisionNo) {
     const wire = await request<WireListHistory>('GET', '/lists/' + id + '/history' + (revisionNo ? '?revision=' + revisionNo : ''))
     return {

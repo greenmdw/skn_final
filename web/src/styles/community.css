@@ -431,3 +431,49 @@
   .cm-search-results > button { grid-template-columns: 1fr; }
   .cm-search-results > button > span { grid-row: auto; }
 }
+
+/* F-6 인용 문장 강조(잠깐 보였다가 옅어진다) */
+.cm-quote-hit { padding: 1px 3px; border-radius: 4px; background: color-mix(in srgb, var(--mint) 30%, transparent); color: inherit; animation: cm-quote-fade 4.5s ease-out 1.2s forwards; }
+@keyframes cm-quote-fade { to { background: transparent; } }
+
+/* 글 본문(제한된 Markdown) */
+.cm-md > :first-child { margin-top: 0; }
+.cm-md > :last-child { margin-bottom: 0; }
+.cm-md h2, .cm-md h3 { margin: 26px 0 10px; color: var(--text); letter-spacing: -.02em; line-height: 1.4; }
+.cm-md h2 { font-size: 20px; }
+.cm-md h3 { font-size: 16.5px; }
+.cm-md ul, .cm-md ol { margin: 12px 0; padding-left: 22px; }
+.cm-md li { margin: 4px 0; }
+.cm-md li > p { margin: 4px 0; }
+.cm-md strong { color: var(--text); }
+.cm-md a { color: var(--mint); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }
+.cm-md-table { margin: 16px 0; overflow-x: auto; }
+.cm-md table { width: 100%; border-collapse: collapse; font-size: 13.5px; line-height: 1.55; }
+.cm-md th, .cm-md td { padding: 9px 12px; border: 1px solid var(--line); text-align: left; vertical-align: top; }
+.cm-md th { background: var(--panel2); color: var(--text); font-weight: 700; white-space: nowrap; }
+
+/* 본문 이미지(마커 자리·본문 아래) */
+.cm-md-img { display: block; max-width: 100%; height: auto; margin: 14px 0; border-radius: 12px; }
+/* 허용하지 않아 비워 둔 이미지 마커의 빈 문단은 자리를 차지하지 않는다 */
+.cm-md p:empty { display: none; }
+
+/* 글쓰기: 본문 서식 안내·미리보기, 이미지를 본문에 넣기 */
+.cm-write-form .full { grid-column: 1 / -1; }
+.cm-body-field { display: grid; gap: 8px; }
+.cm-body-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cm-body-head label { font-size: 13px; font-weight: 800; }
+.cm-body-tabs { display: inline-flex; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel2); }
+.cm-body-tabs button { padding: 5px 12px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer; }
+.cm-body-tabs button.on { background: var(--panel); color: var(--mint); box-shadow: 0 1px 4px var(--shadow); }
+.cm-body-preview { min-height: 220px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel2); }
+.cm-body-field .cm-product-help { margin: 0; line-height: 1.7; }
+.cm-body-field code { padding: 1px 5px; border-radius: 5px; background: var(--ink); color: var(--text); font-size: 11px; }
+.cm-images { display: grid; gap: 8px; }
+.cm-image-list { margin: 4px 0 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+.cm-image-list li { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 14px; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel2); }
+.cm-image-list img { width: 96px; height: 96px; object-fit: cover; border-radius: 8px; display: block; }
+.cm-image-list li > div { display: grid; gap: 10px; min-width: 0; }
+.cm-image-list label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; }
+.cm-image-list label small { color: var(--muted); font-weight: 500; }
+.cm-image-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+@media (max-width: 560px) { .cm-image-list li { grid-template-columns: 1fr; } }

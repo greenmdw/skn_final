@@ -8,6 +8,8 @@ export interface WireReview {
 }
 
 export interface WireProduct {
+  /** 엔진 제품 키(예: amd-ryzen-5-5600). 리뷰 요약 조회에 쓴다 */
+  product_key?: string
   name: string
   brand: string
   spec_summary: string | null
@@ -292,6 +294,43 @@ export interface WireListHistory {
   events: { at: string; kind: string; text: string; quote?: string | null }[]
 }
 
+export interface WireReviewSummary {
+  product_key: string
+  product_name?: string | null
+  total_count: number
+  excluded_count?: number | null
+  excluded_ratio?: number | null
+  rating_raw?: number | null
+  rating_refined?: number | null
+  distribution_raw?: Record<string, number>
+  distribution_refined?: Record<string, number>
+  data_notice: string
+  status: 'unavailable' | 'ready' | string
+  product_manipulation_risk?: { evidence?: string[]; reliable_range?: boolean | null; control_scope?: string | null } | null
+  // synthetic_demo 는 일부러 읽지 않는다 — 서버가 "합성 데모값, 실사용자 노출 금지"로 표시한 값이다.
+}
+
+export interface WirePreviousComparison {
+  available: boolean
+  reason?: string | null
+  text: string
+  previous_list_id?: string | null
+  previous_label?: string | null
+  condition_changes?: { key: string; label: string; before: string; after: string }[]
+  part_changes?: { slot: string; label: string; before: string | null; after: string | null; before_price: number | null; after_price: number | null; price_diff: number }[]
+  unchanged?: string[]
+  reasons?: { slot: string; label: string; kind: 'requirement' | 'unexplained'; claim: string; evidence?: string[] }[]
+  totals?: { before: number; after: number; diff: number } | null
+}
+
+export interface WirePriceWatch {
+  enabled: boolean
+  target_amount: number | null
+  status: 'waiting' | 'tracking' | 'reached'
+  latest_total: number | null
+  observed_at: string | null
+}
+
 export interface WireUser { user: { email: string; display_name: string; marketing_agreed?: boolean; created_at?: string } }
 
 // ── 부품 교체(src.schemas.AlternativesOut) ──
@@ -330,10 +369,58 @@ export interface WirePeripheralItem {
   review: { contributions: WirePeripheralReviewContribution[] } | null
   review_weight: number
   review_note: string
+  /** 체감 근거 블록. null 이면 보여 줄 근거가 없다 */
+  feel?: WirePeripheralFeel | null
+  feel_note?: string | null
+}
+export interface WirePeripheralFeel {
+  value: number
+  basis: 'community' | 'example' | 'external_only'
+  basis_text: string
+  recent_authors: number | null
+  attributes: {
+    code: string; label: string; type?: string; state: string; text: string; alpha?: number; split: boolean; mismatch: boolean
+    quotes: { quote_id: string; post_id: string; sentence: string; is_example?: boolean; photo_url: string | null }[]
+  }[]
+}
+export interface WirePeripheralAdjustChip {
+  kind: 'monitor' | 'keyboard' | 'mouse' | 'speaker'
+  id: string
+  label: string
+  add: { purposes?: string[]; situations?: string[]; stated?: Record<string, string[]> }
+  moved: number
 }
 export interface WirePeripherals {
   status: 'ready' | 'empty' | 'skipped'
   items: WirePeripheralItem[]
   empty: { kind: string; reason: string }[]
   totals: { reference_price: number; note: string }
+  ignored_inputs?: string[]
+  adjust_chips?: WirePeripheralAdjustChip[]
+}
+
+// ── 견적 문장 해석(src.schemas.PeripheralInterpretOut) ──
+export interface WirePeripheralInterpretation {
+  kinds: ('monitor' | 'keyboard' | 'mouse' | 'speaker')[]
+  purposes: string[]
+  situations: string[]
+  stated: Record<string, string[]>
+  hand_size: 'small' | 'medium' | 'large' | null
+  budget: Record<string, number>
+  budget_total: number | null
+  unrecognized: string[]
+}
+export interface WirePeripheralResolvedCondition { condition: string; label: string; sources?: string[] }
+export interface WirePeripheralInterpret {
+  interpretation: WirePeripheralInterpretation
+  resolved: Record<string, {
+    kind: 'monitor' | 'keyboard' | 'mouse' | 'speaker'
+    label: string
+    purposes?: { code: string; label: string }[]
+    preferences?: WirePeripheralResolvedCondition[]
+    filters?: WirePeripheralResolvedCondition[]
+  }>
+  needs_kind: boolean
+  source: 'llm' | 'rules'
+  truncated?: boolean
 }

@@ -62,6 +62,8 @@ kinds:
       weight_g: weight_g
       size_mm: size_mm_raw
       connectivity_interface: connectivity_interface
+      key_force_min_g: key_force_min_g      # 0016(B-8) — 가벼운 키압 판정(<= 45g)
+      key_force_max_g: key_force_max_g      #               묵직한 키압 판정(>= 50g). 값 없는 상품은 키를 넣지 않는다(모름)
 
   mouse:
     label: 마우스

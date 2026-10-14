@@ -19,6 +19,7 @@ from src.dto import Candidate
 from src.engine import peripheral_rules
 from src.repo.catalog_repo import load_candidates_by_slot
 
+_MIGRATIONS_DIR = ROOT / "db" / "migrations"
 _SCHEMA_SQL = (ROOT / "db" / "migrations" / "0000_schema.sql").read_text(encoding="utf-8")
 
 
@@ -32,6 +33,12 @@ def _schema_columns(table: str) -> set[str]:
         if not line or line.upper().startswith("CONSTRAINT"):
             continue
         columns.add(line.split()[0])
+    # 0000 이후 마이그레이션이 ALTER TABLE ... ADD COLUMN 으로 더한 컬럼도 실제 컬럼이다(예: 0016 키압)
+    for path in sorted(_MIGRATIONS_DIR.glob("*.sql")):
+        if path.name == "0000_schema.sql":
+            continue
+        for alter in re.finditer(rf"ALTER TABLE catalog\.{re.escape(table)}(.*?);", path.read_text(encoding="utf-8"), re.S):
+            columns.update(re.findall(r"ADD COLUMN (\w+)", alter.group(1)))
     return columns
 
 

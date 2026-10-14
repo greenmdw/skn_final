@@ -1,43 +1,94 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import PlannerShell from '../components/PlannerShell'
-import { api, errorMessage, type PeripheralItem, type PeripheralKind, type PeripheralRecommendRequest, type PeripheralsResult } from '../api'
+import {
+  api, errorMessage, type PeripheralAdjustChip, type PeripheralInterpretResult, type PeripheralItem, type PeripheralKind, type PeripheralsResult,
+} from '../api'
 import { usePlan } from '../state/PlanContext'
 import { useToast } from '../state/ToastContext'
 import { wonFmt } from '../utils/format'
-import { COMMUNITY_REVIEW_BOARD, findCommunitySource, type CommunitySource } from '../utils/communitySource'
 import { Linkified } from '../utils/linkify'
-import { PERIPHERAL_KINDS as KINDS, aspectLabel, parsePeripheralCondition, reviewEvidence, type ParsedPeripheralConditions, type ReviewEvidence } from '../utils/peripherals'
+import {
+  EMPTY_INTERPRETATION, EMPTY_UNDERSTOOD, PERIPHERAL_KINDS as KINDS, applyAdjustChip, aspectLabel, recommendInputs, removeUnderstood, reviewEvidence,
+  type ReviewEvidence, type UnderstoodRemoval, type UnderstoodState,
+} from '../utils/peripherals'
 import '../styles/peripherals.css'
 
 type ChatMessage = { id: number; role: 'user' | 'assistant'; text: string }
 
 const QUICK = ['FHD 144Hz', 'QHD 165Hz', '4K', '잘 모르겠어요']
+const COMMUNITY_REVIEW_BOARD = '/community?view=board&board=review'
+const kindLabel = (kind: PeripheralKind) => KINDS.find(entry => entry.id === kind)?.label ?? kind
 
-function PeripheralChat({ selected, spec, feel, showingResults, onMessage }: {
-  selected: Set<PeripheralKind>
-  spec: string[]
-  feel: string[]
+interface SendOutcome { reply: string; needsKind: boolean }
+
+/** 서버가 읽은 내용을 대화 답장 한 줄로 */
+function interpretReply(result: PeripheralInterpretResult): string {
+  const labels: string[] = []
+  for (const kind of result.interpretation.kinds) {
+    const resolved = result.resolved[kind]
+    if (!resolved) continue
+    labels.push(...resolved.purposes.map(purpose => purpose.label), ...resolved.filters.map(item => item.label), ...resolved.preferences.map(item => item.label))
+  }
+  const { budget, budgetTotal, unrecognized } = result.interpretation
+  if (budgetTotal) labels.push(`예산 ${wonFmt(budgetTotal)}`)
+  for (const [kind, won] of Object.entries(budget) as [PeripheralKind, number][]) labels.push(`${kindLabel(kind)} 예산 ${wonFmt(won)}`)
+  const parts: string[] = []
+  if (labels.length) parts.push(`말씀한 조건을 반영했어요: ${[...new Set(labels)].join(' · ')}`)
+  if (unrecognized.length) parts.push(`이 부분은 아직 반영하지 못했어요: ${unrecognized.join(' · ')}`)
+  if (!parts.length) parts.push('아직 읽어 낸 조건이 없어요. 예: “조용한 무선 마우스 5만원 이하”처럼 말씀해 주세요.')
+  if (result.truncated) parts.push('문장이 길어 앞부분만 읽었어요.')
+  return parts.join('\n')
+}
+
+function PeripheralChat({ selectedLabels, conditionCount, showingResults, onSend }: {
+  selectedLabels: string[]
+  conditionCount: number
   showingResults: boolean
-  onMessage: (text: string, parsed: ParsedPeripheralConditions) => void
+  onSend: (text: string, kinds?: PeripheralKind[]) => Promise<SendOutcome>
 }) {
   const [draft, setDraft] = useState('')
+  const [busy, setBusy] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: 1, role: 'assistant', text: '필요한 품목을 고르고 원하는 느낌을 말해 주세요. 예를 들면 “조용하고 쫀득한 키보드”, “손이 작아서 가벼운 마우스”처럼요.' },
   ])
+  // "어떤 기기를 찾으세요?" 카드: 서버가 종류를 알아듣지 못한 문장과, 카드에서 고르는 중인 종류
+  const [pendingText, setPendingText] = useState<string | null>(null)
+  const [pendingKinds, setPendingKinds] = useState<Set<PeripheralKind>>(() => new Set())
   const nextId = useRef(2)
+
+  const say = (role: ChatMessage['role'], text: string) => setMessages(previous => [...previous, { id: nextId.current++, role, text }])
+
+  async function deliver(text: string, kinds?: PeripheralKind[]) {
+    setBusy(true)
+    try {
+      const outcome = await onSend(text, kinds)
+      if (outcome.needsKind) {
+        setPendingText(text)
+        setPendingKinds(new Set())
+        say('assistant', '어떤 기기를 찾으세요? 아래에서 골라 주세요.')
+      } else {
+        setPendingText(null)
+        say('assistant', outcome.reply)
+      }
+    } catch (caught) {
+      say('assistant', errorMessage(caught, '문장을 읽지 못했어요. 잠시 후 다시 말씀해 주세요.'))
+    } finally { setBusy(false) }
+  }
 
   function send(text: string) {
     const clean = text.trim()
-    if (!clean) return
-    const parsed = parsePeripheralCondition(clean)
-    const reflected = [...parsed.spec, ...parsed.feel]
-    setMessages(previous => [...previous,
-      { id: nextId.current++, role: 'user', text: clean },
-      { id: nextId.current++, role: 'assistant', text: reflected.length ? `말씀한 조건을 반영했어요: ${reflected.join(' · ')}` : '말씀하신 내용을 추가 조건으로 기록했어요.' },
-    ])
-    onMessage(clean, parsed)
+    if (!clean || busy) return
+    say('user', clean)
     setDraft('')
+    void deliver(clean)
+  }
+
+  function chooseKinds() {
+    if (!pendingText || pendingKinds.size === 0 || busy) return
+    const kinds = KINDS.filter(kind => pendingKinds.has(kind.id)).map(kind => kind.id)
+    say('user', kinds.map(kindLabel).join(' · '))
+    void deliver(pendingText, kinds)
   }
 
   function submit(event: FormEvent) {
@@ -45,22 +96,30 @@ function PeripheralChat({ selected, spec, feel, showingResults, onMessage }: {
     send(draft)
   }
 
-  const selectedLabels = KINDS.filter(kind => selected.has(kind.id)).map(kind => kind.label)
   return (
     <aside className="pl-chat pf-chat" aria-label="주변기기 조건 대화">
       <div className="pl-chat-head"><span className="pl-dot" />주변기기 조건 대화</div>
       <div className="pl-chat-log">
         {messages.map(message => <div key={message.id} className={message.role === 'user' ? 'pl-msg-user' : 'pl-msg-bot'}><Linkified text={message.text} /></div>)}
-        {selectedLabels.length > 0 && <div className="pf-reflected">✓ 선택 품목: {selectedLabels.join(' · ')}{spec.length || feel.length ? ` · 조건 ${spec.length + feel.length}개` : ''}</div>}
+        {pendingText !== null && <div className="pf-kind-card" role="group" aria-label="어떤 기기를 찾으세요?">
+          <b>어떤 기기를 찾으세요?</b>
+          <div>
+            {KINDS.map(kind => <button type="button" key={kind.id} className={pendingKinds.has(kind.id) ? 'on' : ''} aria-pressed={pendingKinds.has(kind.id)} disabled={busy}
+              onClick={() => setPendingKinds(previous => { const next = new Set(previous); if (next.has(kind.id)) next.delete(kind.id); else next.add(kind.id); return next })}>{kind.label}</button>)}
+          </div>
+          <button type="button" className="pf-kind-card-go" disabled={busy || pendingKinds.size === 0} onClick={chooseKinds}>이 종류로 찾기</button>
+        </div>}
+        {busy && <div className="pl-typing pl-mono" aria-label="문장을 읽는 중">···</div>}
+        {selectedLabels.length > 0 && <div className="pf-reflected">✓ 선택 품목: {selectedLabels.join(' · ')}{conditionCount ? ` · 조건 ${conditionCount}개` : ''}</div>}
         {showingResults && <div className="pl-msg-bot">품목마다 하나씩 골랐어요. 스펙 조건과 리뷰 근거를 함께 확인해 주세요.</div>}
       </div>
       <div className="pl-chat-foot">
         <div className="pl-choices pf-quick">
-          {QUICK.map(text => <button type="button" className="pl-choice" key={text} onClick={() => send(text)}>{text}</button>)}
+          {QUICK.map(text => <button type="button" className="pl-choice" key={text} disabled={busy} onClick={() => send(text)}>{text}</button>)}
         </div>
         <form className="pl-input" onSubmit={submit}>
           <input value={draft} onChange={event => setDraft(event.target.value)} placeholder="원하는 조건을 자유롭게 적어 주세요" aria-label="주변기기 조건 입력" />
-          <button type="submit" className="pl-send" disabled={!draft.trim()}>보내기</button>
+          <button type="submit" className="pl-send" disabled={!draft.trim() || busy}>보내기</button>
         </form>
       </div>
     </aside>
@@ -80,33 +139,71 @@ function ReviewRows({ evidence, withQuotes = false }: { evidence: ReviewEvidence
   </div>)}</>
 }
 
-// 추천 제품의 대표 후기 카드. 커뮤니티에 이 제품의 사용기 글이 있으면 그 글(사진·내용)을 보여 주고 "원문 보기"로 글을 연다.
-// 없으면 서버가 준 후기 문장(quote)을 보여 주고, 링크는 사용기 게시판으로 간다. 글도 후기 문장도 없으면 "아직 없어요" 빈 카드를 보여 준다.
-function CommunityCitation({ productName, kindLabel, quote }: { productName: string; kindLabel: string; quote: string | null }) {
-  const [source, setSource] = useState<CommunitySource | null>(null)
-  const [searched, setSearched] = useState(false)
-  useEffect(() => {
-    let alive = true
-    setSource(null)
-    setSearched(false)
-    void findCommunitySource(productName, kindLabel).then(found => { if (alive) { setSource(found); setSearched(true) } })
-    return () => { alive = false }
-  }, [productName, kindLabel])
-  const text = source?.excerpt || quote
-  if (!text) {
-    if (!searched) return null   // 찾는 중에는 빈 카드가 깜빡이지 않게 비워 둔다
+// 추천 제품의 체감 근거(사용기 분석). 서버가 준 문구를 그대로 보여 주고, 인용 문장은 사진(있을 때만)과 함께 커뮤니티 글로 연결한다.
+// 근거가 없으면(feel 이 null) 서버가 준 한 줄(feelNote)과 "사용기가 아직 없어요" 안내만 보인다. 어느 쪽이든 사용기 게시판 링크 카드가 맨 아래에 붙는다.
+function FeelBlock({ item }: { item: PeripheralItem }) {
+  const { feel } = item
+  if (!feel) {
     return <div className="pf-citation empty">
-      <span className="pf-citation-thumb" aria-hidden="true">글의 사진</span>
-      <p>이 제품의 사용기가 아직 없어요. 첫 사용기를 남겨 보세요.</p>
+      <p>{item.feelNote ? `${item.feelNote} · ` : ''}이 제품의 사용기가 아직 없어요. 첫 사용기를 남겨 보세요.</p>
       <Link to={COMMUNITY_REVIEW_BOARD}>사용기 게시판 보기 →</Link>
     </div>
   }
-  return <div className="pf-citation">
-    <span className="pf-citation-thumb" aria-hidden="true">
-      {source?.coverUrl ? <img src={source.coverUrl} alt="" loading="lazy" onError={event => { event.currentTarget.style.display = 'none' }} /> : '글의 사진'}
-    </span>
-    <p>“{text}”</p>
-    <Link to={source?.path ?? COMMUNITY_REVIEW_BOARD}>원문 보기 →</Link>
+  return <div className="pf-feel">
+    <div className="pf-feel-head">
+      {feel.basisText && <b>{feel.basisText}</b>}
+      {feel.recentAuthors !== null && <span>최근 3개월 사용기 {feel.recentAuthors}명</span>}
+    </div>
+    {feel.attributes.map(attribute => <div className="pf-feel-attr" key={attribute.code}>
+      <div className="pf-feel-line"><b>{attribute.label}</b><span>{attribute.text}</span></div>
+      {attribute.quotes.slice(0, 2).map(quote => <div className="pf-citation" key={quote.quoteId}>
+        {quote.photoUrl && <span className="pf-citation-thumb"><img src={quote.photoUrl} alt="" loading="lazy" onError={event => { event.currentTarget.style.display = 'none' }} /></span>}
+        <p>“{quote.sentence}”{quote.isExample && <em className="pf-example-tag">예시 글</em>}</p>
+        <Link to={`/community?view=post&post=${encodeURIComponent(quote.postId)}&quote=${encodeURIComponent(quote.quoteId)}`} state={{ quoteSentence: quote.sentence }}>원문 보기 →</Link>
+      </div>)}
+    </div>)}
+    <div className="pf-citation empty">
+      <p>이 제품의 사용기를 더 보거나 직접 남겨 보세요.</p>
+      <Link to={COMMUNITY_REVIEW_BOARD}>사용기 게시판 보기 →</Link>
+    </div>
+  </div>
+}
+
+// "이해한 내용": 서버가 읽은 목적·선호·직접 말한 조건·예산을 칩으로 보여 준다. 칩의 ×를 누르면 그 값을 입력에서 빼고 추천만 다시 부른다.
+function UnderstoodChips({ understood, kinds, hasPlan, onRemove }: {
+  understood: UnderstoodState
+  kinds: PeripheralKind[]
+  hasPlan: boolean
+  onRemove: (removal: UnderstoodRemoval) => void
+}) {
+  const { interpretation, resolved, adjusted } = understood
+  const chip = (key: string, group: string, label: string, removal?: UnderstoodRemoval) => (
+    <span key={key}><i>{group}</i>{label}{removal && <button type="button" className="pf-chip-x" aria-label={`${label} 빼기`} onClick={() => onRemove(removal)}>×</button>}</span>
+  )
+  const rows = kinds.map(kind => {
+    const entry = resolved[kind]
+    const chips = [
+      ...(entry?.purposes ?? []).map(purpose => chip(`${kind}:p:${purpose.code}`, '목적', purpose.label, { type: 'purpose', code: purpose.code })),
+      ...(entry?.filters ?? []).map(item => chip(`${kind}:f:${item.condition}`, '조건', item.label, { type: 'filter', kind, condition: item.condition })),
+      ...(entry?.preferences ?? []).map(item => chip(`${kind}:s:${item.condition}`, '선호', item.label, { type: 'preference', kind, condition: item.condition, sources: item.sources })),
+      ...(interpretation.budget[kind] ? [chip(`${kind}:b`, '예산', wonFmt(interpretation.budget[kind] as number), { type: 'budget', kind })] : []),
+    ]
+    return { kind, chips }
+  })
+  const adjustedChips = adjusted.map(item => chip(`a:${item.key}`, '더 맞춤', item.label, { type: 'adjusted', key: item.key }))
+  const shared = [
+    ...(interpretation.budgetTotal ? [chip('total', '예산', `합계 ${wonFmt(interpretation.budgetTotal)}`, { type: 'budget', kind: null })] : []),
+    ...(hasPlan ? [<span className="pc" key="pc"><i>PC 견적</i>본체 조건 연결됨</span>] : []),
+  ]
+  const empty = rows.every(row => row.chips.length === 0) && adjustedChips.length === 0 && shared.length === 0
+  return <div className="pf-understood-body">
+    {rows.map(row => <div className="pf-understood-row" key={row.kind}>
+      <b>{kindLabel(row.kind)}</b>
+      <div className="pf-understood-chips">{row.chips.length ? row.chips : <em>아직 읽은 조건이 없어요</em>}</div>
+    </div>)}
+    {(adjustedChips.length > 0 || shared.length > 0) && <div className="pf-understood-row"><b>공통</b><div className="pf-understood-chips">{shared}{adjustedChips}</div></div>}
+    {interpretation.unrecognized.length > 0 && <p className="pf-unrecognized">이 부분은 아직 반영하지 못했어요: {interpretation.unrecognized.join(' · ')}</p>}
+    {empty && kinds.length === 0 && <p className="pf-understood-empty">품목을 고르면 이곳에 이해한 내용이 보여요.</p>}
   </div>
 }
 
@@ -115,11 +212,9 @@ export default function PeripheralsPage() {
   const { showToast } = useToast()
   const navigate = useNavigate()
   const [selected, setSelected] = useState<Set<PeripheralKind>>(() => new Set(KINDS.map(kind => kind.id)))
-  const [specConditions, setSpecConditions] = useState<string[]>([])
-  const [feelConditions, setFeelConditions] = useState<string[]>([])
-  const [extraConditions, setExtraConditions] = useState<string[]>([])
-  // 서버 추천 요청에 실리는 값. 대화에서 뽑힌 마지막 값이 이긴다.
-  const [params, setParams] = useState<Pick<PeripheralRecommendRequest, 'budgetMax' | 'resolution' | 'noiseSensitive'>>({})
+  // 사용자가 종류 카드를 직접 눌렀는지. 눌렀다면 문장을 읽을 때 그 종류를 서버에 함께 보낸다.
+  const [kindsTouched, setKindsTouched] = useState(false)
+  const [understood, setUnderstood] = useState<UnderstoodState>(EMPTY_UNDERSTOOD)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -128,12 +223,13 @@ export default function PeripheralsPage() {
   const sessionId = useRef<string | null>(null)
 
   const showResults = result !== null
-  const selectedLabels = useMemo(() => KINDS.filter(kind => selected.has(kind.id)).map(kind => kind.label), [selected])
+  const selectedKinds = useMemo(() => KINDS.filter(kind => selected.has(kind.id)).map(kind => kind.id), [selected])
+  const selectedLabels = useMemo(() => selectedKinds.map(kindLabel), [selectedKinds])
   const pickedItems = useMemo(() => (result?.items ?? []).filter(item => pickedKinds.has(item.kind)), [pickedKinds, result])
   const total = useMemo(() => pickedItems.reduce((sum, item) => sum + item.price, 0), [pickedItems])
-  const budget = params.budgetMax ?? null
+  const budget = understood.interpretation.budgetTotal
   const plan = state.currentPlan
-  const hasUnreflectedFeel = feelConditions.some(condition => condition !== '조용한 사용감')
+  const conditionCount = useMemo(() => Object.values(understood.resolved).reduce((sum, entry) => sum + (entry ? entry.preferences.length + entry.filters.length : 0), 0), [understood])
 
   function toggle(kind: PeripheralKind) {
     setSelected(previous => {
@@ -141,43 +237,55 @@ export default function PeripheralsPage() {
       if (next.has(kind)) next.delete(kind); else next.add(kind)
       return next
     })
+    setKindsTouched(true)
     setNotice('')
     setResult(null)
   }
 
-  function addConditions(text: string, parsed: ParsedPeripheralConditions) {
-    setSpecConditions(previous => [...new Set([...previous, ...parsed.spec])])
-    setFeelConditions(previous => [...new Set([...previous, ...parsed.feel])])
-    if (!parsed.spec.length && !parsed.feel.length) setExtraConditions(previous => [...new Set([...previous, text])])
-    setParams(previous => ({
-      budgetMax: parsed.budgetMax ?? previous.budgetMax,
-      resolution: parsed.resolution ?? previous.resolution,
-      noiseSensitive: parsed.noiseSensitive ?? previous.noiseSensitive,
-    }))
+  // 채팅 한 문장을 서버가 읽게 한다. 종류를 못 알아들으면 needsKind 로 알려 카드를 띄우게 한다(상태는 바꾸지 않는다).
+  async function interpretText(text: string, chosen?: PeripheralKind[]): Promise<SendOutcome> {
+    const previous = understood.interpretation === EMPTY_INTERPRETATION ? null : understood.interpretation
+    const kinds = chosen ?? (kindsTouched && selectedKinds.length ? selectedKinds : undefined)
+    const out = await api.peripherals.interpret({ text, previous, kinds })
+    if (out.needsKind && !chosen) return { reply: '', needsKind: true }
+    setUnderstood({ interpretation: out.interpretation, resolved: out.resolved, adjusted: [] })
+    const nextKinds = chosen ?? out.interpretation.kinds
+    if (nextKinds.length) { setSelected(new Set(nextKinds)); setKindsTouched(true) }
     setNotice('')
     setResult(null)
+    return { reply: interpretReply(out), needsKind: false }
   }
 
-  async function requestRecommendation() {
+  async function requestRecommendation(next: UnderstoodState = understood) {
     if (!selected.size) {
       setNotice('추천받을 주변기기를 한 개 이상 선택해주세요.')
       return
     }
     setNotice(''); setError(''); setLoading(true)
     try {
-      const next = await api.peripherals.recommend({
-        kinds: KINDS.filter(kind => selected.has(kind.id)).map(kind => kind.id),
-        budgetMax: params.budgetMax,
-        resolution: params.resolution,
-        noiseSensitive: params.noiseSensitive,
+      const out = await api.peripherals.recommend({
+        kinds: selectedKinds,
         pcListId: plan?.id,
+        ...recommendInputs(next.interpretation),
       }, sessionId.current)
-      sessionId.current = next.sessionId
-      setResult(next)
-      setPickedKinds(new Set(next.items.map(item => item.kind)))
+      sessionId.current = out.sessionId
+      setResult(out)
+      setPickedKinds(new Set(out.items.map(item => item.kind)))
     } catch (caught) {
       setError(errorMessage(caught, '주변기기를 추천받지 못했습니다. 잠시 후 다시 시도해주세요.'))
     } finally { setLoading(false) }
+  }
+
+  // 칩 삭제·"더 맞추기"는 서버의 문장 해석을 부르지 않고 입력만 고쳐 추천만 다시 받는다.
+  function changeUnderstood(next: UnderstoodState) {
+    setUnderstood(next)
+    if (showResults) void requestRecommendation(next)
+  }
+
+  function adjust(chip: PeripheralAdjustChip) {
+    const next = applyAdjustChip(understood, chip)
+    setUnderstood(next)
+    void requestRecommendation(next)
   }
 
   function toCart() {
@@ -208,10 +316,11 @@ export default function PeripheralsPage() {
   function recommendationCard(item: PeripheralItem) {
     const evidence = reviewEvidence(item.reviewAspects)
     const picked = pickedKinds.has(item.kind)
-    const cautions = item.checks.filter(check => check.state !== 'ok')
+    const entry = understood.resolved[item.kind]
+    const understoodLabels = [...(entry?.filters ?? []), ...(entry?.preferences ?? [])].map(condition => condition.label)
     return <section className="pf-kind-result" key={item.kind}>
       <div className="pf-kind-heading"><h2>{item.kindLabel}</h2><span>조건과 리뷰 근거에 가장 잘 맞는 제품</span></div>
-      <p className="pf-kind-pref">{[...specConditions, ...feelConditions].join(' · ') || '선택한 품목과 현재 조건을 기준으로 추천'}</p>
+      <p className="pf-kind-pref">{understoodLabels.join(' · ') || '선택한 품목과 현재 조건을 기준으로 추천'}</p>
       <article className="pf-hero-card">
         <div className="pf-hero-side">
           <span className="pf-best">가장 잘 맞아요</span>
@@ -223,11 +332,8 @@ export default function PeripheralsPage() {
           <h3>{item.name}</h3>
           <div className="pf-fit-tags">{item.requirement.map(row => <span key={row.key}>✓ {row.value}</span>)}{item.checks.filter(check => check.state === 'fail').map(check => <span className="no" key={check.axis}>✕ {check.label}</span>)}</div>
           {item.reason.text && <p className="pf-main-reason">{item.reason.text}</p>}
-          <div className="pf-review-evidence">
-            <ReviewRows evidence={evidence} />
-          </div>
-          <CommunityCitation productName={item.name} kindLabel={item.kindLabel} quote={evidence.find(review => review.quote)?.quote ?? null} />
-          {(cautions.length > 0 || item.guide.text) && <div className="pf-caution"><b>구매 전 확인</b><span>{[...cautions.map(check => check.detail), item.guide.text].filter(Boolean).join(' · ')}</span></div>}
+          {evidence.length > 0 && <div className="pf-review-evidence"><ReviewRows evidence={evidence} /></div>}
+          <FeelBlock item={item} />
           <div className="pf-card-foot">{item.reviewNote && <span>{item.reviewNote}</span>}{item.priceNote && <span>{item.priceNote}</span>}{item.productUrl && <a href={item.productUrl} target="_blank" rel="noreferrer">상품 보기 →</a>}</div>
         </div>
       </article>
@@ -243,8 +349,10 @@ export default function PeripheralsPage() {
     </section>
   }
 
+  const understoodPanel = <UnderstoodChips understood={understood} kinds={selectedKinds} hasPlan={Boolean(plan)} onRemove={removal => changeUnderstood(removeUnderstood(understood, removal))} />
+
   return (
-    <PlannerShell sidebar={<PeripheralChat selected={selected} spec={specConditions} feel={feelConditions} showingResults={showResults} onMessage={addConditions} />}>
+    <PlannerShell sidebar={<PeripheralChat selectedLabels={selectedLabels} conditionCount={conditionCount} showingResults={showResults} onSend={interpretText} />}>
       <div className={'pf-page' + (showResults ? ' results' : '')}>
         {showResults ? <>
           <div className="pf-results-heading">
@@ -256,14 +364,17 @@ export default function PeripheralsPage() {
           </div>
           <section className="pf-understood">
             <b>이해한 내용</b>
-            <div className="pf-understood-chips">
-              {selectedLabels.map(label => <span key={label}><i>종류</i>{label}</span>)}
-              {specConditions.map(condition => <span key={condition}><i>스펙</i>{condition}</span>)}
-              {feelConditions.map(condition => <span key={condition}><i>사용감</i>{condition}</span>)}
-              {plan && <span className="pc"><i>PC 견적</i>본체 조건 연결됨</span>}
-            </div>
-            {extraConditions.length > 0 && <p>아직 추천 순서에 직접 반영하지 못한 조건: {extraConditions.join(' · ')}</p>}
+            {understoodPanel}
+            {result.ignoredInputs.length > 0 && <p className="pf-unrecognized">목록에 없어 반영하지 않았어요: {result.ignoredInputs.join(' · ')}</p>}
           </section>
+          {result.adjustChips.length > 0 && <section className="pf-adjust" aria-label="더 맞추기">
+            <b>더 맞추기</b>
+            <div>{result.adjustChips.map(chip => <button type="button" key={`${chip.kind}:${chip.id}`} disabled={loading} onClick={() => adjust(chip)}>
+              <i>{kindLabel(chip.kind)}</i>{chip.label}
+            </button>)}</div>
+          </section>}
+          {loading && <div className="pl-note" role="status">추천을 다시 고르고 있어요…</div>}
+          {error && <div className="pl-alert bad" role="alert">{error}</div>}
           {result.status === 'skipped' && <div className="pl-alert warn" role="status">서버가 이번 요청은 추천하지 않았어요. 조건을 바꿔 다시 시도해 주세요.</div>}
           {result.empty.length > 0 && <div className="pl-alert warn" role="status">{result.empty.map(row => `${KINDS.find(kind => kind.id === row.kind)?.label ?? row.kind}: ${row.reason}`).join(' · ')}</div>}
           <div className="pf-results-list">{result.items.map(recommendationCard)}</div>
@@ -291,27 +402,10 @@ export default function PeripheralsPage() {
           })}
         </div>
 
-        <div className="pf-condition-grid">
-          <section className="pf-condition-card">
-            <div className="pf-card-title"><b>스펙 조건</b><span>예산·해상도·주사율처럼 수치로 확인할 조건</span></div>
-            <div className="pf-chips">
-              {specConditions.map(condition => <span key={condition}>{condition}</span>)}
-              {specConditions.length === 0 && <p>아직 입력한 스펙 조건이 없어요.</p>}
-            </div>
-          </section>
-          <section className="pf-condition-card">
-            <div className="pf-card-title"><b>체감 조건</b><span>사용감과 선호는 리뷰 근거로 확인할 조건</span></div>
-            <div className="pf-chips">
-              {feelConditions.map(condition => <span key={condition}>{condition}</span>)}
-              {feelConditions.length === 0 && <p>아직 입력한 체감 조건이 없어요.</p>}
-            </div>
-            {hasUnreflectedFeel && <p className="pf-feel-note">지금은 ‘조용한 사용감’만 추천에 반영돼요. 나머지 체감 조건은 기록만 해 두고, 추천 결과의 리뷰 근거에서 직접 확인해 주세요.</p>}
-          </section>
-        </div>
-
-        <section className="pf-extra">
-          <b>추가 조건</b><span>대화에서 말한 나머지 조건을 그대로 쌓아요.</span>
-          <div className="pf-chips">{extraConditions.map(condition => <span key={condition}>{condition}</span>)}{extraConditions.length === 0 && <p>아직 쌓인 추가 조건이 없어요.</p>}</div>
+        <section className="pf-understood">
+          <b>이해한 내용</b>
+          <span className="pf-understood-hint">왼쪽 대화에서 말한 조건을 서버가 읽은 대로 보여 드려요. ×를 누르면 그 조건을 뺄 수 있어요.</span>
+          {understoodPanel}
         </section>
 
         <div className="pf-action">

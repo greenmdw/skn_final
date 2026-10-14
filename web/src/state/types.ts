@@ -130,6 +130,8 @@ export interface DeskState {
 export interface PlanItem extends Omit<Part, 'price'> {
   id: string
   key: PartKey | null
+  /** 서버 제품 키. 리뷰 요약을 열 때 쓴다(예전에 저장된 구성에는 없다) */
+  productKey?: string | null
   /** 이 줄의 합계 금액 = 단가 × 수량 */
   price: number
   /** 수량. 서버가 준 값. 없으면(예전에 저장된 구성 등) 화면에 표시하지 않는다 */

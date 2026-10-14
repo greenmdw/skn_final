@@ -85,6 +85,8 @@ _SPECS: dict[str, tuple[str, dict[str, tuple[str, str]]]] = {
         "래피드 트리거": ("rapid_trigger", "rapid_trigger"),
         "연결 방식": ("connectivity", "connection_method"),
         "연결 인터페이스": ("connectivity_interface", "pipe_list"),
+        "키압 최소(g)": ("key_force_min_g", "decimal"),       # 0016 — 값이 없는 상품은 NULL(모름)
+        "키압 최대(g)": ("key_force_max_g", "decimal"),
     }),
 }
 
