@@ -109,10 +109,16 @@ def build_requirements(
 
         resolved = (values.get("peripheral_resolved") or {}).get(kind)
         preferences = resolved.preference_prefs() if resolved is not None else []
+        stated = resolved.stated_preference_prefs() if resolved is not None else []
         filters = resolved.filter_prefs() if resolved is not None else []
+        soft: dict[str, Any] = {}
+        if preferences:
+            soft["preferences"] = preferences
+            if stated:
+                soft["stated"] = stated        # preferences 중 직접 말한 것(점수식의 조건 스펙 가중이 쓴다)
 
         out[kind] = PeripheralRequirement(
-            kind=kind, hard=hard, soft={"preferences": preferences} if preferences else {},
+            kind=kind, hard=hard, soft=soft,
             filters=filters, assumed=assumed, notes=notes,
         )
     return out

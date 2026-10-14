@@ -26,7 +26,13 @@ def _front_matter(path: Path) -> dict:
 
 
 def _post_files() -> dict[str, Path]:
-    return {_front_matter(p)["id"]: p for p in EXAMPLES.glob("[A-F]/*.md")}
+    """글 파일(머리말이 있는 .md). 묶음 폴더의 README.md 같은 안내 문서는 글이 아니다."""
+    out = {}
+    for path in EXAMPLES.glob("[A-F]/*.md"):
+        if path.name.lower() == "readme.md" or not path.read_text(encoding="utf-8").startswith("---"):
+            continue
+        out[_front_matter(path)["id"]] = path
+    return out
 
 
 def test_expectation_attributes_and_values_exist_in_config():

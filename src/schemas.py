@@ -903,6 +903,11 @@ class PeripheralsRecommendIn(BaseModel):
     situations: list[str] = Field(default_factory=list)
     stated: dict[str, list[str]] = Field(default_factory=dict)       # 종류 → 직접 말한 스펙 조건 이름
     kind_budget: dict[str, int] = Field(default_factory=dict)        # 종류 → 예산 상한(원). 합산 예산은 budget_max
+    # 선호·기피 브랜드(종류 → 브랜드 이름). 선호는 브랜드 축에서 1점, 기피는 후보에서 뺀다.
+    brand_like: dict[str, list[str]] = Field(default_factory=dict)
+    brand_avoid: dict[str, list[str]] = Field(default_factory=dict)
+    # 강조하는 축(종류 → 축 이름: 리뷰·가격·브랜드·무상AS 또는 그 종류의 스펙 기준 이름). 강조한 축 가중치 ×1.5.
+    emphasis: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class PeripheralProductOut(BaseModel):
@@ -933,6 +938,9 @@ class PeripheralAlternativeOut(BaseModel):
     review: ReviewScoreDetailDTO | None = None
     review_weight: float = 0.0
     review_note: str = "리뷰 점수 미반영"
+    evidence_count: int | None = None        # 이 대안의 리뷰 근거(관측) 수
+    score: float | None = None
+    why_not_first: str | None = None         # 1위가 아닌 이유 한 줄(없으면 숨긴다)
 
 
 class PeripheralItemOut(BaseModel):
@@ -952,6 +960,10 @@ class PeripheralItemOut(BaseModel):
     review_note: str
     feel: dict[str, Any] | None = None       # 체감 근거 블록. None 이면 보여 줄 근거가 없다
     feel_note: str | None = None             # feel 이 None 일 때만 있다("스펙과 가격 기준 추천")
+    score_detail: dict[str, Any] | None = None   # 축별 값·가중치·기여분, 감점, 근거 수, 가중 이유("어떻게 골랐나요?")
+    evidence_count: int | None = None            # 리뷰 근거(관측) 수 — 화면은 "근거 N건"
+    evidence_penalty: float | None = None        # 근거 부족 감점(0이면 없음)
+    close_call: bool = False                     # 1·2위가 접전이다(한 응답에서 최대 2개 품목)
 
 
 class PeripheralEmptyOut(BaseModel):

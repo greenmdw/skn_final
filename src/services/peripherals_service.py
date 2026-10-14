@@ -92,6 +92,9 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
         "peripheral_kind_budget": interp.budget,
         "peripheral_intent": interp,
         "peripheral_resolved": peripheral_intent.resolve(interp),
+        "peripheral_brand_like": {k: list(v) for k, v in (body.brand_like or {}).items() if k in body.kinds},
+        "peripheral_brand_avoid": {k: list(v) for k, v in (body.brand_avoid or {}).items() if k in body.kinds},
+        "peripheral_emphasis": {k: list(v) for k, v in (body.emphasis or {}).items() if k in body.kinds},
         # 사용기 분석이 쌓은 근거(종류 → 관측). 분석 결과가 없으면 비어 있고 체감 점수는 외부 리뷰만으로 계산된다.
         "peripheral_feel_observations": peripheral_post_pipeline.current_observations(
             conn, [c.product_id for group in requested_candidates.values() for c in group if c.product_id]),

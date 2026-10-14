@@ -271,12 +271,40 @@ def _review_note(weight: float) -> str:
     return _REVIEW_NOTE_USED if weight > 0 else _REVIEW_NOTE_UNUSED
 
 
+def _score_block(cand: Candidate) -> dict[str, Any] | None:
+    """순위 점수의 축별 값·가중치·기여분과 감점, 리뷰 관측 수, 적용한 가중 이유. 점수를 계산하지 않은 후보면 None."""
+    d = cand.score_detail
+    if not d:
+        return None
+    return {"score": cand.score, "axes": d["axes"], "penalties": d["penalties"], "evidence_count": d["evidence_count"],
+            "weights_reason": d["weights_reason"]}
+
+
+def _why_not_first(first: Candidate, alt: Candidate) -> str | None:
+    """대안이 1위가 아닌 이유 한 줄. 근거가 얕아 감점이 컸으면 그것을 먼저, 아니면 1위가 가장 앞선 축을 말한다."""
+    pen = alt.score_detail["penalties"].get("evidence", 0.0) - first.score_detail["penalties"].get("evidence", 0.0)
+    if pen >= 0.03:
+        return f"근거가 {alt.score_detail['evidence_count']}건뿐이라 점수를 조금 낮췄어요"
+    fa = {a["axis"]: a["points"] for a in first.score_detail["axes"]}
+    aa = {a["axis"]: a["points"] for a in alt.score_detail["axes"]}
+    gap, axis = max((fa[k] - aa.get(k, 0.0), k) for k in fa)
+    if gap <= 0.005:
+        return None
+    return f"'{axis}' 쪽에서 1위가 더 앞섰어요"
+
+
 def _alternatives(pick: PeripheralPick, rules: dict) -> list[dict[str, Any]]:
     weight = _review_weight(pick.kind, rules)
-    return [{"name": alt.name, "price": alt.price, "diff": alt.price - pick.candidate.price,
-             "review": alt.review_detail.model_dump(mode="json") if alt.review_detail else None,
-             "review_weight": weight, "review_note": _review_note(weight)}
-            for alt in pick.alternatives]
+    out = []
+    for alt in pick.alternatives:
+        scored = bool(alt.score_detail and pick.candidate.score_detail)
+        out.append({"name": alt.name, "price": alt.price, "diff": alt.price - pick.candidate.price,
+                    "review": alt.review_detail.model_dump(mode="json") if alt.review_detail else None,
+                    "review_weight": weight, "review_note": _review_note(weight),
+                    "evidence_count": alt.score_detail.get("evidence_count") if alt.score_detail else None,
+                    "score": alt.score if alt.score_detail else None,
+                    "why_not_first": _why_not_first(pick.candidate, alt) if scored else None})
+    return out
 
 
 def _guide_for_kind(kind: str) -> dict[str, str]:
@@ -311,6 +339,11 @@ def _item_dict(kind: str, pick: PeripheralPick, req: PeripheralRequirement,
         # 체감 근거(사용기·외부 리뷰). None 이면 보여 줄 근거가 없다 — 화면은 feel_note 만 쓴다.
         "feel": feel,
         "feel_note": None if feel else NO_EVIDENCE_NOTE,
+        # 점수 상세(요청서 3.4): 어떻게 골랐나요 / 근거 N건 / 근거 부족 안내 / 접전
+        "score_detail": _score_block(cand),
+        "evidence_count": cand.score_detail.get("evidence_count") if cand.score_detail else None,
+        "evidence_penalty": cand.score_detail["penalties"]["evidence"] if cand.score_detail else None,
+        "close_call": pick.close_call,
     }
 
 

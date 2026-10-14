@@ -86,6 +86,11 @@ class ResolvedKind(BaseModel):
     def filter_prefs(self) -> list[dict[str, Any]]:
         return spec_rules.dedupe_prefs([p for c in self.filters for p in c.prefs])
 
+    def stated_preference_prefs(self) -> list[dict[str, Any]]:
+        """선호 중 사용자가 **직접 말한** 조건의 스펙 조건. 점수식이 이 조건을 속한 스펙 기준의 가중(×2)과 기준 값의 가중(2)에
+        쓴다. 목적·상황에서 풀린 조건(`sources` 가 목적 코드뿐)은 여기 들어가지 않는다."""
+        return spec_rules.dedupe_prefs([p for c in self.preferences if "stated" in c.sources for p in c.prefs])
+
 
 def kinds_all_order(kinds: list[str]) -> list[str]:
     """화면과 결과에서 종류를 늘 같은 순서로 보여주기 위한 고정 순서."""
