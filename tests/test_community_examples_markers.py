@@ -41,10 +41,7 @@ BODY = """도입 문단입니다.
 
 def test_markers_must_be_listed_in_the_front_matter_images():
     """적재 도구(`_check_markers`): 본문 마커의 파일 이름은 모두 머리말 images 에 있어야 한다."""
-    seed._check_markers("앞
-
-![a](a1-1_1.jpg)
-", ["a1-1_1.jpg"])               # 통과
+    seed._check_markers("앞\n\n![a](a1-1_1.jpg)\n", ["a1-1_1.jpg"])               # 통과
     seed._check_markers("마커 없는 글", ["a1-1_1.jpg"])                               # 머리말에만 있는 이미지는 허용(글 아래에 붙음)
     for bad in ("![x](other.jpg)", "![x](image:0a1b)"):
         try:
@@ -55,14 +52,7 @@ def test_markers_must_be_listed_in_the_front_matter_images():
 
 
 def test_replace_markers_with_image_ids_in_order():
-    body = "앞
-
-![책상 위](a1-1_1.jpg)
-
-중간
-
-![두 번째](a1-1_2.jpg)
-"
+    body = "앞\n\n![책상 위](a1-1_1.jpg)\n\n중간\n\n![두 번째](a1-1_2.jpg)\n"
     out = seed._replace_markers(body, ["a1-1_1.jpg", "a1-1_2.jpg"], ["ID1", "ID2"])
     assert "![책상 위](image:ID1)" in out and "![두 번째](image:ID2)" in out and "jpg" not in out
 
