@@ -79,8 +79,24 @@ def login(
 
 
 @router.post("/logout", status_code=204)
-def logout(response: Response) -> None:
+def logout(response: Response, principal: Principal = Depends(optional_principal)) -> None:
+    """쿠키를 지우고, 이 기기의 로그인 토큰을 서버에서도 폐기한다(로그인 상태가 아니어도 204)."""
+    with get_conn() as conn:
+        auth_service.logout(conn, principal)
     response.delete_cookie(COOKIE_NAME, path="/")
+
+
+@router.post("/logout-all", status_code=204)
+def logout_all(
+    body: schemas.LogoutAllIn, response: Response, principal: Principal = Depends(optional_principal)
+) -> None:
+    """모든 기기에서 로그아웃. 기본(include_current=false)은 지금 쓰는 기기는 로그인을 유지하고 다른 기기만 끝낸다."""
+    with get_conn() as conn:
+        token = auth_service.logout_all(conn, principal, include_current=body.include_current)
+    if token is None:
+        response.delete_cookie(COOKIE_NAME, path="/")
+    else:
+        _set_session_cookie(response, token, remember=True)
 
 
 @router.get("/me", response_model=schemas.UserEnvelopeOut)

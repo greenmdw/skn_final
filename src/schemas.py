@@ -71,6 +71,10 @@ class PasswordChangeIn(BaseModel):
     new_password: str
 
 
+class LogoutAllIn(BaseModel):
+    include_current: bool = False      # true 면 이 기기도 로그아웃(쿠키 삭제)
+
+
 class WithdrawIn(BaseModel):
     password: str
 
