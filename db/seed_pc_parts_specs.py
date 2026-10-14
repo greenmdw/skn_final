@@ -94,6 +94,8 @@ _SHEET_SPECS: dict[str, tuple[str, str, dict[str, str]]] = {
         "무게": "weight_note", "드라이버 URL": "spec_url",
         "물리 규격 출처 URL": "dimension_source_url", "물리 규격 미확인 사유": "dimension_gap_reason",
         "성능 점수": "perf_score", "성능 점수 출처 URL": "perf_score_source_url",
+        # 0016: 모니터↔PC 단자 검사용(원본에 없으면 NULL)
+        "HDMI 버전": "hdmi_version", "DP 버전": "dp_version", "USB-C 영상 출력": "usb_c_video_out",
     }),
     "SSD": ("ssd", "catalog.ssd_spec", {
         "인터페이스": "interface", "프로토콜": "protocol", "폼팩터": "form_factor",

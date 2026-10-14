@@ -16,7 +16,7 @@ Always set `TRUEFIT_REQUIRE_TEST_DB=1` for completion checks. It turns PostgreSQ
 At the start of a pytest session, the test harness automatically:
 
 1. Creates a unique `truefit_test_<UUID>` database on the running PostgreSQL server.
-2. Runs `db/setup_all.py` to apply the sixteen baseline migrations and all seeds.
+2. Runs `db/setup_all.py` to apply the seventeen baseline migrations and all seeds.
 3. Runs the tests.
 4. Drops the temporary database with `DROP DATABASE ... WITH (FORCE)` when the session ends.
 
@@ -87,7 +87,7 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
 - If the default uv cache is read-only, keep `UV_CACHE_DIR=/tmp/uv-cache` in the command.
 - If Python raises `ModuleNotFoundError: src`, run from the repository root and set `PYTHONPATH=.`.
 - If database tests are skipped, rerun with `TRUEFIT_REQUIRE_TEST_DB=1` so the underlying setup problem is reported as an error.
-- The current database baseline must contain exactly these sixteen files:
+- The current database baseline must contain exactly these seventeen files:
   - `db/migrations/0000_schema.sql`
   - `db/migrations/0001_constraints.sql`
   - `db/migrations/0002_indexes.sql`
@@ -128,3 +128,6 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
     `peripheral_post_analysis_log`/`peripheral_post_evidence`/`peripheral_post_evidence_embedding` — community review
     posts analysed for the peripheral recommendation's feel score; written by
     `src/workers/peripheral_post_analysis.py`, no foreign key to `community.post`)
+  - `db/migrations/0016_peripheral_spec_columns.sql` (added 2026-10-14: `catalog.gpu_spec.hdmi_version`/`dp_version`/
+    `usb_c_video_out` for the monitor↔PC port check, `catalog.keyboard_spec.key_force_min_g`/`key_force_max_g` for the
+    light/heavy key-force preference)

@@ -28,7 +28,7 @@ from src.engine.peripheral_rules import kind_def, load_peripheral_rules, periphe
 # 둔다. 여기 없는 컬럼은 전부 text 로 취급한다(PC 로더 _specs_from_row 와 같은 결의 결정).
 _NUMERIC_COLUMNS: dict[str, set[str]] = {
     "monitor": {"screen_size_inch", "max_refresh_hz", "response_ms_gtg", "weight_g"},
-    "keyboard": {"weight_g"},
+    "keyboard": {"weight_g", "key_force_min_g", "key_force_max_g"},
     "mouse": {"weight_g"},
     "speaker": {"weight_g"},
 }
@@ -219,6 +219,8 @@ _KIND_HEADERS: dict[str, dict[str, tuple[str, str]]] = {
         "래피드 트리거": ("rapid_trigger", "rapid_trigger"),
         "연결 방식": ("connectivity", "connection_method"),
         "연결 인터페이스": ("connectivity_interface", "pipe_list"),
+        "키압 최소(g)": ("key_force_min_g", "decimal"),
+        "키압 최대(g)": ("key_force_max_g", "decimal"),
     },
     "speaker": {
         "스피커 형태": ("speaker_form", "text"),

@@ -37,6 +37,25 @@ cd ~/truefit && scripts/deploy_aws.sh main     # 배포용 브랜치
 ```
 pull → 빌드 → 새 마이그레이션 적용 → 재기동 → 헬스체크까지 한 번에 한다. 재기동하는 몇 초 동안 서비스가 끊긴다.
 
+## 사용기 분석 작업 (worker)
+
+커뮤니티 사용기 글을 분석해 주변기기 추천의 체감 근거를 쌓는 작업이다. `docker-compose.aws.yml` 의 `worker` 서비스가 `api` 와 같은 이미지로
+따로 돌고, `scripts/deploy_aws.sh` 의 `up -d` 가 `api` 와 함께 띄운다. 글이 올라오면 API 가 DB 에 대기 기록을 남기고(`engine.peripheral_post_intake`),
+worker 가 `PERIPHERAL_POST_INTERVAL_SECONDS`(기본 60초)마다 읽어 분석한다.
+
+- **켜기:** 서버 `.env` 에 `PERIPHERAL_POST_AGENT=1`(그리고 `MOCK_MODE=0`, `OPENAI_API_KEY`)을 두고 `docker compose -f docker-compose.aws.yml up -d worker`.
+  꺼져 있는 동안 worker 는 "꺼져 있습니다" 안내만 남기고 대기한다(글은 대기 상태로 쌓이고, 켜면 한꺼번에 처리한다).
+- **끄기:** `.env` 에서 `PERIPHERAL_POST_AGENT=0` 으로 바꾸고 `docker compose -f docker-compose.aws.yml up -d --force-recreate worker`.
+- **비용:** 글 한 편당 모델 호출 1번과 근거 문장 임베딩. `PERIPHERAL_POST_DAILY_LIMIT`(기본 200편/일, UTC)이 상한이고 본문·연결 제품이 그대로인 글은 다시 분석하지 않는다.
+  사용기가 아니거나 카탈로그 제품이 연결되지 않은 글은 모델을 부르지 않는다.
+- **무엇을 분석할지 미리 보기(모델 호출·쓰기 없음):**
+  ```bash
+  docker compose -f docker-compose.aws.yml exec worker python -m src.workers.peripheral_post_analysis --dry-run
+  ```
+- **한 번만 돌리기:** `docker compose -f docker-compose.aws.yml exec worker python -m src.workers.peripheral_post_analysis --once`
+- **로그:** `docker compose -f docker-compose.aws.yml logs --tail=100 -f worker` — 한 번 돌 때마다 `대기 · 분석 · 건너뜀 · 닫음 · 근거 제거 · 오류` 줄이 남는다.
+- **DB 연결:** worker 는 연결 하나만 쓴다(연결 한도 계산에 +1).
+
 ## 확인·문제 해결
 
 | 하고 싶은 일 | 명령 |

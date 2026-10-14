@@ -28,3 +28,28 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+
+  # 주변기기 사용기 분석 작업(개발요청 O-1) — 커뮤니티 글의 변경을 읽어 체감 문장을 뽑고 근거를 DB(engine.peripheral_post_*)에 쌓는다.
+  # api 와 같은 이미지·같은 .env 를 쓰고 따로 도는 프로세스다. 포트·볼륨은 필요 없다(상태는 DB 에 저장된다).
+  # PERIPHERAL_POST_AGENT=1(+ MOCK_MODE=0, OPENAI_API_KEY)일 때만 분석한다. 꺼져 있으면 컨테이너는 안내만 남기고 대기한다 —
+  # 작업 프로그램이 종료 코드 2 로 끝나면 restart 정책이 계속 다시 띄우기 때문이다. 켜고 끄는 법은 deploy/README.md.
+  worker:
+    image: truefit-api:aws
+    env_file: .env
+    depends_on:
+      - api
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$${PERIPHERAL_POST_AGENT:-0}" = "1" ]; then
+          exec python -m src.workers.peripheral_post_analysis
+        fi
+        echo "사용기 분석 작업이 꺼져 있습니다(PERIPHERAL_POST_AGENT=1 로 켠 뒤 docker compose up -d worker). 대기합니다."
+        exec sleep infinity
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

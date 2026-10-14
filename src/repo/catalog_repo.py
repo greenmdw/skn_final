@@ -162,7 +162,7 @@ _SPEC_QUERIES: dict[str, tuple[str, str]] = {
     "ram": ("s.memory_type, s.total_capacity_gb, s.speed_mts, s.module_config, s.height_mm, "
             "s.spec_url, s.status_checked_at, s.height_source_url", "catalog.ram_spec"),
     "gpu": ("s.length_mm, s.power_w, s.vram_gb, s.lineup, s.recommended_psu_w, s.power_connector, s.aux_power, "
-            "s.height_mm, s.slot_thickness, s.pcie_interface, "
+            "s.height_mm, s.slot_thickness, s.pcie_interface, s.hdmi_version, s.dp_version, s.usb_c_video_out, "
             "s.spec_url, s.status_checked_at, s.dimension_source_url, s.perf_score_source_url", "catalog.gpu_spec"),
     "ssd": ("s.interface, s.protocol, s.form_factor, s.capacity_options, "
             "s.spec_url, s.status_checked_at", "catalog.ssd_spec"),
@@ -294,6 +294,13 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
             specs["vram_gb"] = vram
         if row.get("pcie_interface"):
             specs["pcie_interface"] = row["pcie_interface"]           # 표시용(개발요청 3번) — 호환 검사는 안 씀
+        # 출력 단자(0016, 개발요청 B-9) — 모니터↔PC 단자 검사(peripheral_cross)가 읽는다. 값이 없으면 키를 넣지 않는다(확인 불가)
+        if row.get("hdmi_version"):
+            specs["hdmi_version"] = row["hdmi_version"]               # "2.1b" · "없음"
+        if row.get("dp_version"):
+            specs["dp_version"] = row["dp_version"]
+        if row.get("usb_c_video_out") is not None:
+            specs["usb_c_video_out"] = bool(row["usb_c_video_out"])
     elif product_type == "ssd":
         if row.get("interface"):
             specs["interface"] = row["interface"]
