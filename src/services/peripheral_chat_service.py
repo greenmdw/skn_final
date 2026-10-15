@@ -24,6 +24,7 @@ def _recommend_body(interp: Interpretation, pc_list_id: str | None) -> Periphera
     return PeripheralsRecommendIn(
         kinds=interp.kinds, budget_max=interp.budget_total, pc_list_id=pc_list_id,
         purposes=interp.purposes, situations=interp.situations, stated=interp.stated, kind_budget=interp.budget,
+        kind_budget_min=interp.budget_min,
         brand_like=interp.brand_like, brand_avoid=interp.brand_avoid, emphasis=interp.emphasis, hand_size=interp.hand_size,
     )
 

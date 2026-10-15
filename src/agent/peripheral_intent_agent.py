@@ -57,6 +57,7 @@ def build_system_prompt(rules: dict | None = None, kinds_hint: list[str] | None 
         "- 사용자가 직접 말한 스펙 조건만 stated 에 넣는다. 목적에서 짐작되는 조건(예: 들고 다녀요 → 무선)을 stated 에 넣지 않는다.",
         "- '게임용'이라고만 하면 purposes 에 game 만 넣는다. 장르나 게임 이름이 드러났을 때만 fps 등을 넣는다.",
         "- 금액은 원 단위 정수로 쓴다. 종류가 하나뿐이거나 종류별로 말했으면 budget, 여러 종류를 합친 금액이면 budget_total.",
+        "- 'N원 이상·넘는·부터'처럼 최소 가격을 말했으면 budget_min(종류별), '이하·까지·안쪽'이면 budget 이다.",
         "- 손 크기를 말했을 때만 hand_size(small/medium/large). 쥐는 법은 읽지 않는다.",
         "- 가격·후기·AS 를 특히 중요하게 말했을 때만 emphasis 에 그 축을 넣는다(예: 가성비 → 가격, 평 좋은 → 리뷰).",
         "- 브랜드는 목록의 이름만 쓴다. 고르고 싶다고 말하면 brand_like, 빼 달라거나 싫다고 하면 brand_avoid 다.",
@@ -128,6 +129,11 @@ def _output_schema(rules: dict) -> dict[str, Any]:
                 "additionalProperties": False,
                 "properties": {kind: {"type": "integer"} for kind in kinds},
             },
+            "budget_min": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {kind: {"type": "integer"} for kind in kinds},
+            },
             "budget_total": {"type": ["integer", "null"]},
             "unrecognized": {"type": "array", "items": {"type": "string"}},
             "question": {
@@ -141,7 +147,7 @@ def _output_schema(rules: dict) -> dict[str, Any]:
             },
         },
         "required": ["kinds", "purposes", "situations", "stated", "emphasis", "brand_like", "brand_avoid", "hand_size",
-                     "budget", "budget_total", "unrecognized", "question"],
+                     "budget", "budget_min", "budget_total", "unrecognized", "question"],
     }
 
 

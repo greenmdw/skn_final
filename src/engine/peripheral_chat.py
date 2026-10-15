@@ -105,7 +105,7 @@ def question_only(interp: Interpretation) -> Interpretation:
 
 def read_nothing(interp: Interpretation) -> bool:
     """해석에서 아무것도 읽지 못했는가(종류·조건·금액·강조·브랜드·손 크기·질문 모두 비어 있음)."""
-    return not (interp.kinds or interp.purposes or interp.situations or interp.stated or interp.budget or interp.budget_total
+    return not (interp.kinds or interp.purposes or interp.situations or interp.stated or interp.budget or interp.budget_min or interp.budget_total
                 or interp.emphasis or interp.brand_like or interp.brand_avoid or interp.hand_size or interp.question)
 
 
@@ -128,6 +128,8 @@ def _reflected(interp: Interpretation, rules: dict) -> dict[tuple, dict[str, str
             items[("*", "situation", code)] = {"kind": "*", "label": situations(rules)[code]["label"]}
     for kind, won in interp.budget.items():
         items[(kind, "budget", won)] = {"kind": kind, "label": f"{kind_def(kind, rules)['label']} 예산 {_won(won)}"}
+    for kind, won in interp.budget_min.items():
+        items[(kind, "budget_min", won)] = {"kind": kind, "label": f"{kind_def(kind, rules)['label']} 예산 {_won(won)} 이상"}
     if interp.budget_total:
         items[("*", "budget_total", interp.budget_total)] = {"kind": "*", "label": f"예산 합계 {_won(interp.budget_total)}"}
     for kind, axes in interp.emphasis.items():
