@@ -49,7 +49,7 @@ from src.config import PENDING_SCORE_PENALTY
 from src.dto import Candidate, PeripheralPick, PeripheralRequirement, PeripheralResult
 from src.engine import LogFn, spec_rules
 from src.engine.peripheral_feel import attach_feel
-from src.engine.peripheral_requirement import build_requirements
+from src.engine.peripheral_requirement import build_requirements, monitor_notices
 from src.engine.peripheral_rules import kind_def, load_peripheral_rules, ranking_def, requested_kinds, scoring_cfg
 
 # requirement.hard 의 키 이름은 "판정 기준 이름"이지 후보 specs 키와 항상 같지 않다.
@@ -528,6 +528,7 @@ def run_peripherals(
     log(f"[P] 주변기기 결과: {len(picks)}건 선정" + (f", 미충족 {len(empty)}건" if empty else ""))
     picked_requirements = {kind: requirements[kind] for kind in picks_by_kind if kind in requirements}
     feel_blocks = _feel_blocks(picks, values, rules)
+    notices = [n for p in picks if p.kind == "monitor" for n in monitor_notices(p.candidate, requirements["monitor"], values)]
     return PeripheralResult(status="ready", picks=picks, empty=empty, counts=counts,
                              budget=budget_info, verification=verification, requirements=picked_requirements,
-                             feel=feel_blocks)
+                             feel=feel_blocks, notices=notices)

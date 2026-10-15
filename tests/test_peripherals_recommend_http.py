@@ -80,9 +80,8 @@ def test_empty_kinds_is_rejected():
     assert r.status_code == 422
 
 
-def test_monitor_without_pc_context_uses_default_resolution_and_may_be_empty():
-    """pc_context 가 없으면 PC 쪽 정보 없이도 동작한다 — 카탈로그에 그 해상도 모니터가
-    없으면(지금 FHD_144는 없다) 조용히 empty 로 답한다, 500이 아니다."""
+def test_monitor_without_pc_context_skips_cross_check():
+    """pc_context 가 없으면 PC 쪽 정보 없이도 동작하고(500 이 아니다), 모니터↔PC 교차검사는 돌지 않는다."""
     c = _signed_up()
     lid = _new_session(c)
     r = c.post(f"/session/{lid}/peripherals/recommend", json={"kinds": ["monitor"]})
@@ -93,9 +92,9 @@ def test_monitor_without_pc_context_uses_default_resolution_and_may_be_empty():
                for i in data["items"])   # pc_context 없이는 교차검사 자체가 안 돈다
 
 
-def test_monitor_without_resolution_defaults_to_qhd_and_is_not_empty():
-    """해상도를 말하지 않아도 모니터가 빈 채로 나오지 않는다 — 기본값이 QHD_165라 카탈로그에 후보가 있다
-    (FHD_144 기본값일 때는 맞는 모니터가 없어 첫 요청이 항상 비었다)."""
+def test_monitor_without_pc_is_not_filtered_by_resolution_and_says_so():
+    """PC 견적 없이 모니터를 고르면 해상도·주사율로 거르지 않고(4K 도 후보), 요구사양 행과 채팅 유의사항으로
+    PC 사양을 모르고 골랐다고 알린다(QA PQA-001)."""
     c = _signed_up()
     lid = _new_session(c)
     r = c.post(f"/session/{lid}/peripherals/recommend", json={"kinds": ["monitor"]})
@@ -104,8 +103,32 @@ def test_monitor_without_resolution_defaults_to_qhd_and_is_not_empty():
     assert data["status"] == "ready", data
     item = next(i for i in data["items"] if i["kind"] == "monitor")
     rows = {row["key"]: row["value"] for row in item["requirement"]}
-    assert rows.get("resolution_class") == "QHD"
-    assert "QHD" in rows.get("resolution_assumed", "")
+    assert "resolution_class" not in rows and "refresh_min_hz" not in rows
+    assert "PC" in rows.get("resolution_assumed", "")
+    assert [n["code"] for n in data["notices"]][:1] == ["pc_unknown"]
+
+
+def test_monitor_without_pc_can_recommend_4k_when_asked():
+    """"4K 모니터"(고해상도)를 말하면 PC 견적이 없어도 해상도로 거르지 않은 채 고해상도 선호가 요구사양에 들어간다(QA PQA-001·007)."""
+    c = _signed_up()
+    lid = _new_session(c)
+    r = c.post(f"/session/{lid}/peripherals/recommend",
+               json={"kinds": ["monitor"], "stated": {"monitor": ["high_resolution"]}})
+    assert r.status_code == 200, r.text
+    item = next(i for i in r.json()["items"] if i["kind"] == "monitor")
+    assert item["requirement"] and any(row["key"] == "resolution_h" for row in item["requirement"])
+
+
+def test_alternatives_carry_product_ids_for_choosing_them():
+    """다른 선택지에도 제품 식별자·브랜드·이미지·링크가 실려 화면이 1위 대신 담을 수 있다(QA PQA-024)."""
+    c = _signed_up()
+    lid = _new_session(c)
+    r = c.post(f"/session/{lid}/peripherals/recommend", json={"kinds": ["mouse"]})
+    assert r.status_code == 200, r.text
+    item = next(i for i in r.json()["items"] if i["kind"] == "mouse")
+    assert item["alternatives"], item
+    assert all(alt["variant_id"] for alt in item["alternatives"])
+    assert all(alt["brand"] for alt in item["alternatives"])
 
 
 def test_pc_context_adds_monitor_cross_check_and_reuses_its_resolution():

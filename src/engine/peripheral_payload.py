@@ -160,8 +160,8 @@ def _fmt_pref_value(pref: dict[str, Any]) -> str:
 def _requirement_rows(req: PeripheralRequirement) -> list[dict[str, Any]]:
     """PeripheralRequirement(hard + soft preferences) -> [{key, label, value}].
 
-    hard(지금은 monitor만) 먼저, 그다음 soft 선호(중복 제거, YAML 순서 유지). 조건 없이
-    기본 해상도를 썼으면(`req.assumed`에 "resolution") 그 사실을 알리는 안내 행을 마지막에
+    hard(지금은 monitor만) 먼저, 그다음 soft 선호(중복 제거, YAML 순서 유지). PC 해상도를 몰라
+    해상도로 거르지 않았으면(`req.assumed`에 "resolution") 그 사실을 알리는 안내 행을 마지막에
     덧붙인다 — 화면에서 "이 값은 추정입니다"를 구분할 수 있게(계획 §4 원칙 3, "근사는
     근사라고 보고한다").
     """
@@ -183,9 +183,9 @@ def _requirement_rows(req: PeripheralRequirement) -> list[dict[str, Any]]:
         rows.append({"key": pref["key"], "label": _requirement_label(pref["key"]),
                      "value": _fmt_pref_value(pref)})
 
-    if "resolution" in req.assumed:
-        note = req.notes[0] if req.notes else "해상도 조건을 말하지 않아 기본값을 썼습니다"
-        rows.append({"key": "resolution_assumed", "label": "해상도 조건(가정)", "value": note})
+    if "resolution" in req.assumed:      # PC 견적 없이 골라 해상도·주사율로 거르지 않았다(QA PQA-001)
+        note = req.notes[0] if req.notes else "PC 사양을 몰라 해상도·주사율로 거르지 않았습니다"
+        rows.append({"key": "resolution_assumed", "label": "해상도 조건(PC 사양 모름)", "value": note})
 
     return rows
 
@@ -298,7 +298,10 @@ def _alternatives(pick: PeripheralPick, rules: dict) -> list[dict[str, Any]]:
     out = []
     for alt in pick.alternatives:
         scored = bool(alt.score_detail and pick.candidate.score_detail)
+        product = _product_dict(alt)      # 화면이 1위 대신 이 대안을 견적에 담을 때 쓰는 식별자·이미지·링크
         out.append({"name": alt.name, "price": alt.price, "diff": alt.price - pick.candidate.price,
+                    "variant_id": product["variant_id"], "brand": product["brand"],
+                    "image_url": product["image_url"], "product_url": product["product_url"],
                     "review": alt.review_detail.model_dump(mode="json") if alt.review_detail else None,
                     "review_weight": weight, "review_note": _review_note(weight),
                     "evidence_count": alt.score_detail.get("evidence_count") if alt.score_detail else None,
@@ -375,5 +378,6 @@ def peripheral_payload(result: PeripheralResult, rules: dict | None = None) -> d
     return {
         "status": "ready", "items": items,
         "empty": [dict(e) for e in result.empty],
+        "notices": [dict(n) for n in result.notices],
         "totals": {"reference_price": sum(p.candidate.price for p in result.picks), "note": _TOTALS_NOTE},
     }

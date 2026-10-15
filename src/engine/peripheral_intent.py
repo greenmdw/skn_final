@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from src.engine import spec_rules
 from src.engine.peripheral_rules import (
-    emphasis_cfg, kind_def, load_peripheral_rules, pc_purpose_map, peripheral_kinds, purpose_codes, purposes, ranking_def,
+    conflicts, emphasis_cfg, kind_def, load_peripheral_rules, pc_purpose_map, peripheral_kinds, purpose_codes, purposes, ranking_def,
     situations, spec_conditions,
 )
 
@@ -82,6 +82,8 @@ class ResolvedKind(BaseModel):
     filters: list[ResolvedCondition] = Field(default_factory=list)
     feel: list[str] = Field(default_factory=list)
     taste: list[str] = Field(default_factory=list)
+    # 함께 있을 수 없는 조건이 둘 다 풀린 경우(설정 conflicts). kept 가 None 이면 둘 다 뺐다 — 채팅에서 되묻는다.
+    conflicts: list[dict[str, Any]] = Field(default_factory=list)
 
     def preference_prefs(self) -> list[dict[str, Any]]:
         return spec_rules.dedupe_prefs([p for c in self.preferences for p in c.prefs])
@@ -254,6 +256,19 @@ def resolve(interp: Interpretation, rules: dict | None = None) -> dict[str, Reso
             else:
                 sources.setdefault(cond_id, []).append("stated")
 
+        dropped: list[dict[str, Any]] = []
+        for a, b in conflicts(kind, rules):
+            present = {c: c in filter_ids or c in sources for c in (a, b)}
+            if not all(present.values()):
+                continue
+            stated = {c: c in filter_ids or "stated" in sources.get(c, []) for c in (a, b)}
+            kept = a if stated[a] and not stated[b] else b if stated[b] and not stated[a] else None
+            for c in (a, b):
+                if c != kept:
+                    sources.pop(c, None)
+                    filter_ids = [f for f in filter_ids if f != c]
+            dropped.append({"conditions": [a, b], "labels": [conds[a]["label"], conds[b]["label"]], "kept": kept})
+
         def _condition(cond_id: str, src: list[str]) -> ResolvedCondition:
             cond = conds[cond_id]
             return ResolvedCondition(condition=cond_id, label=cond["label"], sources=src,
@@ -267,6 +282,7 @@ def resolve(interp: Interpretation, rules: dict | None = None) -> dict[str, Reso
             filters=[_condition(cid, ["stated"]) for cid in filter_ids],
             feel=_unique(f for c in applied for f in table[c]["feel"]),
             taste=_unique(t for c in applied for t in table[c]["taste"]),
+            conflicts=dropped,
         )
     return resolved
 
@@ -293,6 +309,40 @@ _KIND_PROXIMITY = 15      # 금액 앞쪽 몇 글자 안의 종류 이름을 그
 
 def _contains_any(text: str, words) -> bool:
     return any(w.lower() in text for w in words)
+
+
+def _positions(text: str, words) -> list[tuple[int, int]]:
+    out = []
+    for w in words:
+        start = text.find(w)
+        while start >= 0:
+            out.append((start, start + len(w)))
+            start = text.find(w, start + 1)
+    return out
+
+
+def _near_hit(text: str, rule: dict, kind: str | None) -> bool:
+    """feel 낱말과 target 낱말이 순서와 관계없이 window 글자 안에 함께 있는가. 둘 사이에 다른 종류 이름이 끼면
+    그 종류를 꾸미는 말로 보고 읽지 않는다("묵직한 마우스랑 키보드" 의 "묵직" 은 키보드 키압이 아니다)."""
+    others = [w for k, words in _KIND_WORDS.items() if k != kind for w in words]
+    for fs, fe in _positions(text, rule["feel"]):
+        for ts, te in _positions(text, rule["target"]):
+            if abs(fs - ts) > rule["window"]:
+                continue
+            between = text[min(fe, te):max(fs, ts)]
+            if not _contains_any(between, others):
+                return True
+    return False
+
+
+def _entry_hits(text: str, entry: dict, kind: str | None = None) -> bool:
+    """설정 항목 하나(목적·상황·스펙 조건)가 문장에 걸리는가. `exclude` 낱말은 지우고 본다("텐키리스" 안의 "텐키"),
+    `near` 는 어순이 달라도 두 낱말이 가까이 있으면 걸린다."""
+    for phrase in entry.get("exclude", ()):
+        text = text.replace(phrase.lower(), " " * len(phrase))
+    if _contains_any(text, entry["words"]):
+        return True
+    return any(_near_hit(text, rule, kind) for rule in entry.get("near", ()))
 
 
 _EMPHASIS_AXIS_NAMES = ("가격", "리뷰", "무상AS", "브랜드")
@@ -359,15 +409,15 @@ def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[st
 
     purpose_hits = []
     for code in purpose_vocabulary(rules):
-        words = [w for kind in kinds_all for w in purposes(kind, rules).get(code, {}).get("words", [])]
-        if _contains_any(lowered, words):
+        entries = [(kind, purposes(kind, rules)[code]) for kind in kinds_all if code in purposes(kind, rules)]
+        if any(_entry_hits(lowered, entry, kind) for kind, entry in entries):
             purpose_hits.append(code)
-    situation_hits = [code for code, entry in situations(rules).items() if _contains_any(lowered, entry["words"])]
+    situation_hits = [code for code, entry in situations(rules).items() if _entry_hits(lowered, entry)]
 
     stated: dict[str, list[str]] = {}
     scope = kinds or kinds_all          # 종류를 가리지 않은 말은 모든 종류에 적용한다
     for kind in scope:
-        ids = [cid for cid, cond in spec_conditions(kind, rules).items() if _contains_any(lowered, cond["words"])]
+        ids = [cid for cid, cond in spec_conditions(kind, rules).items() if _entry_hits(lowered, cond, kind)]
         if ids:
             stated[kind] = ids
     if not kinds:

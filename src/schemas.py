@@ -914,6 +914,8 @@ class PeripheralsRecommendIn(BaseModel):
     brand_avoid: dict[str, list[str]] = Field(default_factory=dict)
     # 강조하는 축(종류 → 축 이름: 리뷰·가격·브랜드·무상AS 또는 그 종류의 스펙 기준 이름). 강조한 축 가중치 ×1.5.
     emphasis: dict[str, list[str]] = Field(default_factory=dict)
+    # 손 크기(문장 해석의 hand_size 를 그대로 넘긴다). 체감 점수가 같은 손 크기 사용기 작성자를 묶는 데 쓴다(QA PQA-004).
+    hand_size: Optional[Literal["small", "medium", "large"]] = None
 
 
 class PeripheralProductOut(BaseModel):
@@ -947,6 +949,11 @@ class PeripheralAlternativeOut(BaseModel):
     evidence_count: int | None = None        # 이 대안의 리뷰 근거(관측) 수
     score: float | None = None
     why_not_first: str | None = None         # 1위가 아닌 이유 한 줄(없으면 숨긴다)
+    # 1위 대신 이 대안을 견적에 담을 때 쓴다(1위의 product 와 같은 값). 카탈로그에 없으면 None.
+    variant_id: str | None = None
+    brand: str | None = None
+    image_url: str | None = None
+    product_url: str | None = None
 
 
 class PeripheralItemOut(BaseModel):
@@ -993,10 +1000,18 @@ class PeripheralAdjustChipOut(BaseModel):
     moved: int
 
 
+class PeripheralNoticeOut(BaseModel):
+    """채팅으로 알릴 유의사항(QA PQA-001). 추천은 그대로 하고 주의할 점만 말한다 — 화면은 text 를 채팅에 그대로 보여 준다."""
+    kind: str
+    code: str        # pc_unknown · gpu_4k · gpu_high_res · low_refresh
+    text: str
+
+
 class PeripheralsOut(BaseModel):
     status: Literal["ready", "empty", "skipped"]
     items: list[PeripheralItemOut] = Field(default_factory=list)
     empty: list[PeripheralEmptyOut] = Field(default_factory=list)
+    notices: list[PeripheralNoticeOut] = Field(default_factory=list)
     totals: PeripheralTotalsOut
     ignored_inputs: list[str] = Field(default_factory=list)    # 목록에 없어 반영하지 않은 목적·상황·조건 이름
     adjust_chips: list[PeripheralAdjustChipOut] = Field(default_factory=list)    # "더 맞추기" 칩(최대 3개)

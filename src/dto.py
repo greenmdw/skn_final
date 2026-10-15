@@ -336,6 +336,8 @@ class PeripheralResult(BaseModel):
     # picks에 있는 종류만큼 채워진다. peripheral_payload()가 requirement/reason을 만드는 재료다
     # — payload가 [1]의 원본 조건(values)을 다시 안 받아도 되게 여기 실어 둔다.
     requirements: dict[str, PeripheralRequirement] = Field(default_factory=dict)
+    # 채팅으로 알릴 유의사항 [{kind, code, text}] — 추천은 그대로 하고 주의할 점만 말한다(QA PQA-001). status 가 ready 일 때만.
+    notices: list[dict[str, str]] = Field(default_factory=list)
     # 종류 → 체감 근거 블록(peripheral_evidence.build_feel_block). 보여 줄 근거가 없는 종류는 키가 없다.
     feel: dict[str, Any] = Field(default_factory=dict)
 

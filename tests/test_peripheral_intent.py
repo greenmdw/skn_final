@@ -359,3 +359,100 @@ def test_agent_sanitizes_model_output(monkeypatch):
     })
     got = agent.interpret("마우스")
     assert got.kinds == ["mouse"] and got.purposes == ["office"] and got.unrecognized == ["게이밍 감성"]
+
+
+# ── QA 해석 보강(docs/local/주변기기_추천_QA_기획.md, 2026-10-15) ─────────────────────
+@pytest.mark.parametrize("text, kind, cond", [
+    ("4K 모니터 추천", "monitor", "high_resolution"),             # PQA-007
+    ("UHD 모니터", "monitor", "high_resolution"),
+    ("QHD 165Hz 모니터", "monitor", "qhd"),
+    ("유선 마우스 3만원", "mouse", "wired"),                       # PQA-017
+])
+def test_words_read_qa_conditions(text, kind, cond):
+    assert cond in pi.interpret_by_words(text).stated.get(kind, [])
+
+
+def test_words_read_song_as_music():
+    """"노래 듣는 걸 좋아해"도 음악 감상 목적이다(PQA-019)."""
+    assert "music" in pi.interpret_by_words("나는 노래 듣는걸 좋아해", kinds_hint=["speaker"]).purposes
+
+
+@pytest.mark.parametrize("text", ["타건감 묵직한 키보드 찾아요", "타건감이 꽤 묵직한 거 키보드", "묵직한 키보드", "키보드 키압이 단단한 거"])
+def test_words_read_heavy_key_force_in_any_order(text):
+    """느낌 낱말과 대상 낱말이 어순과 관계없이 가까이 있으면 키압 조건으로 읽는다(near, PQA-005)."""
+    assert pi.interpret_by_words(text).stated.get("keyboard") == ["heavy_key_force"]
+
+
+def test_words_read_light_key_force_in_any_order():
+    assert pi.interpret_by_words("키보드 타건감이 가벼운 거").stated.get("keyboard") == ["light_key_force"]
+
+
+@pytest.mark.parametrize("text", ["무거운 키보드", "가벼운 키보드", "묵직한 마우스랑 키보드"])
+def test_words_do_not_read_key_force_from_body_or_other_kind(text):
+    """"무거운·가벼운 키보드"는 본체 무게·휴대일 수 있고, "묵직한 마우스랑 키보드"의 묵직은 마우스를 꾸민다."""
+    assert "heavy_key_force" not in pi.interpret_by_words(text).stated.get("keyboard", [])
+    assert "light_key_force" not in pi.interpret_by_words(text).stated.get("keyboard", [])
+
+
+def test_tenkeyless_is_not_read_as_numpad():
+    """"텐키리스" 안의 "텐키"를 숫자 키 목적으로 읽지 않는다(exclude, PQA-006)."""
+    got = pi.interpret_by_words("책상이 좁아서 텐키리스 키보드")
+    assert "numbers" not in got.purposes
+    assert got.stated == {"keyboard": ["compact"]}
+    assert "numbers" in pi.interpret_by_words("엑셀 하는데 텐키 있는 키보드").purposes
+
+
+def test_keyboard_key_force_words_do_not_leak_into_mouse_weight():
+    got = pi.interpret_by_words("가벼운 키압 키보드랑 마우스")
+    assert got.stated.get("keyboard") == ["light_key_force"]
+    assert "lightweight" not in got.stated.get("mouse", [])
+
+
+def test_conflicting_conditions_keep_the_stated_one():
+    """목적에서 풀린 풀배열과 직접 말한 텐키리스가 함께면 직접 말한 쪽만 남기고 알린다(conflicts, PQA-006)."""
+    kb = pi.resolve(pi.interpret_by_words("엑셀 많이 하는데 텐키리스로 키보드"))["keyboard"]
+    assert [c.condition for c in kb.preferences] == ["compact"]
+    assert kb.conflicts == [{"conditions": ["compact", "full_size"], "labels": ["텐키리스·컴팩트", "풀배열"], "kept": "compact"}]
+
+
+def test_conflicting_conditions_both_stated_are_both_dropped():
+    kb = pi.resolve(pi.interpret_by_words("텐키리스인데 풀배열 키보드"))["keyboard"]
+    assert kb.preferences == []
+    assert kb.conflicts[0]["kept"] is None
+
+
+def test_light_and_heavy_key_force_may_both_stay():
+    """키압 범위(45~60g)는 둘 다 충족할 수 있어 상충으로 보지 않는다(test_peripheral_key_force 와 같은 설계)."""
+    kb = pi.resolve(pi.interpret_by_words("가벼운 키압인데 묵직한 키감 키보드"))["keyboard"]
+    assert {c.condition for c in kb.preferences} == {"light_key_force", "heavy_key_force"} and kb.conflicts == []
+
+
+# 설정에서 짧은 낱말이 다른 항목의 긴 낱말 안에 들어가는 경우. 함께 읽히는 것이 맞는 겹침(저소음 스위치 → 조용해야 함도)은
+# 그대로 두고, 틀리게 읽히는 겹침만 exclude 로 막았다. 새 겹침이 생기면 이 시험이 깨진다 — 검토해서 목록에 더하거나 exclude 를 단다.
+_REVIEWED_OVERLAPS = {
+    ("게임", "리듬 게임"), ("밤에", "밤에 작게"), ("저소음", "저소음 스위치"), ("저소음", "저소음축"), ("저소음", "저소음 축"),
+    ("사무", "사무실"), ("음악", "배경 음악"), ("회의", "화상회의"),
+    ("텐키", "텐키리스"),                                                     # numbers.exclude
+    ("가벼운", "가벼운 키압"), ("가벼운", "가벼운 타건"), ("가벼운", "가벼운 키감"),   # mouse lightweight.exclude
+}
+
+
+def test_word_overlaps_are_reviewed():
+    rules = load_peripheral_rules()
+    entries = []
+    for kind in ("monitor", "keyboard", "mouse", "speaker"):
+        for code, e in rules["purposes"][kind].items():
+            entries += [(w, code) for w in e["words"]]
+        for code, e in rules["spec_conditions"][kind].items():
+            entries += [(w, code) for w in e["words"]]
+    entries += [(w, code) for code, e in situations(rules).items() for w in e["words"]]
+    found = {(short, long) for short, a in entries for long, b in entries if len(long) > len(short) and short in long and a != b}
+    assert found == _REVIEWED_OVERLAPS
+
+
+def test_recommend_body_hand_size_reaches_interpretation():
+    """추천 요청의 hand_size 가 해석에 들어가 체감 점수가 같은 손 크기 작성자를 묶을 수 있다(QA PQA-004)."""
+    from src.schemas import PeripheralsRecommendIn
+    from src.services.peripherals_service import _intent_from_body
+    interp, ignored = _intent_from_body(PeripheralsRecommendIn(kinds=["mouse"], hand_size="small"))
+    assert interp.hand_size == "small" and ignored == []

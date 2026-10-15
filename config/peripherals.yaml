@@ -17,7 +17,7 @@
 # hard_filters·preferences 절은 쓰지 않는다 — E11 은 requirements.<kind>.hard/soft 를 그대로
 # 평가한다. 로더(src/engine/peripheral_rules.py)는 두 이름을 "알려진 선택 절"로 예약만 해 둔다.
 schema_version: 1
-rule_set_version: peripheral-rules-v4   # v2: verify 절(E12) 추가 · v3: 견적 입력 절 추가, requirements.soft 제거 · v4: 변별력 없던 스펙 임계값 보정(해상도·응답속도·폴링레이트)
+rule_set_version: peripheral-rules-v5   # v2: verify 절(E12) 추가 · v3: 견적 입력 절 추가, requirements.soft 제거 · v4: 변별력 없던 스펙 임계값 보정(해상도·응답속도·폴링레이트) · v5: QA 해석 보강(4K·QHD·유선·노래, 2026-10-15)
 
 kinds:
   monitor:
@@ -130,7 +130,7 @@ ranking:
   mouse:
     criteria:
       손맞춤: [size_longest_mm, weight_g, form_factor_raw]
-      연결: [connectivity_wireless, connectivity_bluetooth]
+      연결: [connectivity_wired, connectivity_wireless, connectivity_bluetooth]
       기능: [button_count, polling_hz_max]
     weights: {손맞춤: 0.15, 연결: 0.07, 기능: 0.08, 리뷰: 0.35, 가격: 0.27, 브랜드: 0.04, 무상AS: 0.04}   # 잠정값
   speaker:
@@ -228,9 +228,14 @@ spec_conditions:
   monitor:
     high_resolution:   # ＊
       label: 높은 해상도
-      words: [고해상도, 해상도 높, 높은 해상도]
+      words: [고해상도, 해상도 높, 높은 해상도, 4k, uhd, "3840"]     # QA PQA-007: "4K 모니터"·"4K" 칩
       filter: false
       prefs: [{key: resolution_h, op: min, value: 2160}]          # 4K 이상. 잠정(1440 은 카탈로그 97% 통과라 변별력이 없었다)
+    qhd:
+      label: QHD 해상도
+      words: [qhd, wqhd, 1440p]                                   # QA PQA-007: "QHD 165Hz" 칩·문장
+      filter: false
+      prefs: [{key: resolution_h, op: equals, value: 1440}]       # 2560x1440·3440x1440·5120x1440
     high_refresh:
       label: 높은 주사율
       words: [고주사율, 주사율 높, 144hz, 165hz, 240hz]
@@ -316,14 +321,26 @@ spec_conditions:
     light_key_force:
       label: 가벼운 키압
       words: [가벼운 키압, 키압이 가벼, 키압 가벼, 가벼운 타건, 가볍게 눌리, 가벼운 키감]
+      # 어순·조사가 달라도 읽는다("타건감이 가벼운"). "가벼운 키보드"는 휴대용일 수 있어 target 에 키보드를 넣지 않는다(QA PQA-005)
+      near:
+        - {feel: [가벼, 가볍, 살짝], target: [키압, 타건, 키감, 누르, 눌러, 눌리], window: 10}
       filter: false
       prefs: [{key: key_force_min_g, op: max, value: 45}]         # g. 잠정(요청서 B-8)
     heavy_key_force:
       label: 묵직한 키압
       words: [묵직한 키압, 키압이 묵직, 키압 묵직, 키압이 높, 키압 높, 묵직한 타건, 묵직한 키감, 무거운 키압]
+      # "타건감 묵직한", "묵직한 키보드"(QA PQA-005). "무거운 키보드"는 본체 무게일 수 있어 키보드와는 "묵직"만 묶는다
+      near:
+        - {feel: [묵직, 무거, 무겁, 단단, 빡빡], target: [키압, 타건, 키감, 누르, 눌러, 눌리], window: 10}
+        - {feel: [묵직], target: [키보드], window: 10}
       filter: false
       prefs: [{key: key_force_max_g, op: min, value: 50}]         # g. 잠정(요청서 B-8)
   mouse:
+    wired:
+      label: 유선
+      words: [유선]                                               # QA PQA-017("유선 마우스 3만원"). 키보드는 41종 중 39종이 유선이라 두지 않는다
+      filter: true
+      prefs: [{key: connectivity_wired, op: equals, value: true}]
     wireless:
       label: 무선
       words: [무선]
@@ -337,6 +354,7 @@ spec_conditions:
     lightweight:
       label: 가벼운 무게
       words: [경량, 가벼운, 가벼워]
+      exclude: [가벼운 키압, 가벼운 타건, 가벼운 키감]                 # 키보드 키압 표현이 마우스 무게로 새지 않게(QA PQA-006)
       filter: false
       prefs: [{key: weight_g, op: max, value: 80}]                # g. 잠정
     high_polling:
@@ -418,7 +436,7 @@ purposes:
     typing:
       {label: 장문 타이핑·코딩, words: [글 많이, 타이핑, 코딩, 개발자], prefer: [], feel: [타건감, 손목 피로], taste: []}
     numbers:
-      {label: 사무·숫자 입력, words: [회계, 엑셀, 숫자, 텐키], prefer: [full_size], feel: [배열 적응], taste: [소리 조용한 쪽]}
+      {label: 사무·숫자 입력, words: [회계, 엑셀, 숫자, 텐키], exclude: [텐키리스], prefer: [full_size], feel: [배열 적응], taste: [소리 조용한 쪽]}   # exclude: QA PQA-006
     game:
       {label: 게임(일반), words: [게임], prefer: [], feel: [입력 반응, 타건감], taste: []}
     fps:
@@ -452,7 +470,7 @@ purposes:
     room:
       {label: 방 전체·거실, words: [거실, 크게, 방 전체], prefer: [high_output, bookshelf], feel: [음량 여유], taste: [저음 넉넉한 쪽]}
     music:
-      {label: 음악 감상, words: [음악], prefer: [bookshelf], feel: [음질, 악기 구분], taste: []}
+      {label: 음악 감상, words: [음악, 노래, 음감], prefer: [bookshelf], feel: [음질, 악기 구분], taste: []}   # 노래·음감: QA PQA-019
     movie_game:
       {label: 영화·게임, words: [영화, 타격감], prefer: [high_output, channel_2_1], feel: [저음, 음량], taste: [저음 넉넉한 쪽]}
     voice:
@@ -461,6 +479,13 @@ purposes:
       {label: 작은 음량·밤, words: [밤에 작게, 작게 들], prefer: [], feel: [작은 음량에서의 소리, 잡음], taste: []}
     multi_device:
       {label: 여러 기기 연결, words: [폰도, 여러 기기], prefer: [bluetooth], feel: [연결 안정성], taste: []}
+
+# conflicts: 함께 있을 수 없는 스펙 조건 쌍(QA PQA-006). 풀이에서 둘 다 풀리면 직접 말한 쪽만 남긴다.
+# 둘 다 직접 말했거나 둘 다 목적에서 풀렸으면 둘 다 빼고 응답의 conflicts 로 알린다(채팅에서 되묻는다).
+# 가벼운·묵직한 키압은 넣지 않는다 — 키압이 범위(45~60g)로 적힌 상품은 둘 다 충족할 수 있다(위 키압 조건 주석).
+conflicts:
+  keyboard:
+    - [compact, full_size]
 
 # situations: 종류를 가리지 않는 공통 상황(견적 입력 설계 5.2). 스펙 선호는 위 purposes 에 같은 이름이 있는
 # 종류에서만 풀린다(quiet_place·portable·small_desk). 나머지 영향(체감 중요도, 같은 조건 묶음)은 체감 점수 단계가 쓴다.

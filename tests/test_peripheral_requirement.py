@@ -2,7 +2,7 @@
 
 DB 불필요(마지막 두 절의 "전체 CSV" 테스트만 data/peripherals/*_processed.csv 원본을
 읽는다 — DB 접속은 아니다). 계획 §3.3 E10의 완료 기준: QHD_165 하드 조건, 해상도 미지정 시
-기본값(FHD_144)+assumed, 4K의 용도별 주사율 하한, 목적·상황 풀이 선호와 직접 말한 조건의 거르기,
+하드 조건 없음+assumed(QA PQA-001), 4K의 용도별 주사율 하한, 목적·상황 풀이 선호와 직접 말한 조건의 거르기,
 요청하지 않은 종류 배제, 잘못된 설정에서 PeripheralRuleError, C6(기본 조건에서 모니터 0건) 사실 고정,
 마우스 블루투스⊆무선 사실 고정(코디네이터 리뷰 반영 — 아래 참고).
 """
@@ -40,15 +40,15 @@ def test_qhd165_monitor_hard_conditions_and_no_assumed():
     assert req.notes == []
 
 
-def test_missing_resolution_defaults_to_qhd_with_assumed_and_note():
-    """해상도를 말하지 않으면 주변기기 기본값(QHD_165)을 쓴다. PC 규칙의 기본(FHD_144)은 카탈로그에
-    맞는 모니터가 없어 첫 요청이 항상 비었기 때문에 쓰지 않는다."""
+def test_missing_resolution_has_no_hard_filter_with_assumed_and_note():
+    """PC 해상도를 모르면(PC 견적 없는 단독 요청) 해상도·주사율로 거르지 않는다 — 4K 를 포함한 모든 모니터가 후보다
+    (QA PQA-001, 2026-10-15 결정. 예전에는 QHD_165 로 걸러 4K 를 달라고 해도 4K 가 나올 수 없었다)."""
     reqs = build_requirements({}, ["monitor"])
     req = reqs["monitor"]
-    assert req.hard == {"resolution_class": ["QHD"], "refresh_min_hz": 165}
+    assert req.hard == {}
     assert req.assumed == ["resolution"]
     assert len(req.notes) == 1
-    assert "해상도" in req.notes[0] and "기본값" in req.notes[0] and "QHD" in req.notes[0]
+    assert "PC" in req.notes[0] and "거르지 않" in req.notes[0]
 
 
 def test_4k_refresh_min_hz_depends_on_purpose():
@@ -298,3 +298,84 @@ def test_bluetooth_mice_are_always_also_wireless_in_full_catalog(full_mouse_cand
     bluetooth_mice = [c for c in full_mouse_candidates if c.specs.get("connectivity_bluetooth") is True]
     assert bluetooth_mice, "블루투스 마우스가 0건이면 이 사실 확인 자체가 무의미하다"
     assert all(c.specs.get("connectivity_wireless") is True for c in bluetooth_mice)
+
+
+# ── 낱말 규칙의 선택 항목(exclude·near)과 conflicts 절(QA PQA-005·006) ─────────────────
+def test_near_rule_shape_is_checked(tmp_path):
+    rules = deepcopy(pr.load_peripheral_rules())
+    rules["spec_conditions"]["keyboard"]["heavy_key_force"]["near"] = [{"feel": ["묵직"], "target": ["키압"]}]
+    with pytest.raises(pr.PeripheralRuleError, match="near"):
+        pr.load_peripheral_rules(_write(tmp_path, rules))
+
+
+def test_near_window_must_be_small_positive_int(tmp_path):
+    rules = deepcopy(pr.load_peripheral_rules())
+    rules["spec_conditions"]["keyboard"]["heavy_key_force"]["near"][0]["window"] = 100
+    with pytest.raises(pr.PeripheralRuleError, match="window"):
+        pr.load_peripheral_rules(_write(tmp_path, rules))
+
+
+def test_exclude_must_be_a_word_list(tmp_path):
+    rules = deepcopy(pr.load_peripheral_rules())
+    rules["purposes"]["keyboard"]["numbers"]["exclude"] = []
+    with pytest.raises(pr.PeripheralRuleError, match="exclude"):
+        pr.load_peripheral_rules(_write(tmp_path, rules))
+
+
+def test_unknown_extra_key_in_spec_condition_raises(tmp_path):
+    rules = deepcopy(pr.load_peripheral_rules())
+    rules["spec_conditions"]["mouse"]["wireless"]["synonyms"] = ["와이어리스"]
+    with pytest.raises(pr.PeripheralRuleError, match="키 오류"):
+        pr.load_peripheral_rules(_write(tmp_path, rules))
+
+
+def test_conflicts_must_name_two_known_conditions(tmp_path):
+    rules = deepcopy(pr.load_peripheral_rules())
+    rules["conflicts"]["keyboard"].append(["compact", "made_up"])
+    with pytest.raises(pr.PeripheralRuleError, match="conflicts"):
+        pr.load_peripheral_rules(_write(tmp_path, rules))
+
+
+# ── PC 없이 고른 모니터의 채팅 유의사항(QA PQA-001) ───────────────────────────────
+def _monitor(**specs):
+    from src.dto import Candidate
+    return Candidate(product_key="m", slot="monitor", name="m", price=500_000, specs=specs)
+
+
+def _values(*purposes):
+    interp = peripheral_intent.Interpretation(kinds=["monitor"], purposes=list(purposes))
+    return {"peripheral_resolved": peripheral_intent.resolve(interp)}
+
+
+def test_monitor_notices_only_when_pc_is_unknown():
+    from src.engine.peripheral_requirement import monitor_notices
+    known = build_requirements({"resolution": "4K"}, ["monitor"])["monitor"]
+    assert monitor_notices(_monitor(resolution_w=3840, resolution_h=2160, refresh_hz=60), known, _values("game")) == []
+
+
+def test_monitor_notices_for_4k_game_and_low_refresh():
+    from src.engine.peripheral_requirement import monitor_notices
+    req = build_requirements({}, ["monitor"])["monitor"]
+    codes = [n["code"] for n in monitor_notices(_monitor(resolution_w=3840, resolution_h=2160, refresh_hz=60), req, _values("game"))]
+    assert codes == ["pc_unknown", "gpu_4k", "low_refresh"]
+
+
+def test_monitor_notices_without_game_purpose_only_say_pc_unknown():
+    from src.engine.peripheral_requirement import monitor_notices
+    req = build_requirements({}, ["monitor"])["monitor"]
+    notices = monitor_notices(_monitor(resolution_w=3840, resolution_h=2160, refresh_hz=60), req, _values("docs"))
+    assert [n["code"] for n in notices] == ["pc_unknown"]
+
+
+def test_monitor_notices_skip_unknown_specs():
+    """스펙 값이 없으면 그 유의사항은 내지 않는다(모르는 값으로 단정하지 않는다)."""
+    from src.engine.peripheral_requirement import monitor_notices
+    req = build_requirements({}, ["monitor"])["monitor"]
+    assert [n["code"] for n in monitor_notices(_monitor(), req, _values("fps"))] == ["pc_unknown"]
+
+
+def test_ultrawide_game_gets_high_res_notice():
+    from src.engine.peripheral_requirement import monitor_notices
+    req = build_requirements({}, ["monitor"])["monitor"]
+    codes = [n["code"] for n in monitor_notices(_monitor(resolution_w=3440, resolution_h=1440, refresh_hz=165), req, _values("game"))]
+    assert codes == ["pc_unknown", "gpu_high_res"]

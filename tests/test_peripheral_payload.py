@@ -32,7 +32,8 @@ _ITEM_KEYS = {"kind", "kind_label", "product", "price", "price_source", "price_n
               "requirement", "checks", "reason", "alternatives", "guide", "review",
               "review_weight", "review_note", "feel", "feel_note",
               "score_detail", "evidence_count", "evidence_penalty", "close_call"}
-_ALT_KEYS = {"name", "price", "diff", "review", "review_weight", "review_note", "evidence_count", "score", "why_not_first"}
+_ALT_KEYS = {"name", "price", "diff", "review", "review_weight", "review_note", "evidence_count", "score", "why_not_first",
+             "variant_id", "brand", "image_url", "product_url"}   # 제품 정보: 1위 대신 담기(QA PQA-024)
 _PRODUCT_KEYS = {"name", "brand", "variant_id", "product_url", "image_url"}
 
 
@@ -85,7 +86,7 @@ def test_ready_top_and_item_key_sets_are_fixed():
     result = _ready_result(["monitor", "mouse"], resolution="QHD_165", purpose="game")
     payload = peripheral_payload(result)
     assert payload["status"] == "ready"
-    assert set(payload) == _TOP_KEYS
+    assert set(payload) == _TOP_KEYS | {"notices"}      # 채팅 유의사항은 ready 일 때만(QA PQA-001)
     assert len(payload["items"]) == 2
     for item in payload["items"]:
         assert set(item) == _ITEM_KEYS
@@ -139,6 +140,17 @@ def test_alternatives_diff_is_price_minus_pick_price():
         assert alt_dict["diff"] == alt_cand.price - pick_price
         assert alt_dict["review"] == (alt_cand.review_detail.model_dump(mode="json")
                                        if alt_cand.review_detail else None)
+        # 1위 대신 담을 수 있게 제품 정보도 싣는다(QA PQA-024)
+        assert alt_dict["variant_id"] == alt_cand.variant_id
+        assert alt_dict["brand"] == alt_cand.brand
+        assert "image_url" in alt_dict and "product_url" in alt_dict
+
+
+def test_monitor_without_pc_has_pc_unknown_notice():
+    payload = peripheral_payload(_ready_result(["monitor"]))
+    assert payload["status"] == "ready", payload
+    assert payload["notices"][0]["code"] == "pc_unknown"
+    assert peripheral_payload(_ready_result(["monitor"], resolution="QHD_165"))["notices"] == []
 
 
 # ── reason: 규칙 템플릿, 판정어·confidence 숫자 없음 ─────────────────────

@@ -77,6 +77,7 @@ def _intent_from_body(body, pc_purpose: str | None = None):
         "emphasis": body.emphasis,
         "brand_like": body.brand_like,
         "brand_avoid": body.brand_avoid,
+        "hand_size": body.hand_size,
     }
     interp = peripheral_intent.sanitize(raw)
 
