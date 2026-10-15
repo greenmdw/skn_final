@@ -373,3 +373,8 @@
 .pf-typing i:nth-child(3) { animation-delay: .32s; }
 @keyframes pf-typing-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .35; } 30% { transform: translateY(-6px); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .pf-typing i { animation: none; opacity: .7; } }
+
+.pr-meter { display: flex; height: 7px; overflow: hidden; border-radius: 99px; background: var(--ink, var(--panel2)); }
+.pr-meter i { display: block; height: 100%; flex-basis: 0; }
+.pr-meter .g { background: var(--ok); }
+.pr-meter .b { background: var(--bad); }

@@ -646,6 +646,9 @@ export interface PeripheralFeelAttribute {
   split: boolean
   mismatch: boolean
   quotes: PeripheralFeelQuote[]
+  /** 이 항목에 좋게·아쉽게 평가한 사용기 작성자 수(같은 조건 + 그 밖). 서버가 안 주면 없다 */
+  good?: number
+  bad?: number
 }
 
 export interface PeripheralFeel {

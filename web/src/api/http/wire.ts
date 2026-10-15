@@ -399,6 +399,7 @@ export interface WirePeripheralFeel {
   recent_authors: number | null
   attributes: {
     code: string; label: string; type?: string; state: string; text: string; alpha?: number; split: boolean; mismatch: boolean
+    good?: number; bad?: number
     quotes: { quote_id: string; post_id: string; sentence: string; is_example?: boolean; photo_url: string | null }[]
   }[]
 }

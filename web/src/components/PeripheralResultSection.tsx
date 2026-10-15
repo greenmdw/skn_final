@@ -78,6 +78,10 @@ function EvidencePanel({ view }: { view: CandidateView }) {
       <div className="pr-tiles">
         {attributes.map(attribute => <div className={'pr-tile' + (requestedCodes.has(attribute.code) ? ' req' : '')} key={attribute.code}>
           <div className="pr-tile-head"><b>{attribute.label}</b>{requestedCodes.has(attribute.code) && <span className="pr-tag req">요청</span>}</div>
+          {(attribute.good ?? 0) + (attribute.bad ?? 0) > 0 && <span className="pr-meter" role="img"
+            aria-label={`좋게 평가 ${attribute.good ?? 0}명, 아쉽게 평가 ${attribute.bad ?? 0}명`}>
+            <i className="g" style={{ flexGrow: attribute.good ?? 0 }} /><i className="b" style={{ flexGrow: attribute.bad ?? 0 }} />
+          </span>}
           <span className="pr-tile-text">{attribute.text}</span>
           {attribute.quotes.slice(0, NO_FEEL_QUOTE_LIMIT).map(quote => <div className="pr-tile-quote" key={quote.quoteId}>
             <p>“{quote.sentence}”{quote.isExample && <em className="pf-example-tag">예시 글</em>}</p>

@@ -52,7 +52,7 @@ function feelFromWire(feel: WirePeripheralFeel | null | undefined): PeripheralFe
     value: feel.value, basis: feel.basis, basisText: feel.basis_text, recentAuthors: feel.recent_authors ?? null,
     attributes: feel.attributes.map(attribute => ({
       code: attribute.code, label: attribute.label, text: attribute.text, state: attribute.state,
-      split: attribute.split, mismatch: attribute.mismatch,
+      split: attribute.split, mismatch: attribute.mismatch, good: attribute.good, bad: attribute.bad,
       quotes: attribute.quotes.map(quote => ({
         quoteId: quote.quote_id, postId: quote.post_id, sentence: quote.sentence, isExample: Boolean(quote.is_example), photoUrl: quote.photo_url ?? null,
       })),
