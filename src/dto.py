@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, get_args
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +15,7 @@ Verdict = Literal["Pass", "Fail", "Pending"]
 # E8 — 모니터/키보드/마우스/스피커. 독립 카테고리가 아니라 computer 요청의 부속 결과라
 # Category에는 안 넣는다(config/peripherals.yaml이 config/categories/ 밖에 있는 이유와 같다).
 PeripheralKind = Literal["monitor", "keyboard", "mouse", "speaker"]
+PERIPHERAL_KINDS: tuple[str, ...] = get_args(PeripheralKind)      # 화면·결과가 늘 같은 순서로 보여 주는 고정 순서
 
 
 # ── [1] 의도 분해 · 슬롯필링 ──────────────────────────────────────────────

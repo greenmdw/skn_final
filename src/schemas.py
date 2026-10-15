@@ -10,6 +10,7 @@ from uuid import UUID
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+from src.dto import PeripheralKind
 from src.dto import ReviewScoreDetail as ReviewScoreDetailDTO
 from src.engine.peripheral_intent import Interpretation as PeripheralInterpretation
 from src.engine.peripheral_intent import ResolvedKind as PeripheralResolvedKind
@@ -897,7 +898,7 @@ class PeripheralsRecommendIn(BaseModel):
     로 받고(조용해야 함 = `situations: ["quiet_place"]`), PC 견적 용도는 `pc_list_id` 로 묶은 PC 견적에서 읽는다.
     보내도 오류는 아니지만(알 수 없는 필드는 무시된다) 아무 영향이 없다."""
 
-    kinds: list[Literal["monitor", "keyboard", "mouse", "speaker"]] = Field(min_length=1)
+    kinds: list[PeripheralKind] = Field(min_length=1)
     budget_max: Optional[int] = Field(default=None, ge=0)
     resolution: Optional[str] = None
     # 주면 그 PC 견적의 해상도·용도·GPU 스펙을 pc_context로 묶어 모니터 교차검사를 추가로 켠다
@@ -957,7 +958,7 @@ class PeripheralAlternativeOut(BaseModel):
 
 
 class PeripheralItemOut(BaseModel):
-    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    kind: PeripheralKind
     kind_label: str
     product: PeripheralProductOut
     price: int
@@ -993,7 +994,7 @@ class PeripheralAdjustChipOut(BaseModel):
     """"더 맞추기" 칩 하나. 누르면 `add` 를 추천 입력(purposes·situations·stated)에 더해 다시 부르면 된다.
     눌렀을 때 지금 보이는 순서가 바뀌는 칩만 나온다(`moved` 는 바뀌는 자리 수)."""
 
-    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    kind: PeripheralKind
     id: str
     label: str
     add: dict[str, Any]
@@ -1021,7 +1022,7 @@ class PeripheralCatalogItemOut(BaseModel):
     """제품 검색(GET /peripherals/catalog/search)의 한 항목. options 는 제안 목록일 뿐이다."""
 
     product_id: str
-    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    kind: PeripheralKind
     brand: str
     model: str
     image_url: str | None = None
@@ -1037,7 +1038,7 @@ class PeripheralInterpretIn(BaseModel):
 
     text: str = Field(min_length=1, max_length=2000)    # 서버가 설정의 글자 수 상한으로 한 번 더 자른다
     previous: dict[str, Any] | None = None             # 직전 응답의 interpretation 을 그대로 돌려보낸다
-    kinds: list[Literal["monitor", "keyboard", "mouse", "speaker"]] | None = None    # 종류 카드로 고른 값
+    kinds: list[PeripheralKind] | None = None    # 종류 카드로 고른 값
 
 
 class PeripheralInterpretOut(BaseModel):
@@ -1195,7 +1196,7 @@ class ConfirmPeripheralIn(BaseModel):
     """개발요청 11번 — 확정 시 같이 얼릴 주변기기 1건. 가격은 서버가 variant_id로 다시 조회해
     매긴다(클라이언트가 보낸 가격은 안 믿는다)."""
 
-    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    kind: PeripheralKind
     variant_id: str
     qty: int = Field(default=1, ge=1, le=99)
 
@@ -1230,7 +1231,7 @@ class ReportItemOut(BaseModel):
 class ReportPeripheralOut(BaseModel):
     """개발요청 11번 — 확정 견적서에 같이 얼린 주변기기 한 줄."""
 
-    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    kind: PeripheralKind
     product: ReportProductOut
     price: int            # 단가 — 줄 금액은 price × qty, 참고가(reference_snapshot)
     qty: int = 1

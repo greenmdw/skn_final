@@ -17,6 +17,7 @@ import yaml
 
 from src.categories import load_category
 from src.config import PERIPHERAL_RULES_PATH
+from src.dto import PERIPHERAL_KINDS
 from src.engine.peripheral_parse import PARSED_KEYS_BY_KIND
 
 _PERIPHERAL_RULES_PATH = PERIPHERAL_RULES_PATH
@@ -37,7 +38,7 @@ _KNOWN_TOP_KEYS = _REQUIRED_TOP_KEYS | {
     "emphasis", "conflicts",
 }
 
-_KINDS = ("monitor", "keyboard", "mouse", "speaker")
+_KINDS = PERIPHERAL_KINDS
 _KIND_REQUIRED_KEYS = {"label", "product_type", "spec_table", "columns"}
 # 스펙 기준(ranking.<kind>.criteria)과 별개로 모든 종류가 갖는 축. 가중치 축 = 스펙 기준 이름들 ∪ 이것들.
 _FIXED_AXES = {"리뷰", "가격", "브랜드", "무상AS"}
@@ -775,6 +776,17 @@ def conflicts(kind: str, rules: dict | None = None) -> list[tuple[str, str]]:
     """종류의 함께 있을 수 없는 스펙 조건 쌍. 절이 없으면 빈 목록."""
     rules = rules or load_peripheral_rules()
     return [tuple(pair) for pair in (rules.get("conflicts") or {}).get(kind, [])]
+
+
+def split_purpose_codes(purposes: list[str], situation_codes: list[str], rules: dict | None = None) -> tuple[list[str], list[str]]:
+    """목적 이름과 상황 이름을 목록 안의 값으로 정리하고 (목적, 상황)으로 나눈다. 목적 칸에 들어온 이름이 공통 상황 이름이면
+    (quiet_place·portable·small_desk 등) 상황으로 옮긴다. 목록에 없는 이름은 버리고, 중복은 처음 나온 순서로 하나만 둔다."""
+    rules = rules or load_peripheral_rules()
+    sit = set(situations(rules))
+    known = set(purpose_codes(rules)) | sit
+    kept_purposes = dict.fromkeys(c for c in purposes if c in known and c not in sit)
+    kept_situations = dict.fromkeys(c for c in [*situation_codes, *(c for c in purposes if c in sit)] if c in sit)
+    return list(kept_purposes), list(kept_situations)
 
 
 def pc_purpose_map(rules: dict | None = None) -> dict[str, list[str]]:

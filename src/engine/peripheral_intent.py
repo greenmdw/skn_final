@@ -20,13 +20,14 @@ from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
 
+from src.dto import PERIPHERAL_KINDS, PeripheralKind
 from src.engine import spec_rules
 from src.engine.peripheral_rules import (
     conflicts, emphasis_cfg, kind_def, load_peripheral_rules, pc_purpose_map, peripheral_kinds, purpose_codes, purposes, ranking_def,
-    situations, spec_conditions,
+    situations, spec_conditions, split_purpose_codes,
 )
 
-Kind = Literal["monitor", "keyboard", "mouse", "speaker"]
+Kind = PeripheralKind
 HandSize = Literal["small", "medium", "large"]
 
 BUDGET_MAX_WON = 10_000_000          # 이 값을 넘는 금액은 예산으로 읽지 않는다(오입력·오해석 방어)
@@ -99,17 +100,21 @@ class ResolvedKind(BaseModel):
 
 def kinds_all_order(kinds: list[str]) -> list[str]:
     """화면과 결과에서 종류를 늘 같은 순서로 보여주기 위한 고정 순서."""
-    order = ["monitor", "keyboard", "mouse", "speaker"]
-    return [k for k in order if k in kinds]
+    return [k for k in PERIPHERAL_KINDS if k in kinds]
 
 
 def _unique(values) -> list:
     return list(dict.fromkeys(values))
 
 
+def squash_spaces(text: str | None) -> str:
+    """연속 공백(줄바꿈 포함)을 한 칸으로, 앞뒤 공백은 없앤다."""
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
 def normalize_text(text: str) -> str:
     """같은 문장을 같은 열쇠로 보게 한다: 공백 정리, 소문자."""
-    return re.sub(r"\s+", " ", (text or "")).strip().lower()
+    return squash_spaces(text).lower()
 
 
 def looks_like_injected_instruction(text: str) -> bool:
@@ -139,8 +144,11 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
     data = raw if isinstance(raw, dict) else {}
     kinds_all = peripheral_kinds(rules)
 
+    def _strings(value: Any) -> list[str]:
+        return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
     def _names(value: Any, allowed: set[str]) -> list[str]:
-        return _unique(v for v in (value if isinstance(value, list) else []) if isinstance(v, str) and v in allowed)
+        return _unique(v for v in _strings(value) if v in allowed)
 
     stated: dict[str, list[str]] = {}
     raw_stated = data.get("stated") if isinstance(data.get("stated"), dict) else {}
@@ -161,7 +169,7 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
     for item in data.get("unrecognized") if isinstance(data.get("unrecognized"), list) else []:
         if not isinstance(item, str):
             continue
-        text = re.sub(r"\s+", " ", item).strip()[:UNRECOGNIZED_MAX_CHARS]
+        text = squash_spaces(item)[:UNRECOGNIZED_MAX_CHARS]
         if text and not looks_like_injected_instruction(text):
             unrecognized.append(text)
 
@@ -185,12 +193,11 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
     for kind in brand_like:                                # 선호 브랜드를 말했으면 브랜드 축을 강조한다(기획 3.3)
         emphasis[kind] = _unique([*emphasis.get(kind, []), "브랜드"])
 
-    sit_codes = set(situations(rules))
-    purpose_hits = _names(data.get("purposes"), set(purpose_vocabulary(rules)) | sit_codes)
+    purpose_hits, situation_hits = split_purpose_codes(_strings(data.get("purposes")), _strings(data.get("situations")), rules)
     return Interpretation(
         kinds=kinds,
-        purposes=[c for c in purpose_hits if c not in sit_codes],
-        situations=_unique([*_names(data.get("situations"), sit_codes), *(c for c in purpose_hits if c in sit_codes)]),
+        purposes=purpose_hits,
+        situations=situation_hits,
         stated=stated,
         hand_size=data.get("hand_size") if data.get("hand_size") in ("small", "medium", "large") else None,
         budget=budget,
@@ -269,7 +276,7 @@ def resolve(interp: Interpretation, rules: dict | None = None) -> dict[str, Reso
                     filter_ids = [f for f in filter_ids if f != c]
             dropped.append({"conditions": [a, b], "labels": [conds[a]["label"], conds[b]["label"]], "kept": kept})
 
-        def _condition(cond_id: str, src: list[str]) -> ResolvedCondition:
+        def _condition(cond_id: str, src: list[str], conds=conds) -> ResolvedCondition:
             cond = conds[cond_id]
             return ResolvedCondition(condition=cond_id, label=cond["label"], sources=src,
                                      prefs=[dict(p) for p in cond["prefs"]])

@@ -171,9 +171,26 @@ def review_axis_values(kept: list[Candidate], cfg: dict[str, Any]) -> dict[str, 
     return raw
 
 
+def _brand_key(name: str) -> str:
+    return name.strip().lower()
+
+
+def _brand_keys(names) -> set[str]:
+    """브랜드 이름 목록을 비교용 열쇠(앞뒤 공백 제거, 소문자) 집합으로. 빈 이름은 뺀다."""
+    return {_brand_key(n) for n in (names or ()) if n and n.strip()}
+
+
+def _drop_avoided_brands(cands: list[Candidate], avoid: set[str]) -> tuple[list[Candidate], int]:
+    """기피 브랜드는 "빼 달라"는 명시 요청이라 후보에서 뺀다(기획 3.7). (남은 후보, 뺀 수)."""
+    if not avoid:
+        return cands, 0
+    kept = [c for c in cands if _brand_key(c.brand) not in avoid]
+    return kept, len(cands) - len(kept)
+
+
 def _brand_axis(cand: Candidate, like: set[str]) -> float:
     """선호 브랜드를 말했으면 그 브랜드 후보는 1, 나머지는 0.5. 말하지 않았으면 모두 0.5(판매량으로 점수를 주지 않는다)."""
-    return 1.0 if like and cand.brand.strip().lower() in like else 0.5
+    return 1.0 if like and _brand_key(cand.brand) in like else 0.5
 
 
 def _warranty_axis(cand: Candidate, months: dict[str, float]) -> float:
@@ -246,7 +263,7 @@ def rank_candidates(
         if name is not None:
             by_criterion[name].append((pref, cfg["stated_pref_weight"] if pref in stated else 1.0))
     stated_criteria = {name for name, items in by_criterion.items() if any(pref in stated for pref, _ in items)}
-    like = {b.strip().lower() for b in (brand_like or ()) if b and b.strip()}
+    like = _brand_keys(brand_like)
     final_weights, reasons = effective_weights(
         base, criteria, stated_criteria, set(emphasis or ()), cfg,
         has_budget=kind_budget is not None or budget is not None, brand_liked=bool(like),
@@ -417,6 +434,28 @@ def _feel_blocks(picks: list[PeripheralPick], values: dict, rules: dict) -> dict
     return out
 
 
+def _monitor_cross_check(
+    values: dict, pc_context: dict | None, picks_by_kind: dict[str, Candidate], requirements: dict[str, PeripheralRequirement],
+    rules: dict, log: LogFn,
+) -> tuple[list[dict], dict[str, list] | None]:
+    """E12 — 모니터를 골랐고 PC 쪽 정보(pc_context)가 있으면 교차 검사를 돌린다. 없으면(기본)
+    (검사 결과, 쟁점) 둘 다 비워 두어 기존 동작과 완전히 같게 만든다."""
+    if pc_context is None or "monitor" not in picks_by_kind:
+        return [], None
+    from src.engine import peripheral_cross
+    from src.engine.stage2_requirement import load_computer_rules
+
+    default_resolution = load_computer_rules()["requirements"]["default_resolution"]
+    pc_resolution = pc_context.get("resolution") or values.get("resolution") or default_resolution
+    target_refresh_hz = requirements["monitor"].hard.get("refresh_min_hz")
+    checks = peripheral_cross.monitor_cross_checks(
+        picks_by_kind["monitor"], pc_resolution=pc_resolution,
+        gpu_specs=pc_context.get("gpu_specs"), target_refresh_hz=target_refresh_hz, rules=rules,
+    )
+    log(f"      [P][E12] 모니터↔PC 교차 검사: {', '.join(c['axis'] + '=' + c['state'] for c in checks)}")
+    return checks, {"monitor": peripheral_cross.cross_issues(checks)}
+
+
 def run_peripherals(
     values: dict, candidates: dict[str, list[Candidate]], log: LogFn, *, pc_context: dict | None = None,
     require_review_details: bool = False,
@@ -449,11 +488,7 @@ def run_peripherals(
         cands = candidates.get(kind, [])
         req = requirements[kind]
         kind_budget = (values.get("peripheral_kind_budget") or {}).get(kind)
-        avoid = {b.strip().lower() for b in ((values.get("peripheral_brand_avoid") or {}).get(kind) or []) if b and b.strip()}
-        avoided = 0
-        if avoid:                                # 기피 브랜드는 "빼 달라"는 명시 요청이라 후보에서 뺀다(기획 3.7)
-            kept_cands = [c for c in cands if c.brand.strip().lower() not in avoid]
-            avoided, cands = len(cands) - len(kept_cands), kept_cands
+        cands, avoided = _drop_avoided_brands(cands, _brand_keys((values.get("peripheral_brand_avoid") or {}).get(kind)))
         kept, stats = filter_candidates(kind, req, cands, max_price=kind_budget)
         if avoided:
             stats["avoided_brand"] = avoided
@@ -469,7 +504,7 @@ def run_peripherals(
         ranked = rank_candidates(
             kind, req, kept, weights, budget=values.get("peripheral_budget_max"),
             require_review_details=require_review_details, kind_budget=kind_budget,
-            brand_like={b.strip().lower() for b in ((values.get("peripheral_brand_like") or {}).get(kind) or []) if b},
+            brand_like=(values.get("peripheral_brand_like") or {}).get(kind),
             emphasis=set((values.get("peripheral_emphasis") or {}).get(kind) or []), rules=rules,
         )
         interp = values.get("peripheral_intent")
@@ -487,24 +522,7 @@ def run_peripherals(
     picks_by_kind, combo_counts = choose(kinds_ranked, budget_max)
     counts.update(combo_counts)
 
-    # E12 — 모니터를 골랐고 PC 쪽 정보(pc_context)가 있으면 교차 검사를 돌린다. 없으면(기본)
-    # monitor_checks/extra_issues 둘 다 비워 두어 기존 동작과 완전히 같게 만든다.
-    monitor_checks: list[dict] = []
-    extra_issues: dict[str, list] | None = None
-    if pc_context is not None and "monitor" in picks_by_kind:
-        from src.engine import peripheral_cross
-        from src.engine.stage2_requirement import load_computer_rules
-
-        default_resolution = load_computer_rules()["requirements"]["default_resolution"]
-        pc_resolution = pc_context.get("resolution") or values.get("resolution") or default_resolution
-        target_refresh_hz = requirements["monitor"].hard.get("refresh_min_hz")
-        monitor_checks = peripheral_cross.monitor_cross_checks(
-            picks_by_kind["monitor"], pc_resolution=pc_resolution,
-            gpu_specs=pc_context.get("gpu_specs"), target_refresh_hz=target_refresh_hz, rules=rules,
-        )
-        extra_issues = {"monitor": peripheral_cross.cross_issues(monitor_checks)}
-        log(f"      [P][E12] 모니터↔PC 교차 검사: "
-            f"{', '.join(c['axis'] + '=' + c['state'] for c in monitor_checks)}")
+    monitor_checks, extra_issues = _monitor_cross_check(values, pc_context, picks_by_kind, requirements, rules, log)
 
     picks: list[PeripheralPick] = []
     for kind, cand in picks_by_kind.items():
