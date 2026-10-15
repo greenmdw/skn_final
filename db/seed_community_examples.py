@@ -54,7 +54,7 @@ from src.db import get_conn  # noqa: E402
 from src.repo.community_repo import CommunityRepo  # noqa: E402
 from src.errors import ValidationFailed  # noqa: E402
 from src.services.community_service import (  # noqa: E402
-    BOARD_TYPES, KIND_TO_TYPE, PRODUCT_MAX, TYPE_TO_KIND, _check_banned, _check_lengths, _clean_tags, _remove_files, _store, kind_to_type,
+    BOARD_TYPES, PRODUCT_MAX, TYPE_TO_KIND, _check_banned, _check_lengths, _clean_tags, _remove_files, _store, kind_to_type,
 )
 from src.storage.community_images import InvalidImage, process_image  # noqa: E402
 

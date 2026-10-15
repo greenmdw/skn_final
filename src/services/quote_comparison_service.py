@@ -11,13 +11,12 @@ import logging
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import Any
 from uuid import UUID
 
 from src.auth.deps import Principal
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.engine.stage3c_verify import AXIS_SLOTS
-from src.errors import NotFound, TruefitError, ValidationFailed
+from src.errors import NotFound, ValidationFailed
 from src.repo.plan_repo import QUOTE_DRAFT_KEY, QUOTE_REVIEW_KEY, QUOTE_SAVED_COMPARISONS_KEY, PlanRepo
 from src.services import list_service, quote_review_service, session_service
 

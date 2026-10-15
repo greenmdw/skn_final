@@ -10,7 +10,6 @@ from src.engine import build_margins
 from src.engine import stage3c_verify
 from src.engine.build_margins import evaluate_margins
 from src.engine.stage2_requirement import RequirementRuleError, load_computer_rules
-from src.engine.stage4_optimize import build_computer
 from tests.test_combo_eligibility import BASE, RULES, SLOTS, _noop, build_of, full, part, rank_of, spec_of  # noqa: F401
 
 

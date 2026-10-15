@@ -1,4 +1,3 @@
-import json
 from urllib.error import HTTPError
 
 import pytest

@@ -3,7 +3,6 @@
 저장 견적(확정 견적서)은 가짜 리포트로 바꿔 끼운다 — 확정까지의 전체 흐름이 아니라 비교·질문 로직을 본다."""
 from __future__ import annotations
 
-import base64
 import os
 
 import pytest
@@ -18,7 +17,7 @@ if DSN:
     from src.api import app
     from src.auth import ratelimit
     from src.engine.stage3_0_candidates import load_pc_catalog
-    from src.services import quote_chat_service, quote_comparison_service as qcs
+    from src.services import quote_comparison_service as qcs
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
 

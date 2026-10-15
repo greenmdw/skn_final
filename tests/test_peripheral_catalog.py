@@ -18,7 +18,7 @@ from src.engine.peripheral_catalog import (
     build_peripheral_specs,
     load_peripheral_candidates_from_csv,
 )
-from src.engine.peripheral_rules import load_peripheral_rules, resolution_classes
+from src.engine.peripheral_rules import load_peripheral_rules
 from src.repo.catalog_repo import pc_catalog_key
 
 _FIXTURES = Path(__file__).resolve().parent / "fixtures" / "peripherals"

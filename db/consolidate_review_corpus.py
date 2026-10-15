@@ -1,7 +1,7 @@
 """Collect full corpus observations with no automatic semantic approval."""
 import json,hashlib
 from pathlib import Path
-from collections import Counter,defaultdict
+from collections import Counter
 from src.services.review_batch import isolate_batch,isolate_with_retry
 from src.services.review_observation_import import read_json
 ROOT=Path('outputs/review_full_corpus/20261002_authorized')

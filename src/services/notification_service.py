@@ -13,11 +13,8 @@ from datetime import timedelta, timezone
 from uuid import UUID
 
 from src.auth.deps import Principal
-from src.errors import NotFound
 from src.repo.notification_repo import NotificationRepo
-from src.repo.plan_repo import PlanRepo
 from src.services import auth_service
-from src.services.session_service import _owned
 
 _DEFAULT_WINDOW_DAYS = 90
 

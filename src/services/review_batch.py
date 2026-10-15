@@ -1,10 +1,9 @@
 """Bounded offline wire preparation, failure isolation, and explicit approval exports."""
 import json
 from pathlib import Path
-from uuid import UUID
 from src.services.review_evidence_wire import wire_input,reconstruct_wire,restore
 from src.services.review_observation_import import Input,Output,read_json
-from src.services.review_preparation import digest,encoded,PARTS
+from src.services.review_preparation import digest,encoded
 
 
 def canonical_rules(registered):

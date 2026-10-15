@@ -5,7 +5,6 @@
 """
 from __future__ import annotations
 
-import copy
 import math
 import uuid
 from types import SimpleNamespace
@@ -18,7 +17,7 @@ from src.engine.score_policy import AXES
 from src.repo.engine_repo import EngineRepo
 from src.repo.plan_repo import PlanRepo
 from src.schemas import FitOut, ItemOut, RecommendErrorOut, RecommendResultOut, ResultStatusOut, TotalsOut
-from src.services import fit_score, recommendation_service, result_advice
+from src.services import recommendation_service, result_advice
 from src.services.fit_score import avg_fit, display_points, fit_for_item
 from src.services.recommendation_review_snapshot import SNAPSHOT_STEP, clear_snapshot_cache, snapshot_step
 

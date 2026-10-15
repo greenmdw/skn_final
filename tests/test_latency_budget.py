@@ -17,7 +17,7 @@ DSN = os.getenv("DATABASE_URL")
 pytestmark = [pytest.mark.db, pytest.mark.skipif(not DSN, reason="일회용 DB 필요")]
 
 if DSN:
-    from tests.test_list_history_http import _recommended_list, _signed_up
+    from tests.test_list_history_http import _signed_up
 
     from src.agent import spec_extraction_agent
     from src.auth import ratelimit

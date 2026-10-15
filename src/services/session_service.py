@@ -285,7 +285,6 @@ def choose_category(
     if mode is None and not mode_asked_in_chat:
         mode = cat_def["modes"][0]
     values, previous_category = _current_values(repo, current["id"])
-    previous_mode = values.get("mode")
     # A draft pins its domain version on first category selection.  Re-selecting
     # the same category (for example to change mode) must not silently adopt a
     # version published after the conversation started.
