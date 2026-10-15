@@ -158,11 +158,16 @@ def _match(category: str, text: str, by_slot: dict) -> dict[str, Any]:
             "match_via": row.get("match_via")}
 
 
-def _make_item(category: str, raw_text: str, source_id: str, by_slot: dict) -> dict[str, Any]:
+def _make_item(category: str, raw_text: str, source_id: str, by_slot: dict, uncertain: bool = False) -> dict[str, Any]:
     parts = split_line(raw_text)
     item = {"id": str(uuid.uuid4()), "category": category, "raw_text": raw_text, **parts,
             "image_url": None, "source_ids": [source_id], "selected_for_analysis": False, "user_edited": False}
     item.update(_match(category, spec_text(item), by_slot))
+    if uncertain:
+        # 글자가 흐려 읽은 이름이 틀렸을 수 있다 — 카탈로그 제품으로 확정하지 않고 "제품 확인 필요"로 둔다(찾은 제품 이름은 힌트로 남긴다).
+        item["uncertain"] = True
+        if item["match_status"] == "confirmed":
+            item.update(match_status="candidate", matched_product_id=None, matched_product_key=None, match_via=None)
     return item
 
 
@@ -194,10 +199,13 @@ def recognize(files: list[tuple[str, str | None, bytes]], text: str | None, by_s
                     sources[index].update(status="failed", error_code=error)
     items: list[dict] = []
     for index, found in raw_by_source.items():
+        total = getattr(found, "quote_total", None)         # 사진에 적힌 견적 총액(있을 때만) — 부품별 가격이 없는 견적의 가격 안내에 쓴다
+        if total:
+            sources[index]["quote_total"] = int(total)
         for entry in found:
             if is_placeholder_line(entry["raw_text"]):      # "별도구매"·"기본 쿨러 장착" 같은 선택 안내 줄은 부품이 아니다
                 continue
-            items.append(_make_item(entry["category"], entry["raw_text"], sources[index]["id"], by_slot))
+            items.append(_make_item(entry["category"], entry["raw_text"], sources[index]["id"], by_slot, bool(entry.get("uncertain"))))
     if text and text.strip():
         sources.append({"id": "source-text", "type": "text", "file_name": None, "sort_order": len(sources) + 1,
                         "status": "completed", "error_code": None})
@@ -420,7 +428,9 @@ def analyze_selected(conn, list_id: UUID, principal: Principal, source_ids: list
     if not chosen:
         raise NoRecognizedItems("분석할 항목이 없습니다. 부품군마다 기준 제품을 골라 주세요.")
     specs = {item["category"]: spec_text(item) for item in chosen}
-    review = quote_review_service.analyze(specs, draft.get("conditions"), conn=conn)
+    involved = {sid for item in chosen for sid in item["source_ids"]}
+    totals = [s["quote_total"] for s in draft["sources"] if s["id"] in involved and s.get("quote_total")]
+    review = quote_review_service.analyze(specs, draft.get("conditions"), conn=conn, quote_total=totals[0] if totals else None)
     quote_review_service._save(repo, revision["id"], review)
     rows = price_rows(chosen, review, load_pc_catalog(lambda _msg: None))
     excluded = [{"category": i["category"], "item_id": i["id"], "reason": "견적에 가격이 없어 합계에서 제외했습니다."}

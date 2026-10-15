@@ -184,3 +184,18 @@ def test_a_kit_written_as_two_sticks_is_compared_against_two_catalog_sticks():
 def test_a_single_stick_is_compared_as_it_is():
     rows = rows_by_part({"RAM": "삼성전자 DDR5-5600 16GB 62,000원"})
     assert rows["RAM"]["quantity"] == 1 and rows["RAM"]["catalog"] == 60_000 and "개 기준" not in rows["RAM"]["detail"]
+
+
+def test_only_the_quote_total_is_reported_when_no_part_has_a_price():
+    """부품별 가격이 없고 총액만 읽혔으면 부품별 비교는 하지 않고 총액과 카탈로그로 확인된 부품의 합계를 알린다."""
+    prices = qrs.analyze({"CPU": "라이젠 7 7800X3D", "GPU": "RTX 4060 Ti", "RAM": "DDR5 32GB"}, by_slot=POOL, quote_total=1_000_000)["prices"]
+    assert prices["available"] is False and prices["rows"] == []
+    note = prices["quote_total"]
+    assert note["quote_total"] == 1_000_000 and note["parts"] == 3 and note["catalog_parts"] == 2
+    assert note["catalog_total"] == 390_000 + 500_000
+    assert "견적 총액 1,000,000원" in prices["reason"] and "합계에 빠졌으니" in prices["reason"]
+
+
+def test_without_a_quote_total_the_old_no_price_message_is_unchanged():
+    prices = qrs.analyze({"CPU": "라이젠 7 7800X3D"}, by_slot=POOL)["prices"]
+    assert "가격이 적혀 있지 않아" in prices["reason"] and "quote_total" not in prices

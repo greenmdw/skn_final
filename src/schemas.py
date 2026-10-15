@@ -425,6 +425,7 @@ class QuoteDraftSourceOut(BaseModel):
     sort_order: int
     status: Literal["completed", "failed"]
     error_code: str | None = None
+    quote_total: int | None = None                       # 사진에 적힌 견적 총액(원). 부품별 가격이 없는 견적의 가격 안내에 쓴다
 
 
 class QuoteDraftItemOut(BaseModel):
@@ -443,6 +444,7 @@ class QuoteDraftItemOut(BaseModel):
     image_url: str | None = None                         # catalog.product.image_url, 없으면 null
     match_status: Literal["confirmed", "ambiguous", "candidate", "inferred", "unmatched"] = "unmatched"
     match_via: Literal["model"] | None = None            # "model" = 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾아 확정했다(화면에 근거를 보인다)
+    uncertain: bool = False                              # 사진 글자가 흐려 읽은 이름이 틀렸을 수 있다 — 카탈로그 확정을 하지 않는다
     candidate_count: int | None = None
     source_ids: list[str] = Field(default_factory=list)
     selected_for_analysis: bool = False

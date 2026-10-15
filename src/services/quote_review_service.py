@@ -131,10 +131,26 @@ def _price_row(slot: str, text: str, info: dict) -> dict:
     return row
 
 
-def price_review(specs: dict[str, str], owned: dict[str, dict], slot_structure: list[str]) -> dict:
-    """견적 가격 대 우리 카탈로그 가격(CHK-05). 견적에 가격이 하나도 없으면 비교하지 않는다(P10)."""
+def _total_only_review(specs: dict[str, str], owned: dict[str, dict], slot_structure: list[str], quote_total: int) -> dict:
+    """부품별 가격은 없고 견적 총액만 읽힌 경우 — 부품별 비교는 하지 않고, 총액과 카탈로그로 확인된 부품의 합계를 나란히 알린다."""
+    rows = [_price_row(slot, specs[slot], owned.get(slot, {})) for slot in slot_structure if specs.get(slot)]
+    priced = [r for r in rows if r["catalog"] is not None]
+    catalog_total = sum(r["catalog"] for r in priced)
+    reason = (f"부품별 가격은 적혀 있지 않지만 견적 총액 {_won(quote_total)}을 읽었습니다. 카탈로그 가격으로 확인된 부품 "
+              f"{len(priced)}개(전체 {len(rows)}개)의 합계는 {_won(catalog_total)}입니다.")
+    if len(priced) < len(rows):
+        reason += " 나머지 부품은 카탈로그에서 확정되지 않아 합계에 빠졌으니 총액 비교는 참고용입니다."
+    return {"available": False, "reason": reason, "rows": [], "summary": {},
+            "quote_total": {"quote_total": quote_total, "catalog_total": catalog_total,
+                            "catalog_parts": len(priced), "parts": len(rows)}}
+
+
+def price_review(specs: dict[str, str], owned: dict[str, dict], slot_structure: list[str], quote_total: int | None = None) -> dict:
+    """견적 가격 대 우리 카탈로그 가격(CHK-05). 견적에 가격이 하나도 없으면 비교하지 않는다(P10) — 총액만 읽혔으면 그 총액을 알린다."""
     quoted = {slot: parse_price(specs[slot]) for slot in slot_structure if specs.get(slot)}
     if not any(price is not None for price in quoted.values()):
+        if quote_total:
+            return _total_only_review(specs, owned, slot_structure, quote_total)
         return {"available": False, "reason": "견적에 가격이 적혀 있지 않아 가격 비교를 하지 않았습니다.",
                 "rows": [], "summary": {}}
     rows = [_price_row(slot, specs[slot], owned.get(slot, {})) for slot in quoted]
@@ -154,7 +170,7 @@ def price_review(specs: dict[str, str], owned: dict[str, dict], slot_structure: 
 
 
 def analyze(current_specs: dict, conditions: dict | None = None, *,
-            by_slot: dict[str, list[Candidate]] | None = None, conn=None) -> dict:
+            by_slot: dict[str, list[Candidate]] | None = None, conn=None, quote_total: int | None = None) -> dict:
     """견적 하나를 분석한 결과(저장 형태): 매칭 표 · 호환 검사 · 가격 비교 · 용도 대비 균형 · 우리 추천과 비교."""
     specs = _normalise(current_specs)
     if not specs:
@@ -167,7 +183,7 @@ def analyze(current_specs: dict, conditions: dict | None = None, *,
         from src.services.live_spec_lookup import cached_for_kept_parts
         cached_for_kept_parts(conn, owned, specs)
     conditions = normalise_conditions(conditions)
-    prices = price_review(specs, owned, slot_structure)
+    prices = price_review(specs, owned, slot_structure, quote_total)
     return {
         "version": SCHEMA_VERSION,
         "input": {"current_specs": specs, "conditions": conditions, "input_hash": _input_hash(specs, conditions)},

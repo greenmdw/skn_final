@@ -442,3 +442,17 @@ def test_added_item_can_belong_to_one_uploaded_quote_and_bad_input_is_rejected(c
     assert client.post(url, json={"expected_version": 2, "category": "케이스", "raw_text": "x", "source_id": "nope"}).status_code == 422
     assert client.post(url, json={"expected_version": 2, "category": "모니터", "raw_text": "x"}).status_code == 422
     assert client.post(url, json={"expected_version": 1, "category": "케이스", "raw_text": "x"}).status_code == 409     # 버전이 지났다
+
+
+def test_an_uncertain_reading_is_never_confirmed_and_the_quote_total_is_kept(client, monkeypatch):
+    """흐린 글자로 읽은 이름은 카탈로그 제품으로 확정하지 않고(제품 확인 필요), 사진에 적힌 총액은 그 견적(source)에 남는다."""
+    class Found(list):
+        quote_total = 2_280_000
+    monkeypatch.setattr(spec_extraction_agent, "available", lambda: True)
+    monkeypatch.setattr(spec_extraction_agent, "extract_items_from_image", lambda _url: Found([
+        {"category": "CPU", "raw_text": "AMD Ryzen 5 7500F"},
+        {"category": "CPU", "raw_text": "AMD Ryzen 5 7500F", "uncertain": True}]))
+    body = _upload(client, ["x"]).json()
+    cpu = _items(body, "CPU")
+    assert body["sources"][0]["quote_total"] == 2_280_000
+    assert any(i["match_status"] != "confirmed" and i.get("uncertain") for i in cpu)

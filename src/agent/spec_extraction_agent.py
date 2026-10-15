@@ -122,10 +122,18 @@ def extract_from_image(image_data_url: str) -> dict[str, str]:
 class _ImageItem(BaseModel):
     category: Literal["cpu", "gpu", "ram", "motherboard", "storage", "psu", "case", "cooler"]
     raw_text: str
+    uncertain: bool = False        # 글자가 흐리거나 확신이 없어 읽은 이름이 틀렸을 수 있다 — 호출자가 카탈로그 확정을 하지 않는다
 
 
 class _SpecExtractionItems(BaseModel):
     items: list[_ImageItem] = Field(default_factory=list)
+    quote_total: int | None = None  # 견적에 적힌 합계(총액) 금액(원). 안 보이면 null — 항목 가격이 아니다
+
+
+class ExtractedItems(list):
+    """이미지에서 읽은 항목 목록(그냥 list 처럼 쓴다) + 견적 총액. 총액은 `.quote_total` 로만 읽는다(없으면 None)."""
+
+    quote_total: int | None = None
 
 
 _ITEM_SLOT_MAP = {**_IMAGE_SLOT_MAP, "case": "케이스"}
@@ -141,8 +149,18 @@ def extract_items(text: str) -> list[dict[str, str]]:
     raw = call_llm(text[:_MAX_ITEMS_INPUT_CHARS], system=SPEC_EXTRACTION_ITEMS_TEXT_SYSTEM,
                    output_schema=_SpecExtractionItems.model_json_schema())
     parsed = _SpecExtractionItems.model_validate(raw)
-    return [{"category": _ITEM_SLOT_MAP[i.category], "raw_text": i.raw_text.strip()}
-            for i in parsed.items if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text)]
+    return [_item_dict(i) for i in parsed.items if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text)]
+
+
+def _item_dict(item: _ImageItem) -> dict:
+    out = {"category": _ITEM_SLOT_MAP[item.category], "raw_text": item.raw_text.strip()}
+    if item.uncertain:             # 불확실한 것만 표시한다 — 나머지 항목의 모양은 그대로
+        out["uncertain"] = True
+    return out
+
+
+# 견적 합계로 믿을 수 있는 범위 — 글자 오독으로 터무니없는 값이 총액이 되지 않게 한다(조립 PC 한 대 기준).
+_QUOTE_TOTAL_MIN, _QUOTE_TOTAL_MAX = 100_000, 100_000_000
 
 
 def extract_items_from_image(image_data_url: str) -> list[dict[str, str]]:
@@ -155,5 +173,8 @@ def extract_items_from_image(image_data_url: str) -> list[dict[str, str]]:
     if isinstance(raw, dict) and "items" not in raw and isinstance(raw.get("properties"), dict):
         raw = raw["properties"]
     parsed = _SpecExtractionItems.model_validate(raw)
-    return [{"category": _ITEM_SLOT_MAP[i.category], "raw_text": i.raw_text.strip()}
-            for i in parsed.items if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text)]
+    found = ExtractedItems(_item_dict(i) for i in parsed.items
+                           if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text))
+    if parsed.quote_total and _QUOTE_TOTAL_MIN <= parsed.quote_total <= _QUOTE_TOTAL_MAX:
+        found.quote_total = int(parsed.quote_total)
+    return found
