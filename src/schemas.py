@@ -382,6 +382,7 @@ class QuoteSavedComparisonOut(BaseModel):
     saved: dict[str, Any] = Field(default_factory=dict)                      # 비교한 저장 견적(list_id·revision_no·name)
     labels: dict[str, str] = Field(default_factory=dict)                     # received/saved 쪽의 이름(견적 이름 — 없으면 받은 견적/저장 견적)
     sides: dict[str, Any] | None = None                                      # 견적끼리 비교할 때 각 견적의 합계·호환 요약
+    criteria: list[dict[str, Any]] | None = None                             # 견적끼리 비교할 때 기준별 값(호환·용도·등급·총액) — 종합 우열은 없다
     kind: str | None = None
     computed_at: str
 
@@ -471,6 +472,8 @@ class QuoteDraftOut(BaseModel):
     question: str | None = None
     partial_success: bool = False
     groups: list[QuoteDraftGroupOut] = Field(default_factory=list)
+    # 올린 사진이 서로 다른 견적처럼 보이는지(separate) 한 견적의 여러 장처럼 보이는지(single) — 화면의 기본 선택일 뿐이다
+    source_mode_hint: Literal["single", "separate"] = "single"
     created_at: str
 
 

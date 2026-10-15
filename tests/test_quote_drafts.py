@@ -456,3 +456,13 @@ def test_an_uncertain_reading_is_never_confirmed_and_the_quote_total_is_kept(cli
     cpu = _items(body, "CPU")
     assert body["sources"][0]["quote_total"] == 2_280_000
     assert any(i["match_status"] != "confirmed" and i.get("uncertain") for i in cpu)
+
+
+def test_two_full_builds_are_hinted_as_separate_quotes_and_one_split_quote_as_single(client, monkeypatch):
+    """부품군이 5개 이상 보이는 사진이 둘 이상이면 서로 다른 견적(separate), 한 견적을 나눠 찍은 것 같으면 single 이 기본 선택이다."""
+    full = lambda tag: [{"category": c, "raw_text": f"{c} {tag}"} for c in ("CPU", "GPU", "RAM", "메인보드", "저장장치", "파워")]    # noqa: E731
+    _fake_extraction(monkeypatch, {"a": full("A"), "b": full("B")})
+    assert _upload(client, ["a", "b"]).json()["source_mode_hint"] == "separate"
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "R5 7500F"}, {"category": "GPU", "raw_text": "RTX 4060"}],
+                                   "b": [{"category": "RAM", "raw_text": "DDR5 16GB"}, {"category": "파워", "raw_text": "600W"}]})
+    assert _upload(client, ["a", "b"]).json()["source_mode_hint"] == "single"

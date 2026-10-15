@@ -313,8 +313,23 @@ def mark_live_values(conn, draft: dict) -> dict:
     return draft
 
 
+_FULL_BUILD_CATEGORIES = 5          # 사진 한 장에 이만큼의 부품군이 보이면 그 사진은 한 대 분량의 견적이다
+
+
+def source_mode_hint(draft: dict) -> str:
+    """사진이 "서로 다른 견적"인지 "한 견적의 여러 장"인지 추정한다 — 'separate' 는 부품군이 5개 이상 보이는 사진이 둘 이상일 때다.
+    한 견적을 여러 장으로 나눠 찍으면 장마다 일부 부품군만 보인다. 화면은 이 값을 기본 선택으로만 쓰고 사용자가 바꿀 수 있다."""
+    per_source: dict[str, set[str]] = {}
+    for item in draft.get("items") or []:
+        for source_id in item.get("source_ids") or []:
+            per_source.setdefault(source_id, set()).add(item["category"])
+    images = {s["id"] for s in draft.get("sources") or [] if s.get("type") == "image"}
+    full = [sid for sid, categories in per_source.items() if sid in images and len(categories) >= _FULL_BUILD_CATEGORIES]
+    return "separate" if len(full) >= 2 else "single"
+
+
 def draft_out(list_id: str, draft: dict) -> dict:
-    return {"draft_id": list_id, **draft, "groups": groups(draft)}
+    return {"draft_id": list_id, **draft, "groups": groups(draft), "source_mode_hint": source_mode_hint(draft)}
 
 
 def items_for_sources(draft: dict, source_ids: list[str]) -> list[dict]:

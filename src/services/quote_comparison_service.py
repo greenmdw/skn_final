@@ -177,10 +177,18 @@ def compare_quotes(conn, list_id: UUID, principal: Principal, a_source_ids: list
     names = {g["id"]: g["name"] for g in qds.groups(draft)}
     label = lambda ids: " + ".join(names.get(i, i) for i in ids)          # noqa: E731
     by_slot = load_pc_catalog(lambda _msg: None)
+
+    def source_total(ids: list[str]) -> int | None:         # 사진에 적힌 견적 총액 — 부품별 가격이 없는 견적도 총액은 비교할 수 있다
+        found = [s["quote_total"] for s in draft["sources"] if s["id"] in ids and s.get("quote_total")]
+        return found[0] if found else None
+    from src.services import quote_criteria
+    side_a = quote_criteria.side_facts(a_items, by_slot, list(SLOTS), draft.get("conditions"), source_total(a_source_ids))
+    side_b = quote_criteria.side_facts(b_items, by_slot, list(SLOTS), draft.get("conditions"), source_total(b_source_ids))
     comparison = {
         "comparison_id": str(uuid.uuid4()), **build_comparison(_side_from_items(a_items), _side_from_items(b_items)),
         "labels": {"received": label(a_source_ids), "saved": label(b_source_ids)},
         "sides": {"received": _side_info(a_items, by_slot), "saved": _side_info(b_items, by_slot)},
+        "criteria": quote_criteria.build_criteria(side_a, side_b),
         "saved": {"source_ids": list(b_source_ids), "name": label(b_source_ids)},
         "kind": "draft_quotes", "computed_at": _now(),
     }
@@ -355,4 +363,7 @@ def facts_text(comparison: dict, categories: list[str]) -> str:
         diff = f", {lab['saved']}이(가) {_won(abs(r['price_diff']))} {'비쌈' if r['price_diff'] > 0 else '저렴' if r['price_diff'] < 0 else '같음'}" \
             if r["price_diff"] is not None else ""
         lines.append(f"{r['category']}: {left} ↔ {right}{diff}.")
+    if comparison.get("criteria"):         # 서로 다른 두 견적 비교 — 기준별 값을 나란히(종합 우열은 말하지 않는다)
+        from src.services import quote_criteria
+        lines += quote_criteria.facts_lines(comparison["criteria"], lab["received"], lab["saved"])
     return "\n".join(lines)
