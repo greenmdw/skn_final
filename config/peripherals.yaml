@@ -154,6 +154,12 @@ scoring:
   stated_pref_weight: 2.0
   close_call_margin: 0.02       # 1·2위 점수 차가 이 안이면 접전(응답의 close_call)
   close_call_max_items: 2       # 한 응답에서 접전으로 표시하는 품목은 최대 이만큼(점수 차가 작은 순)
+  # 점수식 2차(2026-10-14). 모두 잠정치다.
+  price_weight_without_budget: 0.5   # ① 예산(종류별·전체)을 말하지 않으면 가격 축 가중을 이 배수로 줄이고 나머지에 재분배한다
+  brand_like_weight: 0.15            # ③ 선호 브랜드를 말했을 때 브랜드 축의 기본 가중(강조 ×emphasis_boost 가 이어서 붙는다)
+  review_spread_min_candidates: 4    # ② 후보가 이 수 이상일 때만 리뷰 값을 후보 안 min-max 로 펴서 비교한다(적으면 과하게 벌어진다)
+  review_spread_min_span: 0.30       # ② 후보 안 리뷰 값의 범위가 이보다 좁으면 이 폭으로 본다(작은 차이를 0~1 로 과장하지 않는다)
+  review_unevidenced_quantile: 0.25  # ② 리뷰 근거가 0건인 상품의 리뷰 값을 근거 있는 후보 값의 이 분위수(이하)로 둔다
 
 # E9 — 원문 스펙 텍스트 파서(src/engine/peripheral_parse.py)가 쓰는 분류표.
 # resolution_classes: 모니터 해상도 "WxH" → 등급 이름. data/peripherals/monitor_processed.csv

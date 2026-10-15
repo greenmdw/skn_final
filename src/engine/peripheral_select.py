@@ -142,6 +142,35 @@ def evidence_penalty(n: int, cfg: dict[str, Any]) -> float:
     return round(cfg["evidence_penalty"] * max(0.0, 1.0 - n / cfg["evidence_min_n"]), 4)
 
 
+def _quantile(values: list[float], q: float) -> float:
+    ordered = sorted(values)
+    pos = q * (len(ordered) - 1)
+    lo = int(pos)
+    hi = min(lo + 1, len(ordered) - 1)
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * (pos - lo)
+
+
+def review_axis_values(kept: list[Candidate], cfg: dict[str, Any]) -> dict[str, float]:
+    """후보별 리뷰 축 값(점수식용). R 자체는 바꾸지 않는다 — 응답의 R 은 그대로이고 여기서는 비교만 다시 한다.
+    ① 근거가 0건인 상품은 근거 있는 후보 값의 하위 분위수 이하로 둔다(풀 평균에서 출발해 낙관적이던 것을 막는다).
+    ② 후보가 review_spread_min_candidates 이상이고 값이 갈리면 후보 안 중간값 기준으로 편다: 0.5 + (값 − 중간) / max(범위, review_spread_min_span).
+    범위가 최소 폭 이상이면 min-max 와 같고, 더 좁으면(0.70~0.82 에 몰린 경우) 최소 폭만큼만 벌려 작은 차이를 과장하지 않는다."""
+    raw = {c.product_key: _feel_axis(c) for c in kept}
+    evidenced = [raw[c.product_key] for c in kept if evidence_count(c) > 0]
+    if evidenced:
+        floor = _quantile(evidenced, cfg["review_unevidenced_quantile"])
+        for c in kept:
+            if evidence_count(c) == 0:
+                raw[c.product_key] = min(raw[c.product_key], floor)
+    values = list(raw.values())
+    lo, hi = min(values), max(values)
+    if len(kept) >= cfg["review_spread_min_candidates"] and hi - lo > 1e-9:
+        span = max(hi - lo, cfg["review_spread_min_span"])
+        mid = (hi + lo) / 2
+        return {k: max(0.0, min(1.0, 0.5 + (v - mid) / span)) for k, v in raw.items()}
+    return raw
+
+
 def _brand_axis(cand: Candidate, like: set[str]) -> float:
     """선호 브랜드를 말했으면 그 브랜드 후보는 1, 나머지는 0.5. 말하지 않았으면 모두 0.5(판매량으로 점수를 주지 않는다)."""
     return 1.0 if like and cand.brand.strip().lower() in like else 0.5
@@ -160,11 +189,19 @@ def _warranty_axis(cand: Candidate, months: dict[str, float]) -> float:
 
 def effective_weights(
     base: dict[str, float], criteria: dict[str, list[str]], stated_criteria: set[str], emphasis: set[str], cfg: dict[str, Any],
+    *, has_budget: bool = True, brand_liked: bool = False,
 ) -> tuple[dict[str, float], list[str]]:
-    """① 품목별 기본 가중치 → ② 강조한 축 ×emphasis_boost → ③ 직접 말한 소프트 조건이 있는 스펙 기준 ×stated_criterion_boost →
+    """① 품목별 기본 가중치(예산을 말하지 않았으면 가격 ×price_weight_without_budget, 선호 브랜드를 말했으면 브랜드를
+    brand_like_weight 로) → ② 강조한 축 ×emphasis_boost → ③ 직접 말한 소프트 조건이 있는 스펙 기준 ×stated_criterion_boost →
     ④ 합 1 정규화. 스펙을 강조하면서 그 조건도 말하면 ×(1.5×2)=×3 이 된다. 적용한 배수의 이유를 문장으로 함께 낸다."""
     raw = dict(base)
     reasons: list[str] = []
+    if not has_budget and "가격" in raw and cfg["price_weight_without_budget"] < 1:
+        raw["가격"] *= cfg["price_weight_without_budget"]
+        reasons.append(f"예산을 말하지 않아 '가격' 축 ×{cfg['price_weight_without_budget']:g}")
+    if brand_liked and "브랜드" in raw and cfg["brand_like_weight"] > raw["브랜드"]:
+        raw["브랜드"] = cfg["brand_like_weight"]
+        reasons.append(f"선호 브랜드를 말해 '브랜드' 축 기본 가중 {cfg['brand_like_weight']:g}")
     for axis in sorted(emphasis & set(raw)):
         raw[axis] *= cfg["emphasis_boost"]
         reasons.append(f"강조한 '{axis}' 축 ×{cfg['emphasis_boost']:g}")
@@ -209,14 +246,18 @@ def rank_candidates(
         if name is not None:
             by_criterion[name].append((pref, cfg["stated_pref_weight"] if pref in stated else 1.0))
     stated_criteria = {name for name, items in by_criterion.items() if any(pref in stated for pref, _ in items)}
-    final_weights, reasons = effective_weights(base, criteria, stated_criteria, set(emphasis or ()), cfg)
+    like = {b.strip().lower() for b in (brand_like or ()) if b and b.strip()}
+    final_weights, reasons = effective_weights(
+        base, criteria, stated_criteria, set(emphasis or ()), cfg,
+        has_budget=kind_budget is not None or budget is not None, brand_liked=bool(like),
+    )
+    review_values = review_axis_values(kept, cfg)
 
     median_price = statistics.median(c.price for c in kept)
     hard_keys = (_HARD_KEY_TO_PREF[name][0] for name in requirement.hard)
     judged_keys = sorted({*hard_keys, *(p["key"] for p in preferences), *(p["key"] for p in requirement.filters)})
     available = {k for k in judged_keys if any(c.specs.get(k) is not None for c in kept)}
     warranty = {c.product_key: float(c.specs["warranty_months"]) for c in kept if c.specs.get("warranty_months") is not None}
-    like = {b.strip().lower() for b in (brand_like or ()) if b and b.strip()}
 
     scored: list[Candidate] = []
     for cand in kept:
@@ -228,7 +269,7 @@ def rank_candidates(
             else:
                 wsum = sum(w for _, w in items)
                 values[name] = sum(w * _verdict_value(p, cand.specs) for p, w in items) / wsum
-        values["리뷰"] = _feel_axis(cand)
+        values["리뷰"] = review_values[cand.product_key]
         values["가격"] = (max(0.0, min(1.0, 1 - cand.price / kind_budget)) if kind_budget
                          else _price_axis(cand.price, median_price))
         values["브랜드"] = _brand_axis(cand, like)
@@ -252,7 +293,7 @@ def rank_candidates(
         scored.append(cand.model_copy(update={
             "score": round(raw, 3), "score_detail": detail,
             # 리뷰 값은 체감 적합도 R 그대로(반올림하지 않는다 — 응답의 R 과 같은 값이어야 한다). 나머지 축은 소수 셋째 자리.
-            "breakdown": {a: (v if a == "리뷰" else round(v, 3)) for a, v in values.items()}}))
+            "breakdown": {a: (_feel_axis(cand) if a == "리뷰" else round(v, 3)) for a, v in values.items()}}))
 
     ranked = sorted(scored, key=lambda c: (-c.score, c.price, c.product_key))
     return [c.model_copy(update={"rank": i + 1}) for i, c in enumerate(ranked)]

@@ -144,6 +144,7 @@ def _check_criteria(kind: str, criteria: Any, allowed_keys: set[str]) -> None:
 _SCORING_KEYS = {
     "evidence_penalty", "evidence_min_n", "missing_key_penalty", "missing_key_penalty_max",
     "stated_criterion_boost", "emphasis_boost", "stated_pref_weight", "close_call_margin", "close_call_max_items",
+    "price_weight_without_budget", "brand_like_weight", "review_spread_min_candidates", "review_spread_min_span", "review_unevidenced_quantile",
 }
 
 
@@ -206,6 +207,8 @@ def _check_scoring(data: Any) -> None:
         raise PeripheralRuleError("주변기기 scoring.evidence_min_n 은 0보다 커야 함")
     if data["stated_criterion_boost"] < 1 or data["emphasis_boost"] < 1:
         raise PeripheralRuleError("주변기기 scoring 의 배수는 1 이상이어야 함")
+    if data["price_weight_without_budget"] > 1 or data["review_unevidenced_quantile"] > 1:
+        raise PeripheralRuleError("주변기기 scoring.price_weight_without_budget·review_unevidenced_quantile 은 1 이하여야 함")
 
 
 # ── E10 — requirements 절 검증 ────────────────────────────────────────────
