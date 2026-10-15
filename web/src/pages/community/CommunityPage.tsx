@@ -209,7 +209,17 @@ export default function CommunityPage() {
   const [params, setParams] = useSearchParams()
   // 주변기기 견적 화면의 인용 문장에서 들어왔으면 그 문장(라우터 state)과 식별자(?quote=)가 따라온다.
   const quoteSentence = (useLocation().state as { quoteSentence?: unknown } | null)?.quoteSentence
-  const quote = { id: params.get('quote'), sentence: typeof quoteSentence === 'string' ? quoteSentence : null }
+  const quoteId = params.get('quote')
+  const stateSentence = typeof quoteSentence === 'string' ? quoteSentence : null
+  // 링크를 복사해 열거나 새로고침하면 라우터 state 가 없어서 ?quote= 만 남는다 — 그때는 서버에서 문장을 되찾는다(없거나 지워진 글이면 강조만 생략).
+  const [fetchedQuote, setFetchedQuote] = useState<{ id: string; sentence: string } | null>(null)
+  useEffect(() => {
+    if (!quoteId || stateSentence) return
+    let cancelled = false
+    communityApi.quote(quoteId).then(found => { if (!cancelled) setFetchedQuote({ id: quoteId, sentence: found.sentence }) }).catch(() => {})
+    return () => { cancelled = true }
+  }, [quoteId, stateSentence])
+  const quote = { id: quoteId, sentence: stateSentence ?? (fetchedQuote && fetchedQuote.id === quoteId ? fetchedQuote.sentence : null) }
   const { showToast } = useToast()
   const user = useAuthUser()
   const rawView = params.get('view') as CommunityView | null

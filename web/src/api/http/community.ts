@@ -237,6 +237,8 @@ export const communityApi = {
   search: (q: string, page = 1, pageSize = 10, boardType?: CommunityBoardType) =>
     request<WireCommunityList>('GET', '/community/search' + query({ q, page, page_size: pageSize, board_type: boardType })),
   get: (id: string) => request<WireCommunityDetail>('GET', `/community/posts/${id}`),
+  // 주변기기 추천이 인용한 문장(quote_id → 문장·글 id). 링크를 복사해 열거나 새로고침해서 라우터 state 가 없을 때 문장을 되찾는다.
+  quote: (quoteId: string) => request<{ quote_id: string; post_id: string; sentence: string }>('GET', `/community/quotes/${encodeURIComponent(quoteId)}`),
   create: (input: CommunityPostInput) => request<WireCommunityDetail>('POST', '/community/posts', input),
   update: (id: string, input: Partial<CommunityPostInput> & { version?: number }) =>
     request<WireCommunityDetail>('PATCH', `/community/posts/${id}`, input),
