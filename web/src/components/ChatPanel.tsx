@@ -23,7 +23,8 @@ export default function ChatPanel({ title, placeholder }: { title: string; place
   function submit(event: FormEvent) {
     event.preventDefault()
     const text = draft.trim()
-    if (!text || disabled) return
+    // 답을 기다리는 동안은 보내지 않는다 — 연달아 보내면 두 턴이 같은 옛 조건으로 답했다(QA #55). 입력은 계속 쓸 수 있다.
+    if (!text || disabled || busy) return
     setDraft('')
     handleInput(text)
   }
@@ -47,7 +48,7 @@ export default function ChatPanel({ title, placeholder }: { title: string; place
         )}
         <form className="pl-input" onSubmit={submit}>
           <input value={draft} onChange={e => setDraft(e.target.value)} placeholder={state.viewOnly ? '확정된 견적서예요. 견적 수정하기를 누르면 대화로 바꿀 수 있어요' : placeholder} disabled={disabled} aria-label="메시지 입력" />
-          <button type="submit" className="pl-send" disabled={disabled || !draft.trim()}>보내기</button>
+          <button type="submit" className="pl-send" disabled={disabled || busy || !draft.trim()}>보내기</button>
         </form>
       </div>
       <ResizeHandle width={size.width} min={size.min} max={size.max} label="대화창 너비" onChange={size.setWidth} onReset={size.reset} />

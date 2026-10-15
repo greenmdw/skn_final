@@ -234,6 +234,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     addMessage('user', clean)
     const askApi = (topic: ChatTopic) => {
       const mine = epoch.current
+      setBusy(true)
       api.chat.reply({ topic, text: clean, selectedPart: current.selectedPart, plan: current.currentPlan })
         .then(reply => {
           if (mine !== epoch.current) return
@@ -242,6 +243,7 @@ export function PlanProvider({ children }: { children: ReactNode }) {
           addMessage('bot', reply.text, reply.choices)
         })
         .catch(error => { if (mine === epoch.current) addMessage('bot', errorMessage(error, '답변을 받지 못했습니다. 잠시 후 다시 시도해주세요.')) })
+        .finally(() => { if (mine === epoch.current) setBusy(false) })
     }
     if (current.stage <= 2) {
       sendConditionTurn(clean)
