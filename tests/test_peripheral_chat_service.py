@@ -138,6 +138,16 @@ def test_conflict_is_told_once_then_not_repeated():
     assert not any("텐키리스" in n and "우선" in n for n in second["turn"]["notes"])
 
 
+def test_restating_one_side_of_a_conflict_resolves_it_and_is_reported_as_reflected():
+    first = _turn("텐키리스인데 풀배열 키보드")
+    assert any("둘 다 뺐어요" in n for n in first["turn"]["notes"]) and first["turn"]["new_conditions"] == []
+    second = _turn("텐키리스로 할게요", _prev(first), ["keyboard"])
+    assert second["interpretation"].stated == {"keyboard": ["compact"]}
+    assert [i["label"] for i in second["turn"]["new_conditions"]] == ["텐키리스·컴팩트"]
+    assert second["turn"]["reply"].startswith("이번에 반영했어요: 텐키리스·컴팩트")
+    assert not any("둘 다 뺐어요" in n for n in second["turn"]["notes"])
+
+
 # ── 언어 모델 경로: 질문 종류만 받는다 ──────────────────────────────────────────
 def _fake_model(monkeypatch, result: Interpretation):
     monkeypatch.setattr(peripheral_intent_agent, "available", lambda: True)

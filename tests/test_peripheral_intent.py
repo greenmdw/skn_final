@@ -520,6 +520,56 @@ def test_conflicting_conditions_both_stated_are_both_dropped():
     assert kb.conflicts[0]["kept"] is None
 
 
+# ── 상충 조건을 다시 말하면 나중에 말한 쪽이 이긴다(PQA-033) ─────────────────────────────
+def _conflicting_previous():
+    first = pi.interpret_by_words("텐키리스인데 풀배열 키보드")
+    assert set(first.stated["keyboard"]) == {"compact", "full_size"}
+    return first
+
+
+def test_merge_later_side_of_a_conflict_wins():
+    merged = pi.merge(_conflicting_previous(), pi.interpret_by_words("텐키리스로 할게요", kinds_hint=["keyboard"]))
+    assert merged.stated == {"keyboard": ["compact"]}
+    kb = pi.resolve(merged)["keyboard"]
+    assert [c.condition for c in kb.filters] + [c.condition for c in kb.preferences] == ["compact"]
+    assert kb.conflicts == []
+    other = pi.merge(_conflicting_previous(), pi.interpret_by_words("풀배열로 할게요", kinds_hint=["keyboard"]))
+    assert other.stated == {"keyboard": ["full_size"]}
+
+
+def test_merge_keeps_both_when_the_new_sentence_says_both_sides():
+    prev = pi.Interpretation(kinds=["keyboard"], stated={"keyboard": ["wireless"]})
+    new = pi.interpret_by_words("텐키리스인데 풀배열 키보드")
+    merged = pi.merge(prev, new)
+    assert set(merged.stated["keyboard"]) == {"wireless", "compact", "full_size"}
+    assert pi.resolve(merged)["keyboard"].conflicts[0]["kept"] is None        # 여전히 둘 다 빼고 되묻는다
+
+
+def test_merge_still_accumulates_conditions_without_a_conflict():
+    prev = pi.Interpretation(kinds=["keyboard"], stated={"keyboard": ["compact", "wireless"]})
+    merged = pi.merge(prev, pi.Interpretation(kinds=["keyboard"], stated={"keyboard": ["bluetooth"]}))
+    assert merged.stated == {"keyboard": ["compact", "wireless", "bluetooth"]}
+
+
+def test_merge_conflict_is_cleared_only_inside_the_same_kind():
+    prev = pi.Interpretation(kinds=["keyboard", "mouse"], stated={"keyboard": ["full_size"], "mouse": ["wireless"]})
+    new = pi.Interpretation(kinds=["mouse"], stated={"mouse": ["lightweight"]})
+    assert pi.merge(prev, new).stated == {"keyboard": ["full_size"], "mouse": ["wireless", "lightweight"]}
+    # 다른 종류의 조건 이름이 같은 쌍의 한쪽이어도 그 종류의 이전 조건만 정리한다
+    kb_new = pi.Interpretation(kinds=["keyboard"], stated={"keyboard": ["compact"]})
+    assert pi.merge(prev, kb_new).stated == {"keyboard": ["compact"], "mouse": ["wireless"]}
+
+
+def test_merge_does_not_touch_conditions_resolved_from_purposes():
+    """목적·상황은 stated 가 아니다 — 새 문장의 stated 가 상충해도 이전 목적·상황은 그대로다(풀이가 직접 말한 쪽을 남긴다)."""
+    prev = pi.interpret_by_words("엑셀 많이 하는 키보드")
+    assert prev.purposes and "full_size" not in prev.stated.get("keyboard", [])
+    merged = pi.merge(prev, pi.interpret_by_words("텐키리스로 할게요", kinds_hint=["keyboard"]))
+    assert merged.purposes == prev.purposes and merged.stated == {"keyboard": ["compact"]}
+    kb = pi.resolve(merged)["keyboard"]
+    assert kb.conflicts and kb.conflicts[0]["kept"] == "compact"
+
+
 def test_light_and_heavy_key_force_may_both_stay():
     """키압 범위(45~60g)는 둘 다 충족할 수 있어 상충으로 보지 않는다(test_peripheral_key_force 와 같은 설계)."""
     kb = pi.resolve(pi.interpret_by_words("가벼운 키압인데 묵직한 키감 키보드"))["keyboard"]

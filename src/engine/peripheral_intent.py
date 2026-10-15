@@ -245,13 +245,24 @@ def _union_per_kind(a: dict[str, list[str]], b: dict[str, list[str]]) -> dict[st
     return {kind: _unique([*a.get(kind, []), *b.get(kind, [])]) for kind in {*a, *b}}
 
 
-def merge(previous: Interpretation | None, new: Interpretation) -> Interpretation:
-    """문장을 이어서 말하면 이전 조건에 더한다(견적 입력 설계 3장). 조건을 빼려면 칩을 지운다."""
+def merge(previous: Interpretation | None, new: Interpretation, rules: dict | None = None) -> Interpretation:
+    """문장을 이어서 말하면 이전 조건에 더한다(견적 입력 설계 3장). 조건을 빼려면 칩을 지운다.
+
+    직접 말한 조건끼리 함께 있을 수 없는 쌍(설정 conflicts)이면 **나중에 말한 쪽이 이긴다**: 이번 문장이 한쪽을 말했고
+    이전에 반대쪽이 있으면 이전의 반대쪽을 지운다. 이번 문장이 쌍을 둘 다 말했으면 둘 다 둔다(풀이가 둘 다 빼고 되묻는다).
+    목적·상황에서 풀린 조건은 직접 말한 것이 아니라서 건드리지 않는다."""
     if previous is None:
         return new
     stated: dict[str, list[str]] = {}
     for kind in {*previous.stated, *new.stated}:
-        stated[kind] = _unique([*previous.stated.get(kind, []), *new.stated.get(kind, [])])
+        earlier = previous.stated.get(kind, [])
+        said_now = new.stated.get(kind, [])
+        if earlier and said_now:
+            for a, b in conflicts(kind, rules):
+                for kept, other in ((a, b), (b, a)):
+                    if kept in said_now and other not in said_now:
+                        earlier = [c for c in earlier if c != other]
+        stated[kind] = _unique([*earlier, *said_now])
     # 가격 상한·하한은 나중에 말한 쪽이 이긴다 — 새로 말한 상한이 이전 하한보다 낮으면 이전 하한을, 새로 말한 하한이
     # 이전 상한보다 높으면 이전 상한을 지운다(서로 어긋나 후보가 하나도 안 남는 것을 막는다). 이번 문장 안에서
     # 둘 다 말했으면 둘 다 둔다.
