@@ -31,6 +31,10 @@ export default function SavedComparisonPanel({ comparison, differenceOnly, onDif
   const labelA = between ? comparison.labels.received : '받은 견적'
   const labelB = between ? comparison.labels.saved : '저장한 견적'
   const comparable = comparison.comparableCategories.length
+  // 사진에 가격이 없으면 합계가 0으로 오므로, 그 쪽에 가격이 하나도 없으면 "0원" 대신 "금액 정보 없음"으로 보인다(모르는 값을 0으로 말하지 않는다).
+  const hasPrice = (side: 'received' | 'saved') => comparison.rows.some(row => row[side]?.lineTotal != null)
+  const totalText = (side: 'received' | 'saved', total: number) => (hasPrice(side) ? wonText(total) : '금액 정보 없음')
+  const noDiff = comparable === 0
   const points = [
     `다른 부품 · ${comparison.briefSummary.changedCount}/${comparison.rows.length}`,
     comparison.briefSummary.largestPriceDifferenceCategory ? `가장 큰 가격 차이 · ${comparison.briefSummary.largestPriceDifferenceCategory}` : '가격 비교 가능한 항목 없음',
@@ -46,10 +50,10 @@ export default function SavedComparisonPanel({ comparison, differenceOnly, onDif
       </div>
 
       <div className="ck-compare-overview">
-        <div className="ck-overview-item"><small>{labelA} 합계</small><strong>{wonText(comparison.receivedTotal)}</strong></div>
-        <div className="ck-overview-item"><small>{between ? labelB : comparison.savedName} 합계</small><strong>{wonText(comparison.savedTotal)}</strong></div>
+        <div className="ck-overview-item"><small>{labelA} 합계</small><strong>{totalText('received', comparison.receivedTotal)}</strong></div>
+        <div className="ck-overview-item"><small>{between ? labelB : comparison.savedName} 합계</small><strong>{totalText('saved', comparison.savedTotal)}</strong></div>
         <div className={`ck-overview-item delta ${totalDiff < 0 ? 'less' : 'more'}`} title="금액이 양쪽에 모두 있는 부품만 비교한 차이예요">
-          <small>{between ? `${labelB}와(과)의 차이` : '저장 견적과의 차이'} · {comparable}개 부품 기준</small><strong>{totalDiff === 0 ? '0원' : signedWon(totalDiff)}</strong>
+          <small>{between ? `${labelB}와(과)의 차이` : '저장 견적과의 차이'} · {comparable}개 부품 기준</small><strong>{noDiff ? '비교 불가' : totalDiff === 0 ? '0원' : signedWon(totalDiff)}</strong>
         </div>
       </div>
 
@@ -92,8 +96,8 @@ export default function SavedComparisonPanel({ comparison, differenceOnly, onDif
 
       <div className="ck-saved-compare-summary">
         <div className="ck-numeric-summary">
-          받은 견적 <b>{wonText(comparison.receivedTotal)}</b> · 저장한 견적 <b>{wonText(comparison.savedTotal)}</b> ·{' '}
-          {totalDiff === 0 ? '비교한 부품의 합계가 같아요.' : <>저장한 견적이 <b className={totalDiff > 0 ? 'delta-up' : 'delta-down'}>{wonText(Math.abs(totalDiff))} {totalDiff > 0 ? '비쌉니다' : '저렴합니다'}</b>.</>}{' '}
+          받은 견적 <b>{totalText('received', comparison.receivedTotal)}</b> · 저장한 견적 <b>{totalText('saved', comparison.savedTotal)}</b> ·{' '}
+          {noDiff ? '금액이 양쪽에 모두 있는 부품이 없어 가격 차이는 비교하지 않았어요.' : totalDiff === 0 ? '비교한 부품의 합계가 같아요.' : <>저장한 견적이 <b className={totalDiff > 0 ? 'delta-up' : 'delta-down'}>{wonText(Math.abs(totalDiff))} {totalDiff > 0 ? '비쌉니다' : '저렴합니다'}</b>.</>}{' '}
           {comparison.excludedReceivedCategories.length > 0
             ? `금액을 인식하지 못한 ${comparison.excludedReceivedCategories.join('·')}은(는) 합계에서 제외했습니다.`
             : '금액을 인식하지 못한 품목은 합계에서 제외합니다.'}
