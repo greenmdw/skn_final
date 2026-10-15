@@ -25,7 +25,7 @@ from src.engine.brands import canonical_slot, cpu_brand_pref
 from src.config import CONDITIONS_AGENT, LLM_MODEL, LLM_PROVIDER, LLM_TIMEOUT_SECONDS, MOCK_MODE, OPENAI_API_KEY
 from src.engine.slot_rules import BUDGET_RANGE_MESSAGE, _parse_won, normalize_budget, parse_bare_manwon
 from src.clients.llm_guard import llm_call_slot
-from src.agent.text_guard import foreign_script
+from src.agent.text_guard import final_answer, foreign_script
 from src.errors import ServiceUnavailable
 
 log = logging.getLogger(__name__)
@@ -564,9 +564,12 @@ def run_turn(category: str, cat_def: dict, values: dict, history: list[dict], te
     )
     with llm_call_slot():
         result = agent(text)
-    reply = str(result).strip()
+    raw = str(result).strip()
+    reply = final_answer(raw)            # 초안을 두 번 쓰거나 내부 생각·형식 태그를 흘린 답 → 마지막 한국어 답만
+    if reply != raw:
+        log.warning("conditions agent reply trimmed (draft or leaked text): %r", raw[:200])
     foreign = foreign_script(reply)
-    if foreign:
+    if not reply or foreign:
         # 다른 언어 글자가 섞인 답(10/15 QA #40 "日博 -vesm")은 버리고 코드 문장으로. 도구가 반영한 조건은 검사를 거친 값이라 둔다.
         log.warning("conditions agent reply rejected (foreign script %s) — replaced: %r", foreign, reply[:120])
         reply = _fallback_reply(draft)
