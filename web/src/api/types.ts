@@ -444,11 +444,20 @@ export interface PeripheralInterpretation {
   budget: Partial<Record<PeripheralKind, number>>
   /** 여러 종류를 합친 예산(원) */
   budgetTotal: number | null
+  /** 강조한 축(종류 → 가격·리뷰·무상AS·브랜드·스펙 기준 이름). 선호 브랜드를 말하면 "브랜드"가 저절로 붙는다 */
+  emphasis: Partial<Record<PeripheralKind, string[]>>
+  /** 선호 브랜드(종류 → 브랜드 이름) */
+  brandLike: Partial<Record<PeripheralKind, string[]>>
+  /** 빼 달라고 한 브랜드(종류 → 브랜드 이름). 후보에서 빠진다 */
+  brandAvoid: Partial<Record<PeripheralKind, string[]>>
   /** 서버가 목록에서 찾지 못해 반영하지 못한 말 */
   unrecognized: string[]
 }
 
 export interface PeripheralResolvedCondition { condition: string; label: string; sources: string[] }
+
+/** 함께 고를 수 없는 두 조건이 둘 다 말해졌을 때 서버가 어떻게 정리했는지. kept 가 null 이면 둘 다 뺐다(다시 물어야 한다) */
+export interface PeripheralConflict { conditions: string[]; labels: string[]; kept: string | null }
 
 /** 한 종류에 대한 풀이. preferences 는 순위만 바꾸는 선호, filters 는 직접 말해서 거르는 조건이다 */
 export interface PeripheralResolvedKind {
@@ -457,6 +466,7 @@ export interface PeripheralResolvedKind {
   purposes: { code: string; label: string }[]
   preferences: PeripheralResolvedCondition[]
   filters: PeripheralResolvedCondition[]
+  conflicts: PeripheralConflict[]
 }
 
 export interface PeripheralInterpretRequest {
@@ -483,13 +493,47 @@ export interface PeripheralRecommendRequest {
   kinds: PeripheralKind[]
   /** 여러 종류를 합친 예산(interpretation.budgetTotal) */
   budgetMax?: number
-  /** 아래 네 값은 interpretation 의 같은 이름 필드를 그대로 싣는다 */
+  /** 아래 값은 interpretation 의 같은 이름 필드를 그대로 싣는다 */
   purposes?: string[]
   situations?: string[]
   stated?: Partial<Record<PeripheralKind, string[]>>
   kindBudget?: Partial<Record<PeripheralKind, number>>
+  emphasis?: Partial<Record<PeripheralKind, string[]>>
+  brandLike?: Partial<Record<PeripheralKind, string[]>>
+  brandAvoid?: Partial<Record<PeripheralKind, string[]>>
+  handSize?: 'small' | 'medium' | 'large' | null
   /** 주면 그 PC 견적의 해상도로 모니터 교차검사를 켠다(내 것이 아니면 서버가 조용히 무시) */
   pcListId?: string
+}
+
+/** 채팅 한 턴(POST /session/{id}/peripherals/chat)의 서버 답. 화면은 reply 를 그대로 보여 준다 */
+export interface PeripheralTurn {
+  /** 이번 문장에서 새로 반영한 것(앞 턴 것은 없다) */
+  newConditions: { kind: string; label: string }[]
+  /** 반영하지 못한 말과 이유 */
+  notReflected: string[]
+  /** 어떻게 읽었는지·함께 고를 수 없어 정리한 조건 */
+  notes: string[]
+  /** 질문이면 답 */
+  answer: { type: string; topic: string | null; text: string; kinds: PeripheralKind[]; chips: string[] } | null
+  /** 위를 순서대로 이은 채팅 답장 */
+  reply: string
+  /** 이번 답 뒤에 보여 줄 질문 칩 */
+  chips: string[]
+  /** 추천 결과가 나온 뒤에 보여 줄 질문 칩 */
+  resultChips: string[]
+}
+
+export interface PeripheralChatRequest extends PeripheralInterpretRequest {
+  /** 추천을 받은 세션. 없으면 서버에 빈 세션을 만든다 */
+  sessionId?: string | null
+  /** 묶은 PC 견적(내 PC와 맞는지 묻는 질문에 쓴다) */
+  pcListId?: string
+}
+
+export interface PeripheralChatResult extends PeripheralInterpretResult {
+  sessionId: string
+  turn: PeripheralTurn
 }
 
 /** 한 평가 기준(타건감·연결 안정성 등)에 모인 후기 관측 집계 */
@@ -595,6 +639,8 @@ export interface PeripheralsResult {
   /** 목록에 없어 반영하지 않은 이름. 오류가 아니라 안내다 */
   ignoredInputs: string[]
   adjustChips: PeripheralAdjustChip[]
+  /** 채팅으로 알릴 유의사항(예: PC 견적 없이 고른 모니터). 추천은 그대로이고 주의할 점만 말한다 */
+  notices: { kind: string; code: string; text: string }[]
 }
 
 // ---- 제품 리뷰 요약(GET /reviews/summary/{product_key}) ----
@@ -738,6 +784,8 @@ export interface Api {
     recommend(request: PeripheralRecommendRequest, sessionId?: string | null): Promise<PeripheralsResult>
     /** 문장 한 줄을 정해진 목록의 값으로 읽는다(로그인 불필요, 주소별 분당 20회) */
     interpret(request: PeripheralInterpretRequest): Promise<PeripheralInterpretResult>
+    /** 채팅 한 턴: 문장 해석 + 질문 답변 + 서버가 만든 답장. sessionId 가 없으면 서버에 빈 세션을 만들어 쓴다 */
+    chat(request: PeripheralChatRequest): Promise<PeripheralChatResult>
   }
   quoteDrafts: {
     /** 서버가 받을 수 있는 업로드 한도·이미지 인식 가능 여부. 화면 진입 때 확인한다 */

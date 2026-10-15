@@ -9,6 +9,17 @@ export const PERIPHERAL_KINDS: { id: PeripheralKind; label: string; description:
   { id: 'speaker', label: '스피커', description: '크기·출력·연결 방식' },
 ]
 
+/**
+ * 채팅 입력창 위의 빠른 조건 칩(품목별). 눌러서 보내는 문장은 모두 서버가 그 품목의 조건으로 읽는 것을 확인한 말이다
+ * (모니터 해상도 칩은 모니터를 골랐을 때만 나온다).
+ */
+export const QUICK_CONDITIONS: Record<PeripheralKind, string[]> = {
+  monitor: ['4K', 'QHD 165Hz', '게임용', '문서·코딩용', '맥북 연결'],
+  keyboard: ['조용한 키보드', '텐키리스', '묵직한 키압', '래피드 트리거'],
+  mouse: ['가벼운 무선', '손목 편한', '유선', 'fps용'],
+  speaker: ['작은 스피커', '음악 감상', '블루투스', '영화·게임용'],
+}
+
 /** 서버 평가 기준 코드 → 화면 문구. 모르는 코드는 코드 그대로 보인다. */
 const ASPECT_LABEL: Record<string, string> = {
   connection_stability: '연결 안정성',
@@ -48,7 +59,18 @@ export function reviewEvidence(aspects: PeripheralReviewAspect[], limit = 3): Re
 // ---- 문장 해석(서버 /peripherals/interpret) 결과를 화면 상태로 다루는 도구 ----
 
 export const EMPTY_INTERPRETATION: PeripheralInterpretation = {
-  kinds: [], purposes: [], situations: [], stated: {}, handSize: null, budget: {}, budgetTotal: null, unrecognized: [],
+  kinds: [], purposes: [], situations: [], stated: {}, handSize: null, budget: {}, budgetTotal: null,
+  emphasis: {}, brandLike: {}, brandAvoid: {}, unrecognized: [],
+}
+
+export const HAND_SIZE_LABEL = { small: '작은 편', medium: '보통', large: '큰 편' } as const
+
+/**
+ * 공통 상황 코드 → 화면 문구(서버 설정 situations 의 라벨과 같다). 어떤 품목의 목적 칩으로도 안 보이는 상황(예: 마우스의 "조용해야 함")도
+ * 이해한 내용에 보여 주려고 쓴다. 표에 없는 코드는 보이지 않는다(모르는 이름을 코드 그대로 내지 않는다).
+ */
+export const SITUATION_LABEL: Record<string, string> = {
+  quiet_place: '조용해야 함', mic: '마이크 사용', small_desk: '좁은 책상', portable: '들고 다님', trending: '요즘 많이 쓰는 것', design: '디자인이 중요',
 }
 
 /** 화면이 들고 있는 "이해한 내용". 칩을 지우거나 "더 맞추기"를 누르면 이 값만 바뀌고, 추천만 다시 부른다. */
@@ -91,10 +113,15 @@ function pruneResolved(state: UnderstoodState): UnderstoodState {
 
 export type UnderstoodRemoval =
   | { type: 'purpose'; code: string }
+  | { type: 'situation'; code: string }
   | { type: 'preference'; kind: PeripheralKind; condition: string; sources: string[] }
   | { type: 'filter'; kind: PeripheralKind; condition: string }
   | { type: 'budget'; kind: PeripheralKind | null }
   | { type: 'adjusted'; key: string }
+  | { type: 'emphasis'; kind: PeripheralKind; axis: string }
+  | { type: 'brand_like'; kind: PeripheralKind; brand: string }
+  | { type: 'brand_avoid'; kind: PeripheralKind; brand: string }
+  | { type: 'handSize' }
 
 /** 칩 하나를 입력에서 뺀다. 서버를 다시 부르지 않고(문장 해석 비용 없음) 화면이 가진 값만 고친다. */
 export function removeUnderstood(state: UnderstoodState, removal: UnderstoodRemoval): UnderstoodState {
@@ -102,6 +129,8 @@ export function removeUnderstood(state: UnderstoodState, removal: UnderstoodRemo
   let next: UnderstoodState = state
   if (removal.type === 'purpose') {
     next = { ...state, interpretation: { ...interp, purposes: without(interp.purposes, [removal.code]) } }
+  } else if (removal.type === 'situation') {
+    next = { ...state, interpretation: { ...interp, situations: without(interp.situations, [removal.code]) } }
   } else if (removal.type === 'filter') {
     next = { ...state, interpretation: { ...interp, stated: { ...interp.stated, [removal.kind]: without(interp.stated[removal.kind] ?? [], [removal.condition]) } } }
   } else if (removal.type === 'preference') {
@@ -116,6 +145,17 @@ export function removeUnderstood(state: UnderstoodState, removal: UnderstoodRemo
       delete budget[removal.kind]
       next = { ...state, interpretation: { ...interp, budget } }
     }
+  } else if (removal.type === 'emphasis') {
+    next = { ...state, interpretation: { ...interp, emphasis: { ...interp.emphasis, [removal.kind]: without(interp.emphasis[removal.kind] ?? [], [removal.axis]) } } }
+  } else if (removal.type === 'brand_like') {
+    const liked = without(interp.brandLike[removal.kind] ?? [], [removal.brand])
+    // 선호 브랜드를 말하면 서버가 "브랜드" 축 강조를 저절로 붙인다 — 선호가 없어지면 그것도 함께 뺀다.
+    const emphasis = liked.length ? interp.emphasis : { ...interp.emphasis, [removal.kind]: without(interp.emphasis[removal.kind] ?? [], ['브랜드']) }
+    next = { ...state, interpretation: { ...interp, brandLike: { ...interp.brandLike, [removal.kind]: liked }, emphasis } }
+  } else if (removal.type === 'brand_avoid') {
+    next = { ...state, interpretation: { ...interp, brandAvoid: { ...interp.brandAvoid, [removal.kind]: without(interp.brandAvoid[removal.kind] ?? [], [removal.brand]) } } }
+  } else if (removal.type === 'handSize') {
+    next = { ...state, interpretation: { ...interp, handSize: null } }
   } else {
     const chip = state.adjusted.find(item => item.key === removal.key)
     if (!chip) return state
@@ -147,10 +187,33 @@ export function applyAdjustChip(state: UnderstoodState, chip: PeripheralAdjustCh
   }
 }
 
-/** 추천 요청에 실을 값(문장 해석 결과를 그대로) */
+/** 추천 요청에 실을 값(문장 해석 결과를 그대로). 강조·브랜드·손 크기도 빠뜨리지 않는다 — 말했는데 결과에 안 반영되던 문제(QA 종합#33·34)다. */
 export function recommendInputs(interp: PeripheralInterpretation) {
   return {
     budgetMax: interp.budgetTotal ?? undefined,
     purposes: interp.purposes, situations: interp.situations, stated: interp.stated, kindBudget: interp.budget,
+    emphasis: interp.emphasis, brandLike: interp.brandLike, brandAvoid: interp.brandAvoid, handSize: interp.handSize,
+  }
+}
+
+/**
+ * 화면의 선택 종류로 해석을 맞춘다. 체크를 푼 종류의 종류 이름뿐 아니라 그 종류의 직접 말한 조건·예산·강조·브랜드도 뺀다 —
+ * 서버는 조건이나 예산이 남은 종류를 "찾는 종류"로 다시 넣으므로, 종류만 빼면 다음 문장에서 체크가 되살아난다(QA 종합#32).
+ * 체크를 푼 종류의 칩은 화면에도 보이지 않으므로 보이는 것과 보내는 것이 같아진다. 해석이 비어 있으면 그대로 둔다.
+ */
+export function withKinds(state: UnderstoodState, kinds: PeripheralKind[]): UnderstoodState {
+  if (state.interpretation === EMPTY_INTERPRETATION) return state
+  const keep = <T,>(record: Partial<Record<PeripheralKind, T>>) => {
+    const next: Partial<Record<PeripheralKind, T>> = {}
+    for (const kind of kinds) if (record[kind] !== undefined) next[kind] = record[kind]
+    return next
+  }
+  const interp = state.interpretation
+  return {
+    ...state,
+    interpretation: {
+      ...interp, kinds, stated: keep(interp.stated), budget: keep(interp.budget),
+      emphasis: keep(interp.emphasis), brandLike: keep(interp.brandLike), brandAvoid: keep(interp.brandAvoid),
+    },
   }
 }

@@ -1,10 +1,27 @@
 import type {
-  Api, PeripheralFeel, PeripheralInterpretation, PeripheralItem, PeripheralKind, PeripheralResolvedKind, PeripheralReviewAspect,
+  Api, PeripheralFeel, PeripheralInterpretation, PeripheralInterpretResult, PeripheralItem, PeripheralKind, PeripheralResolvedKind,
+  PeripheralReviewAspect,
 } from '../types'
 import { request } from './client'
 import type {
-  WirePeripheralFeel, WirePeripheralInterpret, WirePeripheralInterpretation, WirePeripheralItem, WirePeripheralReviewContribution, WirePeripherals,
+  WirePeripheralChat, WirePeripheralFeel, WirePeripheralInterpret, WirePeripheralInterpretation, WirePeripheralItem,
+  WirePeripheralReviewContribution, WirePeripherals,
 } from './wire'
+
+const HANGUL = /[가-힣]/
+
+/**
+ * 후기 한 줄. 리뷰 원문 문장(evidence_sentences, 한글)을 먼저 쓴다. observation_text 는 분석 요약이라 대부분 영어여서,
+ * 한글이 들어 있을 때만 대신 쓰고 아니면 보이지 않게 한다(영어 문장을 한국어 화면에 그대로 내지 않는다).
+ */
+function quoteFromMembers(members: WirePeripheralReviewContribution['members']): string | null {
+  for (const member of members) {
+    const sentence = member.evidence_sentences?.find(text => text.trim())
+    if (sentence) return sentence.trim()
+  }
+  const summary = members.find(member => HANGUL.test(member.observation_text))
+  return summary ? summary.observation_text : null
+}
 
 function aspectsFromWire(review: { contributions: WirePeripheralReviewContribution[] } | null | undefined): PeripheralReviewAspect[] {
   return (review?.contributions ?? []).map(entry => ({
@@ -13,7 +30,7 @@ function aspectsFromWire(review: { contributions: WirePeripheralReviewContributi
     positive: entry.p,
     negative: entry.n,
     mixed: entry.mixed,
-    quote: entry.members[0]?.observation_text ?? null,
+    quote: quoteFromMembers(entry.members ?? []),
   }))
 }
 
@@ -52,19 +69,42 @@ function itemFromWire(item: WirePeripheralItem): PeripheralItem {
 
 const interpretationFromWire = (wire: WirePeripheralInterpretation): PeripheralInterpretation => ({
   kinds: wire.kinds ?? [], purposes: wire.purposes ?? [], situations: wire.situations ?? [], stated: wire.stated ?? {},
-  handSize: wire.hand_size ?? null, budget: wire.budget ?? {}, budgetTotal: wire.budget_total ?? null, unrecognized: wire.unrecognized ?? [],
+  handSize: wire.hand_size ?? null, budget: wire.budget ?? {}, budgetTotal: wire.budget_total ?? null,
+  emphasis: wire.emphasis ?? {}, brandLike: wire.brand_like ?? {}, brandAvoid: wire.brand_avoid ?? {},
+  unrecognized: wire.unrecognized ?? [],
 })
 
-// previous 로 돌려보낼 때는 서버가 준 모양(snake_case) 그대로여야 한다.
+// previous 로 돌려보낼 때는 서버가 준 모양(snake_case) 그대로여야 한다. 질문(question)은 이번 턴 것이라 돌려보내지 않는다.
 const interpretationToWire = (value: PeripheralInterpretation): WirePeripheralInterpretation => ({
   kinds: value.kinds, purposes: value.purposes, situations: value.situations, stated: value.stated as Record<string, string[]>,
-  hand_size: value.handSize, budget: value.budget as Record<string, number>, budget_total: value.budgetTotal, unrecognized: value.unrecognized,
+  hand_size: value.handSize, budget: value.budget as Record<string, number>, budget_total: value.budgetTotal,
+  emphasis: value.emphasis as Record<string, string[]>, brand_like: value.brandLike as Record<string, string[]>,
+  brand_avoid: value.brandAvoid as Record<string, string[]>, unrecognized: value.unrecognized,
 })
 
-// 서버는 추천을 "목록(세션)"에 묶어 호출한다. PC 견적 대화 없이도 쓸 수 있어, 처음이면 빈 세션을 하나 만든다.
+/** 해석 응답(interpret 과 chat 이 같다)을 화면 모양으로 */
+function interpretResultFromWire(result: WirePeripheralInterpret): PeripheralInterpretResult {
+  const resolved: Partial<Record<PeripheralKind, PeripheralResolvedKind>> = {}
+  for (const [kind, entry] of Object.entries(result.resolved ?? {})) {
+    resolved[kind as PeripheralKind] = {
+      kind: entry.kind, label: entry.label, purposes: entry.purposes ?? [],
+      preferences: (entry.preferences ?? []).map(item => ({ condition: item.condition, label: item.label, sources: item.sources ?? [] })),
+      filters: (entry.filters ?? []).map(item => ({ condition: item.condition, label: item.label, sources: item.sources ?? [] })),
+      conflicts: entry.conflicts ?? [],
+    }
+  }
+  return {
+    interpretation: interpretationFromWire(result.interpretation), resolved,
+    needsKind: result.needs_kind, source: result.source, truncated: Boolean(result.truncated),
+  }
+}
+
+// 추천·채팅은 "목록(세션)"에 묶어 호출한다. PC 견적 대화 없이도 쓸 수 있어, 처음이면 빈 세션을 하나 만든다.
+const ensureSession = async (sessionId?: string | null) => sessionId ?? (await request<{ list_id: string }>('POST', '/session')).list_id
+
 export const peripherals: Api['peripherals'] = {
   async recommend(input, sessionId) {
-    const id = sessionId ?? (await request<{ list_id: string }>('POST', '/session')).list_id
+    const id = await ensureSession(sessionId)
     // 예전 입력(purpose·priority·noise_sensitive·resolution)은 새 화면에서 보내지 않는다 — 문장 해석 결과를 그대로 싣는다.
     const body = {
       kinds: input.kinds,
@@ -73,6 +113,10 @@ export const peripherals: Api['peripherals'] = {
       situations: input.situations ?? [],
       stated: input.stated ?? {},
       kind_budget: input.kindBudget ?? {},
+      emphasis: input.emphasis ?? {},
+      brand_like: input.brandLike ?? {},
+      brand_avoid: input.brandAvoid ?? {},
+      hand_size: input.handSize ?? null,
       pc_list_id: input.pcListId,
     }
     const result = await request<WirePeripherals>('POST', `/session/${encodeURIComponent(id)}/peripherals/recommend`, body)
@@ -81,6 +125,7 @@ export const peripherals: Api['peripherals'] = {
       referencePrice: result.totals.reference_price, priceNote: result.totals.note,
       ignoredInputs: result.ignored_inputs ?? [],
       adjustChips: (result.adjust_chips ?? []).map(chip => ({ kind: chip.kind, id: chip.id, label: chip.label, add: chip.add, moved: chip.moved })),
+      notices: result.notices ?? [],
     }
   },
 
@@ -88,17 +133,23 @@ export const peripherals: Api['peripherals'] = {
     const result = await request<WirePeripheralInterpret>('POST', '/peripherals/interpret', {
       text, previous: previous ? interpretationToWire(previous) : null, kinds: kinds && kinds.length ? kinds : null,
     })
-    const resolved: Partial<Record<PeripheralKind, PeripheralResolvedKind>> = {}
-    for (const [kind, entry] of Object.entries(result.resolved ?? {})) {
-      resolved[kind as PeripheralKind] = {
-        kind: entry.kind, label: entry.label, purposes: entry.purposes ?? [],
-        preferences: (entry.preferences ?? []).map(item => ({ condition: item.condition, label: item.label, sources: item.sources ?? [] })),
-        filters: (entry.filters ?? []).map(item => ({ condition: item.condition, label: item.label, sources: item.sources ?? [] })),
-      }
-    }
+    return interpretResultFromWire(result)
+  },
+
+  async chat({ text, previous, kinds, sessionId, pcListId }) {
+    const id = await ensureSession(sessionId)
+    const result = await request<WirePeripheralChat>('POST', `/session/${encodeURIComponent(id)}/peripherals/chat`, {
+      text, previous: previous ? interpretationToWire(previous) : null, kinds: kinds && kinds.length ? kinds : null,
+      pc_list_id: pcListId ?? null,
+    })
+    const { turn } = result
     return {
-      interpretation: interpretationFromWire(result.interpretation), resolved,
-      needsKind: result.needs_kind, source: result.source, truncated: Boolean(result.truncated),
+      ...interpretResultFromWire(result),
+      sessionId: id,
+      turn: {
+        newConditions: turn.new_conditions ?? [], notReflected: turn.not_reflected ?? [], notes: turn.notes ?? [],
+        answer: turn.answer, reply: turn.reply, chips: turn.chips ?? [], resultChips: turn.result_chips ?? [],
+      },
     }
   },
 }

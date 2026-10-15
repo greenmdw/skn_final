@@ -351,7 +351,8 @@ export interface WirePeripheralReviewContribution {
   p: number
   n: number
   mixed: number
-  members: { direction: string; observation_text: string }[]
+  /** observation_text 는 리뷰 분석이 만든 요약(대부분 영어)이고, evidence_sentences 는 리뷰 원문 문장(한글)이다 */
+  members: { direction: string; observation_text: string; evidence_sentences?: string[] }[]
 }
 export interface WirePeripheralItem {
   kind: 'monitor' | 'keyboard' | 'mouse' | 'speaker'
@@ -397,6 +398,7 @@ export interface WirePeripherals {
   totals: { reference_price: number; note: string }
   ignored_inputs?: string[]
   adjust_chips?: WirePeripheralAdjustChip[]
+  notices?: { kind: string; code: string; text: string }[]
 }
 
 // ── 견적 문장 해석(src.schemas.PeripheralInterpretOut) ──
@@ -408,6 +410,9 @@ export interface WirePeripheralInterpretation {
   hand_size: 'small' | 'medium' | 'large' | null
   budget: Record<string, number>
   budget_total: number | null
+  emphasis?: Record<string, string[]>
+  brand_like?: Record<string, string[]>
+  brand_avoid?: Record<string, string[]>
   unrecognized: string[]
 }
 export interface WirePeripheralResolvedCondition { condition: string; label: string; sources?: string[] }
@@ -419,8 +424,20 @@ export interface WirePeripheralInterpret {
     purposes?: { code: string; label: string }[]
     preferences?: WirePeripheralResolvedCondition[]
     filters?: WirePeripheralResolvedCondition[]
+    conflicts?: { conditions: string[]; labels: string[]; kept: string | null }[]
   }>
   needs_kind: boolean
   source: 'llm' | 'rules'
   truncated?: boolean
+}
+export interface WirePeripheralChat extends WirePeripheralInterpret {
+  turn: {
+    new_conditions: { kind: string; label: string }[]
+    not_reflected: string[]
+    notes: string[]
+    answer: { type: string; topic: string | null; text: string; kinds: ('monitor' | 'keyboard' | 'mouse' | 'speaker')[]; chips: string[] } | null
+    reply: string
+    chips: string[]
+    result_chips: string[]
+  }
 }
