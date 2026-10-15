@@ -1,5 +1,6 @@
 """/session HTTP handlers."""
 from __future__ import annotations
+from typing import Literal
 from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, Response, status
 from src import schemas
@@ -187,6 +188,22 @@ def swap(list_id: UUID, item_id: UUID, body: schemas.SwapIn, principal: Principa
     with get_conn() as conn:
         revision = session_service._owned(PlanRepo(conn), list_id, principal)
         stored = recommendation_service.swap_item(conn, revision["id"], item_id, UUID(body.candidate_id), user_id=principal.user_id)
+    return schemas.RecommendResultOut(**stored)
+
+@router.get("/{list_id}/omitted-slots/{slot}/options", response_model=schemas.AlternativesOut)
+def omitted_slot_options(list_id: UUID, slot: Literal["GPU", "쿨러"], principal: Principal = Depends(optional_principal)) -> schemas.AlternativesOut:
+    """신규 조립에서 일부러 뺀 GPU·쿨러를 담을 때 고를 후보(요구 사양·호환을 통과한 것, 싼 순 최대 8개). result.omitted_slots 에 있는 슬롯만."""
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        stored = recommendation_service.list_omitted_options(conn, revision["id"], slot)
+    return schemas.AlternativesOut(**stored)
+
+@router.post("/{list_id}/omitted-slots/{slot}/add", response_model=schemas.RecommendResultOut)
+def omitted_slot_add(list_id: UUID, slot: Literal["GPU", "쿨러"], body: schemas.AddOmittedIn, principal: Principal = Depends(optional_principal)) -> schemas.RecommendResultOut:
+    """일부러 뺀 GPU·쿨러를 담는다 — 기본 배분의 그 슬롯 비율을 빌려 재검증한다. 응답은 갱신된 결과 전체."""
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        stored = recommendation_service.add_omitted_item(conn, revision["id"], slot, UUID(body.candidate_id), user_id=principal.user_id)
     return schemas.RecommendResultOut(**stored)
 
 @router.post("/{list_id}/peripherals/recommend", response_model=schemas.PeripheralsOut)

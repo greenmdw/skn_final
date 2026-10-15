@@ -23,7 +23,7 @@ from src.services.fit_score import avg_fit, display_points, fit_for_item
 from src.services.recommendation_review_snapshot import SNAPSHOT_STEP, clear_snapshot_cache, snapshot_step
 
 WEIGHTS = {"가격": 0.45, "성능": 0.30, "리뷰": 0.25}
-NEW = {"pipeline": "computer-v1", "computer_rules": "computer-rules-v13", "score_method": "pc-fit-v3"}
+NEW = {"pipeline": "computer-v1", "computer_rules": "computer-rules-v14", "score_method": "pc-fit-v3"}
 
 
 # ── display_points ────────────────────────────────────────────────────────────

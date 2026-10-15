@@ -37,8 +37,22 @@ def pc_context_from_list(conn, pc_list_id: UUID, principal: Principal) -> dict |
              for r in PlanRepo(conn).load_full(revision["id"])["conditions"]}
     if cvals.get("category") != "computer":
         return None
-    return {"resolution": cvals.get("resolution"), "gpu_specs": _selected_gpu_specs(conn, revision["id"]),
+    gpu_specs = _selected_gpu_specs(conn, revision["id"])
+    return {"resolution": cvals.get("resolution"), "gpu_specs": gpu_specs,
+            "integrated_graphics": gpu_specs is None and _gpu_left_out(conn, revision["id"]),
             "purpose": cvals.get("purpose")}
+
+
+def _gpu_left_out(conn, revision_id: UUID) -> bool:
+    """PC 견적이 신규 조립 규칙(용도 배분 GPU 0%)으로 GPU 를 일부러 뺐는가 — 저장된 '견적 구성 슬롯' 기록으로 본다."""
+    from src.engine import omitted_slots
+    from src.repo.engine_repo import EngineRepo
+
+    erepo = EngineRepo(conn)
+    run = erepo.get_latest_run_state(revision_id)
+    if run is None or run["status"] != "completed":
+        return False
+    return "GPU" in omitted_slots.omitted_from_step(erepo.get_run_step(run["id"], omitted_slots.OMITTED_SLOTS_STEP))
 
 
 def _selected_gpu_specs(conn, revision_id: UUID) -> dict | None:

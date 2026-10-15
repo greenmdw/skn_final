@@ -320,6 +320,48 @@ def test_matches_rule_suffixes(scenarios_module):
 
 def test_every_fixed_scenario_matches_its_expectation(scenarios_module):
     results = [fn() for fn in scenarios_module.SCENARIOS]
-    assert [s["id"] for s in results] == [f"{i:02d}" for i in range(1, 17)]
+    assert [s["id"] for s in results] == [f"{i:02d}" for i in range(1, 21)]
     assert [(s["id"], c["name"]) for s in results for c in s["cases"] if c["mismatch"]] == []
     assert all(s["tests"] for s in results)
+
+
+# ── GPU·쿨러 미구매 규칙 지표(computer-rules-v14) ─────────────────────────────────────────────
+
+def light_rec(rid, *, omitted, items, cpu, purpose="office", status="recommendable"):
+    return rec(rid, items=items, purpose=purpose, status=status, omitted_slots=omitted, selected_cpu=cpu)
+
+
+def test_request_group_splits_light_game_and_upgrade():
+    assert report.request_group({"values": {"mode": "build", "purpose": "office"}}) == "사무·학습·기타 새 PC"
+    assert report.request_group({"values": {"mode": "build", "purpose": "other"}}) == "사무·학습·기타 새 PC"
+    assert report.request_group({"values": {"mode": "build", "purpose": "creation"}}) == "게임·창작 새 PC"
+    assert report.request_group({"values": {"mode": "upgrade", "purpose": "office"}}) == "업그레이드"
+
+
+def test_light_rule_check_uses_the_recorded_omitted_slots_per_request():
+    good_cpu = {"integrated_graphics": "O", "cooler_included": "O (정품 박스 기준)", "tdp_w": 65}
+    d = dump(
+        light_rec("ok", omitted={"GPU": "integrated_graphics", "쿨러": "box_cooler"}, items=[item("CPU", "c")], cpu=good_cpu),
+        # 저소음: 쿨러를 다시 넣었으므로 기본 쿨러 X 인 CPU 도 위반이 아니고, 쿨러 품목이 있어도 위반이 아니다
+        light_rec("quiet", omitted={"GPU": "integrated_graphics"}, items=[item("CPU", "c"), item("쿨러", "k")],
+                  cpu={"integrated_graphics": "O", "cooler_included": "X", "tdp_w": 105}),
+        light_rec("bad_cpu", omitted={"GPU": "integrated_graphics", "쿨러": "box_cooler"}, items=[item("CPU", "c")],
+                  cpu={"integrated_graphics": "X", "cooler_included": "O", "tdp_w": 65}),
+        light_rec("leak", omitted={"GPU": "integrated_graphics"}, items=[item("CPU", "c"), item("GPU", "g")], cpu=good_cpu),
+        light_rec("old", omitted=None, items=[item("CPU", "c")], cpu=None),
+    )
+    d["requests"][-1].pop("omitted_slots"), d["requests"][-1].pop("selected_cpu")
+    check = report.light_rule_check(d)
+    assert check["recommendable"] == 5 and check["no_record"] == 1 and check["cooler_kept"] == 2
+    assert check["cpu_checked"] == 4 and len(check["bad_cpu"]) == 1 and check["bad_cpu"][0].startswith("bad_cpu")
+    assert check["leaked"] == ["leak: GPU 품목이 있음"]
+    assert "GPU·쿨러 미구매 규칙" in "\n".join(report.omission_section([("기준선", d), ("최종", d)]))
+
+
+def test_unchanged_table_compares_selection_and_price_by_request_id():
+    a = rec("g1", purpose="game", items=[item("CPU", "c1", qty=1)], used=100)
+    b = rec("g2", purpose="game", items=[item("CPU", "c1", qty=1)], used=100)
+    changed = rec("g2", purpose="game", items=[item("CPU", "c2", qty=1)], used=100)
+    text = report.unchanged_table([("기준선", dump(a, b)), ("최종", dump(a, changed))])
+    row = next(line for line in text.splitlines() if line.startswith("| 게임·창작 새 PC"))
+    assert "| 2 | 1 | 1 | g2 |" in row

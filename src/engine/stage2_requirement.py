@@ -33,6 +33,25 @@ _PROFILE_KEYS = {"tier", "ram_type", "storage_protocol", "storage_capacity_gb_mi
                  "case_form"}
 
 
+# 신규 조립에서 용도 배분이 0 이면 견적에서 빼는 슬롯 -> 뺐을 때 그 역할을 CPU 가 대신하는 방식(RequirementSpec.omitted_slots 의 이유 코드).
+# 이 두 슬롯만 0 이 허용된다 — 다른 슬롯은 대신할 부품이 없어 0 이면 설정 오류다.
+OMITTABLE_SLOTS = {"GPU": "integrated_graphics", "쿨러": "box_cooler"}
+_PC_SLOTS = ("CPU", "GPU", "RAM", "메인보드", "저장장치", "파워", "케이스", "쿨러")
+
+
+def _check_budget_allocation(alloc, where: str = "") -> None:
+    """예산 배분 검증 — 8개 슬롯이 모두 있고, 음수가 없고, 합이 1. 0 은 GPU·쿨러에만 허용한다(그 슬롯을 사지 않는다는 뜻)."""
+    if not isinstance(alloc, dict) or set(alloc) != set(_PC_SLOTS):
+        raise RequirementRuleError(f"{where}PC 예산 배분 슬롯이 8개 부품과 다름")
+    if not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= 0 for v in alloc.values()):
+        raise RequirementRuleError(f"{where}PC 예산 배분에 음수 또는 숫자가 아닌 값이 있음")
+    zero = [slot for slot, v in alloc.items() if v == 0 and slot not in OMITTABLE_SLOTS]
+    if zero:
+        raise RequirementRuleError(f"{where}PC 예산 배분은 GPU·쿨러만 0 이 될 수 있음: {', '.join(zero)}")
+    if abs(sum(alloc.values()) - 1) > 1e-9:
+        raise RequirementRuleError(f"{where}PC 예산 배분 합계가 1이 아님")
+
+
 def _check_power_and_budget(req: dict, where: str = "") -> None:
     power = req.get("estimated_power_w") or {}
     watts = req.get("psu_standard_wattages") or []
@@ -41,8 +60,7 @@ def _check_power_and_budget(req: dict, where: str = "") -> None:
             or multiplier <= 0 or not watts or watts != sorted(set(watts))
             or watts[-1] < int(sum(power[k] for k in ("cpu", "gpu", "other")) * multiplier)):
         raise RequirementRuleError(f"{where}PC PSU 요구/표준 용량 규칙 오류")
-    if abs(sum((req.get("budget_allocation") or {}).values()) - 1) > 1e-9:
-        raise RequirementRuleError(f"{where}PC 예산 배분 합계가 1이 아님")
+    _check_budget_allocation(req.get("budget_allocation"), where)
 
 
 _REMOVED_RANKING_KEYS = ("noise_proxy", "noise_sensitive_min_weight", "ram_dual_channel_bonus", "data_gap")
@@ -235,6 +253,11 @@ def _load_computer_rules(path: Path) -> dict:
     if not verification.get("link_rules") or not 0 < verification.get("power", {}).get("psu_capacity_factor", 0) <= 1:
         raise RequirementRuleError("PC 호환성 규칙 오류")
     _check_power_and_budget(req)
+    if not all((req["budget_allocation"].get(slot) or 0) > 0 for slot in OMITTABLE_SLOTS):
+        raise RequirementRuleError("PC 기본 예산 배분의 GPU·쿨러는 0 보다 커야 함(다른 배분에서 0 인 슬롯을 다시 넣을 때 이 비율을 빌려 쓴다)")
+    box = verification.get("box_cooler_max_tdp_w")
+    if not isinstance(box, (int, float)) or isinstance(box, bool) or not math.isfinite(box) or box <= 0:
+        raise RequirementRuleError("PC 기본 쿨러 허용 TDP(verification.box_cooler_max_tdp_w) 오류")
     _check_required_checks(verification)
     _check_margins(verification)
     _check_ranking_priority(ranking)
@@ -337,7 +360,76 @@ def _upgrade_slots(raw) -> tuple[set[str], list[dict[str, str]]]:
     return wanted, unresolved
 
 
-def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
+# 배분 0 인 슬롯을 다시 넣는 이유 코드 -> 사람이 읽는 문장(결과 기록·화면용).
+REINSTATE_REASONS = {
+    "wanted_part": "사용자가 원하는 부품으로 지정함",
+    "result_chat": "결과 대화에서 담음",
+    "quiet_priority": "저소음 우선 요청 — 기본 쿨러는 소음 근거가 없음",
+    "noise_sensitive": "소음에 민감한 요청 — 기본 쿨러는 소음 근거가 없음",
+    "upgrade_selected": "업그레이드로 사용자가 고른 부품",
+}
+
+
+def _wanted_slots(values: dict) -> set[str]:
+    """wanted_parts(슬롯 -> 부품 정보)에 이름이 올라온 슬롯. 슬롯 표기는 normalize_pc_slot 으로 맞춘다."""
+    wanted = values.get("wanted_parts")
+    if not isinstance(wanted, dict):
+        return set()
+    return {normalize_pc_slot(raw) or str(raw) for raw in wanted}
+
+
+def _reinstate_reason(slot: str, values: dict, extra: dict[str, str]) -> str | None:
+    """배분 0 인 slot 을 견적에 다시 넣어야 하는 이유 코드 — 없으면 None(뺀다). extra: 호출부가 아는 이유(결과 대화 등)."""
+    if slot in extra:
+        return extra[slot]
+    if slot in _wanted_slots(values):
+        return "wanted_part"                       # D2: 사용자가 GPU(또는 쿨러)를 직접 지정
+    if slot == "쿨러":                              # D4: 기본 쿨러는 소음 근거가 없어 저소음 요청에서는 빼지 않는다
+        if values.get("priority") == "quiet":
+            return "quiet_priority"
+        if values.get("noise_sensitive") is True:
+            return "noise_sensitive"
+    return None
+
+
+def plan_slots(alloc: dict[str, float], base_alloc: dict[str, float], values: dict, *, mode: str,
+               chosen_slots=None, reinstate: dict[str, str] | None = None
+               ) -> tuple[dict[str, float], dict[str, str], dict[str, dict]]:
+    """용도 배분(alloc)에서 0 인 GPU·쿨러 슬롯을 어떻게 다룰지 정한다 -> (배분, omitted_slots, borrowed).
+
+    - 신규 조립(build): 0 인 슬롯은 견적에서 뺀다(omitted: 슬롯 -> 이유 코드). 단 다시 넣을 이유(`_reinstate_reason`)가 있으면 산다.
+    - 업그레이드: `chosen_slots`(사용자가 고른 슬롯)는 무조건 산다(D3). 배분이 0 이면 아래처럼 빌린다. 뺀 슬롯 기록은 없다.
+    - 다시 넣는 슬롯의 배분이 0 이면 기본 배분(base_alloc)의 그 슬롯 비율을 빌려 와 더하고, 합이 1 이 되게 모든 슬롯을 같은 비율로 나눈다.
+      빌린 비율과 이유는 borrowed(슬롯 -> {"ratio": 빌려 온 기본 비율, "reason": 코드})로 돌려준다.
+    반환 배분은 견적에 들어가는 슬롯만 담는다(업그레이드는 chosen_slots 만 남기고 합은 호출부가 맞춘다). 빌린 슬롯이 없으면 alloc 값 그대로다."""
+    reinstate = reinstate or {}
+    out = dict(alloc)
+    omitted: dict[str, str] = {}
+    borrowed: dict[str, dict] = {}
+    for slot, kind in OMITTABLE_SLOTS.items():
+        if out.get(slot) != 0:
+            continue
+        if mode == "upgrade":
+            reason = "upgrade_selected" if slot in (chosen_slots or ()) else None
+        else:
+            reason = _reinstate_reason(slot, values, reinstate)
+        if reason is None:
+            if mode != "upgrade":
+                omitted[slot] = kind
+            del out[slot]
+            continue
+        out[slot] = base_alloc[slot]
+        borrowed[slot] = {"ratio": base_alloc[slot], "reason": reason}
+    if mode == "upgrade":
+        return {s: v for s, v in out.items() if s in (chosen_slots or ())}, omitted, borrowed   # 합 1 로 맞추는 건 호출부(고른 슬롯 순서대로)
+    if borrowed:
+        total = sum(out.values())
+        out = {s: v / total for s, v in out.items()}
+    return out, omitted, borrowed
+
+
+def _computer_build(slots: Slots, log: LogFn, full_slots: bool = False,
+                    reinstate: dict[str, str] | None = None) -> RequirementSpec:
     rules = load_computer_rules()
     base = rules["requirements"]
     # 용도 프로필(사무·학습·창작)은 기본 요구를 덮어쓰고 해상도 대신 자기 tier 를 쓴다.
@@ -356,8 +448,23 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
     brand = slots.values.get("brand_pref", "none")
     socket_in = req["sockets_by_brand"][brand]
 
+    # 배분이 0 인 GPU·쿨러는 신규 조립에서 견적에서 뺀다(내장 그래픽·정품 박스 기본 쿨러). 다시 넣는 경우는 plan_slots 가 정한다.
+    # 업그레이드는 아래에서 고른 슬롯 기준으로 같은 함수를 부른다.
+    alloc_in = dict(req["budget_allocation"])
+    upgrade_slots: set[str] = set()
+    if slots.mode == "upgrade":
+        upgrade_slots, _ = _upgrade_slots(slots.values.get("upgrade_parts"))
+    if full_slots:
+        # 견적 점검·이전 견적 비교처럼 "이 용도의 기준 8개 부품"이 필요한 호출 — 슬롯을 빼지 않고 용도 배분도 그대로 둔다(0 포함).
+        alloc, omitted, borrowed = alloc_in, {}, {}
+    else:
+        alloc, omitted, borrowed = plan_slots(alloc_in, base["budget_allocation"], slots.values, mode=slots.mode,
+                                              chosen_slots=upgrade_slots, reinstate=reinstate)
+
     # PSU 헤드룸: (cpu_tdp + gpu_tgp + 표준부하) * K → 표준 용량
-    power = req["estimated_power_w"]
+    power = dict(req["estimated_power_w"])
+    if "GPU" in omitted:
+        power["gpu"] = 0                                   # 내장 그래픽 — GPU 전력 0W
     est_cpu_tdp, est_gpu_tgp = power["cpu"], power["gpu"]  # 후보 실측값은 [4]에서 확인
     required_w = int((est_cpu_tdp + est_gpu_tgp + power["other"]) * req["psu_headroom_multiplier"])
     wattage_min = next(w for w in req["psu_standard_wattages"] if w >= required_w)
@@ -372,10 +479,17 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
         "케이스": {"form": req["case_form"]},
         "쿨러": {"tdp_capacity_w_min": est_cpu_tdp},
     }
+    for slot in omitted:
+        del targets[slot]
+    # CPU 가 빠진 슬롯의 역할을 대신한다 — 사전 필터(stage3a)가 내장 그래픽 O / 정품 박스 기본 쿨러 O·TDP 이하만 통과시킨다.
+    if "GPU" in omitted:
+        targets["CPU"]["integrated_graphics_required"] = True
+    if "쿨러" in omitted:
+        targets["CPU"]["box_cooler_required"] = True
+        targets["CPU"]["box_cooler_max_tdp_w"] = rules["verification"]["box_cooler_max_tdp_w"]
     link_rules = [rule.format(psu_capacity_factor=rules["verification"]["power"]["psu_capacity_factor"])
                   for rule in rules["verification"]["link_rules"]]
     budget_total = slots.values.get("budget_max") or 0
-    alloc = dict(req["budget_allocation"])
     # 예산 예비 판정은 후보 가격이 필요해서 [2] 시점엔 못 한다 — 초기값만 두고, 후보를 읽은 뒤
     # engine/feasibility.assess() 가 채운다(recommendation_service · 조건 화면 사전 경고).
     feasibility = "ok"
@@ -386,6 +500,7 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
         # 업그레이드: 고른 부품만 견적을 낸다. 예산은 그 부품들에 쓸 돈이라 배분도 그 안에서 다시 잡는다.
         wanted, unresolved = _upgrade_slots(slots.values.get("upgrade_parts"))
         targets = {s: t for s, t in targets.items() if s in wanted}
+        # 배분 0 인 GPU·쿨러를 고른 경우 plan_slots 가 기본 비율을 빌려 왔다(D3) — 그 위에서 고른 슬롯끼리 합 1 로 다시 맞춘다.
         kept = sum(alloc.get(s, 0) for s in targets)
         alloc = {s: alloc[s] / kept for s in targets} if kept else {}
         flags.append("upgrade")
@@ -412,6 +527,10 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
     if game_keys or unknown_games:
         log(f"      게임 요구 반영: {', '.join(game_keys) or '(없음)'}"
             + (f" · 표에 없음: {', '.join(unknown_games)}" if unknown_games else ""))
+    if omitted:
+        log(f"      견적에서 뺀 슬롯(용도 배분 0): {', '.join(f'{slot}({kind})' for slot, kind in omitted.items())}")
+    for slot, info in borrowed.items():
+        log(f"      {slot} 배분 0 → 기본 배분 비율 {info['ratio']:.2f} 를 빌려 다시 정규화 ({REINSTATE_REASONS[info['reason']]})")
     log(f"      PSU 헤드룸: 필요 {required_w}W → 최소 {wattage_min}W (K={req['psu_headroom_multiplier']})")
     log(f"      link_rules {len(link_rules)}개 기록 · 예산배분 가이드 · feasibility={feasibility}")
 
@@ -421,7 +540,9 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
         mode=slots.mode,
         targets=targets,
         link_rules=link_rules,
-        budget={"total": budget_total, "alloc": alloc, "feasibility": feasibility},
+        budget={"total": budget_total, "alloc": alloc, "feasibility": feasibility,
+                **({"borrowed_alloc": borrowed} if borrowed else {})},
+        omitted_slots=omitted,
         flags=flags,
         unresolved=unresolved,
         games=games_list,
@@ -430,8 +551,12 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
     )
 
 
-def run(slots: Slots, cat_def: dict, log: LogFn) -> RequirementSpec:
+def run(slots: Slots, cat_def: dict, log: LogFn, *, full_slots: bool = False,
+        reinstate: dict[str, str] | None = None) -> RequirementSpec:
+    """reinstate: {슬롯: 이유 코드} — 용도 배분이 0 이라 뺐을 GPU·쿨러를 호출부가 다시 넣기로 한 것(결과 대화에서 담음: "result_chat").
+    full_slots=True 면 용도 배분이 0 인 GPU·쿨러도 targets 에 남기고 배분을 그대로 둔다 — 추천 견적을 만드는 호출이 아니라
+    용도별 요구 기준만 읽는 호출(견적 점검 quote_balance, 이전 견적 비교 previous_compare)용이다."""
     log("[2] 요구사양 빌드 ...")
     if slots.category == "computer":
-        return _computer_build(slots, log)
+        return _computer_build(slots, log, full_slots, reinstate)
     raise NotImplementedError(f"stage2: 지원하지 않는 카테고리입니다: {slots.category}")

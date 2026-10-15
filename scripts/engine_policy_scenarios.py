@@ -54,9 +54,13 @@ def make_catalog() -> dict[str, list[Candidate]]:
     cooler = dict(cooling_type="Air (Single-Tower)", height_mm=150, supported_socket="AM5/AM4")
     ssd = dict(form_factor="M.2 2280", interface="PCIe 4.0 x4", protocol="NVMe", capacity_gb=1000)
     return {
-        "CPU": [_cand("CPU", "cpu:r5-7600", "AMD Ryzen 5 7600", 220_000, socket="AM5", tdp_w=65, max_power_w=88, perf_tier=6),
-                _cand("CPU", "cpu:r7-7700x", "AMD Ryzen 7 7700X", 330_000, socket="AM5", tdp_w=105, max_power_w=142, perf_tier=7),
-                _cand("CPU", "cpu:r5-7500f", "AMD Ryzen 5 7500F", 170_000, socket="AM5", tdp_w=65, max_power_w=88, perf_tier=5)],
+        # 내장 그래픽·기본 쿨러(원문 O/X): 7600 은 둘 다 있고, 7700X 는 내장 그래픽만(기본 쿨러 없음·TDP 105W), 7500F 는 기본 쿨러만(내장 그래픽 없음).
+        "CPU": [_cand("CPU", "cpu:r5-7600", "AMD Ryzen 5 7600", 220_000, socket="AM5", tdp_w=65, max_power_w=88, perf_tier=6,
+                      integrated_graphics="O", cooler_included="O (정품 박스 기준)"),
+                _cand("CPU", "cpu:r7-7700x", "AMD Ryzen 7 7700X", 330_000, socket="AM5", tdp_w=105, max_power_w=142, perf_tier=7,
+                      integrated_graphics="O", cooler_included="X / SKU 확인"),
+                _cand("CPU", "cpu:r5-7500f", "AMD Ryzen 5 7500F", 170_000, socket="AM5", tdp_w=65, max_power_w=88, perf_tier=5,
+                      integrated_graphics="X", cooler_included="O (정품 박스 기준)")],
         "GPU": [_cand("GPU", "gpu:mid", "GPU Mid", 280_000, power_w=200, perf_tier=6, vram_gb=8, **gpu),
                 _cand("GPU", "gpu:good", "GPU Good", 380_000, power_w=250, perf_tier=8, vram_gb=12, **gpu),
                 _cand("GPU", "gpu:entry", "GPU Entry", 200_000, power_w=150, perf_tier=4, vram_gb=8, **gpu)],
@@ -143,15 +147,24 @@ class StubEnricher:
 
 # ── 실행 ───────────────────────────────────────────────────────────────────────────
 
-def make_inputs(*, upgrade: bool = False, owned: dict | None = None, speed_min: int | None = None):
+# 기본 입력(사무 150만 원)은 GPU·쿨러를 원하는 부품으로 지정해 8개 슬롯을 모두 사는 구성으로 둔다 — computer-rules-v14 부터 사무 배분의
+# GPU·쿨러가 0% 라 지정하지 않으면 두 슬롯이 견적에서 빠지는데(s17~), 시나리오 01~16 은 8개 슬롯 조합의 필수 정보·후보 판정을 보는 것이라
+# 같은 구성을 유지한다(결정 D2: 원하는 부품으로 GPU 를 지정하면 GPU 가 돌아오고 기본 배분의 비율을 빌린다).
+FULL_SET_VALUES = {"wanted_parts": {"GPU": {}, "쿨러": {}}}
+
+
+def make_inputs(*, upgrade: bool = False, owned: dict | None = None, speed_min: int | None = None, values: dict | None = None):
     from src.categories import load_category
     from src.engine import stage2_requirement
     from src.engine.slots import slots_from_conditions
 
     cat_def = load_category(CATEGORY)
-    values = {"category": CATEGORY, "mode": "build", "purpose": "office", "budget_max": 1_500_000}
-    if upgrade:
+    if values is not None:
+        values = {"category": CATEGORY, **values}
+    elif upgrade:
         values = {"category": CATEGORY, "mode": "upgrade", "purpose": "game", "budget_max": 2_000_000, "upgrade_parts": ["GPU"]}
+    else:
+        values = {"category": CATEGORY, "mode": "build", "purpose": "office", "budget_max": 1_500_000, **FULL_SET_VALUES}
     slots = slots_from_conditions(CATEGORY, cat_def, values)
     spec = stage2_requirement.run(slots, cat_def, NOOP)
     if owned is not None:
@@ -163,12 +176,13 @@ def make_inputs(*, upgrade: bool = False, owned: dict | None = None, speed_min: 
     return slots, spec
 
 
-def run_flow(catalog: dict, *, enricher, upgrade: bool = False, owned: dict | None = None, speed_min: int | None = None) -> dict:
+def run_flow(catalog: dict, *, enricher, upgrade: bool = False, owned: dict | None = None, speed_min: int | None = None,
+             values: dict | None = None) -> dict:
     """한 케이스의 엔진 실행 → 요약(actual). 사전 필터 후보 부족은 outcome=candidate_shortage 로 요약한다."""
     from src.engine import feasibility as feasibility_engine
     from src.engine.stage3a_hardfilter import CandidateShortage
 
-    slots, spec = make_inputs(upgrade=upgrade, owned=owned, speed_min=speed_min)
+    slots, spec = make_inputs(upgrade=upgrade, owned=owned, speed_min=speed_min, values=values)
     feasibility = feasibility_engine.assess(spec, catalog)
     spec.budget["feasibility"] = feasibility["level"]
     spec.budget["feasibility_detail"] = feasibility
@@ -206,6 +220,10 @@ def run_flow(catalog: dict, *, enricher, upgrade: bool = False, owned: dict | No
                     for k, v in (fields["build"]["margins"] or {}).items()},
         "items": {i["slot"]: {k: i[k] for k in ("price", "qty", "unit_price") if k in i} for i in fields["build"]["items"]},
         "totals_price": fields["build"]["totals"].get("price"),
+        "omitted_slots": dict(spec.omitted_slots),
+        "borrowed_alloc": {slot: dict(info) for slot, info in (spec.budget.get("borrowed_alloc") or {}).items()},
+        "alloc": {slot: round(v, 4) for slot, v in spec.budget.get("alloc", {}).items()},
+        "cpu_target_flags": sorted(k for k in spec.targets.get("CPU", {}) if k.endswith("_required")),
         "_flow": flow,
     }
     return actual
@@ -478,7 +496,7 @@ def s15():
     stored = round(raw, 4)                                       # numeric(8,4) 저장값
     snapshot = {"candidates": {"v1": {"slot": "GPU", "product_id": "p1", "variant_id": "v1", "rank_score": raw,
                                       "rank_breakdown": axes, "rank_weights": weights, "score_method": "pc-fit-v3"}}}
-    versions = {"pipeline": "computer-v1", "computer_rules": "computer-rules-v13", "score_method": "pc-fit-v3"}
+    versions = {"pipeline": "computer-v1", "computer_rules": "computer-rules-v14", "score_method": "pc-fit-v3"}
     fit = fit_for_item(snapshot, versions, variant_id="v1", product_id="p1", slot="GPU")
     avg = avg_fit(snapshot, versions, [{"variant_id": "v1", "product_id": "p1", "slot": "GPU"}])
     missing = fit_for_item(None, versions, variant_id="v1", product_id="p1", slot="GPU")
@@ -523,7 +541,93 @@ def s16():
                         "totals_price": actual["items_price_sum"]}, actual | {"totals_price": a["totals_price"]})])
 
 
-SCENARIOS = (s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12, s13, s14, s15, s16)
+OFFICE = {"mode": "build", "purpose": "office", "budget_max": 1_500_000}
+
+
+def s17():
+    a = run_flow(make_catalog(), enricher=StubEnricher(), values=OFFICE)
+    return scenario("17", "GPU·쿨러 미구매(사무 신규 조립)", "사무 배분의 GPU·쿨러가 0% 라 두 슬롯이 견적에서 빠지고 CPU 가 내장 그래픽·정품 박스 기본 쿨러(TDP 65W 이하)를 갖춰야 한다. "
+                    "고정 카탈로그에서는 7600 만 둘 다 갖춰(7700X 는 기본 쿨러 없음, 7500F 는 내장 그래픽 없음) 그것이 선택된다. 6개 슬롯 견적이 정상 추천되고 위반·필수 정보 누락이 없다.",
+                    ["tests/test_gpu_cooler_omission.py::test_office_build_omits_gpu_and_cooler_and_flags_the_cpu_target",
+                     "tests/test_gpu_cooler_omission.py::test_omitted_slots_do_not_create_required_info_missing_or_set_violation"],
+                    [case("사무 기본 — GPU·쿨러 제외", {
+                        "outcome": "recommendable", "omitted_slots": {"GPU": "integrated_graphics", "쿨러": "box_cooler"},
+                        "cpu_target_flags": ["box_cooler_required", "integrated_graphics_required"],
+                        "selected_sub": {"CPU": "cpu:r5-7600"}, "pass_counts_sub": {"CPU": 1}, "fail_counts_sub": {"CPU": 2},
+                        "borrowed_alloc": {}, "margins_sub": {"power.compat_check": {"status": "available", "cpu_basis": "max_power"},
+                                                              "size.gpu_slots": {"status": "not_applicable", "reason": "omitted_slot"}}},
+                         a | {"selected_has_no_gpu_cooler": not ({"GPU", "쿨러"} & set(a.get("selected", {})))}),
+                     case("선택 부품에 GPU·쿨러 없음", {"selected_has_no_gpu_cooler": True}, {"selected_has_no_gpu_cooler": not ({"GPU", "쿨러"} & set(a.get("selected", {})))})])
+
+
+def _uniform_cpus(**override) -> dict:
+    """세 CPU 가 모두 같은 내장 그래픽·기본 쿨러·TDP(전부 Pass 하는 값)를 갖게 한 카탈로그 — override 한 값만 다르게 해 사유 코드를 하나씩 본다."""
+    cat = make_catalog()
+    update(cat, "CPU", **{"integrated_graphics": "O", "cooler_included": "O (정품 박스 기준)", "tdp_w": 65, **override})
+    return cat
+
+
+def s18():
+    pending = _uniform_cpus()
+    strip(pending, "CPU", "integrated_graphics", "cooler_included")
+    cases = []
+    for name, cat, want in (
+            ("내장 그래픽 전부 X", _uniform_cpus(integrated_graphics="X"), {"fail_reasons": {"FAIL_NO_INTEGRATED_GRAPHICS": 3}, "pending_reasons": {}}),
+            ("기본 쿨러 전부 X", _uniform_cpus(cooler_included="X / SKU 확인"), {"fail_reasons": {"FAIL_NO_BOX_COOLER": 3}, "pending_reasons": {}}),
+            ("TDP 허용 초과", _uniform_cpus(tdp_w=105), {"fail_reasons": {"FAIL_BOX_COOLER_TDP": 3}, "pending_reasons": {}}),
+            ("값 없음 → Pending(승격 없음)", pending, {"fail_reasons": {},
+                                                  "pending_reasons": {"PENDING_SPEC_MISSING:integrated_graphics": 3,
+                                                                      "PENDING_SPEC_MISSING:cooler_included": 3}}),
+            ("읽을 수 없는 값 → Pending", _uniform_cpus(integrated_graphics="확인불가", cooler_included=""),
+             {"fail_reasons": {}, "pending_reasons": {"PENDING_SPEC_MISSING:integrated_graphics": 3,
+                                                     "PENDING_SPEC_MISSING:cooler_included": 3}})):
+        a = run_flow(cat, enricher=StubEnricher(), values=OFFICE)
+        cases.append(case(name, {"outcome": "candidate_shortage", "shortage_sub": {"CPU": want}}, a))
+    return scenario("18", "내장 그래픽·기본 쿨러 CPU 후보 없음", "CPU 가 내장 그래픽·기본 쿨러(허용 TDP 이하)를 대신하지 못하면 Fail, 값이 없거나 읽을 수 없으면 Pending. "
+                    "어느 쪽이든 통과 CPU 가 없으면 자동 승격 없이 후보 부족으로 끝난다(Pending 은 보완 조회에 값이 없으면 그대로).",
+                    ["tests/test_gpu_cooler_omission.py::test_cpu_filter_reason_codes",
+                     "tests/test_gpu_cooler_omission.py::test_no_qualifying_cpu_is_candidate_shortage_without_promotion"], cases)
+
+
+def s19():
+    gpu = run_flow(make_catalog(), enricher=StubEnricher(), values={**OFFICE, "wanted_parts": {"GPU": {"fields": {}}}})
+    quiet = run_flow(make_catalog(), enricher=StubEnricher(), values={**OFFICE, "priority": "quiet"})
+    noise = run_flow(make_catalog(), enricher=StubEnricher(), values={**OFFICE, "noise_sensitive": True})
+    return scenario("19", "GPU·쿨러를 다시 넣는 경우(D2·D4)", "원하는 부품(wanted_parts)에 GPU 가 있으면 GPU 슬롯이, 저소음 우선·소음 민감이면 쿨러 슬롯이 돌아온다. "
+                    "돌아온 슬롯은 기본 배분의 비율을 빌려 합 1 로 다시 정규화하고 빌린 비율·이유를 남긴다. 다른 슬롯(쿨러/GPU)은 여전히 빠진다.",
+                    ["tests/test_gpu_cooler_omission.py::test_wanted_gpu_brings_the_gpu_slot_back_and_borrows_the_base_ratio",
+                     "tests/test_gpu_cooler_omission.py::test_quiet_priority_or_noise_sensitive_keeps_the_cooler"],
+                    [case("D2 원하는 부품에 GPU", {"outcome": "recommendable", "omitted_slots": {"쿨러": "box_cooler"},
+                                                   "borrowed_alloc": {"GPU": {"ratio": 0.37, "reason": "wanted_part"}},
+                                                   "cpu_target_flags": ["box_cooler_required"], "alloc_sum": 1.0}, gpu | _alloc_sum(gpu)),
+                     case("D4 저소음 우선", {"outcome": "recommendable", "omitted_slots": {"GPU": "integrated_graphics"},
+                                           "borrowed_alloc": {"쿨러": {"ratio": 0.01, "reason": "quiet_priority"}},
+                                           "cpu_target_flags": ["integrated_graphics_required"], "alloc_sum": 1.0}, quiet | _alloc_sum(quiet)),
+                     case("D4 소음 민감", {"outcome": "recommendable", "omitted_slots": {"GPU": "integrated_graphics"},
+                                         "borrowed_alloc": {"쿨러": {"ratio": 0.01, "reason": "noise_sensitive"}}, "alloc_sum": 1.0}, noise | _alloc_sum(noise))])
+
+
+def s20():
+    values = {"mode": "upgrade", "purpose": "office", "budget_max": 1_500_000}
+    gpu_only = run_flow(make_catalog(), enricher=StubEnricher(), owned=owned_parts(), values={**values, "upgrade_parts": ["GPU"]})
+    owned = owned_parts()
+    del owned["쿨러"]
+    both = run_flow(make_catalog(), enricher=StubEnricher(), owned=owned, values={**values, "upgrade_parts": ["GPU", "쿨러"]})
+    return scenario("20", "업그레이드에서 고른 GPU·쿨러는 산다(D3)", "사무 용도라도 업그레이드에서 사용자가 고른 슬롯은 견적에 들어간다. 사무 배분의 그 슬롯이 0% 이면 기본 배분의 비율을 빌려 "
+                    "고른 슬롯끼리 합 1 로 다시 정규화한다. 업그레이드는 뺀 슬롯(omitted_slots) 기록이 없고 CPU 내장 그래픽 조건도 걸지 않는다.",
+                    ["tests/test_gpu_cooler_omission.py::test_upgrade_buys_the_slots_the_user_chose_even_when_the_purpose_allocation_is_zero"],
+                    [case("업그레이드 GPU", {"outcome": "recommendable", "selected_has": ["GPU"], "omitted_slots": {}, "cpu_target_flags": [],
+                                            "borrowed_alloc": {"GPU": {"ratio": 0.37, "reason": "upgrade_selected"}}, "alloc_sum": 1.0},
+                          gpu_only | {"selected_has": sorted(gpu_only.get("selected", {})), **_alloc_sum(gpu_only)}),
+                     case("업그레이드 GPU+쿨러", {"outcome": "recommendable", "borrowed_alloc_has": ["GPU", "쿨러"], "alloc_sum": 1.0},
+                          both | {"borrowed_alloc_has": sorted(both.get("borrowed_alloc", {})), **_alloc_sum(both)})])
+
+
+def _alloc_sum(actual: dict) -> dict:
+    return {"alloc_sum": round(sum((actual.get("alloc") or {}).values()), 2)}
+
+
+SCENARIOS = (s01, s02, s03, s04, s05, s06, s07, s08, s09, s10, s11, s12, s13, s14, s15, s16, s17, s18, s19, s20)
 
 
 def main() -> None:

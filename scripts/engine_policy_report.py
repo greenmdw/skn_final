@@ -612,6 +612,169 @@ def timing_table(dumps: list[tuple[str, dict]], note: str | None) -> str:
     return text + (f"\n\n측정 조건: {note}" if note else "")
 
 
+# ── GPU·쿨러 미구매 규칙(computer-rules-v14) ─────────────────────────────────────────────────
+
+LIGHT_PURPOSES = ("office", "study", "other")
+BOX_COOLER_MAX_TDP_W = 65          # config/computer_verification_rules.yaml verification.box_cooler_max_tdp_w (D5)
+
+
+def request_group(rec: dict) -> str:
+    """요청이 속한 묶음 — 사무·학습·기타 새 PC(GPU·쿨러를 빼는 용도), 게임·창작 새 PC, 업그레이드."""
+    values = rec.get("values") or {}
+    if values.get("mode") == "upgrade":
+        return "업그레이드"
+    return "사무·학습·기타 새 PC" if values.get("purpose") in LIGHT_PURPOSES else "게임·창작 새 PC"
+
+
+GROUPS = ("사무·학습·기타 새 PC", "게임·창작 새 PC", "업그레이드")
+
+
+def omission_group_stats(dump: dict, group: str) -> dict:
+    recs = [r for r in requests_of(dump) if request_group(r) == group]
+    ok = [r for r in recs if classify(r) in (RECOMMENDABLE, UNJUDGED)]
+    shares: dict[str, list[float]] = {}
+    for r in ok:
+        items = items_by_slot(r)
+        total = math.fsum(i["price"] * (i.get("qty") or 1) for i in items.values())
+        for slot, i in items.items():
+            if total:
+                shares.setdefault(slot, []).append(i["price"] * (i.get("qty") or 1) / total * 100)
+    gpu_shares = shares.get("GPU", [])
+    cpu_pass = [(r.get("hardfilter") or {}).get("CPU", {}).get("pass") for r in recs if "CPU" in (r.get("hardfilter") or {})]
+    return {
+        "n": len(recs), "recommendable": sum(1 for r in recs if classify(r) == RECOMMENDABLE),
+        "not_recommendable": sum(1 for r in recs if classify(r) == NOT_RECOMMENDABLE),
+        "shortage": sum(1 for r in recs if classify(r) == SHORTAGE), "error": sum(1 for r in recs if classify(r) == ERROR),
+        "with_gpu": sum(1 for r in ok if "GPU" in items_by_slot(r)), "with_cooler": sum(1 for r in ok if "쿨러" in items_by_slot(r)),
+        "built": len(ok), "used_pct_mean": mean([r.get("budget_used_pct") for r in ok]),
+        "price_mean": mean([(r.get("build") or {}).get("totals", {}).get("price") for r in ok]),
+        "gpu_share_median": percentile(gpu_shares, 50), "cpu_pass_mean": mean([c for c in cpu_pass if c is not None]),
+        "cpu_pass_min": min((c for c in cpu_pass if c is not None), default=None),
+        "shares": {slot: mean(v) for slot, v in sorted(shares.items())},
+        "omitted_recorded": sum(1 for r in recs if r.get("omitted_slots")),
+    }
+
+
+def omission_group_table(dumps: list[tuple[str, dict]]) -> str:
+    rows = []
+    for group in GROUPS:
+        for label, d in dumps:
+            st = omission_group_stats(d, group)
+            rows.append([group, label, st["n"], st["recommendable"], st["not_recommendable"], st["shortage"], st["error"],
+                         f"{st['with_gpu']}/{st['built']}", f"{st['with_cooler']}/{st['built']}",
+                         fmt(st["used_pct_mean"], 1), fmt(st["price_mean"], 0), fmt(st["gpu_share_median"], 1),
+                         fmt(st["cpu_pass_mean"], 1), fmt(st["cpu_pass_min"], 0), st["omitted_recorded"]])
+    return table(["묶음", "단계", "요청", "정상 추천", "부적격", "후보 부족", "오류", "GPU 품목 있음", "쿨러 품목 있음",
+                  "예산 사용률 평균(%)", "평균 총가격(원)", "GPU 가격 비중 중앙값(%)", "CPU 사전 필터 Pass 평균", "CPU Pass 최소", "뺀 슬롯 기록 요청"], rows)
+
+
+def share_table(dumps: list[tuple[str, dict]], group: str) -> str:
+    slots = ["CPU", "GPU", "RAM", "메인보드", "저장장치", "파워", "케이스", "쿨러"]
+    rows = []
+    for label, d in dumps:
+        shares = omission_group_stats(d, group)["shares"]
+        rows.append([label] + [fmt(shares.get(slot), 1) if slot in shares else "—" for slot in slots])
+    return table(["단계"] + [f"{s}(%)" for s in slots], rows)
+
+
+def light_rule_check(dump: dict) -> dict:
+    """GPU·쿨러를 빼는 용도(정상 추천)의 규칙 준수 — 요청이 기록한 omitted_slots 기준으로: 뺀 슬롯이 품목에 있는지, 선택 CPU 가 그 역할을
+    할 수 있는지(내장 그래픽 O · 기본 쿨러 O · TDP 허용 이하), 부적격 사유. 쿨러를 다시 넣은 요청(저소음·소음 민감)은 따로 센다."""
+    recs = [r for r in requests_of(dump) if request_group(r) == GROUPS[0]]
+    built_ok = [r for r in recs if classify(r) == RECOMMENDABLE]
+    leaked, bad_cpu, checked, cooler_kept, no_record = [], [], 0, 0, 0
+    ox = lambda v: str(v or "").strip().upper()[:1]  # noqa: E731
+    for r in built_ok:
+        if "omitted_slots" not in r:
+            no_record += 1                       # 옛 덤프 — 뺀 슬롯 기록이 없다
+            continue
+        omitted, items, cpu = r["omitted_slots"], items_by_slot(r), r.get("selected_cpu")
+        leaked += [f"{r['id']}: {slot} 품목이 있음" for slot in omitted if slot in items]
+        cooler_kept += int("쿨러" not in omitted)
+        if cpu is None:
+            continue
+        checked += 1
+        reasons = []
+        if "GPU" in omitted and ox(cpu.get("integrated_graphics")) != "O":
+            reasons.append("내장 그래픽 O 아님")
+        if "쿨러" in omitted and (ox(cpu.get("cooler_included")) != "O" or cpu.get("tdp_w") is None or cpu["tdp_w"] > BOX_COOLER_MAX_TDP_W):
+            reasons.append("기본 쿨러 O·TDP 허용 이하 아님")
+        if reasons:
+            bad_cpu.append(f"{r['id']}: {', '.join(reasons)}")
+    not_rec = Counter(x["code"] for r in recs if classify(r) == NOT_RECOMMENDABLE
+                      for x in (r.get("build") or {}).get("eligibility", {}).get("reasons") or [])
+    set_fail = sum(1 for r in recs if (r.get("build") or {}).get("link_check", {}).get("set") == "fail")
+    return {"n": len(recs), "recommendable": len(built_ok), "no_record": no_record, "leaked": leaked, "cooler_kept": cooler_kept,
+            "cpu_checked": checked, "bad_cpu": bad_cpu, "not_recommendable": sum(1 for r in recs if classify(r) == NOT_RECOMMENDABLE),
+            "not_recommendable_reasons": dict(not_rec), "set_fail": set_fail,
+            "shortage": sum(1 for r in recs if classify(r) == SHORTAGE)}
+
+
+def light_rule_table(dumps: list[tuple[str, dict]]) -> str:
+    rows = []
+    for label, d in dumps:
+        c = light_rule_check(d)
+        rows.append([label, c["n"], c["recommendable"], c["no_record"], len(c["leaked"]), c["cooler_kept"],
+                     f"{c['cpu_checked']} 중 {len(c['bad_cpu'])}", c["not_recommendable"],
+                     json.dumps(c["not_recommendable_reasons"], ensure_ascii=False), c["set_fail"], c["shortage"]])
+    return table(["단계", "요청", "정상 추천", "뺀 슬롯 기록 없음(옛 덤프)", "뺀 슬롯이 품목에도 있는 요청", "쿨러를 다시 넣은 요청(저소음·소음 민감)",
+                  "선택 CPU 조건 위반(검사 건수 중)", "부적격", "부적격 사유", "set 위반", "후보 부족"], rows)
+
+
+def _fingerprint(rec: dict) -> tuple:
+    b = rec.get("build") or {}
+    items = tuple(sorted((i["slot"], i["product_key"], i.get("qty"), i.get("price")) for i in b.get("items") or []))
+    return (classify(rec), items, (b.get("totals") or {}).get("price"), (rec.get("error") or {}).get("type"))
+
+
+def unchanged_table(dumps: list[tuple[str, dict]]) -> str:
+    """기준선(첫 덤프) 대비 같은 요청의 결과(분류·선택 부품·수량·가격·총가격)가 그대로인 비율 — 마지막 덤프만."""
+    ref, (label, cur) = dumps[0][1], dumps[-1]
+    ref_by_id = {r["id"]: r for r in requests_of(ref)}
+    rows = []
+    for group in GROUPS:
+        pairs = [(ref_by_id[r["id"]], r) for r in requests_of(cur) if request_group(r) == group and r["id"] in ref_by_id]
+        same = sum(1 for a, b in pairs if _fingerprint(a) == _fingerprint(b))
+        diff = [b["id"] for a, b in pairs if _fingerprint(a) != _fingerprint(b)]
+        rows.append([group, len(pairs), same, len(pairs) - same, ", ".join(diff[:6]) + (" …" if len(diff) > 6 else "") or "—"])
+    return table(["묶음", "비교 요청", f"{dumps[0][0]} 결과와 같음", "다른 결과", "다른 요청(최대 6개)"], rows)
+
+
+def omission_variant_table(dumps: list[tuple[str, dict]]) -> str:
+    """사무·학습·기타 새 PC 를 (예산 × 쿨러 유지 여부)로 나눈 평균 — 뺀 슬롯 기록이 있는 덤프만 쿨러 유지 여부를 가른다(옛 덤프는 전부 '기록 없음')."""
+    rows = []
+    for label, d in dumps:
+        buckets: dict[tuple, list[dict]] = {}
+        for r in requests_of(d):
+            if request_group(r) != GROUPS[0]:
+                continue
+            omitted = r.get("omitted_slots")
+            kind = "기록 없음(8개 품목)" if omitted is None else ("GPU·쿨러 모두 뺌" if "쿨러" in omitted else "GPU만 뺌(쿨러 유지)")
+            buckets.setdefault((kind, (r.get("values") or {}).get("budget_max")), []).append(r)
+        for (kind, budget), recs in sorted(buckets.items(), key=lambda kv: (kv[0][0], kv[0][1] or 0)):
+            passes = [(r.get("hardfilter") or {}).get("CPU", {}).get("pass") for r in recs]
+            passes = [x for x in passes if x is not None]
+            ok = [r for r in recs if classify(r) == RECOMMENDABLE]
+            rows.append([label, kind, budget, len(recs), len(ok), fmt(mean([r.get("budget_used_pct") for r in ok]), 1),
+                         fmt(mean([(r.get("build") or {}).get("totals", {}).get("price") for r in ok]), 0),
+                         fmt(mean(passes), 1), fmt(min(passes, default=None), 0), fmt(max(passes, default=None), 0)])
+    return table(["단계", "구성", "예산(원)", "요청", "정상 추천", "예산 사용률 평균(%)", "평균 총가격(원)",
+                  "CPU Pass 평균", "최소", "최대"], rows)
+
+
+def omission_section(dumps: list[tuple[str, dict]]) -> list[str]:
+    final_label = dumps[-1][0]
+    return ["## GPU·쿨러 미구매 규칙 (computer-rules-v14)",
+            "### 묶음별 결과", omission_group_table(dumps),
+            "### 사무·학습·기타 새 PC — 예산·쿨러 유지 여부별 평균", omission_variant_table(dumps),
+            f"### 사무·학습·기타 새 PC — 정상 추천 결과의 총가격 대비 부품 비중(%, 평균)", share_table(dumps, GROUPS[0]),
+            f"### 게임·창작 새 PC — 부품 비중(%, 평균)", share_table(dumps, GROUPS[1]),
+            "### 사무·학습·기타 새 PC — 규칙 준수", light_rule_table(dumps),
+            *(["\n".join(f"- {final_label} {x}" for x in (light_rule_check(dumps[-1][1])["bad_cpu"] + light_rule_check(dumps[-1][1])["leaked"])[:20])]
+              if (light_rule_check(dumps[-1][1])["bad_cpu"] or light_rule_check(dumps[-1][1])["leaked"]) else []),
+            f"### {dumps[0][0]} 대비 같은 요청의 결과가 그대로인가 — {final_label}", unchanged_table(dumps)]
+
+
 # ── 조립 ─────────────────────────────────────────────────────────────────────────
 
 def render(dumps: list[tuple[str, dict]], scenarios: dict | None, timing_note: str | None) -> str:
@@ -651,6 +814,8 @@ def render(dumps: list[tuple[str, dict]], scenarios: dict | None, timing_note: s
               f"기록만 있는 항목(요구 산정 등) {repro['recorded_only']}건"]
     if repro["list"]:
         parts.append("\n".join(f"- {x['id']} {x['item']}: 덤프 {x['dump']} / 재계산 {x['recomputed']}" for x in repro["list"]))
+    if any(request_group(r) == GROUPS[0] for r in requests_of(final)):
+        parts += omission_section(dumps)
     parts += ["## 요청당 처리 시간", timing_table(dumps, timing_note)]
     if scenarios:
         parts += ["## 고정 시나리오", scenario_table(scenarios), "### 시나리오와 단위 테스트", scenario_tests_table(scenarios)]

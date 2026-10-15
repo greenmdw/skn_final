@@ -385,7 +385,7 @@ def run_peripherals(
     build_requirements([2]) → 종류별 filter_candidates([3-A]) → rank_candidates([3-B]) →
     choose(조합) → [E12 교차 검사] → stage3c_verify.verify_per_item([3-C]) 순서로 돈다.
 
-    `pc_context`(E12, 선택) — `{"resolution": str | None, "gpu_specs": dict | None}`.
+    `pc_context`(E12, 선택) — `{"resolution": str | None, "gpu_specs": dict | None, "integrated_graphics": bool(선택)}`.
     모니터를 골랐고 `pc_context`가 주어지면 `peripheral_cross.monitor_cross_checks`로
     PC와의 교차 검사를 돌려 그 모니터의 `PeripheralPick.checks`를 채우고, 쟁점을
     `verify_per_item`의 `extra_issues`로 넘긴다. `pc_context`가 없으면(기본값) 이전과
@@ -460,6 +460,7 @@ def run_peripherals(
         monitor_checks = peripheral_cross.monitor_cross_checks(
             picks_by_kind["monitor"], pc_resolution=pc_resolution,
             gpu_specs=pc_context.get("gpu_specs"), target_refresh_hz=target_refresh_hz, rules=rules,
+            integrated_graphics=bool(pc_context.get("integrated_graphics")),
         )
         extra_issues = {"monitor": peripheral_cross.cross_issues(monitor_checks)}
         log(f"      [P][E12] 모니터↔PC 교차 검사: "

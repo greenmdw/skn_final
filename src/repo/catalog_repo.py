@@ -155,6 +155,7 @@ def pc_catalog_key(product_type: str, brand: str, model: str) -> str:
 # 추가한다(쓰기 없음). _provenance_from_row 가 이 컬럼들로 Candidate.provenance 를 채운다.
 _SPEC_QUERIES: dict[str, tuple[str, str]] = {
     "cpu": ("s.socket, s.tdp_w, s.memory_type, s.lineup, s.max_power_w, s.family, "
+            "s.integrated_graphics, s.cooler_included, "
             "s.spec_url, s.status_checked_at, s.power_family_source_url, s.perf_score_source_url", "catalog.cpu_spec"),
     "motherboard": ("s.socket, s.memory_type, s.form_factor, s.supported_cpu_family, s.dimm_slots, s.max_memory_gb, "
                     "s.max_memory_speed_mts, s.m2_slots, s.m2_pcie_gen, s.sata_ports, s.min_bios, "
@@ -247,6 +248,11 @@ def _specs_from_row(product_type: str, row: dict) -> dict:
             specs["max_power_w"] = row["max_power_w"]                # Intel MTP/PL2, AMD PPT — 있으면 전력 검사가 TDP 대신 쓴다
         if row.get("family"):
             specs["family"] = row["family"]
+        # 원문 그대로("O", "X" / "O (정품 박스 기준)", "X / SKU 확인") — 읽는 쪽이 compat_parse.parse_ox 로 해석한다.
+        # GPU·쿨러를 뺀 견적(용도 배분 0%)의 CPU 사전 필터가 쓴다. 값이 없으면 키를 넣지 않는다(모름 → Pending).
+        for key in ("integrated_graphics", "cooler_included"):
+            if (row.get(key) or "").strip():
+                specs[key] = row[key].strip()
     elif product_type == "motherboard":
         if row.get("socket"):
             specs["socket"] = row["socket"]

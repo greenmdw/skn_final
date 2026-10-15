@@ -11,6 +11,7 @@ from itertools import product
 from src.dto import BuildItem, BuildResult, Candidate, RankResult, RequirementSpec
 from src.engine import LogFn
 from src.engine import eligibility as elig
+from src.engine import omitted_slots as omitted_engine
 from src.engine.compat_parse import (cpu_family, cpu_supported, gpu_connector_fit, gpu_power_count_fit, gpu_power_options,
                                      parse_module_count, parse_pcie_gens, parse_psu_forms, parse_size_list, parse_socket_list,
                                      psu_connector_readable, psu_fits_case, slots_needed, socket_supported, supported_families)
@@ -273,6 +274,8 @@ def _pc_known_failures(chosen: dict[str, Candidate], spec: RequirementSpec, rule
     power = rules["power"]
     cpu_w = value("CPU", power.get("cpu_peak_spec", "")) or value("CPU", power["cpu_spec"])   # 최대 전력(PL2/PPT)이 있으면 그것으로
     gpu_w = value("GPU", power["gpu_spec"])
+    if gpu_w is None and _gpu_omitted(chosen, spec):
+        gpu_w = 0                                  # 내장 그래픽 — GPU 를 사지 않으므로 GPU 전력은 0W 로 본다
     psu_w = value("파워", power["psu_spec"])
     required_w = ((cpu_w + gpu_w) / power["psu_capacity_factor"]
                   if cpu_w is not None and gpu_w is not None
@@ -281,10 +284,18 @@ def _pc_known_failures(chosen: dict[str, Candidate], spec: RequirementSpec, rule
         failures.add("power")
     # 업그레이드: GPU 와 파워 중 *하나만* 견적에 들어가면 다른 쪽은 유지 부품이다. 유지하는 CPU 전력을 모르면
     # 위 합산 검사가 안 돌아서, 제조사 권장 파워(GPU 스펙에 있음)를 유지 파워 용량과 직접 비교한다.
-    if power.get("use_gpu_recommended_psu", True) and (("GPU" in chosen) != ("파워" in chosen)):
+    if power.get("use_gpu_recommended_psu", True) and (("GPU" in chosen) != ("파워" in chosen)) and not _gpu_omitted(chosen, spec):
         recommended = value("GPU", "recommended_psu_w")
         if recommended and psu_w is not None and psu_w < recommended:
             failures.add("power")
+
+    # GPU·쿨러를 일부러 뺀 견적(신규 조립, 용도 배분 0) — 지금 CPU 가 그 역할을 못 하면(내장 그래픽 X, 기본 쿨러 X·TDP 초과) 확정된 문제다.
+    # 추천 때는 사전 필터를 통과한 CPU 만 오므로 걸리지 않고, 결과 대화에서 CPU 를 바꾼 뒤 재검증에서 걸린다. 값을 모르면 보류(여기서는 세지 않는다).
+    if "CPU" in chosen:
+        for omitted_slot, axis in omitted_engine.SUBSTITUTE_AXIS.items():
+            if omitted_slot in spec.omitted_slots and omitted_slot not in chosen and omitted_engine.substitute_state(
+                    omitted_slot, chosen["CPU"].specs, rules.get("box_cooler_max_tdp_w"))[0] == "fail":
+                failures.add(axis)
 
     # ── 아래는 원본 엑셀의 확장 열(0018)이 채워진 만큼만 판정한다. 값이 없으면 보류(통과로도 실패로도 세지 않는다).
     gc = rules["gpu_connector"]
@@ -324,6 +335,11 @@ def _pc_known_failures(chosen: dict[str, Candidate], spec: RequirementSpec, rule
         if m2_slots is not None and m2_slots == 0:
             failures.add("m2")
     return failures
+
+
+def _gpu_omitted(chosen: dict[str, Candidate], spec: RequirementSpec) -> bool:
+    """신규 조립에서 GPU 를 일부러 뺐다(내장 그래픽 사용) — 견적에 GPU 가 없고 유지 부품도 아니다."""
+    return "GPU" in spec.omitted_slots and "GPU" not in chosen
 
 
 def _is_liquid(cooling_type) -> bool:
@@ -458,6 +474,13 @@ def _eval_required_axis(axis: str, check: dict, chosen, spec, *, detail: bool, w
     out = {"axis": axis, "row_axis": elig.row_axis(check, axis), "applicable": False, "required": False,
            "deferred": False, "missing": [], "unmet": False, "detail": ""}
     slots = {e["slot"] for e in keys}
+    omitted = set(spec.omitted_slots)
+    if omitted & slots:
+        # 신규 조립에서 일부러 뺀 GPU·쿨러가 걸린 축 — 필수 정보가 없는 게 아니라 비적용이다. 전력 축만 GPU 를 0W 로 보고 나머지(CPU 전력·파워 용량)를 계속 요구한다.
+        if axis != "power":
+            return out
+        keys = [e for e in keys if e["slot"] not in omitted]
+        slots = {e["slot"] for e in keys}
     if any(s in spec.targets and s not in chosen and s not in spec.owned and s not in wild for s in slots):
         # 축에 걸린 슬롯 중 아직 정해지지 않은 구매 슬롯이 있다(탐색 중 부분 조합) — 판정을 미루고 누락으로 가지치기하지 않는다.
         return {**out, "applicable": True, "required": True, "deferred": True}
@@ -803,6 +826,8 @@ def _chosen_specs(chosen: dict[str, Candidate], spec: RequirementSpec, slot: str
     return cand.specs
 
 
+# 일부러 뺀 슬롯이 걸린 검사 행에 적는 사유(RequirementSpec.omitted_slots).
+_OMITTED_DETAIL = {"GPU": "내장 그래픽을 쓰는 견적(GPU 없음)", "쿨러": "CPU 기본 쿨러를 쓰는 견적(별도 쿨러 없음)"}
 _STATE_TEXT = {"ok": "ok", "unknown": "ok (근사)", "fail": "fail"}
 # 0018 확장 열로 새로 생긴 검사 — 원본 엑셀에 값이 아직 없어서 못 본 경우는 감점·"확인 못 한 항목"으로 세지 않는다(화면 검사 상세에는 남는다).
 # 값이 채워지면 자동으로 판정이 되고, 값이 있어서 나온 경고(속도 초과 등)는 그대로 센다.
@@ -846,7 +871,12 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
         # data_missing: 스펙 데이터가 비어 있어 못 본 것 — pc_link_check 가 이 중 확장 열 검사는 감점·이슈로 세지 않는다.
         # missing_slots: 값이 없어 근사가 된 "쪽" 슬롯만(양쪽 다 알면 빈 튜플) — 재탐색 루프(E1)가 뺄 슬롯을 고르는 데 쓴다.
         # inputs: (slot, key, value) — 비교에 실제로 쓴 값(E5 근거 연결용).
-        if not any(s in chosen for s in slots):
+        left_out = [s for s in slots if s in spec.omitted_slots and s not in chosen]
+        if left_out and axis != "power":
+            # 신규 조립에서 일부러 뺀 GPU·쿨러가 걸린 검사 — 값이 없어서 못 본 게 아니라 볼 대상이 없다(skipped, 근사·누락으로 세지 않는다).
+            state, missing_slots, inputs, data_missing = "skipped", (), (), False
+            detail = "; ".join(_OMITTED_DETAIL[s] for s in left_out) + "이라 확인하지 않았습니다."
+        elif not any(s in chosen for s in slots):
             state, detail, missing_slots, inputs = "skipped", "이번 견적에서 바뀌는 부품이 아니라 확인하지 않았습니다.", (), ()
             data_missing = False
         rows.append({"axis": axis, "label": axis_label(axis), "state": state, "detail": detail,
@@ -962,16 +992,23 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
     cw = peak if peak is not None else specs_of("CPU").get(r["cpu_spec"])       # 최대 전력(PL2/PPT)이 있으면 그것으로
     cpu_label = "CPU 최대" if peak is not None else "CPU"
     gw, pw = specs_of("GPU").get(r["gpu_spec"]), specs_of("파워").get(r["psu_spec"])
+    gpu_left_out = _gpu_omitted(chosen, spec)
+    if gw is None and gpu_left_out:
+        gw = 0                                    # 내장 그래픽 — GPU 전력 0W
     factor = r["psu_capacity_factor"]
     recommended = specs_of("GPU").get("recommended_psu_w")
     one_side = ("GPU" in chosen) != ("파워" in chosen)
     cpu_power_key = r.get("cpu_peak_spec") if peak is not None else r["cpu_spec"]
     if cw is not None and gw is not None and pw is not None:
         total, limit = cw + gw, pw * factor
+        gpu_text = "GPU 없음(내장 그래픽) 0W" if gpu_left_out else f"GPU {gw}W"
+        # 일부러 뺀 GPU 의 0W 는 부품 스펙이 아니라 근거(출처)가 없으므로 inputs 에 넣지 않는다.
+        power_inputs = (("CPU", cpu_power_key, cw), ("파워", r["psu_spec"], pw)) if gpu_left_out else \
+            (("CPU", cpu_power_key, cw), ("GPU", r["gpu_spec"], gw), ("파워", r["psu_spec"], pw))
         add("power", ("CPU", "GPU", "파워"), "ok" if total <= limit else "fail",
-            f"{cpu_label} {cw}W + GPU {gw}W = {total}W {'≤' if total <= limit else '>'} 파워 {pw}W × {factor} = {limit:.0f}W",
-            inputs=(("CPU", cpu_power_key, cw), ("GPU", r["gpu_spec"], gw), ("파워", r["psu_spec"], pw)))
-    elif r.get("use_gpu_recommended_psu", True) and one_side and recommended and pw is not None:
+            f"{cpu_label} {cw}W + {gpu_text} = {total}W {'≤' if total <= limit else '>'} 파워 {pw}W × {factor} = {limit:.0f}W",
+            inputs=power_inputs)
+    elif r.get("use_gpu_recommended_psu", True) and one_side and recommended and pw is not None and not gpu_left_out:
         # 권장 파워를 넘으면 실패는 아니지만 CPU 전력을 몰라 완전한 확인은 아니다 — "근사"로 남긴다(실패면 확정 비호환).
         add("power", ("CPU", "GPU", "파워"), "unknown" if pw >= recommended else "fail",
             f"제조사 권장 파워 {recommended}W {'≤' if pw >= recommended else '>'} 파워 {pw}W"
@@ -985,6 +1022,13 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
         add("power", ("CPU", "GPU", "파워"), "unknown", missing(("CPU 전력", cw), ("GPU 전력", gw), ("파워 용량", pw)),
             missing_slots=absent(("CPU", cw), ("GPU", gw), ("파워", pw)),
             inputs=(("CPU", cpu_power_key, cw), ("GPU", r["gpu_spec"], gw), ("파워", r["psu_spec"], pw)))
+
+    # 일부러 뺀 GPU·쿨러의 역할을 CPU 가 대신하는가(내장 그래픽 · 정품 박스 기본 쿨러) — 뺀 슬롯이 있을 때만 행이 생긴다.
+    for omitted_slot, axis in omitted_engine.SUBSTITUTE_AXIS.items():
+        if omitted_slot in spec.omitted_slots and omitted_slot not in chosen:
+            sub_state, sub_detail, sub_raw = omitted_engine.substitute_state(omitted_slot, specs_of("CPU"), rules.get("box_cooler_max_tdp_w"))
+            key = "integrated_graphics" if omitted_slot == "GPU" else "cooler_included"
+            add(axis, ("CPU",), sub_state, sub_detail, inputs=(("CPU", key, sub_raw),))
 
     # 파워 폼팩터 ↔ 케이스
     r = rules["psu_form"]
@@ -1235,6 +1279,8 @@ def build_computer(
     power_rule = rules["power"]
     cpu_w = _chosen_specs(selected, spec, "CPU").get(power_rule["cpu_spec"])
     gpu_w = _chosen_specs(selected, spec, "GPU").get(power_rule["gpu_spec"])
+    if gpu_w is None and _gpu_omitted(selected, spec):
+        gpu_w = 0                                  # 내장 그래픽 — 총 소비전력에 GPU 몫이 없다
     if not compatible or len(picked) != len(slots):
         link_check["set"] = "fail"
     if budget and total > budget:

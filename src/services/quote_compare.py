@@ -17,6 +17,7 @@ from typing import Any
 from src.categories import load_category
 from src.dto import Candidate, Slots
 from src.engine import feasibility as feasibility_engine
+from src.engine import omitted_slots as omitted_slots_engine
 from src.engine import stage2_requirement, stage3a_hardfilter, stage4_optimize
 from src.engine.quote_price import compare_price
 
@@ -151,6 +152,9 @@ def assess(conditions: dict | None, owned: dict[str, dict], prices: dict, by_slo
         notes.append("우선순위를 알려 주지 않아 추천엔진의 기본 가중치로 만들었습니다.")
     if not conditions.get("resolution") and "resolution_assumed" in spec.flags:
         notes.append("해상도를 알려 주지 않아 기본 해상도 기준으로 만들었습니다.")
+    if spec.omitted_slots:      # 신규 조립 규칙: 용도 배분 0%인 GPU·쿨러는 우리 추천에 없다 — 견적에 있어도 비교 행이 없는 이유
+        left = ", ".join(f"{slot}({omitted_slots_engine.REASON_TEXT.get(kind, kind)})" for slot, kind in spec.omitted_slots.items())
+        notes.append(f"우리 추천은 이 용도에서 {left}을(를) 따로 사지 않는 구성이라 그 부품군은 비교하지 않았습니다.")
     if summary["missing_in_quote"]:
         notes.append("견적에 없는 부품군은 우리 추천 합계에만 들어 있어, 견적과 같은 부품군끼리의 합계를 따로 냈습니다.")
     return {

@@ -1092,6 +1092,29 @@ class BudgetNoticeOut(BaseModel):
     suggest_priority: Literal["performance"] | None = "performance"
 
 
+class OmittedSlotOut(BaseModel):
+    """신규 조립에서 용도 배분이 0%라 일부러 견적에 넣지 않은 슬롯(GPU·쿨러)과 그 이유, 구매 전 확인 안내."""
+
+    slot: Literal["GPU", "쿨러"]
+    slot_label: str                    # 화면 표기: 그래픽카드 | CPU 쿨러
+    reason: Literal["integrated_graphics", "box_cooler"]
+    reason_text: str                   # 내장 그래픽 사용 | CPU 기본 쿨러 사용
+    notes: list[str] = Field(default_factory=list)    # 메인보드 영상 출력·정품 박스 포장 형태 확인 안내
+
+
+class BorrowedAllocOut(BaseModel):
+    """배분 0%인 슬롯을 다시 넣을 때 기본 배분에서 빌려 온 비율(합 1로 다시 정규화하기 전의 기본 비율)과 이유."""
+
+    slot: str
+    ratio: float
+    reason: Literal["wanted_part", "result_chat", "quiet_priority", "noise_sensitive", "upgrade_selected"]
+    reason_text: str
+
+
+class AddOmittedIn(BaseModel):
+    candidate_id: str                  # GET .../omitted-slots/{slot}/options 가 돌려준 candidate_id
+
+
 class RecommendResultOut(BaseModel):
     """저장된 추천 실행 결과의 공개 API 계약 (docs/frontend_외부수정요청.md §D-4-2)."""
 
@@ -1107,6 +1130,10 @@ class RecommendResultOut(BaseModel):
     conditions_summary: str = ""
     budget_max: int | None = None
     items: list[ItemOut] = Field(default_factory=list)
+    # 신규 조립에서 용도 배분 0%라 일부러 뺀 GPU·쿨러(items 에 없다). 없으면 빈 목록. 결과 대화·화면에서 담으면 사라진다.
+    omitted_slots: list[OmittedSlotOut] = Field(default_factory=list)
+    # 배분 0%인 슬롯을 다시 넣어 기본 배분의 비율을 빌려 쓴 기록(없으면 빈 목록).
+    borrowed_alloc: list[BorrowedAllocOut] = Field(default_factory=list)
     totals: TotalsOut | None = None
     verification: VerificationOut = Field(default_factory=lambda: VerificationOut(status="pending"))
     compat_checks: list[CompatCheckOut] = Field(default_factory=list)     # PC 호환 검사별 상세 (done 일 때만)

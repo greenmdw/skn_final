@@ -19,6 +19,7 @@ from psycopg_pool import PoolTimeout
 from src.categories import load_category
 from src.dto import PipelineResult, RequirementSpec
 from src.engine import build_margins
+from src.engine import omitted_slots as omitted_slots_engine
 from src.engine import eligibility as elig
 from src.engine import ram_config
 from src.engine.brands import SLOT_SYNONYMS
@@ -430,6 +431,9 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
             _store_validations(erepo, run_id, verification)
             erepo.upsert_run_step(run_id, eligibility_step)
             erepo.upsert_run_step(run_id, _margins_step(build.margins))
+            omitted_step = omitted_slots_engine.build_step(spec.omitted_slots, spec.budget.get("borrowed_alloc") or {})
+            if omitted_step is not None:      # 신규 조립에서 GPU·쿨러를 뺐거나 0% 배분을 빌려 다시 넣었다 — 재조회·재검증·개정 복제가 이 기록을 읽는다
+                erepo.upsert_run_step(run_id, omitted_step)
 
             erepo.complete_run(run_id)
 
@@ -709,7 +713,18 @@ def _current_set(conn, revision_id: UUID, cvals: dict, stored: list[dict]):
         mode="upgrade" if cvals.get("mode") == "upgrade" else "build",
         owned=owned,
     )
+    restore_omitted_slots(conn, spec, stored)
     return chosen, spec
+
+
+def restore_omitted_slots(conn, spec: RequirementSpec, stored: list[dict]) -> RequirementSpec:
+    """신규 조립에서 일부러 뺀 GPU·쿨러(내장 그래픽·기본 쿨러)를 저장된 기록에서 spec 에 되돌린다 — 재검증·대안·결과 대화가
+    빠진 슬롯을 "정보 없음"으로 세지 않게. 결과 대화로 그 슬롯을 담았으면 기록에서 이미 빠져 있다(add_omitted_item)."""
+    run_id = stored[0].get("run_id") if stored else None
+    if run_id is not None and conn is not None:
+        from src.repo.engine_repo import EngineRepo
+        omitted_slots_engine.apply_to_spec(spec, EngineRepo(conn).get_run_step(run_id, omitted_slots_engine.OMITTED_SLOTS_STEP))
+    return spec
 
 
 def _picked_qty(stored: list[dict]) -> dict[str, int]:
@@ -968,7 +983,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
         "category": category,
         "conditions_summary": _conditions_summary(cat_def, values) if cat_def else "",
         "budget_max": values.get("budget_max"),
-        "items": [], "totals": None,
+        "items": [], "totals": None, "omitted_slots": [], "borrowed_alloc": [],
         "verification": {"status": "pending", "confidence": None, "issues": []},
         "explanation": {"status": "pending", "text": None},
         "reasoning_log": [],
@@ -994,9 +1009,12 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
     if trace:
         steps = {step.get("step"): step for step in trace if isinstance(step, dict)}
     else:
-        steps = erepo.get_run_steps(run["id"], [elig.ELIGIBILITY_STEP, build_margins.MARGINS_STEP])
+        steps = erepo.get_run_steps(run["id"], [elig.ELIGIBILITY_STEP, build_margins.MARGINS_STEP,
+                                                omitted_slots_engine.OMITTED_SLOTS_STEP])
     result["eligibility"] = _eligibility_out(steps.get(elig.ELIGIBILITY_STEP))
     result["margins"] = _margins_out(steps.get(build_margins.MARGINS_STEP))
+    # 신규 조립에서 일부러 뺀 슬롯(내장 그래픽·기본 쿨러)과 배분 0% 슬롯을 다시 넣을 때 빌려 온 비율 — 저장된 기록 그대로.
+    result.update(omitted_slots_engine.out_from_step(steps.get(omitted_slots_engine.OMITTED_SLOTS_STEP)))
     variant_ids_by_slot = prodrepo.candidate_variant_ids_by_slot()
     items = []
     candidate_rows = erepo.get_candidates(run["id"])
@@ -1237,6 +1255,7 @@ def _drop_incompatible_alternatives(conn, stored: list[dict], current: dict, var
         mode="upgrade" if cvals.get("mode") == "upgrade" else "build",
         owned=owned,
     )
+    restore_omitted_slots(conn, spec, stored)       # GPU·쿨러를 뺀 견적이면 CPU 대안도 내장 그래픽·기본 쿨러 조건을 본다
     rules = load_computer_rules()["verification"]
     now = by_variant.get(str(current["variant_id"]))
     if slot == "RAM" and now is not None:   # RAM 은 현재 수량·대안의 2개 구성 기준으로 호환을 본다
@@ -1267,6 +1286,9 @@ def _explanation_extras(spec, tier_notes: list[str] | None = None) -> dict:
         caveats += upgrade_notes(list(spec.targets), spec.owned)
         caveats += tier_notes or []
         out["scope_note"] = upgrade_scope_note(spec.targets)
+    # 신규 조립에서 GPU·쿨러를 뺀 견적 — 빠진 이유와 구매 전 확인 안내(포장 형태·메인보드 영상 출력)를 코드가 붙인다.
+    for entry in omitted_slots_engine.omitted_entries(spec.omitted_slots):
+        caveats.append(f"{entry['slot_label']}는 견적에 넣지 않았습니다({entry['reason_text']}). " + " ".join(entry["notes"]))
     unknown = _unknown_games(spec)
     if unknown:
         caveats.append(f"게임 {', '.join(repr(g) for g in unknown)}은(는) 요구사양 표에 없어 해상도 기준으로 구성했습니다 — "
@@ -1452,6 +1474,98 @@ def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID,
         payload={"item_id": str(item_id), "from_variant_id": str(current["variant_id"]),
                  "to_variant_id": str(candidate_id), "slot": current["slot"]},
     )
+    return get_stored_result(conn, revision_id)
+
+
+def _omitted_state(conn, revision_id: UUID, slot: str):
+    """GPU·쿨러 담기의 공통 준비 — (erepo, run, 조건 값, 저장된 후보 행, 현재 구성, 현재 spec, 뺀 슬롯 단계)."""
+    from src.repo.plan_repo import PlanRepo
+
+    erepo, run = _require_done_run(conn, revision_id)
+    cvals = {r["condition_key"]: r["value"].get("value") for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
+    step = erepo.get_run_step(run["id"], omitted_slots_engine.OMITTED_SLOTS_STEP)
+    if slot not in omitted_slots_engine.omitted_from_step(step):
+        raise ValidationFailed(f"{slot}은(는) 이 견적에서 일부러 뺀 부품이 아닙니다.", field="slot", code="slot_not_omitted")
+    stored = erepo.get_candidates(run["id"])
+    chosen, spec = _current_set(conn, revision_id, cvals, stored)
+    return erepo, run, cvals, stored, chosen, spec, step
+
+
+def _reinstated_spec(cvals: dict, step: dict | None, slot: str) -> RequirementSpec:
+    """같은 조건으로 [2]를 다시 세우되 slot(과 이미 결과 대화로 담은 슬롯)은 사는 것으로 본다 — 목표(요구 사양)와 빌려 온 배분을 돌려준다."""
+    from src.engine import stage2_requirement
+
+    cat_def = load_category(cvals["category"])
+    reinstate = {**omitted_slots_engine.chat_added_slots(step), slot: "result_chat"}
+    return stage2_requirement.run(_slots_from_conditions(cvals["category"], cat_def, cvals), cat_def, lambda _m: None,
+                                  reinstate=reinstate)
+
+
+def list_omitted_options(conn, revision_id: UUID, slot: str) -> dict:
+    """일부러 뺀 GPU·쿨러를 담을 때 고를 수 있는 후보 — 담았을 때의 요구 사양을 채우고 지금 구성과 확정 비호환이 없는 것만, 싼 순 최대 8개.
+
+    반환은 list_alternatives 와 같은 모양({"items": [AlternativeOut]})이고 current 항목은 없다. price_delta 는 담으면 늘어나는 금액(= 가격)이다."""
+    from src.engine.stage3a_hardfilter import _judge
+    from src.engine.stage2_requirement import load_computer_rules
+    from src.engine.stage4_optimize import _pc_known_failures
+    from src.repo.catalog_repo import load_candidates_by_slot_from_db, load_specs_by_variant
+    from src.repo.product_repo import ProductRepo
+
+    erepo, run, cvals, stored, chosen, spec, step = _omitted_state(conn, revision_id, slot)
+    target = _reinstated_spec(cvals, step, slot).targets.get(slot) or {}
+    rules = load_computer_rules()["verification"]
+    pool = {c.variant_id: c for c in load_candidates_by_slot_from_db(conn).get(slot, [])}
+    spec.omitted_slots = {s: k for s, k in spec.omitted_slots.items() if s != slot}      # 담는다고 보고 호환을 본다
+    baseline = _pc_known_failures(chosen, spec, rules)
+    rows = []
+    for row in _dedupe_alternatives_by_name(ProductRepo(conn).candidates_by_slot().get(slot, [])):
+        cand = pool.get(str(row["variant_id"]))
+        if cand is None or row.get("price") is None:
+            continue
+        if _judge(slot, cand, target).verdict == "Fail" or (_pc_known_failures({**chosen, slot: cand}, spec, rules) - baseline):
+            continue
+        rows.append(row)
+    rows = sorted(rows, key=lambda r: int(r["price"]))[:8]
+    specs_by_variant = load_specs_by_variant(conn, [(r.get("product_type"), str(r["variant_id"])) for r in rows])
+    return {"items": [_alternative_out(r, current=False, current_price=0, slot=slot,
+                                        specs=specs_by_variant.get(str(r["variant_id"]))) for r in rows]}
+
+
+def add_omitted_item(conn, revision_id: UUID, slot: str, candidate_id: UUID, user_id: UUID | None = None) -> dict:
+    """신규 조립에서 일부러 뺀 GPU·쿨러를 결과 화면·결과 대화에서 담는다 (결정 D2·D4, 계획 6단계).
+
+    그 슬롯의 목표(요구 사양)를 [2]를 다시 세워 만들고, 배분이 0%이던 슬롯은 기본 배분의 비율을 빌려 다시 정규화한다(빌린 비율·이유는
+    '견적 구성 슬롯' 기록에 남는다). 담은 부품은 사용자가 고른 것이라 점수는 없다(교체와 같은 표시). 담은 뒤 세트 전체를 재검증한다 —
+    내장 그래픽·기본 쿨러가 더는 필요 없으니 CPU 의 해당 조건도 목표에서 사라진다. candidate_id 는 list_omitted_options 의 candidate_id(variant_id)다."""
+    from src.repo.plan_repo import PlanRepo
+    from src.repo.product_repo import ProductRepo
+
+    erepo, run, cvals, stored, chosen, spec, step = _omitted_state(conn, revision_id, slot)
+    row = next((r for r in ProductRepo(conn).candidates_by_slot().get(slot, []) if r["variant_id"] == candidate_id), None)
+    if row is None:
+        raise NotFound("해당 후보를 찾을 수 없습니다.")
+    new_spec = _reinstated_spec(cvals, step, slot)
+    prepo = PlanRepo(conn)
+    node_id = prepo.ensure_node(revision_id, slot, slot)
+    requirement_id = prepo.ensure_requirement(revision_id, node_id, new_spec.targets[slot])
+    # CPU 의 요구에서 '내장 그래픽 필요'·'기본 쿨러 필요'가 사라진다 — 저장된 요구 사양을 지금 상태로 맞춘다(결과 대화의 요구 판정이 읽는다).
+    prepo.ensure_requirement(revision_id, prepo.ensure_node(revision_id, "CPU", "CPU"), new_spec.targets["CPU"])
+    price = int(row["price"]) if row.get("price") is not None else 0
+    erepo.add_candidate(
+        run["id"], requirement_id, candidate_id, result="selected", score=None,
+        reason=(f"사용자 요청으로 담은 부품입니다 — 이 견적은 용도 배분이 0%라 {slot}을(를) 넣지 않았는데(기본 구성), "
+                f"직접 담아 {fmt_money(price)}이(가) 늘었습니다. 순위·점수는 없고 호환 점검은 담은 뒤 구성으로 다시 했습니다."),
+        offer_observation_id=row.get("offer_observation_id"), qty=1,
+    )
+    erepo.upsert_run_step(run["id"], omitted_slots_engine.build_step(
+        new_spec.omitted_slots, new_spec.budget.get("borrowed_alloc") or {}) or omitted_slots_engine.empty_step())
+    run = erepo.get_run(run["id"])
+    reverify_set(conn, revision_id, run)
+    if run.get("explanation_status") == "ready" and run.get("explanation_text"):
+        note = f"※ 이후 {slot}을(를) '{row['name']}'(으)로 담았습니다({fmt_money(price, signed=True)}). 이 요약은 담기 전 구성 기준입니다."
+        erepo.set_explanation(run["id"], headline=run.get("explanation_headline") or "",
+                              text=run["explanation_text"].rstrip() + "\n\n" + note,
+                              reasoning_log=erepo.get_run_trace(run["id"]))
     return get_stored_result(conn, revision_id)
 
 

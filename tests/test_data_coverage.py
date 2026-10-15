@@ -152,7 +152,11 @@ def test_a_finished_recommendation_is_complete_and_priced(recommendation_grid):
         if data.get("status") != "done":
             continue
         selected = [i for i in data["items"] if i["selected"]]
-        assert len(selected) == 8, (key, [i["slot"] for i in selected])
+        # 8개 부품 — 단, 신규 조립에서 용도 배분이 0%인 GPU·쿨러(사무·학습·기타)는 견적에서 빼고 omitted_slots 로 알린다(computer-rules-v14)
+        omitted = {e["slot"] for e in data["omitted_slots"]}
+        assert omitted == ({"GPU", "쿨러"} if key[0] == "office" else set()), (key, omitted)
+        assert sorted(i["slot"] for i in selected) == sorted({"CPU", "GPU", "RAM", "메인보드", "저장장치", "파워", "케이스", "쿨러"} - omitted), \
+            (key, [i["slot"] for i in selected])
         assert all(i["price"] and i["price"] > 0 for i in selected), key
         assert data["totals"]["selected_price"] == sum(i["price"] * i["qty"] for i in selected), key
 

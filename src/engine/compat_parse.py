@@ -265,3 +265,14 @@ def slots_needed(thickness: Any) -> int | None:
         return int(-(-float(thickness) // 1))
     except (TypeError, ValueError):
         return None
+
+
+# ── CPU 내장 그래픽·기본(정품 박스) 쿨러 O/X 표기 ───────────────────────────────────────
+def parse_ox(value: Any) -> bool | None:
+    """카탈로그 원문 "O"/"X"("O (정품 박스 기준)", "X / SKU 확인") → True/False. 앞 글자로만 읽고, 비었거나 읽을 수 없으면 None(모름).
+
+    엔진의 CPU 사전 필터(내장 그래픽·기본 쿨러)와 채팅 답(result_advice)이 같은 규칙을 쓰도록 여기 둔다."""
+    text = str(value or "").strip().upper()
+    if not text:
+        return None
+    return True if text.startswith("O") else False if text.startswith("X") else None

@@ -53,6 +53,8 @@ _AXIS_LABEL = {
     "cooler_height": "쿨러 높이", "bios": "메인보드의 CPU 지원 계열(BIOS)", "budget": "예산", "예산": "예산",
     "set": "세트 구성", "memory": "메모리 규격", "form_factor": "메인보드·케이스 크기",
     "cooler_socket": "쿨러 소켓",
+    # GPU·쿨러를 뺀 견적(신규 조립, 용도 배분 0%) — CPU 가 그 역할을 대신하는지(omitted_slots.substitute_state)
+    "integrated_graphics": "CPU 내장 그래픽(그래픽카드 없는 견적)", "box_cooler": "CPU 기본 쿨러(쿨러 없는 견적)",
     "psu_form": "파워 크기와 케이스 지원 크기", "psu_length": "파워 길이와 케이스 허용 길이", "gpu_slots": "GPU 두께와 케이스 확장 슬롯",
     "radiator": "수랭 라디에이터와 케이스 장착 크기", "ram_slots": "RAM 개수·용량과 메인보드 슬롯",
     "ram_speed": "RAM 속도와 메인보드 지원 속도", "m2": "M.2 SSD와 메인보드 슬롯", "motherboard_case": "메인보드 크기와 케이스 지원 크기", "gpu_connector": "GPU 전원 커넥터와 파워 제공 커넥터",
@@ -78,6 +80,7 @@ AXIS_SLOTS: dict[str, tuple[str, ...]] = {
     "psu_form": ("파워", "케이스"), "gpu_connector": ("GPU", "파워"), "psu_length": ("파워", "케이스"),
     "gpu_slots": ("GPU", "케이스"), "radiator": ("쿨러", "케이스"), "ram_slots": ("RAM", "메인보드"),
     "ram_speed": ("RAM", "메인보드"), "m2": ("저장장치", "메인보드"),
+    "integrated_graphics": ("CPU",), "box_cooler": ("CPU",),
 }
 
 
@@ -105,6 +108,7 @@ _KEY_LABEL: dict[tuple[str, str], str] = {
     ("메인보드", "max_memory_speed_mts"): "메인보드 최대 메모리 속도", ("저장장치", "form_factor"): "SSD 폼팩터",
     ("저장장치", "interface"): "SSD 인터페이스", ("메인보드", "m2_slots"): "메인보드 M.2 슬롯",
     ("메인보드", "m2_pcie_gen"): "메인보드 M.2 세대",
+    ("CPU", "integrated_graphics"): "CPU 내장 그래픽", ("CPU", "cooler_included"): "CPU 기본 쿨러 포함",
     ("CPU", "cpu_family"): "CPU 세대·계열(이름에서 읽음)", ("쿨러", "cooling_type"): "쿨러 냉각 방식",
     ("CPU", "max_memory_speed_mts"): "CPU 지원 메모리 속도", ("GPU", "power_connector"): "GPU 전원 커넥터",
 }

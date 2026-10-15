@@ -14,6 +14,7 @@ from typing import Callable
 
 from src.dto import Candidate, HardFilterResult, RequirementSpec
 from src.engine import LogFn
+from src.engine.compat_parse import parse_ox
 from src.engine.ram_config import as_pair
 from src.engine.stage2_requirement import load_computer_rules
 
@@ -49,6 +50,9 @@ _PENDING_LABELS = {
     _PENDING_SPEC_PREFIX + "protocol": "저장장치 규격 정보가 없는",
     _PENDING_SPEC_PREFIX + "wattage_w": "정격 출력 정보가 없는",
     _PENDING_SPEC_PREFIX + "efficiency_rating": "효율 등급 정보가 없는",
+    _PENDING_SPEC_PREFIX + "integrated_graphics": "내장 그래픽 정보가 없는",
+    _PENDING_SPEC_PREFIX + "cooler_included": "기본 쿨러 포함 여부 정보가 없는",
+    _PENDING_SPEC_PREFIX + "tdp_w": "TDP 정보가 없는",
 }
 _FAIL_LABELS = {
     "FAIL_PERF_BELOW": "요구 등급 미달",
@@ -61,6 +65,9 @@ _FAIL_LABELS = {
     "FAIL_PROTOCOL": "저장장치 규격 불일치",
     "FAIL_WATTAGE_BELOW": "정격 출력 부족",
     "FAIL_RATING_BELOW": "효율 등급 미달",
+    "FAIL_NO_INTEGRATED_GRAPHICS": "내장 그래픽 없음",
+    "FAIL_NO_BOX_COOLER": "정품 박스 기본 쿨러 없음",
+    "FAIL_BOX_COOLER_TDP": "기본 쿨러 허용 TDP 초과",
 }
 
 
@@ -171,6 +178,25 @@ def _judge_computer(cand: Candidate, target: dict) -> Candidate:
             "PENDING_SPEC_MISSING:efficiency_rating",
             f"FAIL_RATING_BELOW:{cand.specs.get('efficiency_rating')}<{rating_min}")
 
+    # GPU·쿨러를 견적에서 뺀 경우(용도 배분 0) CPU 가 그 역할을 대신해야 한다 — [2]가 CPU 목표에 건 조건.
+    # 값이 없거나 읽을 수 없으면 Pending(근거 없이 통과시키지도, 탈락시키지도 않는다).
+    if target.get("integrated_graphics_required"):
+        graphics = parse_ox(cand.specs.get("integrated_graphics"))
+        add(graphics is not None, graphics is True,
+            "PENDING_SPEC_MISSING:integrated_graphics", "FAIL_NO_INTEGRATED_GRAPHICS")
+    if target.get("box_cooler_required"):
+        box, tdp, tdp_max = parse_ox(cand.specs.get("cooler_included")), cand.specs.get("tdp_w"), target.get("box_cooler_max_tdp_w")
+        if box is False:
+            checks.append(("Fail", "FAIL_NO_BOX_COOLER"))
+        elif tdp is not None and tdp_max is not None and tdp > tdp_max:
+            checks.append(("Fail", f"FAIL_BOX_COOLER_TDP:{tdp}>{tdp_max}"))      # 기본 쿨러가 있어도(또는 모르더라도) 이 TDP 는 못 식힌다
+        elif box is None:
+            checks.append(("Pending", "PENDING_SPEC_MISSING:cooler_included"))
+        elif tdp is None:
+            checks.append(("Pending", "PENDING_SPEC_MISSING:tdp_w"))
+        else:
+            checks.append(("Pass", "PASS"))
+
     if not checks:
         return cand.model_copy(update={"verdict": "Pass", "reasons": ["PASS"]})
     order = {"Fail": 0, "Pending": 1, "Pass": 2}
@@ -224,8 +250,8 @@ def run(spec: RequirementSpec, by_slot: dict[str, list[Candidate]], log: LogFn, 
     result = HardFilterResult()
     short: dict[str, dict] = {}
     for slot, cands in by_slot.items():
-        if spec.mode == "upgrade" and slot not in spec.targets:
-            continue   # 업그레이드에서 그대로 쓰는 부품은 후보를 고르지 않는다(예산 배분도 대상 슬롯에만 있다)
+        if slot not in spec.targets and (spec.mode == "upgrade" or slot in spec.omitted_slots):
+            continue   # 업그레이드에서 그대로 쓰는 부품, 신규 조립에서 일부러 뺀 GPU·쿨러는 후보를 고르지 않는다(예산 배분도 대상 슬롯에만 있다)
         target = spec.targets.get(slot, {})
         judged = [_judge(slot, c, target) for c in cands]
         keep = [c for c in judged if c.verdict == "Pass"]
