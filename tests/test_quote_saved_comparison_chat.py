@@ -252,3 +252,12 @@ def test_summary_names_the_basis_when_only_some_parts_are_comparable():
           "GPU": {"product_key": "h", "name": "H", "line_total": None, "quantity": 1}}
     text = qcs.build_comparison(rx, sv)["brief_summary"]["text"]
     assert "가격이 양쪽에 있는 1개 부품 기준" in text and "20,000원" in text
+
+
+def test_the_price_table_is_left_out_when_no_part_has_a_price():
+    """부품별 가격이 하나도 없으면(총액만 적힌 사진) 줄마다 '—'뿐인 가격표를 보여 주지 않는다."""
+    from src.services import quote_comparison_service as svc
+    row = lambda cat: {"category": cat, "received": {"name": "a", "line_total": None}, "saved": {"name": "b", "line_total": None}}   # noqa: E731
+    comparison = {"rows": [row("CPU"), row("GPU")], "labels": {"received": "26", "saved": "27"}}
+    out = svc.answer_extras(comparison, {}, "총액 차이 알려줘", {}, search=lambda *a, **k: [])
+    assert not [v for v in out["visuals"] if v.get("type") == "price_table" or "가격" in str(v.get("title", ""))]

@@ -93,7 +93,10 @@ def facts_lines(criteria: list[dict[str, Any]], label_a: str, label_b: str) -> l
         verdict = {"a": f"{label_a} 쪽이 {'높음' if row['higher_is_better'] else '낮음'}",
                    "b": f"{label_b} 쪽이 {'높음' if row['higher_is_better'] else '낮음'}",
                    "tie": "같음", None: "한쪽이라도 확인 못 해 비교하지 않음"}[row["better"]]
-        lines.append(f"- {row['label']}: {label_a} {row['a_text']} / {label_b} {row['b_text']} → {verdict}")
+        gap = ""
+        if row["key"] == "total" and row["better"] in ("a", "b"):          # 총액 차이는 코드가 계산해 근거에 싣는다(모델이 빼지 않게)
+            gap = f" (차이 {abs(int(row['a']) - int(row['b'])):,}원)"
+        lines.append(f"- {row['label']}: {label_a} {row['a_text']} / {label_b} {row['b_text']} → {verdict}{gap}")
     lines.append("이 표는 기준마다 값을 나란히 놓은 것이며 어느 견적이 종합적으로 더 낫다고 판단하지 않습니다.")
     return lines
 

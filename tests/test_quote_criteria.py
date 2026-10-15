@@ -63,3 +63,9 @@ def test_game_lines_say_the_game_is_missing_only_when_it_is_really_not_in_the_ta
     from src.services.quote_criteria import game_lines
 
     assert "게임 요구 사양 표에 없어" in game_lines(build_criteria(_side(), _side()), "R01", "R02", "롤러코스터 타이쿤 돼?")
+
+
+def test_the_total_gap_is_computed_in_the_facts_so_the_chat_can_quote_it():
+    text = "\n".join(facts_lines(build_criteria(_side(total=2_280_000), _side(total=2_120_000)), "26", "27"))
+    assert "27 쪽이 낮음 (차이 160,000원)" in text
+    assert "차이" not in "\n".join(l for l in facts_lines(build_criteria(_side(total=2_000_000), _side(total=2_000_000)), "26", "27") if "견적 총액" in l)

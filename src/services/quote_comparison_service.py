@@ -335,7 +335,7 @@ def answer_extras(comparison: dict, review: dict, text: str, by_slot: dict, sear
         table = _spec_table(slot, row, by_key, _labels(comparison))
         if table:
             visuals.append(table)
-    if intent["price"]:
+    if intent["price"] and any((r[side] or {}).get("line_total") is not None for r in comparison["rows"] for side in ("received", "saved")):
         visuals.append(_price_table(comparison["rows"], slots or None, _labels(comparison)))
     if intent["compat"]:
         visuals += _compat_visuals(review, comparison, by_slot, intent)
@@ -346,12 +346,15 @@ def answer_extras(comparison: dict, review: dict, text: str, by_slot: dict, sear
 def facts_text(comparison: dict, categories: list[str]) -> str:
     lab = _labels(comparison)
     rows = [r for r in comparison["rows"] if not categories or r["category"] in categories]
+    photo_totals = any(r["key"] == "total" and r["better"] in ("a", "b", "tie") for r in comparison.get("criteria") or [])
+    no_line_prices = not comparison["received_total"] and not comparison["saved_total"]
     lines = [comparison["brief_summary"]["text"],
-             f"{lab['received']} 가격 합계 {_won(comparison['received_total'])}, {lab['saved']} 가격 합계 {_won(comparison['saved_total'])}."]
+             "부품별 가격은 적혀 있지 않습니다(사진에 적힌 견적 총액은 아래 기준별 비교의 '견적 총액'을 보세요)." if photo_totals and no_line_prices
+             else f"{lab['received']} 가격 합계 {_won(comparison['received_total'])}, {lab['saved']} 가격 합계 {_won(comparison['saved_total'])}."]
     if comparison.get("comparable_categories"):
         lines.append(f"가격이 양쪽에 있는 부품({', '.join(comparison['comparable_categories'])}) 기준으로 {lab['saved']}이(가) "
                      f"{_won(abs(comparison['total_diff']))} {'더 비쌈' if comparison['total_diff'] > 0 else '더 저렴' if comparison['total_diff'] < 0 else '같음'}.")
-    if comparison["excluded_received_categories"]:
+    if comparison["excluded_received_categories"] and not (photo_totals and no_line_prices):
         lines.append(f"{lab['received']}에 가격이 없어 합계에서 뺀 부품: " + ", ".join(comparison["excluded_received_categories"]) + ".")
     for r in rows:
         rec, sav = r["received"], r["saved"]
