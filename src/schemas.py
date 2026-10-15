@@ -11,6 +11,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 from src.dto import PeripheralKind
+from src.dto import ReviewAspectContribution as ReviewAspectContributionDTO
 from src.dto import ReviewScoreDetail as ReviewScoreDetailDTO
 from src.engine.peripheral_intent import Interpretation as PeripheralInterpretation
 from src.engine.peripheral_intent import ResolvedKind as PeripheralResolvedKind
@@ -940,11 +941,22 @@ class PeripheralCheckOut(BaseModel):
     detail: str
 
 
+class PeripheralReviewContributionOut(ReviewAspectContributionDTO):
+    """주변기기 외부 리뷰 항목 — PC 응답과 공유하는 DTO 에 주변기기 표시 값(대표 문장·갈림)만 더한 것."""
+
+    quote: dict[str, str] | None = None      # 대표 문장 {text, direction}: 다수 방향의 한글 문장, 없으면 None
+    dissent: bool = False                    # 적은 쪽 의견도 적지 않다(화면은 "갈리는 점"을 따로 보일 수 있다)
+
+
+class PeripheralReviewOut(ReviewScoreDetailDTO):
+    contributions: list[PeripheralReviewContributionOut] = Field(default_factory=list)
+
+
 class PeripheralAlternativeOut(BaseModel):
     name: str
     price: int
     diff: int
-    review: ReviewScoreDetailDTO | None = None
+    review: PeripheralReviewOut | None = None
     review_weight: float = 0.0
     review_note: str = "리뷰 점수 미반영"
     evidence_count: int | None = None        # 이 대안의 리뷰 근거(관측) 수
@@ -955,6 +967,12 @@ class PeripheralAlternativeOut(BaseModel):
     brand: str | None = None
     image_url: str | None = None
     product_url: str | None = None
+    # 결과 화면(재설계): 이 대안을 큰 카드로 올릴 때 1위와 같은 정보량을 보이기 위한 값(1위 항목과 같은 모양)
+    key_specs: list[dict[str, str]] = Field(default_factory=list)
+    requested: list[dict[str, Any]] = Field(default_factory=list)
+    price_position: dict[str, int] | None = None
+    feel: dict[str, Any] | None = None
+    score_detail: dict[str, Any] | None = None
 
 
 class PeripheralItemOut(BaseModel):
@@ -969,7 +987,7 @@ class PeripheralItemOut(BaseModel):
     reason: TextStatusOut
     alternatives: list[PeripheralAlternativeOut] = Field(default_factory=list)
     guide: TextStatusOut
-    review: ReviewScoreDetailDTO | None = None
+    review: PeripheralReviewOut | None = None
     review_weight: float = 0.0
     review_note: str
     feel: dict[str, Any] | None = None       # 체감 근거 블록. None 이면 보여 줄 근거가 없다
@@ -978,6 +996,10 @@ class PeripheralItemOut(BaseModel):
     evidence_count: int | None = None            # 리뷰 근거(관측) 수 — 화면은 "근거 N건"
     evidence_penalty: float | None = None        # 근거 부족 감점(0이면 없음)
     close_call: bool = False                     # 1·2위가 접전이다(한 응답에서 최대 2개 품목)
+    # 결과 화면(재설계): 필수 스펙 한 줄, 사용자가 말한 항목별 근거 연결, 통과한 후보 안에서 싼 순서 {rank, of}
+    key_specs: list[dict[str, str]] = Field(default_factory=list)
+    requested: list[dict[str, Any]] = Field(default_factory=list)
+    price_position: dict[str, int] | None = None
 
 
 class PeripheralEmptyOut(BaseModel):

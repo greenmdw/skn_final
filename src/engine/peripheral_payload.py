@@ -74,6 +74,9 @@ from typing import Any
 from src.dto import Candidate, PeripheralPick, PeripheralRequirement, PeripheralResult
 from src.engine import spec_rules
 from src.engine.peripheral_catalog import PRICE_NOTE
+from src.engine.peripheral_display import REQUIREMENT_KEY_LABEL as _REQUIREMENT_KEY_LABEL
+from src.engine.peripheral_display import axis_label as _display_axis_label
+from src.engine.peripheral_display import key_specs, requirement_label as _requirement_label, review_quote
 from src.engine.peripheral_evidence import NO_EVIDENCE_NOTE
 from src.engine.peripheral_rules import kind_def, load_peripheral_rules
 from src.engine.stage3c_verify import axis_label
@@ -92,42 +95,6 @@ _TOTALS_NOTE = "PC 예산과 별도"
 # verify_per_item이 실제로 내는 judge 두 가지 -> checks[].state. ok는 Issue 자체가 안 생기므로
 # 매핑에 없다(문제 없는 축은 애초에 쟁점이 안 만들어진다).
 _JUDGE_TO_STATE = {"확인 필요": "unknown", "위반": "fail"}
-
-# requirement[].label — hard(resolution_class/refresh_min_hz)와 config/peripherals.yaml
-# spec_conditions 가 실제로 쓰는 pref 키만 담는다. 여기 없는 키는
-# axis_label과 같은 원칙으로 키 이름을 그대로 라벨로 쓴다(모르는 키를 지어내지 않는다).
-_REQUIREMENT_KEY_LABEL: dict[str, str] = {
-    "resolution_class": "요구 해상도 등급",
-    "refresh_min_hz": "요구 최소 주사율(Hz)",
-    "panel_raw": "패널",
-    "switch_clicky": "클릭형 스위치",
-    "switch_magnetic": "마그네틱 스위치",
-    "rapid_trigger": "래피드 트리거",
-    "polling_hz_max": "폴링레이트(Hz)",
-    "connectivity_wireless": "무선 연결",
-    "power_source_raw": "전원 방식",
-    "channels": "채널 수",
-    "connectivity_bluetooth": "블루투스 연결",
-    "weight_g": "무게(g)",
-    "size_longest_mm": "가장 긴 변(mm)",
-    "size_height_mm": "높이(mm)",
-    "button_count": "버튼 수",
-    "form_factor_raw": "형태",
-    "resolution_h": "세로 해상도(px)",
-    "refresh_hz": "주사율(Hz)",
-    "response_ms_gtg": "응답속도(ms)",
-    "screen_size_inch": "화면 크기(인치)",
-    "brightness_nit": "밝기(nit)",
-    "usb_c_video": "USB-C 영상 입력",
-    "usb_c_power_w": "USB-C 충전(W)",
-    "output_w": "출력(W)",
-    "speaker_form_raw": "스피커 형태",
-}
-
-
-def _requirement_label(key: str) -> str:
-    return _REQUIREMENT_KEY_LABEL.get(key, key)
-
 
 def _issue_axis_label(axis: str) -> str:
     """verify_per_item이 직접 만드는 두 축(`<kind>_hard`/`<kind>_data_gap`)은 종류마다
@@ -271,13 +238,26 @@ def _review_note(weight: float) -> str:
     return _REVIEW_NOTE_USED if weight > 0 else _REVIEW_NOTE_UNUSED
 
 
-def _score_block(cand: Candidate) -> dict[str, Any] | None:
-    """순위 점수의 축별 값·가중치·기여분과 감점, 리뷰 관측 수, 적용한 가중 이유. 점수를 계산하지 않은 후보면 None."""
+def _score_block(cand: Candidate, rules: dict) -> dict[str, Any] | None:
+    """순위 점수의 축별 값·가중치·기여분과 감점, 리뷰 관측 수, 적용한 가중 이유. 점수를 계산하지 않은 후보면 None.
+    축마다 사용자말 이름(`label`)을 더한다 — 화면은 내부 축 이름을 그대로 보이지 않는다."""
     d = cand.score_detail
     if not d:
         return None
-    return {"score": cand.score, "axes": d["axes"], "penalties": d["penalties"], "evidence_count": d["evidence_count"],
+    axes = [{**a, "label": _display_axis_label(a["axis"], rules)} for a in d["axes"]]
+    return {"score": cand.score, "axes": axes, "penalties": d["penalties"], "evidence_count": d["evidence_count"],
             "weights_reason": d["weights_reason"]}
+
+
+def _review_dict(detail) -> dict[str, Any] | None:
+    """외부 리뷰 상세. 항목(`contributions[]`)마다 대표 문장 `quote`({text, direction}|None)와 의견이 갈리는지
+    `dissent` 를 더한다 — 어느 문장을 보일지는 서버가 정해, 화면이 소수 의견을 대표로 보이지 않게 한다."""
+    if detail is None:
+        return None
+    out = detail.model_dump(mode="json")
+    for item in out.get("contributions", []):
+        item["quote"], item["dissent"] = review_quote(item)
+    return out
 
 
 def _why_not_first(first: Candidate, alt: Candidate) -> str | None:
@@ -296,17 +276,24 @@ def _why_not_first(first: Candidate, alt: Candidate) -> str | None:
 def _alternatives(pick: PeripheralPick, rules: dict) -> list[dict[str, Any]]:
     weight = _review_weight(pick.kind, rules)
     out = []
-    for alt in pick.alternatives:
+    for i, alt in enumerate(pick.alternatives):
         scored = bool(alt.score_detail and pick.candidate.score_detail)
         product = _product_dict(alt)      # 화면이 1위 대신 이 대안을 견적에 담을 때 쓰는 식별자·이미지·링크
+        view = pick.alternative_views[i] if i < len(pick.alternative_views) else {}
         out.append({"name": alt.name, "price": alt.price, "diff": alt.price - pick.candidate.price,
                     "variant_id": product["variant_id"], "brand": product["brand"],
                     "image_url": product["image_url"], "product_url": product["product_url"],
-                    "review": alt.review_detail.model_dump(mode="json") if alt.review_detail else None,
+                    "review": _review_dict(alt.review_detail),
                     "review_weight": weight, "review_note": _review_note(weight),
                     "evidence_count": alt.score_detail.get("evidence_count") if alt.score_detail else None,
                     "score": alt.score if alt.score_detail else None,
-                    "why_not_first": _why_not_first(pick.candidate, alt) if scored else None})
+                    "why_not_first": _why_not_first(pick.candidate, alt) if scored else None,
+                    # 결과 화면(재설계): 이 대안을 큰 카드로 올렸을 때 1위와 같은 정보량을 보이기 위한 값
+                    "key_specs": key_specs(pick.kind, alt.specs, rules),
+                    "requested": view.get("requested", []),
+                    "price_position": view.get("price_position"),
+                    "feel": view.get("feel"),
+                    "score_detail": _score_block(alt, rules)})
     return out
 
 
@@ -336,17 +323,21 @@ def _item_dict(kind: str, pick: PeripheralPick, req: PeripheralRequirement,
         "reason": {"status": "ready", "text": _reason_text(kdef["label"], req, cand, stats)},
         "alternatives": _alternatives(pick, rules),
         "guide": _guide_for_kind(kind),
-        "review": cand.review_detail.model_dump(mode="json") if cand.review_detail else None,
+        "review": _review_dict(cand.review_detail),
         "review_weight": _review_weight(kind, rules),
         "review_note": _review_note(_review_weight(kind, rules)),
         # 체감 근거(사용기·외부 리뷰). None 이면 보여 줄 근거가 없다 — 화면은 feel_note 만 쓴다.
         "feel": feel,
         "feel_note": None if feel else NO_EVIDENCE_NOTE,
         # 점수 상세(요청서 3.4): 어떻게 골랐나요 / 근거 N건 / 근거 부족 안내 / 접전
-        "score_detail": _score_block(cand),
+        "score_detail": _score_block(cand, rules),
         "evidence_count": cand.score_detail.get("evidence_count") if cand.score_detail else None,
         "evidence_penalty": cand.score_detail["penalties"]["evidence"] if cand.score_detail else None,
         "close_call": pick.close_call,
+        # 결과 화면(재설계): 필수 스펙 한 줄, 사용자가 말한 항목별 근거 연결, 후보 안 가격 순서
+        "key_specs": key_specs(kind, cand.specs, rules),
+        "requested": pick.requested,
+        "price_position": pick.price_position,
     }
 
 
