@@ -57,6 +57,17 @@ def test_only_confirmed_same_products_are_merged_and_other_models_are_kept():
     assert merged[0]["source_ids"] == ["source-1", "source-2"]
 
 
+def test_unmatched_items_with_the_same_name_from_different_sources_are_merged():
+    """카탈로그에 없는 부품도 두 사진에 같은 글자로 찍혔으면 한 항목이다. 같은 사진 안의 같은 이름 두 줄은 합치지 않는다."""
+    def named(i, name, source):
+        return {**_item(i, "저장장치", sources=(source,)), "normalized_name": name}
+    items = [named("a", "에센코어 CRAS C910 (500GB)", "source-1"), named("b", "에센코어 CRAS C910(500GB)", "source-2"),
+             named("c", "에센코어 CRAS C910 (500GB)", "source-1"), named("d", "다른 SSD", "source-2")]
+    merged = merge_same_products(items)
+    assert [i["id"] for i in merged] == ["a", "c", "d"]            # b 는 a 와 합쳐지고, 같은 사진의 c 는 따로 남는다
+    assert merged[0]["source_ids"] == ["source-1", "source-2"]
+
+
 def test_default_selection_is_the_first_item_of_each_category():
     items = [_item("a", "GPU"), _item("b", "GPU"), _item("c", "CPU")]
     assert default_selection(items) == {"GPU": "a", "CPU": "c"}

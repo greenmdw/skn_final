@@ -154,7 +154,8 @@ def _match(category: str, text: str, by_slot: dict) -> dict[str, Any]:
     elif status == "candidate":
         matched_name = info.get("candidate")
     return {"match_status": status, "candidate_count": row.get("candidate_count"),
-            "matched_product_id": product_id, "matched_product_key": product_key, "matched_name": matched_name}
+            "matched_product_id": product_id, "matched_product_key": product_key, "matched_name": matched_name,
+            "match_via": row.get("match_via")}
 
 
 def _make_item(category: str, raw_text: str, source_id: str, by_slot: dict) -> dict[str, Any]:

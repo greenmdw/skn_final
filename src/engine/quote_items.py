@@ -69,11 +69,21 @@ def spec_text(item: dict[str, Any]) -> str:
     return " ".join(p for p in parts if p)
 
 
+def _name_key(item: dict[str, Any]) -> str:
+    """글자만 같으면 같은 이름 — 대소문자·공백·기호 차이는 무시한다. 이름이 없으면 빈 문자열(병합하지 않는다)."""
+    return re.sub(r"[^0-9a-z가-힣]", "", str(item.get("normalized_name") or "").lower())
+
+
 def merge_same_products(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """같은 카탈로그 제품으로 **확정된**(confirmed) 항목만 합친다 — 출처만 모으고 수량·가격은 먼저 온 것을 쓴다(같은
-    견적이 두 장에 겹쳐 찍힌 경우 수량이 두 배가 되면 안 된다). 같은 부품군의 다른 모델·확정 안 된 항목은 모두 그대로 둔다."""
+    """같은 부품을 한 항목으로 합친다 — 출처만 모으고 수량·가격은 먼저 온 것을 쓴다(같은 견적이 두 장에 겹쳐 찍힌 경우 수량이
+    두 배가 되면 안 된다).
+    1) 같은 카탈로그 제품으로 **확정된**(confirmed) 항목은 합친다.
+    2) 카탈로그에 연결되지 않은 항목도 부품군과 이름 글자가 같고 **서로 다른 출처**(다른 사진)에서 읽혔으면 합친다 — 같은 견적이
+       두 장에 찍힌 경우다. 같은 사진 안의 같은 이름 두 줄(SSD 두 개를 따로 적음)은 합치지 않는다.
+    같은 부품군의 다른 모델은 모두 그대로 둔다."""
     out: list[dict[str, Any]] = []
     seen: dict[tuple[str, str], dict[str, Any]] = {}
+    by_name: dict[tuple[str, str], dict[str, Any]] = {}
     for item in items:
         product_id = item.get("matched_product_id")
         if item.get("match_status") == "confirmed" and product_id:
@@ -83,6 +93,14 @@ def merge_same_products(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 kept["source_ids"] = sorted(set(kept["source_ids"]) | set(item["source_ids"]))
                 continue
             seen[key] = item
+        else:
+            name = _name_key(item)
+            if name:
+                kept = by_name.get((item["category"], name))
+                if kept is not None and not (set(kept["source_ids"]) & set(item["source_ids"])):
+                    kept["source_ids"] = sorted(set(kept["source_ids"]) | set(item["source_ids"]))
+                    continue
+                by_name.setdefault((item["category"], name), item)
         out.append(item)
     return out
 

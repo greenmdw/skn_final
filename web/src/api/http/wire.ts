@@ -121,6 +121,8 @@ export interface WireQuoteDraftItem {
   candidate_count: number | null; source_ids: string[]; selected_for_analysis: boolean; user_edited: boolean
   /** 실시간 검색 값이 임시 저장소에 있다(저장되지 않는 표시) */
   live_value?: boolean
+  /** 'model' = 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾아 확정했다 */
+  match_via?: 'model' | null
 }
 export interface WireQuoteDraft {
   draft_id: string; version: number

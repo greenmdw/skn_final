@@ -442,6 +442,7 @@ class QuoteDraftItemOut(BaseModel):
     matched_name: str | None = None
     image_url: str | None = None                         # catalog.product.image_url, 없으면 null
     match_status: Literal["confirmed", "ambiguous", "candidate", "inferred", "unmatched"] = "unmatched"
+    match_via: Literal["model"] | None = None            # "model" = 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾아 확정했다(화면에 근거를 보인다)
     candidate_count: int | None = None
     source_ids: list[str] = Field(default_factory=list)
     selected_for_analysis: bool = False

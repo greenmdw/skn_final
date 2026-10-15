@@ -247,8 +247,10 @@ def test_price_claims_guard_catches_a_state_attached_to_the_wrong_part(review):
     assert price_claims_are_grounded(bad, review) is False
 
 
-def test_price_claims_guard_accepts_a_correct_single_part_claim(review):
+def test_price_claims_guard_accepts_a_correct_single_part_claim():
+    """판정은 가격 비교 행의 상태와 문장의 방향이 같은지만 본다 — 매칭 결과에 기대지 않게 상태를 직접 준다."""
     from src.agent.quote_review_agent import price_claims_are_grounded
+    review = _prices_review({"GPU": "cheaper", "메인보드": "no_catalog"})
     assert price_claims_are_grounded("GPU는 견적이 더 저렴했습니다.", review) is True
     assert price_claims_are_grounded("메인보드는 카탈로그에서 찾지 못해 비교하지 못했습니다.", review) is True
 

@@ -51,7 +51,9 @@ export function itemStatus(item: QuoteDraftItem, pending?: PendingEdit): ItemSta
     inferred: { tone: 'warn', label: '제품 확인 필요', checked: false },
     unmatched: { tone: 'miss', label: '제품 확인 필요', checked: false },
   }
-  return byStatus[item.matchStatus]
+  const status = byStatus[item.matchStatus]
+  // 제조사를 적지 않은 글을 모델 번호로 찾아 확정한 항목 — 맞는 제품인지 한 번 확인하도록 표시한다(틀리면 ✎ 로 고친다).
+  return item.matchStatus === 'confirmed' && item.matchVia === 'model' ? { ...status, label: '모델 번호로 대응됨' } : status
 }
 
 /** 대응 결과 한 줄: 카탈로그 제품명, 후보가 여럿이면 개수, 없으면 안내 */

@@ -266,6 +266,8 @@ export interface QuoteDraftItem {
   sourceIds: string[]
   selectedForAnalysis: boolean
   userEdited: boolean
+  /** 'model' = 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾아 확정했다(제조사 확인을 권한다) */
+  matchVia?: 'model' | null
   /** 실시간 검색 값이 저장소에 있어 점검에 쓰인다. 제품 확정이 아니다 */
   liveValue?: boolean
 }
