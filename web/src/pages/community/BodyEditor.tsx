@@ -19,7 +19,7 @@ let keySeed = 0
 const newKey = () => `b${++keySeed}`
 const cleanAlt = (alt: string) => alt.replace(/[[\]\r\n]+/g, ' ').replace(/\s+/g, ' ').trim()
 
-export function serialize(blocks: Block[]): string {
+function serialize(blocks: Block[]): string {
   const parts: string[] = []
   for (const block of blocks) {
     if (block.kind === 'image') parts.push(`![${cleanAlt(block.alt)}](image:${block.image.id})`)
@@ -36,7 +36,7 @@ const imagesOf = (blocks: Block[]) => blocks.flatMap(block => (block.kind === 'i
 const MARKER_LINE = /^[ \t]*!\[([^\]\n]*)\]\(image:([0-9a-f-]{8,})\)[ \t]*$/gim
 
 /** 저장된 본문(Markdown)을 편집기 덩어리로 푼다. 마커의 이미지를 글 사진 목록에서 찾고, 마커 없이 붙어 있던 이미지는 맨 아래에 이어 붙인다(보이는 모습 그대로). */
-export function blocksFromBody(body: string, images: WireCommunityImage[]): Block[] {
+function blocksFromBody(body: string, images: WireCommunityImage[]): Block[] {
   const byId = new Map(images.map(image => [image.id.toLowerCase(), image]))
   const used = new Set<string>()
   const known = body.replace(MARKER_LINE, (whole, _alt: string, id: string) => (byId.has(id.toLowerCase()) ? whole : ''))

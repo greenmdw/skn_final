@@ -259,10 +259,6 @@
 .cm-comments form div { text-align: right; }
 .cm-comments form button { margin-top: 8px; }
 .cm-reply-form div > span { display: flex; justify-content: flex-end; gap: 6px; }
-.cm-summary { margin: 0; }
-.cm-summary div { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
-.cm-summary dt { color: var(--muted); }
-.cm-summary dd { margin: 0; font-weight: 750; text-align: right; }
 
 .cm-login-callout { margin-bottom: 12px; padding: 12px 14px; border: 1px solid color-mix(in srgb, var(--warn) 35%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--warn) 9%, var(--panel)); color: var(--muted); font-size: 13px; }
 .cm-login-callout a { color: var(--mint); font-weight: 800; }
