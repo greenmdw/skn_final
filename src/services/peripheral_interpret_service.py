@@ -64,9 +64,9 @@ def interpret(text: str, previous: dict[str, Any] | None = None, kinds: list[str
     new = _with_question(new, sentence, rules)
 
     base = peripheral_intent.sanitize(previous, rules) if previous else None
-    merged = peripheral_intent.merge(base, new)
+    merged = peripheral_intent.merge(base, new, rules)
     if kinds:      # 종류 카드로 고른 값 — 질문은 이번 문장의 것이므로 합치면서 지워지지 않게 되돌려 놓는다
-        merged = peripheral_intent.merge(merged, peripheral_intent.sanitize({"kinds": kinds}, rules))
+        merged = peripheral_intent.merge(merged, peripheral_intent.sanitize({"kinds": kinds}, rules), rules)
         merged = merged.model_copy(update={"question": new.question})
 
     return {
