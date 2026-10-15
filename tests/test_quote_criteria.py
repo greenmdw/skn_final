@@ -47,3 +47,19 @@ def test_facts_lines_never_declare_an_overall_winner():
     assert "견적 1 쪽이 높음" in text and "한쪽이라도 확인 못 해 비교하지 않음" in text
     assert "종합적으로 더 낫다고 판단하지 않습니다" in text
     assert facts_lines([], "견적 1", "견적 2") == []
+
+
+def test_game_lines_check_each_quote_against_the_table_with_its_own_values():
+    from src.services.quote_criteria import game_lines
+
+    rows = build_criteria(_side(gpu_tier=3.0, vram_gb=4, ram_gb=8), _side(gpu_tier=9.0, vram_gb=16, ram_gb=32))
+    out = game_lines(rows, "R01", "R02", "R02에서 롤이랑 배그 돌아가?")
+    first, second = out.split("[R02]")
+    assert out.startswith("[R01]") and "롤" in first and "배그" in first
+    assert "⚠ 미달" in first and "⚠ 미달" not in second and "표의 요구 기준을 모두 채움" in second
+
+
+def test_game_lines_say_the_game_is_missing_only_when_it_is_really_not_in_the_table():
+    from src.services.quote_criteria import game_lines
+
+    assert "게임 요구 사양 표에 없어" in game_lines(build_criteria(_side(), _side()), "R01", "R02", "롤러코스터 타이쿤 돼?")

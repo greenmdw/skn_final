@@ -450,6 +450,12 @@ def chat(conn, list_id: UUID, principal: Principal, text: str, *, client_message
         def fact(n, a):                                       # noqa: F811
             if n == "saved_comparison":
                 return quote_comparison_service.facts_text(comparison, a.get("categories") or [])
+            if n == "game" and comparison.get("criteria"):     # 서로 다른 두 견적 — 각 견적이 그 게임의 요구 사양을 채우는지 따로
+                lab = quote_comparison_service._labels(comparison)
+                if not a.get("swap_product"):
+                    from src.services import quote_criteria
+                    return quote_criteria.game_lines(comparison["criteria"], lab["received"], lab["saved"], a.get("text") or text)
+                return f"(부품을 바꿔 본 비교는 {lab['received']} 견적 구성에만 적용됩니다.)\n" + run_fact(review, n, a, loader)
             return run_fact(review, n, a, loader)
 
     from src.agent import quote_review_agent

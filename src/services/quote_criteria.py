@@ -96,3 +96,16 @@ def facts_lines(criteria: list[dict[str, Any]], label_a: str, label_b: str) -> l
         lines.append(f"- {row['label']}: {label_a} {row['a_text']} / {label_b} {row['b_text']} → {verdict}")
     lines.append("이 표는 기준마다 값을 나란히 놓은 것이며 어느 견적이 종합적으로 더 낫다고 판단하지 않습니다.")
     return lines
+
+
+def game_lines(criteria: list[dict[str, Any]], label_a: str, label_b: str, game: str) -> str:
+    """두 견적 각각의 게임 요구 사양 비교 — 기준 표의 등급·용량 값을 그대로 쓴다(표에 없는 게임이면 그 사실만)."""
+    from src.engine.game_requirements_check import check_games
+
+    row = {r["key"]: r for r in criteria}
+    parts = []
+    for side, label in (("a", label_a), ("b", label_b)):
+        have = {"gpu": row.get("gpu_tier", {}).get(side), "cpu": row.get("cpu_tier", {}).get(side),
+                "ram_gb": row.get("ram_gb", {}).get(side), "vram_gb": row.get("vram_gb", {}).get(side)}
+        parts.append(f"[{label}]\n" + check_games(game, have, subject="지금"))
+    return "\n".join(parts)

@@ -259,11 +259,25 @@ def _norm_game(text) -> str:
     return re.sub(r"[^0-9a-z가-힣]", "", str(text).casefold())
 
 
+_SHORT_ALIAS_PARTICLE = "이랑|하고|으로|에서|이나|은|는|이|가|을|를|도|에|로|랑|과|와|만|나|좀"
+
+
+def _alias_in(alias: str, norm_text: str, raw_text: str) -> bool:
+    """별칭이 입력과 일치하는가 — 위 match_games 설명의 규칙."""
+    norm_alias = _norm_game(alias)
+    if norm_alias == norm_text:
+        return True
+    if len(norm_alias) > 2:
+        return norm_alias in norm_text
+    return bool(re.search(rf"(?<![0-9a-z가-힣]){re.escape(norm_alias)}(?:{_SHORT_ALIAS_PARTICLE})?(?![0-9a-z가-힣])", raw_text.casefold()))
+
+
 def match_games(raw, rules: dict | None = None) -> tuple[list[str], list[dict], list[str]]:
     """games 조건(리스트 또는 쉼표 문자열) -> (인식한 표 키, 그 요구 tier 목록, 표에 없는 입력).
 
-    2글자 이하 별칭은 완전 일치만, 그보다 길면 입력 안에 별칭이 들어 있으면 일치로 본다
-    ("엘든링 하고 싶어요" → eldenring). 같은 게임을 두 번 말해도 한 번만 센다.
+    입력 전체가 별칭이거나, 별칭(3글자 이상)이 입력 안에 들어 있으면 일치로 본다("엘든링 하고 싶어요" → eldenring).
+    2글자 이하 별칭("롤"·"배그")은 문장 안에서도 한 단어로 따로 쓰였을 때만 일치로 본다("롤 돌리기 좋아?"·"배그가 돼?" → 일치,
+    "롤러코스터" → 불일치). 한 문장에 게임이 여럿이면 모두 센다. 같은 게임을 두 번 말해도 한 번만 센다.
     """
     titles = ((rules or load_computer_rules())["requirements"].get("game_titles")) or {}
     items = re.split(r"[,\n]", raw) if isinstance(raw, str) else list(raw or [])
@@ -273,13 +287,10 @@ def match_games(raw, rules: dict | None = None) -> tuple[list[str], list[dict], 
         text = _norm_game(item)
         if not text:
             continue
-        hit = next((key for key, entry in titles.items()
-                    if any(text == _norm_game(a) or (len(_norm_game(a)) > 2 and _norm_game(a) in text)
-                           for a in entry["aliases"])), None)
-        if hit is None:
+        hits = [key for key, entry in titles.items() if any(_alias_in(a, text, str(item)) for a in entry["aliases"])]
+        if not hits:
             unknown.append(str(item).strip())
-        elif hit not in keys:
-            keys.append(hit)
+        keys.extend(k for k in hits if k not in keys)
     return keys, [titles[k]["tier"] for k in keys], unknown
 
 

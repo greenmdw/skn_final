@@ -489,3 +489,9 @@ def test_a_shortened_swap_product_from_the_agent_is_resolved_to_the_catalog_name
     assert "가정: GPU 를" in out and "5070" in out
     out = chat.run_fact(review, "game", {"text": "사이버펑크 돌아가?", "swap_slot": "GPU", "swap_product": "RTX 9999"}, loader())
     assert "하나로 찾지 못해 지금 견적 기준" in out and "가정:" not in out
+
+
+@pytest.mark.parametrize("text", ["롤 돌리기 좋아?", "R02에서 GPU를 바꿔도 배그 돌아가?", "롤이랑 배그 돼?"])
+def test_a_short_game_nickname_inside_a_sentence_is_found_in_the_requirement_table(text):
+    out = chat.run_fact(_game_review(), "game", {"text": text, "swap_slot": "", "swap_product": ""}, loader())
+    assert "게임 요구 사양 표에 없어" not in out and "요구" in out
