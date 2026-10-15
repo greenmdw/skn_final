@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 
-// 커뮤니티 알림 종. 서버에 알림 API 가 아직 없어서 목록은 비어 있고 "준비 중" 안내만 보인다.
-// API 가 생기면 아래 items 를 서버 응답으로 채우고, unread 로 점 표시와 aria-label 을 낸다.
-// (요청서: 개발요청_커뮤니티_마이페이지_백엔드 A-5)
+// 커뮤니티 알림 종. 서버 API 는 준비돼 있다(GET /community/me/notifications, /unread-count, 읽음 처리 — 폴링 방식, 같은 글은 한 알림으로 묶음).
+// 화면은 아직 연결 전이라 목록이 비어 있고 "준비 중" 안내만 보인다. 연결하면 아래 items 를 서버 응답으로 채우고,
+// unread 로 점 표시와 aria-label 을 낸다. (요청서: 개발요청_커뮤니티_마이페이지_백엔드 A-5)
 export default function CommunityNotifications() {
   const [open, setOpen] = useState(false)
   const root = useRef<HTMLDivElement>(null)

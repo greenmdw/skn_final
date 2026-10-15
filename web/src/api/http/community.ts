@@ -1,8 +1,8 @@
 import { request, requestForm } from './client'
 
 // 커뮤니티 백엔드(/community/*, /catalog/products) 호출. 읽기(목록·상세·검색·댓글)는 로그인 없이 되고, 쓰기는 로그인이 필요하다
-// (서버가 401 → ApiError('로그인이 필요합니다.', 'unauthorized') 로 돌려준다). CommunityPage 는 아직 정적 데이터를 쓰고 있다 —
-// 이 모듈의 mapCommunityItem 이 서버 응답을 화면의 CommunityPost 모양으로 바꿔 주므로, 화면은 데이터 출처만 갈아 끼우면 된다.
+// (서버가 401 → ApiError('로그인이 필요합니다.', 'unauthorized') 로 돌려준다).
+// 이 모듈의 mapCommunityItem 이 서버 응답을 화면의 CommunityPost 모양으로 바꿔 준다. 프로모션 탭만 아직 정적 샘플(communityData.ts)이다.
 
 export type CommunityBoardType = 'question' | 'review' | 'tip' | 'free'
 export type CommunitySort = 'latest' | 'popular' | 'views' | 'recommend'

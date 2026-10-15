@@ -11,7 +11,7 @@ const PAGE_SIZE = 3
 const TAB_LABELS: Array<[MyCommunityTab, string]> = [
   ['posts', '작성한 글'], ['comments', '작성한 댓글'], ['liked', '추천한 글'], ['saved', '저장한 글'],
 ]
-// 서버에 목록 API 가 아직 없는 탭. 샘플을 보여 주지 않고 준비 중 안내만 낸다(요청서: 개발요청_커뮤니티_마이페이지_백엔드).
+// 서버 API(GET /community/me/comments, /liked-posts, /saved-posts)는 준비돼 있지만 화면은 아직 연결 전인 탭. 샘플을 보여 주지 않고 준비 중 안내만 낸다(요청서: 개발요청_커뮤니티_마이페이지_백엔드).
 const PENDING_TAB: Record<Exclude<MyCommunityTab, 'posts'>, string> = {
   comments: '내가 쓴 댓글 목록', liked: '추천한 글 목록', saved: '저장한 글 목록',
 }
