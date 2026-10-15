@@ -61,13 +61,14 @@ def _pool():
 
 
 def rank_all(interp=None, *, observations=None, kind_budget=None, brand_like=None, brand_avoid=None, emphasis=None,
-             pool=None, monkeypatch=None):
+             pool=None, monkeypatch=None, kind_budget_min=None):
     """`run_peripherals` 를 돌려 마우스 후보 전체의 순위(상위가 앞)를 [(product_key, score)] 로 돌려준다."""
     interp = interp or pi.Interpretation(kinds=["mouse"])
     values = {
         "peripherals": ["mouse"], "peripheral_intent": interp, "peripheral_resolved": pi.resolve(interp, RULES),
         "peripheral_feel_observations": observations or {},
         "peripheral_kind_budget": {"mouse": kind_budget} if kind_budget else {},
+        "peripheral_kind_budget_min": {"mouse": kind_budget_min} if kind_budget_min else {},
         "peripheral_brand_like": {"mouse": brand_like} if brand_like else {},
         "peripheral_brand_avoid": {"mouse": brand_avoid} if brand_avoid else {},
         "peripheral_emphasis": {"mouse": emphasis} if emphasis else {},
@@ -89,6 +90,45 @@ def rank_all(interp=None, *, observations=None, kind_budget=None, brand_like=Non
 
 def keys(ranked):
     return [k for k, _ in ranked]
+
+
+# ── 가격 하한(예산 하한): 거르기만 하고 점수·순서 공식은 건드리지 않는다 ───────────────
+def test_price_floor_drops_cheaper_candidates_only():
+    ranked = rank_all(kind_budget_min=60_000)
+    prices = {c.product_key: c.price for c in _pool()}
+    assert ranked and all(prices[k] >= 60_000 for k in keys(ranked))                  # 60,000원 하한은 통과한다
+    assert set(keys(ranked)) == {k for k, p in prices.items() if p >= 60_000}
+
+
+def test_price_floor_is_inclusive_and_changes_no_score_when_it_removes_nothing():
+    cheapest = min(c.price for c in _pool())
+    assert rank_all(kind_budget_min=cheapest) == rank_all()                        # 같은 값은 통과한다
+    assert rank_all(kind_budget_min=1) == rank_all()
+    assert rank_all(kind_budget=150_000, kind_budget_min=cheapest) == rank_all(kind_budget=150_000)   # 상한 가격 축도 그대로
+
+
+def test_price_floor_keeps_scores_ordered_and_in_range():
+    ranked = rank_all(kind_budget=150_000, kind_budget_min=60_000)
+    scores = [s for _, s in ranked]
+    assert scores == sorted(scores, reverse=True) and all(0 <= s <= 1 for s in scores)
+
+
+def test_price_floor_with_nothing_left_explains_why():
+    from src.engine.peripheral_select import run_peripherals
+
+    def _empty(**budget):
+        values = {"peripherals": ["mouse"], **budget}
+        result = run_peripherals(values, {"mouse": _pool()}, lambda *_: None)
+        assert result.status == "empty"
+        return result.empty[0]["reason"], result.counts["mouse"]
+
+    reason, counts = _empty(peripheral_kind_budget_min={"mouse": 1_000_000})
+    assert reason == "1,000,000원 이상의 마우스가 카탈로그에 없습니다"
+    assert counts["under_price"] == counts["pool"]
+    reason, _ = _empty(peripheral_kind_budget_min={"mouse": 1_000_000}, peripheral_kind_budget={"mouse": 2_000_000})
+    assert reason == "예산 1,000,000~2,000,000원 사이의 마우스가 카탈로그에 없습니다"
+    reason, _ = _empty(peripheral_kind_budget_min={"mouse": 100_000}, peripheral_kind_budget={"mouse": 20_000})
+    assert "100,000~20,000원" in reason                                             # 어긋난 두 값도 그대로 말한다
 
 
 def position(ranked, key):

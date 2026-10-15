@@ -110,6 +110,18 @@ def test_block_uses_the_requesters_stated_condition_in_the_phrase():
     assert block["attributes"][0]["text"].startswith("손이 큰 사용자 5명 중 4명")
 
 
+def test_block_rows_carry_good_and_bad_counts_for_the_satisfaction_bar():
+    rated = _detail(same_good=4, same_bad=1, rest_good=2, rest_bad=3)
+    external = _detail(code="weight", label="무게감", state="external_only")
+    interp = pi.Interpretation(kinds=["mouse"], hand_size="large")
+    block = _block(FeelDetail(value=0.7, basis="community", attributes=[rated, external]), interp)
+    rows = {r["code"]: r for r in block["attributes"]}
+    assert (rows["grip"]["good"], rows["grip"]["bad"]) == (6, 4)            # same_good+rest_good, same_bad+rest_bad
+    assert (rows["weight"]["good"], rows["weight"]["bad"]) == (0, 0)        # 사용기 인원이 없으면 0·0
+    assert rows["grip"]["text"] == "손이 큰 사용자 5명 중 4명이 좋게 평가했습니다"   # 문구·점수는 그대로
+    assert rows["grip"]["alpha"] == 0.2
+
+
 # ── 계산과의 연결: 인용 문장, 최근 사용기 수 ────────────────────────────────────
 def _cand(key="A", pid="pid-A"):
     detail = ReviewScoreDetail(

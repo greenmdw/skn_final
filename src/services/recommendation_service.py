@@ -1307,6 +1307,8 @@ def _games_trace_row(spec) -> tuple[str, str] | None:
     return ("게임 요구사양", detail)
 
 
+# 성능 등급이 있는 부품(CPU·GPU)의 대안 수 — 지금 가격보다 싼 쪽·비싼 쪽 각각. 예전엔 양쪽 합쳐 등급이 가까운 3개였는데,
+# 엔진이 같은 등급에서 가장 싼 것을 고르므로 같은 등급 대안은 모두 더 비쌌다(10/15 QA #61 "대안 3개뿐, 더 비싼 쪽만").
 _SIMILAR_TIER_ALTERNATIVES = 3
 
 
@@ -1365,13 +1367,17 @@ def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
     if current_tier is not None:
         # 워크스테이션·전문가용까지 섞인 전체 카탈로그 대신, 지금 고른 성능 등급에 가까운 후보만
         # 추린다(개발요청 2번 — "비슷한 성능 3개"). 같은 등급 차이면 가격이 가까운 쪽을 우선한다.
+        # 싼 쪽·비싼 쪽에서 따로 고른다 — 한데 고르면 비싼 쪽만 남았다(QA #61).
         def _distance(row: dict) -> tuple[float, int]:
             tier = specs_by_variant.get(str(row["variant_id"]), {}).get("perf_tier")
             tier_gap = abs(float(tier) - float(current_tier)) if tier is not None else float("inf")
             price = row["price"] if row.get("price") is not None else 0
             return (tier_gap, abs(price - current_price))
 
-        others = sorted(others, key=_distance)[:_SIMILAR_TIER_ALTERNATIVES]
+        cheaper = [row for row in others if (row["price"] or 0) < current_price]
+        pricier = [row for row in others if (row["price"] or 0) >= current_price]
+        others = (sorted(cheaper, key=_distance)[:_SIMILAR_TIER_ALTERNATIVES]
+                  + sorted(pricier, key=_distance)[:_SIMILAR_TIER_ALTERNATIVES])
 
     current_row = {**_current_candidate_as_variant_row(current), "price": current_price, "qty": current_qty}
     items = [_alternative_out(current_row, current=True, current_price=current_price,

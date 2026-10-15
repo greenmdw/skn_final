@@ -76,6 +76,14 @@ def test_sanitize_drops_everything_outside_the_lists():
     assert got.hand_size is None and got.budget_total is None
 
 
+def test_sanitize_keeps_price_floor_inside_the_lists_and_implies_the_kind():
+    got = pi.sanitize({"budget_min": {"speaker": 60000, "keyboard": -1, "gpu": 50000, "mouse": "x", "monitor": 10**9}})
+    assert got.budget_min == {"speaker": 60000}
+    assert got.kinds == ["speaker"]
+    assert pi.sanitize({"budget_min": "not a dict"}).budget_min == {}
+    assert pi.sanitize({"budget": {"mouse": 30000}, "budget_min": {"mouse": 50000}}).budget_min == {"mouse": 50000}  # 둘 다 말했으면 둘 다 둔다
+
+
 def test_sanitize_adds_kinds_implied_by_stated_conditions_and_budget():
     got = pi.sanitize({"kinds": [], "stated": {"keyboard": ["bluetooth"]}, "budget": {"monitor": 300000}})
     assert got.kinds == ["monitor", "keyboard"]       # 종류는 늘 같은 순서
@@ -110,6 +118,41 @@ def test_merge_adds_to_previous_and_new_scalars_win():
     assert got.purposes == ["office"] and got.situations == ["quiet_place"]
     assert got.stated == {"mouse": ["wireless", "bluetooth"]}
     assert got.budget == {"mouse": 70000} and got.budget_total == 200000 and got.hand_size == "small"
+
+
+def test_merge_price_floor_is_added_and_new_value_wins():
+    prev = pi.Interpretation(kinds=["speaker"], budget_min={"speaker": 40000, "mouse": 10000})
+    got = pi.merge(prev, pi.Interpretation(kinds=["speaker"], budget_min={"speaker": 60000}))
+    assert got.budget_min == {"speaker": 60000, "mouse": 10000}
+
+
+def test_merge_new_ceiling_below_old_floor_drops_the_old_floor():
+    prev = pi.Interpretation(kinds=["speaker"], budget_min={"speaker": 60000})
+    got = pi.merge(prev, pi.Interpretation(kinds=["speaker"], budget={"speaker": 30000}))
+    assert got.budget == {"speaker": 30000} and got.budget_min == {}
+    same = pi.merge(prev, pi.Interpretation(kinds=["speaker"], budget={"speaker": 60000}))
+    assert same.budget_min == {"speaker": 60000}                         # 같은 값은 어긋나지 않는다
+
+
+def test_merge_new_floor_above_old_ceiling_drops_the_old_ceiling():
+    prev = pi.Interpretation(kinds=["speaker"], budget={"speaker": 30000})
+    got = pi.merge(prev, pi.Interpretation(kinds=["speaker"], budget_min={"speaker": 60000}))
+    assert got.budget_min == {"speaker": 60000} and got.budget == {}
+    other_kind = pi.merge(prev, pi.Interpretation(kinds=["mouse"], budget_min={"mouse": 60000}))
+    assert other_kind.budget == {"speaker": 30000}                       # 다른 종류는 건드리지 않는다
+
+
+def test_merge_keeps_both_when_one_sentence_says_both():
+    prev = pi.Interpretation(kinds=["speaker"], budget={"speaker": 30000}, budget_min={"speaker": 10000})
+    new = pi.Interpretation(kinds=["speaker"], budget={"speaker": 90000}, budget_min={"speaker": 50000})
+    got = pi.merge(prev, new)
+    assert got.budget == {"speaker": 90000} and got.budget_min == {"speaker": 50000}
+
+
+def test_interpretation_round_trips_budget_min_through_json():
+    got = pi.interpret_by_words("스피커 6만원 이상")
+    assert got.model_dump(mode="json")["budget_min"] == {"speaker": 60000}
+    assert pi.sanitize(got.model_dump(mode="json")).budget_min == {"speaker": 60000}
 
 
 # ── 목적 풀이 ─────────────────────────────────────────────────────────────
@@ -191,6 +234,48 @@ def test_words_do_not_read_unstated_wireless_from_a_purpose():
     got = pi.interpret_by_words("마우스 들고 다녀요")
     assert got.stated == {}
     assert "portable" in got.situations
+
+
+@pytest.mark.parametrize("text, budget, budget_min", [
+    ("스피커 6만원 이상되는 제품으로 변경해줘", {}, {"speaker": 60000}),
+    ("스피커 6만원 이상인 걸로", {}, {"speaker": 60000}),
+    ("스피커 6만원 이상의 제품", {}, {"speaker": 60000}),
+    ("스피커 6만원 넘는 걸로", {}, {"speaker": 60000}),
+    ("스피커 6만원 넘게", {}, {"speaker": 60000}),
+    ("스피커 6만원 초과", {}, {"speaker": 60000}),
+    ("스피커 6만원부터", {}, {"speaker": 60000}),
+    ("스피커 6만 원 이상", {}, {"speaker": 60000}),
+    ("스피커 6만원 이하", {"speaker": 60000}, {}),
+    ("스피커 6만원까지", {"speaker": 60000}, {}),
+    ("스피커 6만원 안쪽으로", {"speaker": 60000}, {}),
+    ("스피커 6만원 이내", {"speaker": 60000}, {}),
+    ("스피커 6만원 미만", {"speaker": 60000}, {}),
+    ("스피커 6만원 이하로 맞춰줘", {"speaker": 60000}, {}),
+    ("스피커 6만원", {"speaker": 60000}, {}),                                 # 말이 없으면 늘 해 오던 대로 상한
+    ("스피커 5만원 이상 10만원 이하", {"speaker": 100000}, {"speaker": 50000}),
+    ("스피커 5~10만원", {"speaker": 100000}, {"speaker": 50000}),
+    ("스피커 5만원에서 10만원 사이", {"speaker": 100000}, {"speaker": 50000}),
+    ("스피커 5만원부터 10만원까지", {"speaker": 100000}, {"speaker": 50000}),
+    ("스피커 10~5만원", {"speaker": 100000}, {"speaker": 50000}),               # 뒤집어 말해도 작은 쪽이 하한
+    ("스피커 10만원에서 20만원으로", {"speaker": 200000}, {}),                  # 끝말이 없으면 구간이 아니다(예전 동작)
+])
+def test_words_read_price_floor_and_ceiling(text, budget, budget_min):
+    got = pi.interpret_by_words(text)
+    assert got.kinds == ["speaker"]
+    assert got.budget == budget and got.budget_min == budget_min
+    assert got.budget_total is None
+
+
+def test_words_price_floor_follows_the_nearest_kind_and_never_becomes_a_total():
+    got = pi.interpret_by_words("마우스 3만원 이하 키보드 8만원 이상")
+    assert got.budget == {"mouse": 30000} and got.budget_min == {"keyboard": 80000}
+    total = pi.interpret_by_words("키보드랑 마우스 다 합쳐서 20만원 이상")
+    assert total.budget_min == {} and total.budget_total is None          # 합계 하한은 두지 않는다
+
+
+def test_words_price_floor_attaches_to_the_chosen_kind_card():
+    got = pi.interpret_by_words("6만원 이상으로", kinds_hint=["speaker"])
+    assert got.kinds == ["speaker"] and got.budget_min == {"speaker": 60000}
 
 
 def test_words_total_budget_for_several_kinds():
@@ -359,6 +444,20 @@ def test_agent_sanitizes_model_output(monkeypatch):
     })
     got = agent.interpret("마우스")
     assert got.kinds == ["mouse"] and got.purposes == ["office"] and got.unrecognized == ["게이밍 감성"]
+
+
+def test_agent_schema_and_prompt_know_the_price_floor(monkeypatch):
+    from src.agent import peripheral_intent_agent as agent
+
+    schema = agent._output_schema(load_peripheral_rules())
+    assert "budget_min" in schema["properties"] and "budget_min" in schema["required"]
+    assert "budget_min" in agent.build_system_prompt()
+    monkeypatch.setattr(agent, "call_llm", lambda *a, **k: {
+        "kinds": [], "purposes": [], "situations": [], "stated": {}, "hand_size": None,
+        "budget": {}, "budget_min": {"speaker": 60000}, "budget_total": None, "unrecognized": [],
+    })
+    got = agent.interpret("스피커 6만원 이상")
+    assert got.budget_min == {"speaker": 60000} and got.kinds == ["speaker"]       # 종류가 있으면 kinds 에도 들어간다
 
 
 # ── QA 해석 보강(docs/local/주변기기_추천_QA_기획.md, 2026-10-15) ─────────────────────

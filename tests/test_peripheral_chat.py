@@ -156,6 +156,15 @@ def test_changed_budget_counts_as_new():
     assert [i["label"] for i in chat.new_conditions(first, second, RULES)] == ["마우스 예산 30,000원"]
 
 
+def test_price_floor_is_a_reflected_condition_and_counts_as_read():
+    first = pi.interpret_by_words("스피커 추천해줘", RULES)
+    second = pi.merge(first, pi.interpret_by_words("스피커 6만원 이상되는 제품으로 변경해줘", RULES))
+    assert [i["label"] for i in chat.new_conditions(first, second, RULES)] == ["스피커 예산 60,000원 이상"]
+    assert not chat.read_nothing(Interpretation(budget_min={"speaker": 60000}))
+    changed = pi.merge(second, pi.interpret_by_words("스피커 8만원 이상", RULES))
+    assert [i["label"] for i in chat.new_conditions(second, changed, RULES)] == ["스피커 예산 80,000원 이상"]
+
+
 # ── 반영하지 못한 말·읽은 방법 ─────────────────────────────────────────────────
 @pytest.mark.parametrize("text, hit", [
     ("청축 키보드 추천해줘", "청축"),

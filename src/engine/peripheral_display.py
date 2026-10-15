@@ -62,6 +62,7 @@ _DISSENT_SHARE = 0.25
 _QUOTE_MAX_CHARS = 120
 _QUOTE_MIN_CHARS = 8
 _NO_ITEM_SITUATIONS = {"trending"}          # 근거를 보일 속성이 따로 없는 상황은 요청 항목으로 만들지 않는다
+_PLACEHOLDERS = {"", "—", "–", "-", "n/a"}  # 원본 표에서 "값 없음" 자리를 채운 표기
 
 
 def _number(value: Any) -> str:
@@ -73,21 +74,28 @@ def _unique(values) -> list:
 
 
 # ── 필수 스펙 한 줄 ─────────────────────────────────────────────────────────
+def _has_value(value: Any) -> bool:
+    """값이 있는가. None·빈 문자열·"—"·"-"·"N/A" 같은 원본 자리표시는 값이 아니다."""
+    if value is None:
+        return False
+    return not (isinstance(value, str) and value.strip().lower() in _PLACEHOLDERS)
+
+
 def _key_spec_value(entry: dict, specs: dict[str, Any]) -> str | None:
     if "spec" in entry:
         value = specs.get(entry["spec"])
-        if value is None or value == "":
+        if not _has_value(value):
             return None
-        return f"{_number(value)}{entry.get('unit', '')}"
+        return f"{_number(value.strip() if isinstance(value, str) else value)}{entry.get('unit', '')}"
     if "parts" in entry:
-        parts = [str(specs[k]).strip() for k in entry["parts"] if specs.get(k) not in (None, "")]
+        parts = [str(specs[k]).strip() for k in entry["parts"] if _has_value(specs.get(k))]
         return entry.get("sep", " · ").join(parts) or None
     flags = [text for key, text in entry["flags"].items() if specs.get(key) is True]
     return "·".join(flags) or None
 
 
 def key_specs(kind: str, specs: dict[str, Any], rules: dict) -> list[dict[str, str]]:
-    """종류별 필수 스펙 `[{key, label, value}]` (규칙 파일 `display.key_specs` 순서). 값이 없으면 그 항목은 뺀다."""
+    """종류별 필수 스펙 `[{key, label, value}]` (규칙 파일 `display.key_specs` 순서). 값이 없거나 "—"·"N/A" 같은 자리표시뿐이면 그 조각·항목은 뺀다."""
     out: list[dict[str, str]] = []
     for entry in (display_config(rules) or {}).get("key_specs", {}).get(kind, []):
         value = _key_spec_value(entry, specs or {})
@@ -212,7 +220,8 @@ def review_quote(contribution: dict[str, Any]) -> tuple[dict[str, str] | None, b
     """외부 리뷰 항목(`ReviewAspectContribution` 사전)의 `(quote, dissent)`.
 
     다수 방향(긍정 p ≥ 부정 n 이면 긍정, 아니면 부정, 둘 다 없으면 엇갈림)의 한글 문장 가운데 길이가
-    적당한 것 중 가장 긴 것을 고른다(같으면 사전순). 문장이 없으면 quote 는 None.
+    적당한 것 중 가장 긴 것을 고른다(같으면 사전순). 길이가 맞는 문장이 하나도 없으면 가장 짧은
+    문장을 고른다(같으면 사전순). 문장이 없으면 quote 는 None.
     `dissent` 는 적은 쪽 의견이 전체의 일정 비율 이상일 때 참이다."""
     p, n, mixed = contribution.get("p", 0), contribution.get("n", 0), contribution.get("mixed", 0)
     if p + n:
@@ -226,6 +235,6 @@ def review_quote(contribution: dict[str, Any]) -> tuple[dict[str, str] | None, b
                  for s in m.get("evidence_sentences", []) if _HANGUL.search(s or "")]
     if not sentences:
         return None, dissent
-    fitting = [s for s in sentences if _QUOTE_MIN_CHARS <= len(s) <= _QUOTE_MAX_CHARS] or sentences
-    best = sorted(fitting, key=lambda s: (-len(s), s))[0]
+    fitting = [s for s in sentences if _QUOTE_MIN_CHARS <= len(s) <= _QUOTE_MAX_CHARS]
+    best = min(fitting, key=lambda s: (-len(s), s)) if fitting else min(sentences, key=lambda s: (len(s), s))
     return {"text": best, "direction": direction}, dissent

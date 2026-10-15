@@ -75,13 +75,20 @@ def _hard_prefs(hard: dict[str, Any]) -> list[dict[str, Any]]:
 
 def filter_candidates(
     kind: str, requirement: PeripheralRequirement, cands: list[Candidate], *, max_price: int | None = None,
+    min_price: int | None = None,
 ) -> tuple[list[Candidate], dict[str, int]]:
     """[3-A]. hard·filters 조건이 없는 종류는 전부 Pass다. `filters`(사용자가 직접 말한 조건)는 hard 와 같이
-    판정한다 — 값이 없으면 Pending 이고 탈락시키지 않는다. `max_price`(종류별 예산)를 넘는 후보는 뺀다."""
+    판정한다 — 값이 없으면 Pending 이고 탈락시키지 않는다. `max_price`(종류별 예산)를 넘는 후보와
+    `min_price`(종류별 최소 가격) 미만인 후보는 뺀다 — 거르기만 하고 점수는 건드리지 않는다."""
     prefs = _hard_prefs(requirement.hard) + list(requirement.filters)
     kept: list[Candidate] = []
     counts = {"pool": len(cands), "pass": 0, "fail": 0, "pending": 0, "over_price": 0}
+    if min_price is not None:
+        counts["under_price"] = 0
     for cand in cands:
+        if min_price is not None and cand.price < min_price:
+            counts["under_price"] += 1
+            continue
         if max_price is not None and cand.price > max_price:
             counts["over_price"] += 1
             continue
@@ -393,6 +400,7 @@ def _mark_close_calls(picks: list[PeripheralPick], rules: dict) -> None:
 
 def _empty_reason(
     kind: str, requirement: PeripheralRequirement, rules: dict, stats: dict[str, int], max_price: int | None = None,
+    min_price: int | None = None,
 ) -> str:
     """필터 후 0건일 때 화면에 보일 이유 문장(계획 §3.3 C6). 후보 자체가 없는 것, 예산에 걸린 것,
     하드 조건에 걸려 전부 떨어진 것을 구분한다."""
@@ -400,6 +408,11 @@ def _empty_reason(
     pool = stats["pool"]
     if pool == 0:
         return f"{label} 후보 자체가 카탈로그에 없습니다"
+    priced_out = stats.get("over_price", 0) + stats.get("under_price", 0)
+    if min_price is not None and priced_out == pool:
+        if max_price is not None:
+            return f"예산 {min_price:,}~{max_price:,}원 사이의 {label}가 카탈로그에 없습니다"
+        return f"{min_price:,}원 이상의 {label}가 카탈로그에 없습니다"
     if max_price is not None and stats.get("over_price") == pool:
         return f"예산 {max_price:,}원 안에 드는 {label}가 카탈로그에 없습니다"
     if requirement.filters and not requirement.hard:
@@ -509,14 +522,15 @@ def run_peripherals(
         cands = candidates.get(kind, [])
         req = requirements[kind]
         kind_budget = (values.get("peripheral_kind_budget") or {}).get(kind)
+        kind_budget_min = (values.get("peripheral_kind_budget_min") or {}).get(kind)
         cands, avoided = _drop_avoided_brands(cands, _brand_keys((values.get("peripheral_brand_avoid") or {}).get(kind)))
-        kept, stats = filter_candidates(kind, req, cands, max_price=kind_budget)
+        kept, stats = filter_candidates(kind, req, cands, max_price=kind_budget, min_price=kind_budget_min)
         if avoided:
             stats["avoided_brand"] = avoided
         counts[kind] = stats
         label = kind_def(kind, rules)["label"]
         if not kept:
-            reason = _empty_reason(kind, req, rules, stats, kind_budget)
+            reason = _empty_reason(kind, req, rules, stats, kind_budget, kind_budget_min)
             empty.append({"kind": kind, "reason": reason})
             log(f"      [P] {label}: 조건에 맞는 후보 0건 — {reason}")
             continue

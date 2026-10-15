@@ -77,6 +77,7 @@ class Interpretation(BaseModel):
     stated: dict[Kind, list[str]] = Field(default_factory=dict)      # 직접 말한 스펙 조건(종류 → 조건 이름)
     hand_size: HandSize | None = None
     budget: dict[Kind, int] = Field(default_factory=dict)            # 종류별 예산 상한(원)
+    budget_min: dict[Kind, int] = Field(default_factory=dict)        # 종류별 가격 하한(원) — "6만원 이상"
     budget_total: int | None = None                                   # 여러 종류를 합친 예산(원)
     emphasis: dict[Kind, list[str]] = Field(default_factory=dict)    # 강조한 축(종류 → 가격·리뷰·무상AS·브랜드·스펙 기준 이름)
     brand_like: dict[Kind, list[str]] = Field(default_factory=dict)  # 선호 브랜드(카탈로그 이름)
@@ -189,9 +190,11 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
 
     raw_budget = data.get("budget") if isinstance(data.get("budget"), dict) else {}
     budget = {k: w for k, v in raw_budget.items() if k in kinds_all and (w := _positive_won(v)) is not None}
+    raw_budget_min = data.get("budget_min") if isinstance(data.get("budget_min"), dict) else {}
+    budget_min = {k: w for k, v in raw_budget_min.items() if k in kinds_all and (w := _positive_won(v)) is not None}
 
     # 직접 말한 조건이나 예산이 있는 종류는 찾는 종류에도 넣는다(종류를 따로 적지 않은 모델 출력 보정).
-    kinds = _unique([*_names(data.get("kinds"), set(kinds_all)), *stated, *budget])
+    kinds = _unique([*_names(data.get("kinds"), set(kinds_all)), *stated, *budget, *budget_min])
     kinds = kinds_all_order(kinds)
 
     unrecognized: list[str] = []
@@ -230,6 +233,7 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
         stated=stated,
         hand_size=data.get("hand_size") if data.get("hand_size") in ("small", "medium", "large") else None,
         budget=budget,
+        budget_min=budget_min,
         budget_total=_positive_won(data.get("budget_total")),
         emphasis=emphasis, brand_like=brand_like, brand_avoid=brand_avoid,
         unrecognized=_unique(unrecognized)[:UNRECOGNIZED_MAX_ITEMS],
@@ -248,13 +252,25 @@ def merge(previous: Interpretation | None, new: Interpretation) -> Interpretatio
     stated: dict[str, list[str]] = {}
     for kind in {*previous.stated, *new.stated}:
         stated[kind] = _unique([*previous.stated.get(kind, []), *new.stated.get(kind, [])])
+    # 가격 상한·하한은 나중에 말한 쪽이 이긴다 — 새로 말한 상한이 이전 하한보다 낮으면 이전 하한을, 새로 말한 하한이
+    # 이전 상한보다 높으면 이전 상한을 지운다(서로 어긋나 후보가 하나도 안 남는 것을 막는다). 이번 문장 안에서
+    # 둘 다 말했으면 둘 다 둔다.
+    budget = {**previous.budget, **new.budget}
+    budget_min = {**previous.budget_min, **new.budget_min}
+    for kind, upper in new.budget.items():
+        if kind in previous.budget_min and kind not in new.budget_min and previous.budget_min[kind] > upper:
+            del budget_min[kind]
+    for kind, lower in new.budget_min.items():
+        if kind in previous.budget and kind not in new.budget and previous.budget[kind] < lower:
+            del budget[kind]
     return Interpretation(
         kinds=kinds_all_order(_unique([*previous.kinds, *new.kinds])),
         purposes=_unique([*previous.purposes, *new.purposes]),
         situations=_unique([*previous.situations, *new.situations]),
         stated=stated,
         hand_size=new.hand_size or previous.hand_size,
-        budget={**previous.budget, **new.budget},
+        budget=budget,
+        budget_min=budget_min,
         budget_total=new.budget_total if new.budget_total is not None else previous.budget_total,
         emphasis=_union_per_kind(previous.emphasis, new.emphasis),
         brand_like=_union_per_kind(previous.brand_like, new.brand_like),
@@ -340,9 +356,37 @@ _KIND_WORDS: dict[str, tuple[str, ...]] = {
 }
 _TOTAL_HINT = re.compile(r"합쳐|합계|전부|전체|총\s*예산|다\s*해서")
 _AMOUNT = re.compile(r"(\d+(?:[.,]\d+)?)\s*(만\s*원|만원|만)")
+# 구간: "5~10만원", "5만원에서 10만원 사이", "5만원부터 10만원까지". 앞 금액이 하한, 뒤 금액이 상한이다.
+_RANGE = re.compile(
+    r"(\d+(?:[.,]\d+)?)\s*(?:만\s*원|만원|만)?\s*(~|∼|-|–|에서|부터)\s*(\d+(?:[.,]\d+)?)\s*(?:만\s*원|만원|만)")
+_RANGE_WORD_TAIL = re.compile(r"\s*(?:사이|까지|이하|이내)")           # "에서"·"부터" 구간은 끝말이 있어야 구간으로 본다
+# 금액 바로 뒤의 하한 표현("6만원 이상", "6만원 넘는", "6만원부터"). 이하·까지·안쪽·이내·미만은 기존대로 상한이다.
+_AFTER_MIN = re.compile(r"\s*(?:원\s*)?(?:[은는도]\s*)?(?:이상|넘|초과|부터)")
 _HAND_SMALL = re.compile(r"손이?\s*작|작은\s*손")
 _HAND_LARGE = re.compile(r"손이?\s*(?:크|큰)|큰\s*손")
 _KIND_PROXIMITY = 15      # 금액 앞쪽 몇 글자 안의 종류 이름을 그 금액의 대상으로 본다
+
+
+def _won_of(number: str) -> int:
+    return int(float(number.replace(",", "")) * 10_000)
+
+
+def _amount_events(lowered: str) -> list[tuple[int, int, str]]:
+    """문장 속 금액을 `(위치, 원, 역할)` 로 — 역할은 "max"(상한·예산) 또는 "min"(하한). 구간이면 앞이 min, 뒤가 max."""
+    events: list[tuple[int, int, str]] = []
+    spans: list[tuple[int, int]] = []
+    for match in _RANGE.finditer(lowered):
+        if match.group(2) in ("에서", "부터") and not _RANGE_WORD_TAIL.match(lowered, match.end()):
+            continue
+        low, high = sorted((_won_of(match.group(1)), _won_of(match.group(3))))
+        events += [(match.start(), low, "min"), (match.start(), high, "max")]
+        spans.append((match.start(), match.end()))
+    for match in _AMOUNT.finditer(lowered):
+        if any(a <= match.start() < b for a, b in spans):
+            continue
+        events.append((match.start(), _won_of(match.group(1)),
+                       "min" if _AFTER_MIN.match(lowered, match.end()) else "max"))
+    return sorted(events)
 
 
 def _contains_any(text: str, words) -> bool:
@@ -482,18 +526,19 @@ def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[st
         stated = {}         # 종류를 모르면 직접 말한 조건도 붙일 곳이 없다(카드로 종류를 묻는다)
 
     budget: dict[str, int] = {}
+    budget_min: dict[str, int] = {}
     budget_total: int | None = None
-    for match in _AMOUNT.finditer(lowered):
-        won = int(float(match.group(1).replace(",", "")) * 10_000)
+    for start, won, role in _amount_events(lowered):
         if not 0 < won <= BUDGET_MAX_WON:
             continue
-        before = [(pos, kind) for kind, pos in positions.items() if 0 <= match.start() - pos <= _KIND_PROXIMITY]
+        target = budget_min if role == "min" else budget
+        before = [(pos, kind) for kind, pos in positions.items() if 0 <= start - pos <= _KIND_PROXIMITY]
         if before and not _TOTAL_HINT.search(lowered):
-            budget[max(before)[1]] = won          # 금액에 가장 가까이 앞선 종류 이름
+            target[max(before)[1]] = won          # 금액에 가장 가까이 앞선 종류 이름
         elif len(kinds) == 1 and not _TOTAL_HINT.search(lowered):
-            budget[kinds[0]] = won
-        elif kinds:
-            budget_total = won
+            target[kinds[0]] = won
+        elif kinds and role == "max":
+            budget_total = won                    # 하한은 종류별로만 둔다 — 합계 하한은 두지 않는다
         # 종류를 모르는 금액은 버린다 — 어느 기기의 예산인지 가릴 수 없다
 
     hand = "small" if _HAND_SMALL.search(lowered) else "large" if _HAND_LARGE.search(lowered) else None
@@ -505,6 +550,7 @@ def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[st
         stated=stated,
         hand_size=hand,
         budget=budget,
+        budget_min=budget_min,
         budget_total=budget_total,
         emphasis=emphasis, brand_like=brand_like, brand_avoid=brand_avoid,
     )

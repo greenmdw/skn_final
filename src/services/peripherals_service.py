@@ -75,6 +75,7 @@ def _intent_from_body(body, pc_purpose: str | None = None):
         "situations": list(body.situations),
         "stated": body.stated,
         "budget": body.kind_budget,
+        "budget_min": body.kind_budget_min,
         "emphasis": body.emphasis,
         "brand_like": body.brand_like,
         "brand_avoid": body.brand_avoid,
@@ -128,6 +129,7 @@ def recommend_detailed(conn, body, pc_context: dict | None) -> tuple[dict, "Peri
         "peripherals": body.kinds,
         "peripheral_budget_max": body.budget_max,
         "peripheral_kind_budget": interp.budget,
+        "peripheral_kind_budget_min": interp.budget_min,
         "peripheral_intent": interp,
         "peripheral_resolved": peripheral_intent.resolve(interp),
         # 선호·기피 브랜드와 강조 축은 목록 안의 값으로 정리한 해석에서 온다(예전 입력과 같은 경로).

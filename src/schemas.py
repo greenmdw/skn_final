@@ -911,6 +911,7 @@ class PeripheralsRecommendIn(BaseModel):
     situations: list[str] = Field(default_factory=list)
     stated: dict[str, list[str]] = Field(default_factory=dict)       # 종류 → 직접 말한 스펙 조건 이름
     kind_budget: dict[str, int] = Field(default_factory=dict)        # 종류 → 예산 상한(원). 합산 예산은 budget_max
+    kind_budget_min: dict[str, int] = Field(default_factory=dict)    # 종류 → 최소 가격(원). "6만원 이상" — 미만 후보는 거른다
     # 선호·기피 브랜드(종류 → 브랜드 이름). 선호는 브랜드 축에서 1점, 기피는 후보에서 뺀다.
     brand_like: dict[str, list[str]] = Field(default_factory=dict)
     brand_avoid: dict[str, list[str]] = Field(default_factory=dict)
@@ -1452,6 +1453,8 @@ class ReviewSummaryOut(BaseModel):
     product_name: Optional[str] = None
     product_manipulation_risk: ProductRiskOut
     synthetic_demo: Optional[SyntheticDemoOut] = None
+    # 우리 카탈로그 부품의 항목별 관측 문장("냉각 성능 — 좋다는 리뷰 7건 · 아쉽다는 리뷰 0건"). 리뷰 본문이 아니라 건수다.
+    aspect_facts: list[str] = []
 
 
 # ── 리뷰 검색 (GET /reviews/search) ──

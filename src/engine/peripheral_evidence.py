@@ -85,6 +85,7 @@ def build_feel_block(
         rows.append({
             "code": d.code, "label": d.label, "type": d.type, "state": state, "text": sentence,
             "alpha": d.alpha, "split": d.split, "mismatch": d.mismatch,
+            "good": d.same_good + d.rest_good, "bad": d.same_bad + d.rest_bad,   # 만족 막대용 인원수(같은 조건+그 밖)
             "quotes": [q.model_dump(mode="json") for q in d.quotes],
         })
     if not rows:

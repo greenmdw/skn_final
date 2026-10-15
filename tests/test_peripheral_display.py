@@ -39,6 +39,17 @@ def test_key_specs_join_text_parts_and_connection_flags():
     assert pd.key_specs("mouse", {}, RULES) == []
 
 
+def test_key_specs_drop_placeholder_parts_and_items():
+    specs = {"switch_method_raw": "기계식", "switch_kind_raw": "—", "weight_g": 720.0,
+             "size_longest_mm": "N/A", "connectivity_wired": True}
+    out = {s["key"]: s["value"] for s in pd.key_specs("keyboard", specs, RULES)}
+    assert out == {"switch": "기계식", "weight": "720g", "connect": "유선"}   # "기계식 · —" 가 아니다 · N/A 항목은 없다
+    only_placeholders = {"switch_method_raw": "-", "switch_kind_raw": " ", "weight_g": "—"}
+    assert pd.key_specs("keyboard", only_placeholders, RULES) == []
+    monitor = pd.key_specs("monitor", {"panel_raw": "n/a", "resolution_raw": "2560x1440"}, RULES)
+    assert [(s["key"], s["value"]) for s in monitor] == [("resolution", "2560x1440")]
+
+
 # ── S6 축 라벨·가격 순서 ────────────────────────────────────────────────────
 def test_every_weighted_axis_has_a_user_facing_label():
     for kind, table in RULES["ranking"].items():
@@ -130,6 +141,18 @@ def test_negative_majority_quotes_a_negative_sentence_and_empty_gives_none():
     assert pd.review_quote(c)[0] == {"text": "키 소리가 시끄러워요 정말로", "direction": "negative"}
     assert pd.review_quote(_contribution(0, 0, []))[0] is None
     assert pd.review_quote(_contribution(3, 0, [("positive", ["good"])]))[0] is None
+
+
+def test_quote_without_a_fitting_sentence_takes_the_shortest():
+    long_a = "정말로 " * 40 + "조용합니다"                       # 120자 초과
+    long_b = "정말로 " * 35 + "조용합니다"                       # 120자 초과, 더 짧다
+    c = _contribution(2, 0, [("positive", [long_a, long_b, "조용"])])    # 8자 미만도 맞지 않는다
+    assert len(long_b) > 120 and len("조용") < 8
+    assert pd.review_quote(c)[0] == {"text": "조용", "direction": "positive"}
+    c2 = _contribution(2, 0, [("positive", [long_a, long_b])])
+    assert pd.review_quote(c2)[0]["text"] == long_b
+    fitting = _contribution(2, 0, [("positive", [long_b, "조용해서 밤에도 쓸 수 있어요", "조용"])])
+    assert pd.review_quote(fitting)[0]["text"] == "조용해서 밤에도 쓸 수 있어요"   # 맞는 문장이 있으면 그중 가장 긴 것
 
 
 # ── S1 대안 표시 값(응답 연결) ───────────────────────────────────────────────

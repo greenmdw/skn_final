@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 from src.engine.brands import canonical_slot, cpu_brand_pref
 from src.config import CONDITIONS_AGENT, LLM_MODEL, LLM_PROVIDER, LLM_TIMEOUT_SECONDS, MOCK_MODE, OPENAI_API_KEY
-from src.engine.slot_rules import BUDGET_RANGE_MESSAGE, _parse_won, normalize_budget, parse_bare_manwon
+from src.engine.slot_rules import BUDGET_RANGE_MESSAGE, _parse_won, extract_computer, normalize_budget, parse_bare_manwon
 from src.clients.llm_guard import llm_call_slot
 from src.agent.text_guard import final_answer, foreign_script
 from src.errors import ServiceUnavailable
@@ -61,6 +61,8 @@ class ConditionDraft:
     conn: object = None            # 실시간 부품 검색 전용 — 읽기만 한다(카탈로그 조회·캐시), 조건은 여전히 안 쓴다
     search_confirmed: bool = False  # 직전 턴에 검색 동의를 구했고 이번 메시지가 동의인지(run_turn이 미리 판정)
     part_swap: bool = False         # 이번 말이 부품 교체 요청인지(run_turn이 미리 판정) — 그러면 조건을 바꾸지 않는다
+    purpose_unsaid: bool = False    # 용도를 말하지 않은 막연한 말인지(run_turn이 미리 판정) — 그러면 용도를 '기타'로 채우지 않는다
+    info_question: bool = False     # 기준·수치를 묻는 질문인지(run_turn이 미리 판정) — 그러면 조건을 바꾸지 않는다
 
     def question(self, key: str) -> dict | None:
         return next((q for q in self.cat_def.get("question_sets", []) if q["maps_to"] == key), None)
@@ -105,6 +107,12 @@ class ConditionDraft:
         if self.part_swap and key != "brand_pref":
             # "쿨러 바꿔줘"를 우선순위 질문의 답으로 읽어 priority=performance 를 넣었다(10/15 측정 3/3, 프롬프트 규칙만으로 못 막음)
             return self._record(call, "오류: 이번 말은 부품 교체 요청이라 조건을 바꾸지 않습니다 — 도구 없이 규칙 10대로 안내만 하세요.")
+        if self.info_question:
+            # "소음 기준이 어떻게 돼?"를 우선순위 답으로 읽어 priority=quiet 를 넣었다(10/15 측정 18판 중 3판, 규칙 11만으로 못 막음)
+            return self._record(call, "오류: 이번 말은 기준·수치를 묻는 질문이라 조건을 바꾸지 않습니다 — 도구 없이 규칙 11대로 안내만 하세요.")
+        if key == "purpose" and self.purpose_unsaid and str(raw).strip().lower() == "other":
+            # "잘 몰라요"·"컴퓨터 사고 싶어요"·"추천해줘"를 용도 '기타'로 채웠다(10/15 측정 11문장×3판 중 12판, QA #22)
+            return self._record(call, "오류: 사용자가 용도를 말하지 않았습니다 — '기타'로 채우지 말고 규칙 13대로 예시를 들어 다시 물으세요.")
         note = ""
         if key == "budget_max" and isinstance(raw, str) and raw.strip().lower() not in ("", "null", "none"):
             value = parse_bare_manwon(raw)
@@ -275,6 +283,31 @@ _PART_SWAP = re.compile(
 
 def is_part_swap(text: str) -> bool:
     return bool(_PART_SWAP.search(text or ""))
+
+
+# 용도를 말하지 않은 막연한 말 — "안녕"·"잘 몰라요"·"아무거나"·"컴퓨터 사고 싶어요"·"추천해줘"·"어떻게 써요?"·"."(프롬프트 규칙 13).
+# 용도 낱말("게임용 PC를 맞추고 싶어요" — 첫 화면 칩 문장)이나 '기타'·'그 외'가 있으면 막연한 말이 아니다.
+# 규칙 13은 이런 말일 때만 프롬프트에 넣는다 — 늘 넣었더니 게임 칩 문장에도 도구 없이 예시를 늘어놓았다(8판 중 2판).
+_PURPOSE_UNSAID = re.compile(
+    r"안녕|몰라|모르겠|모름|아무\s*거나|상관\s*없|추천\s*해|어떻게|뭐라고|뭘|무엇을|뭐\s*해야|사고\s*싶|살래|사려고|맞추고\s*싶|필요해")
+_OTHER_SAID = re.compile(r"기타|그\s*외|그\s*밖|다른\s*용도")
+
+
+# 기준·수치·뜻을 묻는 질문 — "부품별 소음 기준이 어떻게 돼?"·"소음 측정 기준이랑 수치 알려줘"(프롬프트 규칙 11).
+# 원하는 것을 함께 말했으면("조용한 게 좋은데 기준이 뭐야?") 질문만은 아니라 모델에 맡긴다.
+_INFO_ASKED = re.compile(r"기준|수치|뜻이|의미가|차이가|몇\s*(?:db|데시벨)", re.IGNORECASE)
+_WANT_SAID = re.compile(r"좋아|좋은|원해|원하|싶|으로\s*해|로\s*해|중요|우선|필요|골라|맞춰|위주")
+
+
+def is_info_question(text: str) -> bool:
+    t = text or ""
+    return bool(_INFO_ASKED.search(t)) and not _WANT_SAID.search(t)
+
+
+def is_purpose_unsaid(text: str) -> bool:
+    t = text or ""
+    vague = _PURPOSE_UNSAID.search(t) or not re.search(r"[가-힣A-Za-z]", t)
+    return bool(vague) and not _OTHER_SAID.search(t) and "purpose" not in extract_computer(t)
 
 
 def _parse_amount(text: str) -> int | None:
@@ -483,6 +516,7 @@ def system_prompt(
         "나온 낱말로 필드를 짐작해 채우지도 않습니다(소음을 물었다고 priority 를 quiet 로 두지 않습니다). 이 단계는 조건만 받으며 부품별 정보는 추천 결과 화면에서 물어볼 수 있다고 한 문장으로 "
         "안내한 뒤 다음 질문을 합니다.",
         *_mode_rules(draft),
+        *_purpose_rules(draft),
         "",
         "답변 언어: 한국어 존댓말.",
     ])
@@ -495,6 +529,18 @@ def _mode_rules(draft: ConditionDraft) -> list[str]:
     return ["12. 이 화면은 새 컴퓨터 조립만 다룹니다. 사용자가 지금 쓰는 PC의 일부만 바꾸는 '업그레이드'를 원하면 "
             "그 내용을 조건으로 기록하거나 반영했다고 말하지 말고, 이 화면에서는 새 컴퓨터 조립만 가능하다고 "
             "안내한 뒤 새로 맞출 PC의 용도·예산을 묻습니다."]
+
+
+def _purpose_rules(draft: ConditionDraft) -> list[str]:
+    """용도가 비어 있고 이번 말이 막연할 때만 — 용도를 짐작하지 않고 예시로 다시 묻는다(10/15 QA #22).
+    늘 두면 "소음 기준이 어떻게 돼?"에도 용도 예시를 늘어놓고, 게임 칩 문장에 도구를 부르지 않았다."""
+    if draft.values.get("purpose") or not draft.purpose_unsaid:
+        return []
+    return ["13. 용도를 말하지 않았거나(예: \"컴퓨터 사고 싶어요\"·\"추천해줘\"), 모르겠다고 하거나(\"잘 몰라요\"·\"아무거나\"), "
+            "어떻게 쓰는지 물으면 purpose 를 짐작해 채우지 않습니다 — '기타'도 짐작입니다. 용도·예산·우선순위를 차례로 정하면 "
+            "맞는 부품 구성을 추천해 드린다고 한 문장으로 알리고, 예시 두 개(\"롤이랑 배그 할 거예요\"·\"문서 작업이랑 유튜브 정도요\")를 "
+            "들어 용도를 다시 묻습니다. 단, 게임·창작·사무·학습에 들지 않는 쓰임을 구체적으로 말했으면(예: \"주식 차트 볼 거예요\") "
+            "그건 용도를 말한 것이니 기타로 반영합니다."]
 
 
 def _history(rows: list[dict], limit: int = _HISTORY_LIMIT) -> list[dict]:
@@ -553,7 +599,8 @@ def run_turn(category: str, cat_def: dict, values: dict, history: list[dict], te
     draft = ConditionDraft(category=category, cat_def=cat_def, values=dict(values),
                            missing_fn=missing_fn, next_question_fn=next_question_fn,
                            conn=conn, search_confirmed=is_search_confirmation(last_reply, text),
-                           part_swap=is_part_swap(text))
+                           part_swap=is_part_swap(text), purpose_unsaid=is_purpose_unsaid(text),
+                           info_question=is_info_question(text))
     agent = Agent(
         model=_model(),
         system_prompt=system_prompt(draft, text, history),

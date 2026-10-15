@@ -193,6 +193,19 @@ def test_why_question_is_answered_from_the_recommendation(monkeypatch):
     # 추천 요청은 지금까지 합쳐진 조건 그대로다
     body = seen["body"]
     assert body.kinds == ["mouse"] and body.stated == {"mouse": ["wireless", "lightweight"]} and body.kind_budget == {"mouse": 50000}
+    assert body.kind_budget_min == {}
+
+
+def test_price_floor_reaches_the_recommend_body():
+    from src.services.peripheral_chat_service import _recommend_body
+
+    from src.engine import peripheral_intent
+
+    interp = peripheral_intent.interpret_by_words("스피커 6만원 이상", RULES)
+    body = _recommend_body(interp, None)
+    assert body.kind_budget_min == {"speaker": 60000} and body.kind_budget == {}
+    kept, _ = peripherals_service._intent_from_body(body)
+    assert kept.budget_min == {"speaker": 60000} and kept.budget == {}
 
 
 def test_result_question_without_kind_asks_which_kind():
