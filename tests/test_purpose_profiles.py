@@ -51,6 +51,22 @@ def test_office_and_study_drop_the_gaming_floor_while_creation_raises_it():
     assert creation["RAM"]["type"] == game["RAM"]["type"]          # 프로필이 안 덮은 값은 기본 그대로
 
 
+def test_office_study_and_other_share_one_budget_allocation():
+    """사무·학습·기타는 배분 한 벌을 함께 쓴다(2026-10-15 통일, YAML 앵커 &office_alloc)."""
+    profiles = stage2_requirement.load_computer_rules()["requirements"]["purpose_profiles"]
+    office = profiles["office"]["budget_allocation"]
+    assert profiles["study"]["budget_allocation"] == office == profiles["other"]["budget_allocation"]
+    for purpose in ("office", "study", "other"):
+        assert _targets(purpose=purpose, budget_max=1).budget["alloc"] == office
+
+
+def test_every_budget_allocation_slot_is_positive():
+    """참고 예산 B가 0이면 가격 점수를 계산할 수 없다 — '구매 안 함' 선택지가 생기기 전까지 모든 슬롯은 양수."""
+    req = stage2_requirement.load_computer_rules()["requirements"]
+    allocations = [req["budget_allocation"], *(p["budget_allocation"] for p in req["purpose_profiles"].values())]
+    assert all(v > 0 for alloc in allocations for v in alloc.values())
+
+
 def test_profile_budget_allocation_is_used_for_that_purpose_only():
     rules = stage2_requirement.load_computer_rules()["requirements"]
     assert _targets(purpose="office", budget_max=1).budget["alloc"] == rules["purpose_profiles"]["office"]["budget_allocation"]

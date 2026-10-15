@@ -1,7 +1,7 @@
 # PC requirement, ranking, and set-compatibility policy. Change schema_version when
 # the structure changes; change rule_set_version when policy values change.
 schema_version: 1
-rule_set_version: computer-rules-v12
+rule_set_version: computer-rules-v13
 
 requirements:
   default_resolution: FHD_144
@@ -56,7 +56,10 @@ requirements:
         intel: [LGA1700, LGA1851]
         amd: [AM4, AM5]
         none: [LGA1700, LGA1851, AM4, AM5]
-      budget_allocation: {GPU: 0.10, CPU: 0.25, 메인보드: 0.15, RAM: 0.12, 저장장치: 0.12, 파워: 0.10, 케이스: 0.09, 쿨러: 0.07}
+      # 사무·학습·기타는 이 한 벌의 배분을 함께 쓴다(&office_alloc, 2026-10-15 통일). 근거는 사무 견적 시장 조사뿐이다.
+      # 시장은 GPU·쿨러 0%(내장 그래픽·번들 쿨러)지만, '구매 안 함' 선택지가 생기기 전까지 참고 예산이 0이면
+      # 가격 점수를 계산할 수 없어 임시로 1%씩 두고 그 2%p는 나머지 부품에서 비례로 뺐다.
+      budget_allocation: &office_alloc {GPU: 0.01, CPU: 0.29, 메인보드: 0.12, RAM: 0.24, 저장장치: 0.23, 파워: 0.07, 케이스: 0.03, 쿨러: 0.01}
     study:
       tier: {gpu: 3, cpu: 6, ram_gb: 16, vram_gb: 4}
       ram_type: null
@@ -67,7 +70,7 @@ requirements:
         intel: [LGA1700, LGA1851]
         amd: [AM4, AM5]
         none: [LGA1700, LGA1851, AM4, AM5]
-      budget_allocation: {GPU: 0.10, CPU: 0.25, 메인보드: 0.15, RAM: 0.12, 저장장치: 0.12, 파워: 0.10, 케이스: 0.09, 쿨러: 0.07}
+      budget_allocation: *office_alloc
     other:                               # 기타: 용도를 특정하지 못한 범용 — 학습과 같은 수준(2026-09-21 결정)
       tier: {gpu: 3, cpu: 6, ram_gb: 16, vram_gb: 4}
       ram_type: null
@@ -78,11 +81,11 @@ requirements:
         intel: [LGA1700, LGA1851]
         amd: [AM4, AM5]
         none: [LGA1700, LGA1851, AM4, AM5]
-      budget_allocation: {GPU: 0.10, CPU: 0.25, 메인보드: 0.15, RAM: 0.12, 저장장치: 0.12, 파워: 0.10, 케이스: 0.09, 쿨러: 0.07}
+      budget_allocation: *office_alloc
     creation:                            # 창작: CPU·RAM 우선, GPU 는 중간 등급
       tier: {gpu: 6, cpu: 8, ram_gb: 32, vram_gb: 8}
       estimated_power_w: {cpu: 150, gpu: 200, other: 75}
-      budget_allocation: {GPU: 0.28, CPU: 0.28, 메인보드: 0.10, RAM: 0.10, 저장장치: 0.10, 파워: 0.06, 케이스: 0.04, 쿨러: 0.04}
+      budget_allocation: {GPU: 0.34, CPU: 0.13, 메인보드: 0.08, RAM: 0.25, 저장장치: 0.13, 파워: 0.03, 케이스: 0.02, 쿨러: 0.02}   # 디자인 견적 시장 조사
   sockets_by_brand:
     intel: [LGA1851]
     amd: [AM5]
@@ -96,15 +99,20 @@ requirements:
   storage_capacity_gb_min: 1000
   psu_efficiency_min: Gold
   case_form: ATX_mid
+  # 슬롯별 예산 배분 — 가격 축의 참고 예산 B(총예산 × 비율)이며 지출 상한이 아니다. 게임·미지정은 이 값을,
+  # 사무·학습·기타·창작은 purpose_profiles 의 값을 쓴다.
+  # 2026-10-15: 국내 견적 시장 조사(퀘이사존 PC조립/견적 게시판, 2026-06~10, 용도별 10건, 견적왕 현금가)의
+  # 용도별 부품 비중 중앙값을 합 100%로 비례 조정해 1% 단위로 반올림했다. 근거와 이전 값은
+  # docs/validation/market_budget_share_20261015.md. RAM 비중은 2026년 DDR5 가격 급등이 반영된 값이다.
   budget_allocation:
-    GPU: 0.40
-    CPU: 0.18
-    메인보드: 0.10
-    RAM: 0.08
-    저장장치: 0.07
-    파워: 0.08
-    케이스: 0.05
-    쿨러: 0.04
+    GPU: 0.37
+    CPU: 0.14
+    메인보드: 0.07
+    RAM: 0.21
+    저장장치: 0.14
+    파워: 0.04
+    케이스: 0.02
+    쿨러: 0.01
 
 verification:
   efficiency_order: [Standard, Bronze, Silver, Gold, Platinum, Titanium]

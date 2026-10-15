@@ -341,7 +341,7 @@ def _computer_build(slots: Slots, log: LogFn) -> RequirementSpec:
     rules = load_computer_rules()
     base = rules["requirements"]
     # 용도 프로필(사무·학습·창작)은 기본 요구를 덮어쓰고 해상도 대신 자기 tier 를 쓴다.
-    # 프로필이 없는 용도(게임·기타·미지정)는 종전대로 해상도별 게임 요구를 따른다.
+    # 프로필이 없는 용도(게임·미지정)는 종전대로 해상도별 게임 요구를 따른다.
     profile = (base.get("purpose_profiles") or {}).get(slots.values.get("purpose")) or {}
     req = {**base, **{k: v for k, v in profile.items() if k != "tier"}}
     res = slots.values.get("resolution") or base["default_resolution"]
