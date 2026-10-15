@@ -72,6 +72,8 @@ def test_value_priority_result_explains_the_unspent_budget_and_offers_performanc
     assert notice is not None and notice["suggest_priority"] == "performance"
     assert notice["remaining"] == 2_000_000 - result["totals"]["selected_price"] > 0
     assert "가성비 우선" in notice["message"]
+    # 질문 칩(P2-2) — 많이 남긴 구성이면 왜 남겼는지부터
+    assert result["suggested_questions"][0] == "왜 예산을 다 안 썼어?" and len(result["suggested_questions"]) == 3
 
     # 안내가 말한 대로 성능 우선으로 바꿔 다시 추천받으면 예산을 더 쓰고, 안내는 사라진다.
     assert client.patch(f"/session/{lid}/slot", json={"field": "priority", "value": "performance"}).status_code == 200
@@ -92,6 +94,7 @@ def test_over_budget_result_says_how_much_it_exceeds(client):
     assert notice is not None and notice["remaining"] < 0 and notice["suggest_priority"] is None
     assert notice["spent"] == result["totals"]["selected_price"] and notice["budget"] == 600_000
     assert "많은" in notice["message"] and "예산" in notice["message"]
+    assert result["suggested_questions"][0] == "뭘 바꾸면 제일 싸져?"
 
 
 def test_within_budget_result_has_no_over_budget_notice(client):
