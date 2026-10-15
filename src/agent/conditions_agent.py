@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -24,7 +25,10 @@ from src.engine.brands import canonical_slot, cpu_brand_pref
 from src.config import CONDITIONS_AGENT, LLM_MODEL, LLM_PROVIDER, LLM_TIMEOUT_SECONDS, MOCK_MODE, OPENAI_API_KEY
 from src.engine.slot_rules import BUDGET_RANGE_MESSAGE, _parse_won, normalize_budget, parse_bare_manwon
 from src.clients.llm_guard import llm_call_slot
+from src.agent.text_guard import foreign_script
 from src.errors import ServiceUnavailable
+
+log = logging.getLogger(__name__)
 
 # 대화로 설정하지 않는 필드 — 사양 파일 첨부(/spec-file)가 채운다
 _NOT_CONVERSATIONAL = {"current_specs", "spec_file_name"}
@@ -534,5 +538,18 @@ def run_turn(category: str, cat_def: dict, values: dict, history: list[dict], te
     )
     with llm_call_slot():
         result = agent(text)
-    return TurnResult(reply=str(result).strip(), patches=dict(draft.patches), trace=list(draft.trace),
+    reply = str(result).strip()
+    foreign = foreign_script(reply)
+    if foreign:
+        # 다른 언어 글자가 섞인 답(10/15 QA #40 "日博 -vesm")은 버리고 코드 문장으로. 도구가 반영한 조건은 검사를 거친 값이라 둔다.
+        log.warning("conditions agent reply rejected (foreign script %s) — replaced: %r", foreign, reply[:120])
+        reply = _fallback_reply(draft)
+    return TurnResult(reply=reply, patches=dict(draft.patches), trace=list(draft.trace),
                       preference_patches=list(draft.preference_patches))
+
+
+def _fallback_reply(draft: ConditionDraft) -> str:
+    """모델 문장을 쓸 수 없을 때 — 반영 여부와 규칙이 정한 다음 질문만 말한다."""
+    head = "말씀하신 조건을 반영했어요. " if draft.patches else "다시 한 번 말씀해 주시겠어요? "
+    nq = draft.next_question()
+    return head + (nq["text"] if nq else "필요한 조건을 모두 확인했어요. 이 조건으로 추천을 받아보세요.")
