@@ -40,7 +40,7 @@ def _hold(other, lid: str) -> None:
     other.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"condition-turn:{lid}",))
 
 
-def test_a_turn_sent_while_another_is_running_waits_and_then_reads_the_newer_state():
+def test_a_turn_sent_while_another_is_running_waits_and_then_reads_the_newer_state(caplog):
     c = TestClient(app)
     lid = _session(c)
     c.post(f"/session/{lid}/answer", json={"question_id": "q_purpose", "selected": ["게임"]})
@@ -56,9 +56,10 @@ def test_a_turn_sent_while_another_is_running_waits_and_then_reads_the_newer_sta
     assert out["r"].status_code == 200, out["r"].text
     fields = {f["key"]: f["value"] for f in out["r"].json()["fields"]}
     assert fields["budget_max"] == 1_000_000                                 # 예산 차례라는 걸 읽고 처리했다
+    assert f"condition turn [{lid}] waited" in caplog.text                   # 줄을 선 흔적이 서버 로그에 남는다
 
 
-def test_waiting_too_long_is_refused_and_leaves_the_conversation_unchanged(monkeypatch):
+def test_waiting_too_long_is_refused_and_leaves_the_conversation_unchanged(monkeypatch, caplog):
     monkeypatch.setattr(session_service, "_TURN_WAIT_SECONDS", 0.3)
     c = TestClient(app)
     lid = _session(c)
@@ -71,12 +72,14 @@ def test_waiting_too_long_is_refused_and_leaves_the_conversation_unchanged(monke
         assert r.status_code == 409, r.text
         other.rollback()
     assert c.get(f"/session/{lid}").json()["messages"] == before             # 거절한 말은 대화에 남지 않는다
+    assert f"condition turn [{lid}] refused" in caplog.text
 
 
-def test_turns_on_different_lists_do_not_wait_for_each_other():
+def test_turns_on_different_lists_do_not_wait_for_each_other(caplog):
     c = TestClient(app)
     busy, free = _session(c), _session(c)
     with psycopg.connect(DSN, autocommit=False) as other:
         _hold(other, busy)
         assert c.post(f"/session/{free}/message", json={"text": "게임용 150만원"}).status_code == 200
         other.rollback()
+    assert "waited" not in caplog.text                                       # 기다리지 않은 턴은 남기지 않는다

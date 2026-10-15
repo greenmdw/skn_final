@@ -1,6 +1,6 @@
 """세션 생성과 조건 대화 서비스 (계약: docs/frontend_외부수정요청.md §D-4-1)."""
 from __future__ import annotations
-import hashlib, logging, secrets
+import hashlib, logging, secrets, time
 import psycopg
 from uuid import UUID
 from src.agent import conditions_agent, spec_extraction_agent
@@ -42,6 +42,7 @@ def _owned(repo: PlanRepo, list_id: UUID, principal: Principal) -> dict:
 
 # 앞 턴을 기다리는 최대 시간 — 턴 하나가 모델 호출(LLM_TIMEOUT_SECONDS 기본 45초)을 품고 있어서 그보다 조금 길게.
 _TURN_WAIT_SECONDS = 60
+_TURN_WAIT_LOG_SECONDS = 0.2      # 잠금을 바로 잡을 때는 수 ms — 이보다 길면 앞 턴을 기다린 것
 
 
 def _one_turn_at_a_time(conn, list_id: UUID) -> None:
@@ -53,11 +54,17 @@ def _one_turn_at_a_time(conn, list_id: UUID) -> None:
     _TURN_WAIT_SECONDS 를 넘기면 409. 트랜잭션이 끝나면 잠금이 저절로 풀린다."""
     previous = conn.execute("SELECT current_setting('lock_timeout')").fetchone()[0]
     conn.execute("SELECT set_config('lock_timeout', %s, true)", (f"{int(_TURN_WAIT_SECONDS * 1000)}ms",))
+    started = time.monotonic()
     try:
         conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"condition-turn:{list_id}",))
     except psycopg.errors.LockNotAvailable:
+        log.warning("condition turn [%s] refused: previous turn still running after %ss", list_id, _TURN_WAIT_SECONDS)
         raise Conflict("앞 메시지에 답하는 중이에요. 답이 온 뒤에 다시 보내 주세요.", code="turn_in_progress") from None
     conn.execute("SELECT set_config('lock_timeout', %s, true)", (previous,))
+    # 줄을 섰다는 흔적 — 접속 기록에는 늦게 온 200 만 남는다. 경고 수준이라 로그 설정 없이도 서버 출력에 나온다.
+    waited = time.monotonic() - started
+    if waited >= _TURN_WAIT_LOG_SECONDS:
+        log.warning("condition turn [%s] waited %.1fs for the previous turn", list_id, waited)
 
 
 def create_session(conn, principal: Principal) -> dict:
