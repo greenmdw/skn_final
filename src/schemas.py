@@ -1452,6 +1452,8 @@ class ReviewSummaryOut(BaseModel):
     product_name: Optional[str] = None
     product_manipulation_risk: ProductRiskOut
     synthetic_demo: Optional[SyntheticDemoOut] = None
+    # 우리 카탈로그 부품의 항목별 관측 문장("냉각 성능 — 좋다는 리뷰 7건 · 아쉽다는 리뷰 0건"). 리뷰 본문이 아니라 건수다.
+    aspect_facts: list[str] = []
 
 
 # ── 리뷰 검색 (GET /reviews/search) ──

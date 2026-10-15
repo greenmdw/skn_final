@@ -611,6 +611,8 @@ export interface ReviewSummary {
   excludedRatio: number | null
   /** 상품 단위로 관측된 사실 문장들(점수가 아니다) */
   riskEvidence: string[]
+  /** 항목별로 좋다·아쉽다고 말한 리뷰 수("냉각 성능 — 좋다는 리뷰 7건 · 아쉽다는 리뷰 0건"). 리뷰 본문이 아니다 */
+  aspectFacts: string[]
   /** ready 면 분석이 있다, unavailable 이면 서버가 이 제품의 분석을 아직 갖고 있지 않다 */
   status: 'ready' | 'unavailable'
   dataNotice: string

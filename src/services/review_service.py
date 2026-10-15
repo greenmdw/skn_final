@@ -22,6 +22,8 @@ TELEMETRY_KEY = "telemetry"
 # summaries[].source — 이 문장이 리뷰 발췌가 아니라 상품 단위 집계 사실이라는 표시.
 # 계약의 예시가 "합성 리뷰 요약" 을 쓰는 것과 같은 자리다.
 OBSERVATION_SOURCE = "관계·행동 축 관측 (리뷰 본문 아님)"
+# 항목별 관측 문장 수 — 우리 카탈로그 부품의 수집 리뷰에서 항목별로 좋다·아쉽다를 센 것(추천 순위의 리뷰 점수가 읽는 그 집계)
+_ASPECT_LINES = 5
 
 _demo_file: ReviewSummaryDemoFile | None = None
 
@@ -87,6 +89,46 @@ def _db_backed_analysis(product_key: str, conn=None) -> dict | None:
 
 
 
+def _catalog_review_facts(product_key: str, conn=None) -> dict | None:
+    """우리 카탈로그 부품(결과 화면의 `cpu:amd:ryzen-7-7700x3d` 키)의 수집 리뷰 수와 항목별 관측.
+
+    위의 두 경로(아마존 관계·행동 축 파일, review_aggregate)는 우리 카탈로그 부품과 겹치지 않아 결과 화면의 부품이
+    전부 404 → "리뷰 요약은 아직 없어요"였다(10/15 QA #27·#57). 추천 순위는 같은 부품의 evidence.review_document·
+    review_aspect_aggregate 를 이미 읽고 있다. 리뷰 본문은 내지 않고 건수만 낸다. 실패는 "없음"으로 접는다."""
+    if not os.environ.get("DATABASE_URL"):
+        return None
+    from src.services.result_advice import ASPECT_LABEL
+
+    def _read(c):
+        row = c.execute(
+            "SELECT p.id, (SELECT count(*) FROM evidence.review_document d WHERE d.product_id = p.id) AS n "
+            "FROM catalog.product p WHERE lower(replace(p.product_type || ':' || p.brand || ':' || p.model, ' ', '-')) = %s",
+            (product_key.strip().lower(),)).fetchone()
+        if row is None:
+            return None
+        product_id, count = (row["id"], row["n"]) if isinstance(row, dict) else row
+        aspects = c.execute(
+            "SELECT r.aspect_code, sum(a.p) AS p, sum(a.n) AS n, sum(a.mixed) AS mixed "
+            "FROM evidence.review_aspect_aggregate a JOIN evidence.review_aspect_rule r ON r.id = a.rule_id "
+            "WHERE a.product_id = %s GROUP BY r.aspect_code HAVING sum(a.p + a.n + a.mixed) > 0 "
+            "ORDER BY sum(a.p + a.n + a.mixed) DESC, r.aspect_code LIMIT %s", (product_id, _ASPECT_LINES)).fetchall()
+        lines = []
+        for a in aspects:
+            code, pos, neg, mixed = (a["aspect_code"], a["p"], a["n"], a["mixed"]) if isinstance(a, dict) else a
+            line = f"{ASPECT_LABEL.get(code, code)} — 좋다는 리뷰 {pos}건 · 아쉽다는 리뷰 {neg}건"
+            lines.append(line + (f" · 엇갈린 리뷰 {mixed}건" if mixed else ""))
+        return {"count": int(count), "lines": lines} if count or lines else None
+
+    try:
+        if conn is not None:
+            with conn.transaction():
+                return _read(conn)
+        with get_conn() as own:
+            return _read(own)
+    except Exception:
+        return None
+
+
 def get_summary(product_key: str, conn=None) -> ReviewSummaryOut:
     """S5 리뷰 상세. 실측(관계·행동 축 관측 + P8 파일 기반 분석)과 합성 데모 블록을 분리해 낸다.
 
@@ -108,8 +150,17 @@ def get_summary(product_key: str, conn=None) -> ReviewSummaryOut:
             break
     if facts is not None:
         key = facts_key
-    if facts is None and d is None and db is None:
+    # 실측 산출물이 없으면 우리 카탈로그의 수집 리뷰로 — 합성 데모 블록(d)만 있는 부품도 화면은 그 블록을 읽지 않는다.
+    catalog = _catalog_review_facts(product_key, conn) if facts is None and db is None else None
+    if catalog is None and facts is None and d is None and db is None:
         raise NotFound(f"리뷰 요약 없음: {product_key}", field="product_key")
+    if catalog is not None:
+        note = (f"수집한 리뷰 {catalog['count']:,}건에서 항목별로 좋다·아쉽다고 말한 리뷰 수를 센 것이에요. "
+                "평점과 리뷰 진위는 따로 판단하지 않았어요.")
+        return ReviewSummaryOut(
+            product_key=product_key, total_count=catalog["count"], rating_raw=None,
+            aspect_facts=catalog["lines"],
+            data_notice=note, status="ready", product_manipulation_risk=ProductRiskOut(evidence=[], reliable_range=None))
 
     if facts is not None:
         auth = store.get_review_authenticity(key)

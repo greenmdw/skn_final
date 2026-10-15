@@ -120,6 +120,30 @@ def parse_bare_manwon(text: str) -> int | None:
     return int(m.group(1)) * 10_000 if m else None
 
 
+# 금액만 말한 답 — "200", "150만원", "예산은 200만 원 정도요". 조건 대화가 모델을 거치지 않고 바로 반영한다.
+# 모델 호출 두 번(도구 호출 → 답 문장)에 예산 턴이 중앙값 4.3초·최대 19.7초 걸렸다(시연 DB 10/13~15, 10/15 QA #26
+# "예산 설정 10초 넘게"). 다른 말이 섞이면("200만원인데 조용하게") 모델에 맡긴다.
+_AMOUNT_ONLY = re.compile(
+    r"(?:예산\s*(?:은|는|이)?\s*)?"
+    r"(?P<amount>\d[\d,]*(?:\.\d+)?\s*(?:억|천\s*만|만)\s*원?|\d[\d,]{3,}\s*원|\d{1,4})"
+    r"\s*(?:정도|까지|이하|이내|쯤|내외|선)?\s*(?:으로|로)?\s*"
+    r"(?:이요|요|입니다|이에요|예요|해\s*(?:주세요|줘|요)|할게요|맞춰\s*(?:주세요|줘))?\s*[.!~]*")
+
+
+def parse_budget_answer(text: str, *, budget_turn: bool) -> int | None:
+    """금액 하나만 말한 답 → 원. 단위 없는 수("200")는 예산을 묻는 차례일 때만 만 원으로 읽는다.
+    범위(BUDGET_MIN~MAX) 밖이거나 다른 말이 섞였으면 None — 모델이 사정을 설명한다."""
+    m = _AMOUNT_ONLY.fullmatch(text.strip())
+    if not m:
+        return None
+    amount = m.group("amount")
+    if re.fullmatch(r"\d{1,4}", amount):
+        won = parse_bare_manwon(amount) if budget_turn else None
+    else:
+        won = _parse_won(amount)
+    return won if won is not None and BUDGET_MIN <= won <= BUDGET_MAX else None
+
+
 def _parse_won(text: str) -> int | None:
     """'150만원', '₩1,500,000', '1.5 million won', '삼백만원' 같은 표현 → 정수 원. 정정 표현이 있으면 그 뒤의 금액을 우선한다."""
     parts = _CORRECTION.split(text)

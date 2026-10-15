@@ -8,7 +8,7 @@ from src.auth.deps import Principal
 from src.categories import available_categories, load_category
 from src.engine import slot_rules
 from src.engine.brands import canonical_brand, canonical_slot, cpu_brand_pref
-from src.engine.lang import josa
+from src.engine.lang import fmt_money, josa
 from src.engine.spec_text import parse_spec_text
 from src.errors import Conflict, FileTooLarge, NotFound, ValidationFailed
 from src.repo.plan_repo import RESUMED_FROM_KEY, PlanRepo
@@ -377,6 +377,18 @@ def _current_values(repo: PlanRepo, revision_id: UUID) -> tuple[dict, str | None
 _ALL_SET = "필요한 조건을 모두 확인했어요. 이 조건으로 추천을 받아보세요."
 
 
+def _budget_only_answer(cat_def: dict, values: dict, text: str) -> int | None:
+    """금액만 말한 답이면 그 예산(원). 예산 칸이 없는 카테고리·다른 말이 섞인 답은 None — 모델에 맡긴다."""
+    if not any(meta["key"] == "budget_max" for meta in cat_def.get("fields", [])):
+        return None
+    pending = _next_question(cat_def, values)
+    return slot_rules.parse_budget_answer(text, budget_turn=bool(pending) and pending["field"] == "budget_max")
+
+
+def _won_text(won: int) -> str:
+    return f"{won // 10_000:,}만 원" if won % 10_000 == 0 else fmt_money(won)
+
+
 def apply_explicit_preference_patches(conn, user_id: UUID | None, patches: list[dict]) -> int:
     """조건 대화 에이전트가 이번 턴에 모은 record_brand_preference 호출들을 저장한다
     (docs/사용자_선호비선호_기록_설계.md 파이프라인 A). 게스트(user_id 없음)는 저장하지 않는다(§7).
@@ -421,7 +433,10 @@ def handle_message(
 
     reply: str | None = None
     extracted: dict = {}
-    if conditions_agent.available():
+    budget = _budget_only_answer(cat_def, values, text)
+    if budget is not None:
+        extracted = {"budget_max": budget}            # 금액만 — 모델 없이 바로 (10/15 QA #26)
+    elif conditions_agent.available():
         try:
             turn = conditions_agent.run_turn(
                 category, cat_def, values, history, text,
@@ -432,20 +447,17 @@ def handle_message(
             apply_explicit_preference_patches(conn, principal.user_id, turn.preference_patches)
         except Exception as exc:  # 모델·네트워크 오류 — 이번 턴만 규칙으로
             log.warning("conditions agent failed, falling back to slot_rules: %s", exc)
-    if reply is None:
+    if reply is None and budget is None:
         extracted = slot_rules.extract(category, text)
-        pending = _next_question(cat_def, values)
-        if pending and pending["field"] == "budget_max" and "budget_max" not in extracted:
-            bare = slot_rules.parse_bare_manwon(text)     # 예산 차례에 "100" 만 — 만 원 단위 (에이전트 도구와 같은 규칙)
-            if bare is not None and slot_rules.BUDGET_MIN <= bare <= slot_rules.BUDGET_MAX:
-                extracted["budget_max"] = bare
 
     for key, value in extracted.items():
         repo.upsert_condition(current["id"], key, {"value": value}, "extracted", msg_id)
     values.update(extracted)
 
     nq = _next_question(cat_def, values)
-    if reply is None:
+    if budget is not None:
+        reply = f"예산 {_won_text(budget)}으로 반영했어요. " + (nq["text"] if nq else _ALL_SET)
+    elif reply is None:
         if nq:
             reply = nq["text"] if extracted else "죄송해요, 이해하지 못했어요. " + nq["text"]
         else:
