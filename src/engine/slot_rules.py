@@ -108,6 +108,18 @@ def normalize_budget(value) -> int | None:
     return won
 
 
+# 예산을 묻는 차례에 단위 없이 "100"·"150" 만 치는 사용자가 많다 — 한국어로 PC 예산은 만 원 단위로 말한다.
+# 예전엔 에이전트가 넘긴 문자열에 따라 100만원(모델이 "100만원"으로 넘김)·100원(그대로 "100", 범위 밖 거절)으로
+# 갈렸다(10/15 QA #37). 네 자리까지만 만 원으로 본다 — "1500000" 처럼 긴 수는 원 단위 그대로다.
+_BARE_MANWON = re.compile(r"\s*(\d{1,4})\s*")
+
+
+def parse_bare_manwon(text: str) -> int | None:
+    """단위 없는 1~4자리 수 하나뿐인 말 → 만 원 단위 원. 그 밖은 None."""
+    m = _BARE_MANWON.fullmatch(text.replace(",", ""))
+    return int(m.group(1)) * 10_000 if m else None
+
+
 def _parse_won(text: str) -> int | None:
     """'150만원', '₩1,500,000', '1.5 million won', '삼백만원' 같은 표현 → 정수 원. 정정 표현이 있으면 그 뒤의 금액을 우선한다."""
     parts = _CORRECTION.split(text)

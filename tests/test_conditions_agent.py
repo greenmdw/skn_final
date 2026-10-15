@@ -76,6 +76,22 @@ def test_budget_amount_parses_like_int(raw, expected):
     assert d.patches["budget_max"] == expected
 
 
+@pytest.mark.parametrize("raw, expected", [("100", 1_000_000), ("150", 1_500_000), (" 1500 ", 15_000_000), ("1,000", 10_000_000)])
+def test_bare_small_budget_reads_as_manwon(raw, expected):
+    # 10/15 QA #37 — 예산 차례에 "100" 만 치면 100원(범위 밖 거절)과 100만원 사이를 오갔다
+    d = _draft("computer")
+    out = d.set("budget_max", raw)
+    assert d.patches["budget_max"] == expected
+    assert f"{expected // 10_000}만 원" in out
+
+
+@pytest.mark.parametrize("raw", ["5000", "5"])
+def test_bare_budget_out_of_range_is_refused(raw):
+    d = _draft("computer")
+    assert d.set("budget_max", raw).startswith("오류")
+    assert "budget_max" not in d.patches
+
+
 def test_extra_appends_without_duplicates():
     d = _draft("computer", {"extra": ["흰색 케이스"]})
     d.add_extra("흰색 케이스")

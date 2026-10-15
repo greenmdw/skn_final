@@ -405,6 +405,11 @@ def handle_message(
             log.warning("conditions agent failed, falling back to slot_rules: %s", exc)
     if reply is None:
         extracted = slot_rules.extract(category, text)
+        pending = _next_question(cat_def, values)
+        if pending and pending["field"] == "budget_max" and "budget_max" not in extracted:
+            bare = slot_rules.parse_bare_manwon(text)     # 예산 차례에 "100" 만 — 만 원 단위 (에이전트 도구와 같은 규칙)
+            if bare is not None and slot_rules.BUDGET_MIN <= bare <= slot_rules.BUDGET_MAX:
+                extracted["budget_max"] = bare
 
     for key, value in extracted.items():
         repo.upsert_condition(current["id"], key, {"value": value}, "extracted", msg_id)

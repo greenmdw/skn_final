@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 
 from src.engine.brands import canonical_slot, cpu_brand_pref
 from src.config import CONDITIONS_AGENT, LLM_MODEL, LLM_PROVIDER, LLM_TIMEOUT_SECONDS, MOCK_MODE, OPENAI_API_KEY
-from src.engine.slot_rules import BUDGET_RANGE_MESSAGE, _parse_won, normalize_budget
+from src.engine.slot_rules import BUDGET_RANGE_MESSAGE, _parse_won, normalize_budget, parse_bare_manwon
 from src.clients.llm_guard import llm_call_slot
 from src.errors import ServiceUnavailable
 
@@ -97,8 +97,13 @@ class ConditionDraft:
         meta = self.schema().get(key)
         if meta is None:
             return self._record(call, f"오류: '{key}' 는 설정할 수 없는 필드입니다. 가능한 필드: {', '.join(self.schema())}")
+        note = ""
         if key == "budget_max" and isinstance(raw, str) and raw.strip().lower() not in ("", "null", "none"):
-            value = _parse_amount(raw)
+            value = parse_bare_manwon(raw)
+            if value is not None:
+                note = f" ('{raw.strip()}' 은 만 원 단위로 읽음 — 사용자에게 {value // 10_000}만 원으로 확인)"
+            else:
+                value = _parse_amount(raw)
             if value is None or value <= 0:
                 return self._record(call, f"오류: {key} — 0보다 큰 금액으로 (예: 1500000 · 150만원)")
             try:
@@ -117,7 +122,7 @@ class ConditionDraft:
                 value = ["none"]
         self.patches[key] = value
         shown = json.dumps(value, ensure_ascii=False)
-        return self._record(call, f"{key} = {shown} 반영" + self._status())
+        return self._record(call, f"{key} = {shown} 반영{note}" + self._status())
 
     def clear(self, key: str) -> str:
         call = f"clear_condition({key!r})"
@@ -439,7 +444,8 @@ def system_prompt(
         "4. 필수 항목이 모두 채워졌으면 '이 조건으로 추천을 받아볼 수 있다'고 안내하고 추가 조건이 있으면 말해 달라고 합니다.",
         "5. 값을 바꿀 때는 clear_condition 없이 set_condition 에 새 값만 넣습니다. clear 는 '취소'·'빼 주세요' 에만 씁니다.",
         "6. 제품 추천·가격·성능·호환성 판단을 하지 않습니다. 그건 다음 단계의 엔진이 합니다.",
-        "7. 금액은 원화로만 씁니다. 금액을 새로 계산하지 않습니다.",
+        "7. 금액은 원화로만 씁니다. 금액을 새로 계산하지 않습니다. 예산에 단위 없이 숫자만 말하면(예: \"100\") "
+        "그 숫자를 그대로 budget_max 에 넘깁니다 — 도구가 만 원 단위로 읽습니다.",
         "8. 사용자가 특정 부품 브랜드를 좋아하거나 싫어한다고 직접 말하면(예: \"인텔은 별로예요\", "
         "\"AMD가 좋아요\") record_brand_preference 로 기록합니다. 짐작해서 부르지 않습니다.",
         "9. 사용자가 구체적인 제품명을 말했으면(예: \"RTX 6090으로 해줘\", \"9950X3D 있어?\") "
