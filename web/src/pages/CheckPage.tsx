@@ -110,6 +110,8 @@ export default function CheckPage() {
   const [pickerError, setPickerError] = useState('')
   const [pickedSetupId, setPickedSetupId] = useState<string | null>(null)
   const [comparison, setComparison] = useState<QuoteSavedComparison | null>(null)
+  // 올린 사진이 한 견적의 여러 장인지, 서로 다른 견적인지 — 사용자가 고르기 전에는 서버의 추정(draft.sourceModeHint)을 따른다
+  const [sourceModeChoice, setSourceModeChoice] = useState<{ draftId: string; mode: 'single' | 'separate' } | null>(null)
   const [savedVisible, setSavedVisible] = useState(false)
   const [differenceOnly, setDifferenceOnly] = useState(false)
   const [answers, setAnswers] = useState<ComparisonAnswer[]>([])
@@ -358,8 +360,8 @@ export default function CheckPage() {
   }
 
   // ── 분석 ─────────────────────────────────────────────────────────────────
-  async function runAnalysis(target: QuoteDraft) {
-    const result = await api.quoteDrafts.analyze(target.draftId)
+  async function runAnalysis(target: QuoteDraft, options: { sourceIds?: string[]; autoAsk?: boolean } = {}) {
+    const result = await api.quoteDrafts.analyze(target.draftId, options.sourceIds)
     setAnalysis(result)
     setShowAnalysis(true)
     setComparison(null); setSavedVisible(false); setAnswers([]); setOpenAnswerIds(new Set())
@@ -381,7 +383,31 @@ export default function CheckPage() {
       ...general,
     ])
     scrollTo('ck-analysis')
-    if (asked) void sendChat(asked, result)
+    if (asked && options.autoAsk !== false) void sendChat(asked, result)
+    return result
+  }
+
+  // 서로 다른 두 견적을 올렸을 때 — 첫 견적을 분석해 채팅 세션을 열고, 두 견적을 기준별로 비교한 뒤 질문(있으면)을 그 비교로 묻는다.
+  async function compareDraftQuotes() {
+    if (!draft) return
+    const ids = draft.sources.filter(source => source.type === 'image' && source.status === 'completed').map(source => source.id)
+    if (ids.length < 2) return
+    setBusy('analyze'); setError('')
+    try {
+      const saved = await persist()
+      if (!saved) return
+      const result = await runAnalysis(saved, { sourceIds: [ids[0]], autoAsk: false })
+      const compared = await api.quoteDrafts.compareQuotes(saved.draftId, [ids[0]], ids.slice(1))
+      rememberCheckComparison(result.listId, compared.comparisonId)
+      setComparison(compared); setSavedVisible(true); setDifferenceOnly(false)
+      setAnswers([]); setOpenAnswerIds(new Set())
+      scrollTo('ck-saved-comparison')
+      const asked = (saved.question ?? '').trim() || question.trim()
+      if (asked) void sendChat(asked, result, compared.comparisonId)
+      showToast('두 견적을 기준별로 비교했어요.')
+    } catch (caught) {
+      setError(errorMessage(caught, '두 견적을 비교하지 못했습니다.'))
+    } finally { setBusy(null) }
   }
 
   async function analyze() {
@@ -520,7 +546,7 @@ export default function CheckPage() {
   }
 
   // ── 대화 ─────────────────────────────────────────────────────────────────
-  async function sendChat(textValue: string, target: QuoteDraftAnalysis | null = analysis) {
+  async function sendChat(textValue: string, target: QuoteDraftAnalysis | null = analysis, comparisonOverride?: string) {
     if (!target) {
       setQuestion(previous => (previous.trim() ? `${previous.trim()} ${textValue}` : textValue))
       setChatEntries(previous => [...previous, { id: nextId('u'), kind: 'user', text: textValue }])
@@ -528,7 +554,7 @@ export default function CheckPage() {
       return
     }
     const clientId = newClientId()
-    const comparisonId = target === analysis ? comparison?.comparisonId : undefined
+    const comparisonId = comparisonOverride ?? (target === analysis ? comparison?.comparisonId : undefined)
     const placeholderId = `pending-${clientId}`
     setChatEntries(previous => [...previous, { id: `u-${clientId}`, kind: 'user', text: textValue }])
     if (comparisonId) {
@@ -687,6 +713,24 @@ export default function CheckPage() {
             {error && <div className="pl-alert bad" role="alert">{error}</div>}
             {restoring && <div className="ck-loading"><div className="pl-spin" /><b>지난 견적 점검을 불러오는 중이에요</b><span>저장된 제품·분석 결과를 다시 읽고 있어요.</span></div>}
             {busy === 'analyze' && <div className="ck-loading"><div className="pl-spin" /><b>호환성·가격·밸런스를 분석하고 있어요</b><span>실제 카탈로그 응답을 기다리는 중입니다.</span></div>}
+
+            {draft && !analysis && draft.sources.filter(source => source.type === 'image' && source.status === 'completed').length >= 2 && (() => {
+              const mode = sourceModeChoice?.draftId === draft.draftId ? sourceModeChoice.mode : draft.sourceModeHint
+              const pick = (value: 'single' | 'separate') => setSourceModeChoice({ draftId: draft.draftId, mode: value })
+              return (
+                <div className="ck-card ck-source-mode" role="group" aria-label="올린 사진의 관계">
+                  <b>올린 사진은 어떤 견적인가요?</b>
+                  <label><input type="radio" name="ck-source-mode" checked={mode === 'single'} onChange={() => pick('single')} /> 한 견적을 나눠 찍은 여러 장</label>
+                  <label><input type="radio" name="ck-source-mode" checked={mode === 'separate'} onChange={() => pick('separate')} /> 서로 다른 견적 (비교하고 싶어요)</label>
+                  {mode === 'separate' && (
+                    <button type="button" className="pl-btn" disabled={busy !== null} onClick={() => void compareDraftQuotes()}>견적 비교하기</button>
+                  )}
+                  <small>{mode === 'separate'
+                    ? '견적마다 호환·용도 충족·성능 등급·총액을 기준별로 나란히 보여 드려요. 어느 쪽이 더 낫다고 단정하지는 않아요.'
+                    : '여러 장의 중복 부품은 합치고 한 견적으로 분석해요. 아래에서 부품을 확인하고 분석하세요.'}</small>
+                </div>
+              )
+            })()}
 
             {draft && (
               <RecognitionResult

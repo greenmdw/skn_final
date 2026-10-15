@@ -33,6 +33,7 @@ function draftFromWire(draft: WireQuoteDraft): QuoteDraft {
     question: draft.question,
     partialSuccess: draft.partial_success,
     groups: (draft.groups ?? []).map(group => ({ id: group.id, name: group.name, sourceIds: group.source_ids, itemIds: group.item_ids })),
+    sourceModeHint: draft.source_mode_hint === 'separate' ? 'separate' : 'single',
     createdAt: draft.created_at,
   }
 }
@@ -91,6 +92,11 @@ function savedComparisonFromWire(result: WireQuoteSavedComparison): QuoteSavedCo
       text: result.brief_summary.text,
     },
     savedName: typeof result.saved?.name === 'string' && result.saved.name ? result.saved.name : (result.labels?.saved ?? '저장한 견적'),
+    kind: result.kind ?? null,
+    labels: { received: result.labels?.received ?? '받은 견적', saved: result.labels?.saved ?? '저장한 견적' },
+    criteria: (result.criteria ?? []).map(row => ({
+      key: row.key, label: row.label, aText: row.a_text, bText: row.b_text, better: row.better, higherIsBetter: row.higher_is_better, info: row.info === true,
+    })),
     computedAt: result.computed_at,
   }
 }
@@ -134,8 +140,8 @@ export const quoteDrafts: Api['quoteDrafts'] = {
     }
     return draftFromWire(await request<WireQuoteDraft>('PATCH', `${base(draftId)}/items`, body))
   },
-  async analyze(draftId) {
-    const result = await request<WireQuoteDraftAnalysis>('POST', `${base(draftId)}/analysis`, {})
+  async analyze(draftId, sourceIds) {
+    const result = await request<WireQuoteDraftAnalysis>('POST', `${base(draftId)}/analysis`, sourceIds?.length ? { source_ids: sourceIds } : {})
     const requirement = (result.balance as { requirement?: { label?: unknown } } | null)?.requirement
     return {
       ...quoteReviewFromWire(result),
@@ -198,6 +204,10 @@ export const quoteDrafts: Api['quoteDrafts'] = {
     const result = await request<WireQuoteSavedComparison>('POST', `${reviewBase(listId)}/saved-comparisons`, {
       saved_list_id: savedListId, ...(savedRevisionNo ? { saved_revision_no: savedRevisionNo } : {}),
     })
+    return savedComparisonFromWire(result)
+  },
+  async compareQuotes(draftId, aSourceIds, bSourceIds) {
+    const result = await request<WireQuoteSavedComparison>('POST', `${base(draftId)}/quote-comparisons`, { a_source_ids: aSourceIds, b_source_ids: bSourceIds })
     return savedComparisonFromWire(result)
   },
   async getSavedComparison(listId, comparisonId) {
