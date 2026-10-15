@@ -426,6 +426,7 @@ export interface WirePeripheralInterpretation {
   stated: Record<string, string[]>
   hand_size: 'small' | 'medium' | 'large' | null
   budget: Record<string, number>
+  budget_min?: Record<string, number>
   budget_total: number | null
   emphasis?: Record<string, string[]>
   brand_like?: Record<string, string[]>

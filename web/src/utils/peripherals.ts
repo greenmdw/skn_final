@@ -59,7 +59,7 @@ export function reviewEvidence(aspects: PeripheralReviewAspect[], limit = 3): Re
 // ---- 문장 해석(서버 /peripherals/interpret) 결과를 화면 상태로 다루는 도구 ----
 
 export const EMPTY_INTERPRETATION: PeripheralInterpretation = {
-  kinds: [], purposes: [], situations: [], stated: {}, handSize: null, budget: {}, budgetTotal: null,
+  kinds: [], purposes: [], situations: [], stated: {}, handSize: null, budget: {}, budgetMin: {}, budgetTotal: null,
   emphasis: {}, brandLike: {}, brandAvoid: {}, unrecognized: [],
 }
 
@@ -117,6 +117,7 @@ export type UnderstoodRemoval =
   | { type: 'preference'; kind: PeripheralKind; condition: string; sources: string[] }
   | { type: 'filter'; kind: PeripheralKind; condition: string }
   | { type: 'budget'; kind: PeripheralKind | null }
+  | { type: 'budget_min'; kind: PeripheralKind }
   | { type: 'adjusted'; key: string }
   | { type: 'emphasis'; kind: PeripheralKind; axis: string }
   | { type: 'brand_like'; kind: PeripheralKind; brand: string }
@@ -145,6 +146,10 @@ export function removeUnderstood(state: UnderstoodState, removal: UnderstoodRemo
       delete budget[removal.kind]
       next = { ...state, interpretation: { ...interp, budget } }
     }
+  } else if (removal.type === 'budget_min') {
+    const budgetMin = { ...interp.budgetMin }
+    delete budgetMin[removal.kind]
+    next = { ...state, interpretation: { ...interp, budgetMin } }
   } else if (removal.type === 'emphasis') {
     next = { ...state, interpretation: { ...interp, emphasis: { ...interp.emphasis, [removal.kind]: without(interp.emphasis[removal.kind] ?? [], [removal.axis]) } } }
   } else if (removal.type === 'brand_like') {
@@ -192,6 +197,7 @@ export function recommendInputs(interp: PeripheralInterpretation) {
   return {
     budgetMax: interp.budgetTotal ?? undefined,
     purposes: interp.purposes, situations: interp.situations, stated: interp.stated, kindBudget: interp.budget,
+    kindBudgetMin: interp.budgetMin,
     emphasis: interp.emphasis, brandLike: interp.brandLike, brandAvoid: interp.brandAvoid, handSize: interp.handSize,
   }
 }
@@ -212,7 +218,7 @@ export function withKinds(state: UnderstoodState, kinds: PeripheralKind[]): Unde
   return {
     ...state,
     interpretation: {
-      ...interp, kinds, stated: keep(interp.stated), budget: keep(interp.budget),
+      ...interp, kinds, stated: keep(interp.stated), budget: keep(interp.budget), budgetMin: keep(interp.budgetMin),
       emphasis: keep(interp.emphasis), brandLike: keep(interp.brandLike), brandAvoid: keep(interp.brandAvoid),
     },
   }

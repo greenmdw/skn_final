@@ -169,6 +169,7 @@ function UnderstoodChips({ understood, kinds, hasPlan, onRemove }: {
       ...(entry?.filters ?? []).map(item => chip(`${kind}:f:${item.condition}`, '조건', item.label, { type: 'filter', kind, condition: item.condition })),
       ...(entry?.preferences ?? []).map(item => chip(`${kind}:s:${item.condition}`, '선호', item.label, { type: 'preference', kind, condition: item.condition, sources: item.sources })),
       ...(interpretation.budget[kind] ? [chip(`${kind}:b`, '예산', wonFmt(interpretation.budget[kind] as number), { type: 'budget', kind })] : []),
+      ...(interpretation.budgetMin[kind] ? [chip(`${kind}:bm`, '최소 가격', `${wonFmt(interpretation.budgetMin[kind] as number)} 이상`, { type: 'budget_min', kind })] : []),
       // 선호 브랜드를 말하면 서버가 "브랜드" 축 강조를 저절로 붙인다 — 브랜드 칩으로 이미 보이므로 강조 칩에서는 뺀다.
       ...(interpretation.emphasis[kind] ?? []).filter(axis => axis !== '브랜드').map(axis => chip(`${kind}:e:${axis}`, '중요', axis, { type: 'emphasis', kind, axis })),
       ...(interpretation.brandLike[kind] ?? []).map(brand => chip(`${kind}:bl:${brand}`, '선호 브랜드', brand, { type: 'brand_like', kind, brand })),

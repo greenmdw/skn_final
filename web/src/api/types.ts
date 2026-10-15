@@ -442,6 +442,8 @@ export interface PeripheralInterpretation {
   handSize: 'small' | 'medium' | 'large' | null
   /** 종류별 예산 상한(원) */
   budget: Partial<Record<PeripheralKind, number>>
+  /** 종류별 최소 가격(원) — "6만원 이상"처럼 말했을 때. 서버가 아직 안 주면 비어 있다 */
+  budgetMin: Partial<Record<PeripheralKind, number>>
   /** 여러 종류를 합친 예산(원) */
   budgetTotal: number | null
   /** 강조한 축(종류 → 가격·리뷰·무상AS·브랜드·스펙 기준 이름). 선호 브랜드를 말하면 "브랜드"가 저절로 붙는다 */
@@ -498,6 +500,8 @@ export interface PeripheralRecommendRequest {
   situations?: string[]
   stated?: Partial<Record<PeripheralKind, string[]>>
   kindBudget?: Partial<Record<PeripheralKind, number>>
+  /** 종류별 최소 가격(원). interpretation.budgetMin */
+  kindBudgetMin?: Partial<Record<PeripheralKind, number>>
   emphasis?: Partial<Record<PeripheralKind, string[]>>
   brandLike?: Partial<Record<PeripheralKind, string[]>>
   brandAvoid?: Partial<Record<PeripheralKind, string[]>>
