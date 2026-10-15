@@ -17,7 +17,7 @@
 # hard_filters·preferences 절은 쓰지 않는다 — E11 은 requirements.<kind>.hard/soft 를 그대로
 # 평가한다. 로더(src/engine/peripheral_rules.py)는 두 이름을 "알려진 선택 절"로 예약만 해 둔다.
 schema_version: 1
-rule_set_version: peripheral-rules-v6   # v2: verify 절(E12) 추가 · v3: 견적 입력 절 추가, requirements.soft 제거 · v4: 변별력 없던 스펙 임계값 보정(해상도·응답속도·폴링레이트) · v5: QA 해석 보강(4K·QHD·유선·노래, 2026-10-15) · v6: chat 절 추가(질문 답변)
+rule_set_version: peripheral-rules-v7   # v2: verify 절(E12) 추가 · v3: 견적 입력 절 추가, requirements.soft 제거 · v4: 변별력 없던 스펙 임계값 보정(해상도·응답속도·폴링레이트) · v5: QA 해석 보강(4K·QHD·유선·노래, 2026-10-15) · v6: chat 절 추가(질문 답변) · v7: 인용 표시 규칙(feel.quote_similarity_max, 결과 화면 재설계) + display.key_specs·axis_labels
 
 kinds:
   monitor:
@@ -530,6 +530,7 @@ feel:
   recent_months: 3              # "최근 사용기 수"를 세는 기간(개월)
   trending_margin: 0.02         # "요즘 많이 쓰는" 을 말했을 때 1위와 점수 차가 이 안인 후보끼리만 최근 글 수로 순서를 바꾼다
   quotes_per_attribute: 2       # 속성마다 보여 줄 인용 문장 수의 상한
+  quote_similarity_max: 0.3     # 한 제품에서 이미 고른 문장과 글자 2-gram 자카드 유사도가 이 이상이면 같은 말로 보고 건너뛴다
   rrf_k: 60                     # 문장 검색에서 단어 일치와 임베딩 순위를 합치는 상수: 1 / (rrf_k + 순위)
   search_limit: 5               # 문장 검색 결과 수의 상한
   post_max_chars: 4000          # 사용기 분석에 쓰는 본문의 길이 상한(넘으면 앞부분만 분석하고 잘랐다고 기록한다)
@@ -862,3 +863,64 @@ verify:
       "1.2": {FHD: 240, QHD: 165, UHD: 60}
       "1.4": {FHD: 360, QHD: 240, UHD: 120}
       "2.1": {FHD: 480, QHD: 360, UHD: 240}
+
+# display: 결과 화면이 그대로 쓰는 표시 값(결과 화면 재설계). 순위·점수 계산에는 쓰지 않는다. 코드는 src/engine/peripheral_display.py.
+#   key_specs       — 종류별로 카드에 한 줄로 보이는 필수 스펙, 이 순서대로. 값이 없는 항목은 응답에서 뺀다.
+#                     spec: 스펙 키 하나(숫자는 unit 을 붙인다) / parts: 텍스트 스펙 여러 개를 sep 로 이음 / flags: 참인 스펙의 표시를 "·" 로 이음
+#   axis_labels     — 점수 축 이름(내부 이름 → 사용자말). 가중치 축을 모두 덮어야 한다
+#   requested_labels — "요청하신 ○○" 에 쓰는 이름. 상황·목적 코드나 직접 말한 조건 이름으로 찾고, 없으면 설정의 label 을 쓴다
+#   requested_feel  — 직접 말한 조건이 가리키는 체감 속성(사용기·외부 리뷰 근거를 이 속성에서 가져온다). 종류 → 조건 → 속성 코드
+display:
+  key_specs:
+    monitor:
+      - {key: size,       label: 크기,       spec: screen_size_inch, unit: 인치}
+      - {key: resolution, label: 해상도,     spec: resolution_raw}
+      - {key: refresh,    label: 주사율,     spec: refresh_hz, unit: Hz}
+      - {key: panel,      label: 패널,       spec: panel_raw}
+      - {key: response,   label: 응답속도,   spec: response_ms_gtg, unit: ms}
+      - {key: usb_c,      label: USB-C 영상, flags: {usb_c_video: 지원}}
+    keyboard:
+      - {key: switch,  label: 스위치,   parts: [switch_method_raw, switch_kind_raw], sep: " · "}
+      - {key: length,  label: 가로 길이, spec: size_longest_mm, unit: mm}
+      - {key: weight,  label: 무게,     spec: weight_g, unit: g}
+      - {key: connect, label: 연결,     flags: {connectivity_wired: 유선, connectivity_wireless: 무선, connectivity_bluetooth: 블루투스}}
+    mouse:
+      - {key: weight,  label: 무게,     spec: weight_g, unit: g}
+      - {key: length,  label: 길이,     spec: size_longest_mm, unit: mm}
+      - {key: connect, label: 연결,     flags: {connectivity_wired: 유선, connectivity_wireless: 무선, connectivity_bluetooth: 블루투스}}
+      - {key: polling, label: 폴링레이트, spec: polling_hz_max, unit: Hz}
+      - {key: battery, label: 전원,     spec: battery_power_raw}
+    speaker:
+      - {key: form,    label: 형태,     spec: speaker_form_raw}
+      - {key: output,  label: 출력,     spec: output_w, unit: W}
+      - {key: channels, label: 채널,    spec: channels}
+      - {key: connect, label: 연결,     flags: {connectivity_wired: 유선, connectivity_wireless: 무선, connectivity_bluetooth: 블루투스}}
+      - {key: power,   label: 전원,     spec: power_source_raw}
+  axis_labels:
+    리뷰: 후기·사용기
+    가격: 가격
+    브랜드: 브랜드
+    무상AS: 무상 A/S
+    화면: 화면 사양
+    움직임: 움직임 사양
+    화질사양: 화질 사양
+    연결: 연결
+    스위치소음: 스위치·소음
+    배열크기: 배열·크기
+    손맞춤: 손에 맞는 정도
+    기능: 기능
+    형태크기: 형태·크기
+    출력채널: 출력·채널
+    연결전원: 연결·전원
+  requested_labels:
+    quiet_place: 조용한
+    mic: 마이크를 쓰는
+    design: 디자인이 예쁜
+    portable: 들고 다니는
+    lightweight: 가벼운
+  requested_feel:
+    monitor: {high_refresh: [ghosting], fast_response: [ghosting], bright: [brightness_feel]}
+    keyboard: {wireless: [wireless], bluetooth: [wireless], quiet_switch: [key_noise, hollow, sound_volume],
+               light_key_force: [key_force], heavy_key_force: [key_force], compact: [layout], full_size: [layout]}
+    mouse: {wireless: [wireless], bluetooth: [wireless]}
+    speaker: {high_output: [volume_headroom], bluetooth: [connection]}

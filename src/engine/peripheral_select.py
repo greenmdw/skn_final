@@ -434,6 +434,27 @@ def _feel_blocks(picks: list[PeripheralPick], values: dict, rules: dict) -> dict
     return out
 
 
+def _attach_views(picks: list[PeripheralPick], kinds_ranked: dict[str, list[Candidate]], values: dict, rules: dict) -> None:
+    """1위와 대안마다 결과 화면용 표시 값을 채운다: 요청 항목별 근거 연결·가격 순서, 대안은 체감 블록까지.
+    점수·순위는 바꾸지 않는다(이미 계산된 체감 상세와 규칙 파일의 display 절만 쓴다)."""
+    from src.engine.peripheral_display import price_position, requested_items
+    from src.engine.peripheral_evidence import build_feel_block
+    from src.engine.peripheral_intent import Interpretation
+
+    interp = values.get("peripheral_intent") or Interpretation()
+    for pick in picks:
+        resolved = (values.get("peripheral_resolved") or {}).get(pick.kind)
+        pool = kinds_ranked.get(pick.kind, [])
+        pick.requested = requested_items(pick.kind, pick.candidate.specs, interp, resolved, rules)
+        pick.price_position = price_position(pick.candidate, pool)
+        pick.alternative_views = [
+            {"feel": build_feel_block(alt.feel_detail, interp, resolved, pick.kind, rules),
+             "requested": requested_items(pick.kind, alt.specs, interp, resolved, rules),
+             "price_position": price_position(alt, pool)}
+            for alt in pick.alternatives
+        ]
+
+
 def _monitor_cross_check(
     values: dict, pc_context: dict | None, picks_by_kind: dict[str, Candidate], requirements: dict[str, PeripheralRequirement],
     rules: dict, log: LogFn,
@@ -533,6 +554,7 @@ def run_peripherals(
         picks.append(PeripheralPick(kind=kind, candidate=cand, score=cand.score, verdict=cand.verdict,
                                      checks=checks, alternatives=alternatives, score_gap=gap))
     _mark_close_calls(picks, rules)
+    _attach_views(picks, kinds_ranked, values, rules)
 
     verification = stage3c_verify.verify_per_item(
         {p.kind: p for p in picks}, requirements, log, extra_issues=extra_issues, rules=rules,

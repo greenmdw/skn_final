@@ -31,9 +31,11 @@ _TOP_KEYS = {"status", "items", "empty", "totals"}
 _ITEM_KEYS = {"kind", "kind_label", "product", "price", "price_source", "price_note",
               "requirement", "checks", "reason", "alternatives", "guide", "review",
               "review_weight", "review_note", "feel", "feel_note",
-              "score_detail", "evidence_count", "evidence_penalty", "close_call"}
+              "score_detail", "evidence_count", "evidence_penalty", "close_call",
+              "key_specs", "requested", "price_position"}      # 결과 화면 재설계(S4~S6)
 _ALT_KEYS = {"name", "price", "diff", "review", "review_weight", "review_note", "evidence_count", "score", "why_not_first",
-             "variant_id", "brand", "image_url", "product_url"}   # 제품 정보: 1위 대신 담기(QA PQA-024)
+             "variant_id", "brand", "image_url", "product_url",   # 제품 정보: 1위 대신 담기(QA PQA-024)
+             "key_specs", "requested", "price_position", "feel", "score_detail"}   # 큰 카드로 올릴 때(S1)
 _PRODUCT_KEYS = {"name", "brand", "variant_id", "product_url", "image_url"}
 
 

@@ -68,7 +68,16 @@ def test_response_schema_preserves_selected_and_alternative_review_evidence():
     response = PeripheralsOut.model_validate(peripheral_payload(result)).model_dump(mode="json")
 
     item = response["items"][0]
-    assert item["review"] == selected.review_detail.model_dump(mode="json")
-    assert item["alternatives"][0]["review"] == detail.model_dump(mode="json")
+
+    def _evidence_only(review):          # 화면 표시용 대표 문장(quote·dissent)을 뺀 원래 근거
+        out = dict(review)
+        out["contributions"] = [{k: v for k, v in c.items() if k not in ("quote", "dissent")}
+                                for c in review["contributions"]]
+        return out
+
+    assert _evidence_only(item["review"]) == selected.review_detail.model_dump(mode="json")
+    assert _evidence_only(item["alternatives"][0]["review"]) == detail.model_dump(mode="json")
+    first = item["alternatives"][0]["review"]["contributions"][0]
+    assert first["quote"] is None and first["dissent"] is False   # 한글 문장이 없으면 대표 문장을 만들지 않는다
     expected = load_peripheral_rules()["ranking"][item["kind"]]["weights"]["리뷰"]     # 순위에 실제 쓴 가중치
     assert item["review_weight"] == item["alternatives"][0]["review_weight"] == expected

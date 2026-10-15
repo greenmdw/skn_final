@@ -260,3 +260,72 @@ def test_unrecognized_phrases_without_related_sentences_are_left_out():
 def test_search_with_empty_inputs_returns_nothing():
     assert ps.search_sentences("", CORPUS, rules=RULES) == []
     assert ps.search_sentences("소음", [], rules=RULES) == []
+
+
+# ── 결과 화면 재설계(S2·S3): 요청 속성 먼저 인용, 비슷한 말 건너뛰기 ─────────────────
+def _monitor_cand(pid="pid-M"):
+    return Candidate(product_key="M", slot="monitor", name="M", product_id=pid, price=100)
+
+
+def _monitor_feel(obs, situations=("design",)):
+    interp = pi.Interpretation(kinds=["monitor"], situations=list(situations))
+    cand = _monitor_cand()
+    resolved = pi.resolve(interp, RULES)["monitor"]
+    return compute_feel("monitor", [cand], [cand], interp, resolved, obs, RULES, now=NOW)["M"]
+
+
+def test_requested_attribute_picks_quotes_before_earlier_attributes():
+    """설정 순서가 앞선 내구성이 가장 최근 글을 가져가 요청한 외관(looks)이 인용 없이 건수만 남던 문제."""
+    obs = [
+        Obs("u1", "pid-M", "durability", direction="good", written_at=NOW - timedelta(days=1),
+            post_id="p1", quote_id="q-dur-1", sentence="오래 써도 멀쩡합니다."),
+        Obs("u1", "pid-M", "looks", direction="good", written_at=NOW - timedelta(days=1),
+            post_id="p1", quote_id="q-looks-1", sentence="베젤이 얇아서 예쁩니다."),
+        Obs("u2", "pid-M", "durability", direction="good", written_at=NOW - timedelta(days=9),
+            post_id="p2", quote_id="q-dur-2", sentence="두 달 썼는데 이상 없습니다."),
+    ]
+    detail = _monitor_feel(obs)
+    by_code = {a.code: a for a in detail.attributes}
+    assert [q.quote_id for q in by_code["looks"].quotes] == ["q-looks-1"]        # 요청한 속성이 p1 을 가져간다
+    assert [q.quote_id for q in by_code["durability"].quotes] == ["q-dur-2"]     # 나머지는 남은 글에서
+    assert list(by_code) == [a.code for a in detail.attributes]                   # 결과 배열 순서는 그대로
+    plain = _monitor_feel(obs, situations=())
+    assert "looks" not in {a.code for a in plain.attributes}                      # 요청이 없으면 설정 순서(내구성이 p1)
+    assert [q.quote_id for q in next(a for a in plain.attributes if a.code == "durability").quotes][0] == "q-dur-1"
+
+
+def test_priority_does_not_change_scores_or_counts():
+    obs = [
+        Obs("u1", "pid-M", "durability", direction="good", written_at=NOW, post_id="p1", quote_id="a", sentence="하나 둘 셋."),
+        Obs("u1", "pid-M", "looks", direction="bad", written_at=NOW, post_id="p1", quote_id="b", sentence="넷 다섯 여섯."),
+    ]
+    detail = _monitor_feel(obs)
+    looks = next(a for a in detail.attributes if a.code == "looks")
+    assert (looks.same_good + looks.rest_good, looks.same_bad + looks.rest_bad) == (0, 1)
+
+
+def test_near_duplicate_sentences_are_not_quoted_twice():
+    """글은 달라도 같은 말(베젤이 얇고 뒷면이 게이밍 느낌)을 되풀이한 두 문장은 하나만 보인다."""
+    obs = [
+        Obs("u1", "pid-M", "looks", direction="good", written_at=NOW - timedelta(days=1), post_id="p1", quote_id="q1",
+            sentence="디자인은 앞에서 보면 베젤이 얇아서 깔끔하고, 뒷면은 게이밍 느낌이 조금 있어요."),
+        Obs("u2", "pid-M", "looks", direction="good", written_at=NOW - timedelta(days=2), post_id="p2", quote_id="q2",
+            sentence="겉모습은 뒷면에 게이밍 모니터 느낌이 좀 있고, 앞에서 보면 베젤이 얇아서 깔끔해요."),
+        Obs("u3", "pid-M", "looks", direction="good", written_at=NOW - timedelta(days=3), post_id="p3", quote_id="q3",
+            sentence="겉모습은 게이밍 제품치고 과하지 않아서, 낮에 작업할 때 책상 분위기를 해치지 않아요."),
+    ]
+    looks = next(a for a in _monitor_feel(obs).attributes if a.code == "looks")
+    assert [q.quote_id for q in looks.quotes] == ["q1", "q3"]                     # q2 는 q1 과 같은 말
+    assert looks.same_good + looks.rest_good == 3                                  # 집계는 세 명 그대로
+
+
+def test_distinct_sentences_are_kept_and_rules_validate_similarity():
+    obs = [
+        Obs("u1", "pid-M", "looks", direction="good", written_at=NOW, post_id="p1", quote_id="q1",
+            sentence="생김새는 수수한 편이라 어디에 둬도 튀지 않아요."),
+        Obs("u2", "pid-M", "looks", direction="good", written_at=NOW - timedelta(days=1), post_id="p2", quote_id="q2",
+            sentence="뒷면이 깔끔해서 뒤쪽이 보이는 자리에 놓아도 지저분해 보이지 않더라고요."),
+    ]
+    looks = next(a for a in _monitor_feel(obs).attributes if a.code == "looks")
+    assert len(looks.quotes) == 2
+    assert 0 < RULES["feel"]["quote_similarity_max"] < 1

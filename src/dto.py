@@ -319,6 +319,11 @@ class PeripheralPick(BaseModel):
     # 접전 여부: 1·2위 점수 차가 기준(config scoring.close_call_margin) 안이다. 한 응답에서 최대 close_call_max_items 개 품목에만 true.
     close_call: bool = False
     score_gap: float | None = None                                     # 2위와의 점수 차(대안이 없으면 None)
+    # 결과 화면 표시 값(peripheral_display). 점수·순위에는 쓰지 않는다.
+    requested: list[dict[str, Any]] = Field(default_factory=list)      # 사용자가 말한 항목별 근거 연결
+    price_position: dict[str, int] | None = None                       # 통과한 후보 안에서 싼 순서 {rank, of}
+    # `alternatives` 와 같은 순서: {"feel": 체감 블록|None, "requested": [...], "price_position": {...}|None}
+    alternative_views: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PeripheralResult(BaseModel):
