@@ -376,6 +376,13 @@ export default function PeripheralsPage() {
       return [...(entry?.purposes ?? []).map(purpose => purpose.label), ...(entry?.filters ?? []).map(condition => condition.label), ...(entry?.preferences ?? []).map(condition => condition.label)]
     }),
     ...understood.interpretation.situations.map(code => SITUATION_LABEL[code]).filter(Boolean),
+    ...selectedKinds.flatMap(kind => {
+      const { budget, budgetMin } = understood.interpretation
+      return [
+        ...(budget[kind] ? [`${kindLabel(kind)} ${wonFmt(budget[kind] as number)} 이하`] : []),
+        ...(budgetMin[kind] ? [`${kindLabel(kind)} ${wonFmt(budgetMin[kind] as number)} 이상`] : []),
+      ]
+    }),
   ]
   const understoodUnique = [...new Set(understoodLabels)]
   const understoodSummary = understoodUnique.length > 4
