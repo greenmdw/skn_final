@@ -1,11 +1,11 @@
 import type {
   Api, PeripheralFeel, PeripheralInterpretation, PeripheralInterpretResult, PeripheralItem, PeripheralKind, PeripheralResolvedKind,
-  PeripheralReviewAspect,
+  PeripheralRequested, PeripheralReviewAspect, PeripheralScoreAxis,
 } from '../types'
 import { request } from './client'
 import type {
   WirePeripheralChat, WirePeripheralFeel, WirePeripheralInterpret, WirePeripheralInterpretation, WirePeripheralItem,
-  WirePeripheralReviewContribution, WirePeripherals,
+  WirePeripheralRequested, WirePeripheralReviewContribution, WirePeripheralScoreDetail, WirePeripherals,
 } from './wire'
 
 const HANGUL = /[가-힣]/
@@ -30,9 +30,21 @@ function aspectsFromWire(review: { contributions: WirePeripheralReviewContributi
     positive: entry.p,
     negative: entry.n,
     mixed: entry.mixed,
-    quote: quoteFromMembers(entry.members ?? []),
+    // 서버가 다수 의견 쪽에서 고른 대표 문장을 먼저 쓰고, 없으면(예전 서버) 멤버에서 찾는다.
+    quote: entry.quote?.text ?? quoteFromMembers(entry.members ?? []),
+    quoteDirection: entry.quote?.direction ?? null,
+    dissent: Boolean(entry.dissent),
   }))
 }
+
+const scoreAxesFromWire = (detail: WirePeripheralScoreDetail | null | undefined): PeripheralScoreAxis[] =>
+  (detail?.axes ?? []).map(axis => ({ axis: axis.axis, label: axis.label ?? axis.axis, value: axis.value, weight: axis.weight, points: axis.points }))
+
+const requestedFromWire = (requested: WirePeripheralRequested[] | undefined): PeripheralRequested[] =>
+  (requested ?? []).map(entry => ({
+    label: entry.label, source: entry.source, type: entry.type, specChecks: entry.spec_checks ?? [],
+    feelCodes: entry.feel_codes ?? [], externalAspects: entry.external_aspects ?? [],
+  }))
 
 function feelFromWire(feel: WirePeripheralFeel | null | undefined): PeripheralFeel | null {
   if (!feel) return null
@@ -62,8 +74,13 @@ function itemFromWire(item: WirePeripheralItem): PeripheralItem {
       name: alternative.name, price: alternative.price, diff: alternative.diff,
       reviewAspects: aspectsFromWire(alternative.review), reviewNote: alternative.review_note ?? '',
       variantId: alternative.variant_id ?? null, brand: alternative.brand ?? null, imageUrl: alternative.image_url ?? null, productUrl: alternative.product_url ?? null,
+      keySpecs: alternative.key_specs ?? [], requested: requestedFromWire(alternative.requested),
+      pricePosition: alternative.price_position ?? null, scoreAxes: scoreAxesFromWire(alternative.score_detail),
+      feel: feelFromWire(alternative.feel),
     })),
     feel: feelFromWire(item.feel), feelNote: item.feel_note ?? null,
+    keySpecs: item.key_specs ?? [], requested: requestedFromWire(item.requested),
+    pricePosition: item.price_position ?? null, scoreAxes: scoreAxesFromWire(item.score_detail),
   }
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import PeripheralResultSection from '../components/PeripheralResultSection'
 import PlannerShell from '../components/PlannerShell'
 import ResizeHandle, { usePanelWidth } from '../components/ResizeHandle'
 import {
@@ -11,9 +12,9 @@ import { useToast } from '../state/ToastContext'
 import { wonFmt } from '../utils/format'
 import { Linkified } from '../utils/linkify'
 import {
-  EMPTY_INTERPRETATION, EMPTY_UNDERSTOOD, HAND_SIZE_LABEL, PERIPHERAL_KINDS as KINDS, QUICK_CONDITIONS, SITUATION_LABEL, applyAdjustChip, aspectLabel,
-  recommendInputs, removeUnderstood, reviewEvidence, withKinds,
-  type ReviewEvidence, type UnderstoodRemoval, type UnderstoodState,
+  EMPTY_INTERPRETATION, EMPTY_UNDERSTOOD, HAND_SIZE_LABEL, PERIPHERAL_KINDS as KINDS, QUICK_CONDITIONS, SITUATION_LABEL, applyAdjustChip,
+  recommendInputs, removeUnderstood, withKinds,
+  type UnderstoodRemoval, type UnderstoodState,
 } from '../utils/peripherals'
 import '../styles/peripherals.css'
 
@@ -26,7 +27,6 @@ const RESULT_QUESTION_CHIPS = ['왜 이걸 1위로 골랐어?', '1위랑 2위 �
 const NEEDS_KIND_REPLY = '어떤 기기를 찾으세요? 아래에서 골라 주세요.'
 // 품목을 여럿 골랐을 때 품목마다 보여 주는 빠른 조건 칩 수(둘 이하를 골랐으면 모두 보인다)
 const QUICK_PER_KIND_WHEN_MANY = 2
-const COMMUNITY_REVIEW_BOARD = '/community?view=board&board=review'
 const PERIPHERAL_CHAT_WIDTH = { key: 'truefit.peripherals.chat.width', initial: 380, min: 280, max: 520 }
 const kindLabel = (kind: PeripheralKind) => KINDS.find(entry => entry.id === kind)?.label ?? kind
 
@@ -41,7 +41,7 @@ function restoredResult(items: SetupPeripheral[], sessionId: string): Peripheral
       price: item.price, priceNote: '확정한 견적에서 불러온 참고가입니다.', requirement: [], checks: [],
       reason: { status: 'restored', text: '저장된 견적에서 불러온 제품입니다.' },
       guide: { status: 'unavailable', text: null }, reviewAspects: [], reviewWeight: 0, reviewNote: '',
-      alternatives: [], feel: null, feelNote: null,
+      alternatives: [], feel: null, feelNote: null, keySpecs: [], requested: [], pricePosition: null, scoreAxes: [],
     })),
   }
 }
@@ -151,49 +151,6 @@ function PeripheralChat({ messages, onSay, selectedKinds, selectedLabels, condit
   )
 }
 
-// 평가 기준별 후기 집계 줄: 점(긍정 초록·부정 빨강·애매함 회색) + "후기 N건 중 긍정 M건". 관측이 없으면 안내만 보인다.
-function ReviewRows({ evidence, withQuotes = false }: { evidence: ReviewEvidence[]; withQuotes?: boolean }) {
-  if (evidence.length === 0) return <div className="pf-weak-note">이 제품의 사용기는 아직 없습니다. 스펙과 가격 기준으로 추천했습니다.</div>
-  return <>{evidence.map(review => <div className="pf-evidence-item" key={review.aspectCode}>
-    <div className="pf-evidence-row">
-      <b>{aspectLabel(review.aspectCode)}</b>
-      <span className="pf-dots" aria-label={`긍정 ${review.positive}건, 부정 ${review.negative}건`}>{Array.from({ length: Math.min(review.total, 8) }, (_, index) => <i className={index < review.positive ? 'positive' : index < review.positive + review.negative ? 'negative' : ''} key={index} />)}</span>
-      <span>후기 {review.total}건 중 긍정 {review.positive}건{review.total < 3 && <em>근거 적음</em>}</span>
-    </div>
-    {withQuotes && review.quote && <p className="pf-evidence-quote">{review.quote}</p>}
-  </div>)}</>
-}
-
-// 추천 제품의 체감 근거(사용기 분석). 서버가 준 문구를 그대로 보여 주고, 인용 문장은 사진(있을 때만)과 함께 커뮤니티 글로 연결한다.
-// 근거가 없으면(feel 이 null) 서버가 준 한 줄(feelNote)과 "사용기가 아직 없어요" 안내만 보인다. 어느 쪽이든 사용기 게시판 링크 카드가 맨 아래에 붙는다.
-function FeelBlock({ item }: { item: PeripheralItem }) {
-  const { feel } = item
-  if (!feel) {
-    return <div className="pf-citation empty">
-      <p>{item.feelNote ? `${item.feelNote} · ` : ''}이 제품의 사용기가 아직 없어요. 첫 사용기를 남겨 보세요.</p>
-      <Link to={COMMUNITY_REVIEW_BOARD}>사용기 게시판 보기 →</Link>
-    </div>
-  }
-  return <div className="pf-feel">
-    <div className="pf-feel-head">
-      {feel.basisText && <b>{feel.basisText}</b>}
-      {feel.recentAuthors !== null && <span>최근 3개월 사용기 {feel.recentAuthors}명</span>}
-    </div>
-    {feel.attributes.map(attribute => <div className="pf-feel-attr" key={attribute.code}>
-      <div className="pf-feel-line"><b>{attribute.label}</b><span>{attribute.text}</span></div>
-      {attribute.quotes.slice(0, 2).map(quote => <div className="pf-citation" key={quote.quoteId}>
-        {quote.photoUrl && <span className="pf-citation-thumb"><img src={quote.photoUrl} alt="" loading="lazy" onError={event => { event.currentTarget.style.display = 'none' }} /></span>}
-        <p>“{quote.sentence}”{quote.isExample && <em className="pf-example-tag">예시 글</em>}</p>
-        <Link to={`/community?view=post&post=${encodeURIComponent(quote.postId)}&quote=${encodeURIComponent(quote.quoteId)}`} state={{ quoteSentence: quote.sentence }}>원문 보기 →</Link>
-      </div>)}
-    </div>)}
-    <div className="pf-citation empty">
-      <p>이 제품의 사용기를 더 보거나 직접 남겨 보세요.</p>
-      <Link to={COMMUNITY_REVIEW_BOARD}>사용기 게시판 보기 →</Link>
-    </div>
-  </div>
-}
-
 // "이해한 내용": 서버가 읽은 목적·선호·직접 말한 조건·예산을 칩으로 보여 준다. 칩의 ×를 누르면 그 값을 입력에서 빼고 추천만 다시 부른다.
 function UnderstoodChips({ understood, kinds, hasPlan, onRemove }: {
   understood: UnderstoodState
@@ -243,9 +200,6 @@ function UnderstoodChips({ understood, kinds, hasPlan, onRemove }: {
   </div>
 }
 
-/** 요구사양 태그 문구: 값만("144 이상") 보이면 무엇인지 알 수 없다. 예·아니오 값은 라벨만("무선 연결") 쓴다. */
-const requirementText = (row: { label: string; value: string }) => (row.value === '예' ? row.label : `${row.label} ${row.value}`)
-
 /** 종류마다 지금 견적에 올릴 제품: 기본은 1위이고, 다른 선택지를 골랐으면 그 제품(제품 식별자가 있을 때만) */
 function chosenProduct(item: PeripheralItem, selection: Record<string, string>) {
   const picked = selection[item.kind]
@@ -291,6 +245,9 @@ export default function PeripheralsPage() {
   const total = useMemo(() => pickedItems.reduce((sum, item) => sum + chosenProduct(item, selection).price, 0), [pickedItems, selection])
   const budget = understood.interpretation.budgetTotal
   const plan = state.currentPlan
+  // 결과 화면은 품목이 둘 이상이면 탭으로 나눠 한 번에 한 품목만 보인다.
+  const [activeKind, setActiveKind] = useState<PeripheralKind | null>(null)
+  const activeItem = result?.items.find(item => item.kind === activeKind) ?? result?.items[0] ?? null
   const conditionCount = useMemo(() => Object.values(understood.resolved).reduce((sum, entry) => sum + (entry ? entry.preferences.length + entry.filters.length : 0), 0), [understood])
 
   const say = (role: ChatMessage['role'], text: string) => setMessages(previous => [...previous, { id: nextMessageId.current++, role, text }])
@@ -406,45 +363,23 @@ export default function PeripheralsPage() {
 
   function recommendationCard(item: PeripheralItem) {
     const chosen = chosenProduct(item, selection)
-    const evidence = reviewEvidence(item.reviewAspects)
-    const picked = pickedKinds.has(item.kind)
-    const entry = understood.resolved[item.kind]
-    const understoodLabels = [...(entry?.filters ?? []), ...(entry?.preferences ?? [])].map(condition => condition.label)
-    return <section className="pf-kind-result" key={item.kind}>
-      <div className="pf-kind-heading"><h2>{item.kindLabel}</h2><span>조건과 리뷰 근거에 가장 잘 맞는 제품</span></div>
-      <p className="pf-kind-pref">{understoodLabels.join(' · ') || '선택한 품목과 현재 조건을 기준으로 추천'}</p>
-      {chosen.fromAlternative && <p className="pf-chosen-note">다른 선택지를 골랐어요: <b>{chosen.name}</b> · {wonFmt(chosen.price)} — 견적에는 이 제품이 담겨요.</p>}
-      <article className="pf-hero-card">
-        <div className="pf-hero-side">
-          <span className="pf-best">가장 잘 맞아요</span>
-          <div className="pf-hero-image">{item.imageUrl ? <img src={item.imageUrl} alt={item.name} loading="lazy" referrerPolicy="no-referrer" onError={event => { event.currentTarget.style.display = 'none' }} /> : <span>제품 이미지</span>}</div>
-          <strong className="pf-hero-price pl-mono">{wonFmt(item.price)}</strong>
-          <button type="button" className={'pf-pick' + (picked && !chosen.fromAlternative ? ' on' : '')} onClick={() => (chosen.fromAlternative ? chooseFirst(item) : togglePicked(item.kind))}>{chosen.fromAlternative ? '이 제품으로 선택' : picked ? '담았습니다' : '견적에 담기'}</button>
-        </div>
-        <div className="pf-hero-body">
-          <h3>{item.name}</h3>
-          <div className="pf-fit-tags">{item.requirement.filter(row => row.key !== 'resolution_assumed').map(row => <span key={row.key}>✓ {requirementText(row)}</span>)}{item.checks.filter(check => check.state === 'fail').map(check => <span className="no" key={check.axis}>✕ {check.label}</span>)}</div>
-          {item.requirement.filter(row => row.key === 'resolution_assumed').map(row => <div className="pf-weak-note" key={row.key}>{row.value}</div>)}
-          {item.reason.text && <p className="pf-main-reason">{item.reason.text}</p>}
-          {evidence.length > 0 && <div className="pf-review-evidence"><ReviewRows evidence={evidence} /></div>}
-          <FeelBlock item={item} />
-          <div className="pf-card-foot">{item.reviewNote && <span>{item.reviewNote}</span>}{item.priceNote && <span>{item.priceNote}</span>}{item.productUrl && <a href={item.productUrl} target="_blank" rel="noreferrer">상품 보기 →</a>}</div>
-        </div>
-      </article>
-      {item.alternatives.length > 0 && <details className="pf-more">
-        <summary><span>다른 선택지 {item.alternatives.length}개 · {item.alternatives.map(alternative => alternative.name).join(' · ')}</span></summary>
-        <div className="pf-alt-grid">{item.alternatives.map((alternative, index) => { const selectedAlternative = chosen.fromAlternative && chosen.name === alternative.name; return <article className={'pf-alt-card' + (selectedAlternative ? ' on' : '')} key={alternative.name}>
-          <header className="pf-alt-head"><i>{index + 2}</i><h3>{alternative.name}</h3><strong className="pl-mono">{wonFmt(alternative.price)}</strong></header>
-          <p className="pf-alt-diff">1위보다 <b>{wonFmt(Math.abs(alternative.diff))} {alternative.diff < 0 ? '저렴' : alternative.diff > 0 ? '비쌈' : '같은 가격'}</b></p>
-          <div className="pf-review-evidence pf-alt-evidence"><ReviewRows evidence={reviewEvidence(alternative.reviewAspects, 3)} withQuotes /></div>
-          {alternative.reviewNote && <small className="pf-alt-note">{alternative.reviewNote}</small>}
-          {alternative.variantId
-            ? <button type="button" className={'pf-alt-pick' + (selectedAlternative ? ' on' : '')} aria-pressed={selectedAlternative} onClick={() => (selectedAlternative ? chooseFirst(item) : chooseAlternative(item, alternative.name))}>{selectedAlternative ? '✓ 선택됨 (누르면 1위로 되돌려요)' : '이 제품으로 선택'}</button>
-            : <button type="button" className="pf-alt-pick" disabled title="서버가 이 제품의 식별 정보를 아직 주지 않아 견적에 담을 수 없어요.">선택 준비 중</button>}
-        </article> })}</div>
-      </details>}
-    </section>
+    return <PeripheralResultSection key={item.kind} item={item} chosenName={chosen.fromAlternative ? chosen.name : null}
+      picked={pickedKinds.has(item.kind)} onTogglePicked={() => togglePicked(item.kind)}
+      onChoose={name => (name === null ? chooseFirst(item) : chooseAlternative(item, name))} />
   }
+
+  // 접힌 "이해한 내용" 줄: 읽은 조건 이름을 앞에서부터 몇 개만 보인다.
+  const understoodLabels = [
+    ...selectedKinds.flatMap(kind => {
+      const entry = understood.resolved[kind]
+      return [...(entry?.purposes ?? []).map(purpose => purpose.label), ...(entry?.filters ?? []).map(condition => condition.label), ...(entry?.preferences ?? []).map(condition => condition.label)]
+    }),
+    ...understood.interpretation.situations.map(code => SITUATION_LABEL[code]).filter(Boolean),
+  ]
+  const understoodUnique = [...new Set(understoodLabels)]
+  const understoodSummary = understoodUnique.length > 4
+    ? `${understoodUnique.slice(0, 4).join(' · ')} 외 ${understoodUnique.length - 4}개`
+    : understoodUnique.join(' · ')
 
   const understoodPanel = <UnderstoodChips understood={understood} kinds={selectedKinds} hasPlan={Boolean(plan)} onRemove={removal => changeUnderstood(removeUnderstood(understood, removal))} />
 
@@ -460,22 +395,34 @@ export default function PeripheralsPage() {
               <span>{budget != null ? `주변기기 예산 ${wonFmt(budget)} · ${total <= budget ? `잔액 ${wonFmt(budget - total)}` : `${wonFmt(total - budget)} 초과`}` : '예산을 알려 주면 잔액도 보여 드려요'}</span>
             </div>
           </div>
-          <section className="pf-understood">
-            <b>이해한 내용</b>
+          {/* 이해한 내용·더 맞추기는 접어 두고, 열면 칩 × 제거와 더 맞추기를 쓸 수 있다. 접힌 줄에는 읽은 조건 요약만 보인다. */}
+          <details className="pf-understood pr-understood">
+            <summary>
+              <b>이해한 내용</b>
+              <span className="pr-understood-summary">{understoodSummary || '읽은 조건이 아직 없어요'}</span>
+              <em>조건 바꾸기</em>
+            </summary>
             {understoodPanel}
-            {result.ignoredInputs.length > 0 && <p className="pf-unrecognized">목록에 없어 반영하지 않았어요: {result.ignoredInputs.join(' · ')}</p>}
-          </section>
-          {result.adjustChips.length > 0 && <section className="pf-adjust" aria-label="더 맞추기">
-            <b>더 맞추기</b>
-            <div>{result.adjustChips.map(chip => <button type="button" key={`${chip.kind}:${chip.id}`} disabled={loading} onClick={() => adjust(chip)}>
-              <i>{kindLabel(chip.kind)}</i>{chip.label}
-            </button>)}</div>
-          </section>}
+            {result.adjustChips.length > 0 && <div className="pf-adjust" aria-label="더 맞추기">
+              <b>더 맞추기</b>
+              <div>{result.adjustChips.map(chip => <button type="button" key={`${chip.kind}:${chip.id}`} disabled={loading} onClick={() => adjust(chip)}>
+                <i>{kindLabel(chip.kind)}</i>{chip.label}
+              </button>)}</div>
+            </div>}
+          </details>
+          {result.ignoredInputs.length > 0 && <p className="pf-unrecognized">목록에 없어 반영하지 않았어요: {result.ignoredInputs.join(' · ')}</p>}
           {loading && <div className="pl-note" role="status">추천을 다시 고르고 있어요…</div>}
           {error && <div className="pl-alert bad" role="alert">{error}</div>}
           {result.status === 'skipped' && <div className="pl-alert warn" role="status">서버가 이번 요청은 추천하지 않았어요. 조건을 바꿔 다시 시도해 주세요.</div>}
           {result.empty.length > 0 && <div className="pl-alert warn" role="status">{result.empty.map(row => `${KINDS.find(kind => kind.id === row.kind)?.label ?? row.kind}: ${row.reason}`).join(' · ')}</div>}
-          <div className="pf-results-list">{result.items.map(recommendationCard)}</div>
+          {result.items.length > 1 && <div className="pr-tabs" role="tablist" aria-label="품목">
+            {result.items.map(item => <button type="button" role="tab" key={item.kind} aria-selected={item.kind === activeItem?.kind}
+              className={'pr-tab' + (item.kind === activeItem?.kind ? ' on' : '')} onClick={() => setActiveKind(item.kind)}>
+              <b>{item.kindLabel}</b>
+              <span>{pickedKinds.has(item.kind) ? wonFmt(chosenProduct(item, selection).price) : '견적에서 뺌'}</span>
+            </button>)}
+          </div>}
+          <div className="pf-results-list">{activeItem && recommendationCard(activeItem)}</div>
           <button type="button" className="pf-secondary pf-edit-conditions" onClick={() => setResult(null)}>조건 다시 보기</button>
           {!plan && <div className="pl-alert warn" role="status">본체 견적 없이 주변기기만 담아 확정할 수 있어요. 본체와 함께 확정하려면 <Link to="/start" style={{ color: 'inherit', fontWeight: 700 }}>본체 추천 받으러 가기 →</Link></div>}
           {notice && <div className="pl-alert warn" role="status">{notice}</div>}

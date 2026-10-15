@@ -353,6 +353,14 @@ export interface WirePeripheralReviewContribution {
   mixed: number
   /** observation_text 는 리뷰 분석이 만든 요약(대부분 영어)이고, evidence_sentences 는 리뷰 원문 문장(한글)이다 */
   members: { direction: string; observation_text: string; evidence_sentences?: string[] }[]
+  /** 서버가 다수 의견 쪽에서 고른 한글 대표 문장. 없으면 null */
+  quote?: { text: string; direction: 'positive' | 'negative' | 'mixed' } | null
+  dissent?: boolean
+}
+export interface WirePeripheralScoreDetail { axes: { axis: string; label?: string; value: number; weight: number; points: number }[] }
+export interface WirePeripheralRequested {
+  label: string; source: 'stated' | 'situation' | 'purpose'; type: 'spec' | 'evidence'
+  spec_checks: { key: string; text: string; ok: boolean }[]; feel_codes: string[]; external_aspects: string[]
 }
 export interface WirePeripheralItem {
   kind: 'monitor' | 'keyboard' | 'mouse' | 'speaker'
@@ -365,7 +373,12 @@ export interface WirePeripheralItem {
   checks: { axis: string; label: string; state: string; detail: string }[]
   reason: { status: string; text: string | null }
   /** 1위 말고 비교해 볼 만한 제품. 서버는 이름·가격 차이와 리뷰 근거(review)만 준다 — 사양 점검·제품 식별자는 없다 */
-  alternatives: { name: string; price: number; diff: number; review?: { contributions: WirePeripheralReviewContribution[] } | null; review_note?: string; variant_id?: string | null; brand?: string | null; image_url?: string | null; product_url?: string | null }[]
+  alternatives: {
+    name: string; price: number; diff: number; review?: { contributions: WirePeripheralReviewContribution[] } | null; review_note?: string
+    variant_id?: string | null; brand?: string | null; image_url?: string | null; product_url?: string | null
+    key_specs?: { key: string; label: string; value: string }[]; requested?: WirePeripheralRequested[]
+    price_position?: { rank: number; of: number } | null; feel?: WirePeripheralFeel | null; score_detail?: WirePeripheralScoreDetail | null
+  }[]
   guide: { status: string; text: string | null }
   review: { contributions: WirePeripheralReviewContribution[] } | null
   review_weight: number
@@ -373,6 +386,10 @@ export interface WirePeripheralItem {
   /** 체감 근거 블록. null 이면 보여 줄 근거가 없다 */
   feel?: WirePeripheralFeel | null
   feel_note?: string | null
+  key_specs?: { key: string; label: string; value: string }[]
+  requested?: WirePeripheralRequested[]
+  price_position?: { rank: number; of: number } | null
+  score_detail?: WirePeripheralScoreDetail | null
 }
 export interface WirePeripheralFeel {
   value: number

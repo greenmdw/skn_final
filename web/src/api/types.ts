@@ -546,7 +546,30 @@ export interface PeripheralReviewAspect {
   mixed: number
   /** 대표 관측 문장(서버가 후기에서 뽑은 것) */
   quote: string | null
+  /** 대표 문장의 방향. 서버가 다수 의견 쪽 문장을 고른다. 서버가 안 주면 null */
+  quoteDirection?: 'positive' | 'negative' | 'mixed' | null
+  /** 적은 쪽 의견도 적지 않다(갈리는 점) */
+  dissent?: boolean
 }
+
+/** 점수 축 하나(서버가 사용자말 이름 label 을 준다). value 는 0~1, weight 는 비중 */
+export interface PeripheralScoreAxis { axis: string; label: string; value: number; weight: number; points: number }
+/** 카드에 한 줄로 보이는 필수 스펙 하나 */
+export interface PeripheralKeySpec { key: string; label: string; value: string }
+/** 사용자가 말한 조건을 스펙 값으로 확인한 결과("무게 76g · 80g 이하") */
+export interface PeripheralSpecCheck { key: string; text: string; ok: boolean }
+/** 사용자가 말한 항목 하나와 그 근거 연결. feelCodes 는 체감 속성 코드, externalAspects 는 외부 리뷰 항목 코드 */
+export interface PeripheralRequested {
+  label: string
+  source: 'stated' | 'situation' | 'purpose'
+  /** spec: 스펙 값으로 판정 · evidence: 사용기·외부 리뷰로 판단 */
+  type: 'spec' | 'evidence'
+  specChecks: PeripheralSpecCheck[]
+  feelCodes: string[]
+  externalAspects: string[]
+}
+/** 통과한 후보 안에서 싼 순서(rank 번째, 총 of 개) */
+export interface PeripheralPricePosition { rank: number; of: number }
 
 export interface PeripheralAlternative {
   name: string
@@ -559,6 +582,12 @@ export interface PeripheralAlternative {
   brand?: string | null
   imageUrl?: string | null
   productUrl?: string | null
+  /** 이 대안을 큰 카드로 올렸을 때 1위와 같은 정보량을 보이기 위한 값. 서버가 안 주면 비어 있다 */
+  keySpecs: PeripheralKeySpec[]
+  requested: PeripheralRequested[]
+  pricePosition: PeripheralPricePosition | null
+  scoreAxes: PeripheralScoreAxis[]
+  feel: PeripheralFeel | null
 }
 
 export interface PeripheralItem {
@@ -585,6 +614,13 @@ export interface PeripheralItem {
   /** 체감 근거(사용기 분석). null 이면 보여 줄 근거가 없고 feelNote 만 보인다 */
   feel: PeripheralFeel | null
   feelNote: string | null
+  /** 필수 스펙 한 줄(값이 없는 항목은 서버가 뺀다) */
+  keySpecs: PeripheralKeySpec[]
+  /** 사용자가 말한 항목별 근거 연결. 말한 것이 없으면 비어 있다 */
+  requested: PeripheralRequested[]
+  pricePosition: PeripheralPricePosition | null
+  /** 점수 축(사용자말 이름 포함) */
+  scoreAxes: PeripheralScoreAxis[]
 }
 
 /** 체감 근거에 인용한 사용기 문장 하나. postId 로 커뮤니티 글을 연다 */
