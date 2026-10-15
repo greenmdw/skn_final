@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import PlannerShell from '../components/PlannerShell'
 import QuantityWarnings from '../components/QuantityWarnings'
 import DateInput from '../components/DateInput'
@@ -20,7 +20,9 @@ export default function CartPage() {
   const { addSetup, storageError, reload: reloadSetups } = useSetups()
   const { showToast } = useToast()
   const user = useAuthUser()
+  const location = useLocation()
   const navigate = useNavigate()
+  const plannerMode = (location.state as { plannerMode?: 'computer' | 'check' | 'peripherals' } | null)?.plannerMode
   const peripherals = state.peripherals
   // 본체 견적 없이 주변기기만 담았으면, 그 추천을 받은 목록(세션)을 본체 없는 견적으로 확정한다.
   const peripheralOnly = !state.currentPlan && !!state.peripheralSessionId && state.peripherals.length > 0
@@ -82,7 +84,7 @@ export default function CartPage() {
       }
     }
     setBusy(false)
-    if (ok) { clearEditingSheet(); setPeripherals([]); navigate('/report/' + plan.id) }
+    if (ok) { clearEditingSheet(); setPeripherals([]); navigate('/report/' + plan.id, { state: plannerMode ? { plannerMode } : undefined }) }
   }
 
   const budget = plan.budget

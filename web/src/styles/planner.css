@@ -40,7 +40,7 @@
 .pl-send:disabled { opacity: .5; cursor: not-allowed; }
 
 .pl-main { flex: 1; min-width: 0; overflow: auto; position: relative; }
-.pl-page { max-width: 980px; margin: 0 auto; padding: 36px 32px 56px; display: flex; flex-direction: column; gap: 22px; }
+.pl-page { width:100%; max-width:var(--page-content-max); margin:0 auto; padding:36px 32px 56px; display:flex; flex-direction:column; gap:22px; }
 .pl-page.narrow { max-width: 720px; padding-top: 40px; }
 .pl-eyebrow { font-size: 12px; color: var(--muted); }
 .pl-h2 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
@@ -242,8 +242,8 @@
 .pl-savemode input[type=radio] { width: auto; height: auto; margin-top: 3px; accent-color: var(--mint); }
 .pl-savemode span { display: flex; flex-direction: column; gap: 2px; }
 .pl-savemode small { color: var(--muted); font-size: 12px; line-height: 1.5; }
-.pl-pill.danger { border-color: #6b3a3a; color: #ff8f8f; }
-.pl-pill.danger:hover { background: rgba(255,143,143,.1); }
+.pl-pill.danger { border-color: transparent; background: #d92d43; color: #fff; font-weight: 600; }
+.pl-pill.danger:hover { background: #d92d43; filter: brightness(1.1); }
 
 /* 채팅 말풍선 안의 링크 */
 .tf-link { color: var(--mint); text-decoration: underline; text-underline-offset: 2px; overflow-wrap: anywhere; }

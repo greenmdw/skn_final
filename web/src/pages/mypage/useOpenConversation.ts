@@ -9,7 +9,7 @@ export function useOpenConversation() {
   const { openConversation } = usePlan()
   const navigate = useNavigate()
   return useCallback(async (item: ConversationSummary) => {
-    if (isCheckSession(item.listId)) { navigate('/check?draft=' + item.listId); return }
+    if (isCheckSession(item.listId) || item.name === '받은 견적 점검') { navigate('/check?draft=' + item.listId); return }
     const confirmed = item.stage === 'report'
     const opened = await openConversation(item.listId, item.stage === 'results' || confirmed, confirmed)
     if (opened === 'plan') navigate('/plan')

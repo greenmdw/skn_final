@@ -1,5 +1,5 @@
 .pf-page {
-  width: min(900px, 100%);
+  width: min(var(--page-content-max), 100%);
   margin: 0 auto;
   padding: 48px 30px 70px;
   box-sizing: border-box;
@@ -7,7 +7,7 @@
   flex-direction: column;
   gap: 24px;
 }
-.pf-page.results { width: min(1040px, 100%); padding-top: 30px; padding-bottom: 120px; gap: 20px; }
+.pf-page.results { width: min(var(--page-content-max), 100%); padding-top: 30px; padding-bottom: 120px; gap: 20px; }
 .pf-heading { display: flex; flex-direction: column; gap: 8px; }
 .pf-heading h1 { margin: 0; font-size: 30px; letter-spacing: -.04em; }
 .pf-heading p { margin: 0; color: var(--muted); line-height: 1.65; }
@@ -42,6 +42,9 @@
 .pf-action span { color: var(--muted); font-size: 11px; }
 .pf-chat .pl-chat-log { gap: 12px; }
 .pf-chat .pl-chat-foot { display: flex; flex-direction: column; gap: 10px; }
+.pf-chat .pl-choice { color: color-mix(in srgb, var(--mint) 90%, white 10%); }
+.pf-chat .pl-input input::placeholder { color: color-mix(in srgb, var(--muted) 90%, white 10%); opacity: 1; }
+.pf-chat .pl-send:disabled { opacity: .6; }
 .pf-quick { margin-bottom: 0; }
 .pf-reflected { padding: 8px 10px; border-radius: 6px; background: rgba(61,220,151,.16); color: var(--ok); font-size: 11px; line-height: 1.5; }
 
@@ -111,6 +114,12 @@
 .pf-alt-evidence { margin-left: 33px; gap: 8px; }
 .pf-evidence-item { display: grid; gap: 4px; }
 .pf-evidence-quote { margin: 0; padding-left: 110px; color: var(--muted); font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+.pf-alt-card.on { border-color: var(--mint); box-shadow: 0 0 0 1px var(--mint) inset; }
+.pf-alt-pick { margin-top: auto; padding: 9px 12px; border: 1px solid var(--mint); border-radius: 10px; background: var(--panel); color: var(--mint); font-size: 12px; font-weight: 750; cursor: pointer; }
+.pf-alt-pick:hover:not(:disabled) { background: color-mix(in srgb, var(--mint) 10%, var(--panel)); }
+.pf-alt-pick.on { background: var(--grad); border-color: transparent; color: #fff; }
+.pf-alt-pick:disabled { border-color: var(--line); color: var(--muted); background: var(--panel2); cursor: default; }
+.pf-chosen-note { margin: 0 0 8px; padding: 8px 12px; border: 1px solid var(--mint); border-radius: 10px; background: color-mix(in srgb, var(--mint) 8%, var(--panel)); font-size: 12px; }
 .pf-alt-note { margin-left: 33px; color: var(--muted); font-size: 10px; line-height: 1.5; }
 .pf-edit-conditions { align-self: flex-end; }
 .pf-pick-bar { position: sticky; z-index: 10; bottom: -1px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: center; margin: 0 -30px -120px; padding: 12px 30px; border-top: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(10px); }

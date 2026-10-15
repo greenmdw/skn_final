@@ -411,6 +411,25 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     if (screen) updateState(prev => ({ ...prev, editingSheet: from }))
     return screen
   }, [openConversation, showToast, updateState])
+  const revisePeripheralSetup = useCallback(async (setup: SavedSetup): Promise<boolean> => {
+    if (setup.revisionNo == null || !setup.peripherals?.length) return false
+    try {
+      await api.setups.newRevision(setup.id, setup.revisionNo)
+    } catch (error) {
+      showToast(errorMessage(error, '주변기기 견적 수정을 시작하지 못했습니다. 잠시 후 다시 시도해주세요.'))
+      return false
+    }
+    cancelPending()
+    const peripherals = structuredClone(setup.peripherals)
+    updateState(() => ({ ...initialState, currentPlan: null, peripherals, peripheralSessionId: setup.id,
+      editingSheet: { listId: setup.id, revisionNo: setup.revisionNo!, name: setup.title, date: setup.date, target: setup.target, memo: setup.memo } }))
+    setCheckDraft(createCheckDraft())
+    setMessages([makeMessage('bot', `${setup.title}의 주변기기 구성을 불러왔습니다.`)])
+    setCustomHeading(null)
+    setBusy(false)
+    showToast('주변기기 견적을 수정할 수 있도록 불러왔습니다.')
+    return true
+  }, [cancelPending, showToast, updateState])
   // sessionId 는 본체 견적 없이 주변기기만 담을 때 넘긴다(그 목록으로 확정). 비우면(빈 배열) 같이 지운다.
   const setPeripherals = useCallback((peripherals: SetupPeripheral[], sessionId?: string | null) => updateState(prev => ({
     ...prev, peripherals, peripheralSessionId: peripherals.length ? (sessionId ?? prev.peripheralSessionId ?? null) : null,
@@ -487,9 +506,9 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const value = useMemo<PlanContextValue>(() => ({
     state, checkDraft, updateCheckDraft, messages, busy, starterHidden: state.stage > 0, analyzingIndex, customHeading,
     handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, loadCheckedQuote, startUpgradeMode, setPeripherals,
-    openConversation, reviseSetup, clearEditingSheet, reopenConditions, showResults,
+    openConversation, reviseSetup, revisePeripheralSetup, clearEditingSheet, reopenConditions, showResults,
   }), [state, checkDraft, updateCheckDraft, messages, busy, analyzingIndex, customHeading,
     handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, loadCheckedQuote, startUpgradeMode, setPeripherals,
-    openConversation, reviseSetup, clearEditingSheet, reopenConditions, showResults])
+    openConversation, reviseSetup, revisePeripheralSetup, clearEditingSheet, reopenConditions, showResults])
   return <PlanContext.Provider value={value}>{children}</PlanContext.Provider>
 }

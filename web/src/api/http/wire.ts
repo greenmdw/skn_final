@@ -364,7 +364,7 @@ export interface WirePeripheralItem {
   checks: { axis: string; label: string; state: string; detail: string }[]
   reason: { status: string; text: string | null }
   /** 1위 말고 비교해 볼 만한 제품. 서버는 이름·가격 차이와 리뷰 근거(review)만 준다 — 사양 점검·제품 식별자는 없다 */
-  alternatives: { name: string; price: number; diff: number; review?: { contributions: WirePeripheralReviewContribution[] } | null; review_note?: string }[]
+  alternatives: { name: string; price: number; diff: number; review?: { contributions: WirePeripheralReviewContribution[] } | null; review_note?: string; variant_id?: string | null; brand?: string | null; image_url?: string | null; product_url?: string | null }[]
   guide: { status: string; text: string | null }
   review: { contributions: WirePeripheralReviewContribution[] } | null
   review_weight: number

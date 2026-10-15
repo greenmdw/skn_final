@@ -1,10 +1,12 @@
 import { useMemo, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import PlannerShell from '../components/PlannerShell'
+import ResizeHandle, { usePanelWidth } from '../components/ResizeHandle'
 import {
   api, errorMessage, type PeripheralAdjustChip, type PeripheralInterpretResult, type PeripheralItem, type PeripheralKind, type PeripheralsResult,
 } from '../api'
 import { usePlan } from '../state/PlanContext'
+import type { SetupPeripheral } from '../state/types'
 import { useToast } from '../state/ToastContext'
 import { wonFmt } from '../utils/format'
 import { Linkified } from '../utils/linkify'
@@ -18,7 +20,24 @@ type ChatMessage = { id: number; role: 'user' | 'assistant'; text: string }
 
 const QUICK = ['FHD 144Hz', 'QHD 165Hz', '4K', '잘 모르겠어요']
 const COMMUNITY_REVIEW_BOARD = '/community?view=board&board=review'
+const PERIPHERAL_CHAT_WIDTH = { key: 'truefit.peripherals.chat.width', initial: 380, min: 280, max: 520 }
 const kindLabel = (kind: PeripheralKind) => KINDS.find(entry => entry.id === kind)?.label ?? kind
+
+function restoredResult(items: SetupPeripheral[], sessionId: string): PeripheralsResult {
+  return {
+    sessionId, status: 'ready', empty: [], ignoredInputs: [], adjustChips: [],
+    referencePrice: items.reduce((sum, item) => sum + item.price * item.qty, 0),
+    priceNote: '확정한 견적에서 불러온 구성입니다.',
+    items: items.map(item => ({
+      kind: item.kind, kindLabel: kindLabel(item.kind), name: item.name, brand: item.brand ?? '',
+      variantId: item.variantId ?? null, productUrl: item.productUrl ?? null, imageUrl: item.imageUrl ?? null,
+      price: item.price, priceNote: '확정한 견적에서 불러온 참고가입니다.', requirement: [], checks: [],
+      reason: { status: 'restored', text: '저장된 견적에서 불러온 제품입니다.' },
+      guide: { status: 'unavailable', text: null }, reviewAspects: [], reviewWeight: 0, reviewNote: '',
+      alternatives: [], feel: null, feelNote: null,
+    })),
+  }
+}
 
 interface SendOutcome { reply: string; needsKind: boolean }
 
@@ -49,6 +68,7 @@ function PeripheralChat({ selectedLabels, conditionCount, showingResults, onSend
 }) {
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
+  const size = usePanelWidth(PERIPHERAL_CHAT_WIDTH.key, PERIPHERAL_CHAT_WIDTH.initial, PERIPHERAL_CHAT_WIDTH.min, PERIPHERAL_CHAT_WIDTH.max)
   const [messages, setMessages] = useState<ChatMessage[]>([
     { id: 1, role: 'assistant', text: '필요한 품목을 고르고 원하는 느낌을 말해 주세요. 예를 들면 “조용하고 쫀득한 키보드”, “손이 작아서 가벼운 마우스”처럼요.' },
   ])
@@ -97,7 +117,7 @@ function PeripheralChat({ selectedLabels, conditionCount, showingResults, onSend
   }
 
   return (
-    <aside className="pl-chat pf-chat" aria-label="주변기기 조건 대화">
+    <aside className="pl-chat pl-resizable pf-chat" aria-label="주변기기 조건 대화" style={{ width: size.width }}>
       <div className="pl-chat-head"><span className="pl-dot" />주변기기 조건 대화</div>
       <div className="pl-chat-log">
         {messages.map(message => <div key={message.id} className={message.role === 'user' ? 'pl-msg-user' : 'pl-msg-bot'}><Linkified text={message.text} /></div>)}
@@ -122,6 +142,7 @@ function PeripheralChat({ selectedLabels, conditionCount, showingResults, onSend
           <button type="submit" className="pl-send" disabled={!draft.trim() || busy}>보내기</button>
         </form>
       </div>
+      <ResizeHandle width={size.width} min={size.min} max={size.max} label="주변기기 대화창 너비" onChange={size.setWidth} onReset={size.reset} />
     </aside>
   )
 }
@@ -207,26 +228,43 @@ function UnderstoodChips({ understood, kinds, hasPlan, onRemove }: {
   </div>
 }
 
+/** 종류마다 지금 견적에 올릴 제품: 기본은 1위이고, 다른 선택지를 골랐으면 그 제품(제품 식별자가 있을 때만) */
+function chosenProduct(item: PeripheralItem, selection: Record<string, string>) {
+  const picked = selection[item.kind]
+  const alternative = picked ? item.alternatives.find(candidate => candidate.name === picked && candidate.variantId) : undefined
+  if (alternative) {
+    return {
+      name: alternative.name, brand: alternative.brand ?? item.brand, price: alternative.price, variantId: alternative.variantId ?? null,
+      imageUrl: alternative.imageUrl ?? null, productUrl: alternative.productUrl ?? null, fromAlternative: true,
+    }
+  }
+  return { name: item.name, brand: item.brand, price: item.price, variantId: item.variantId, imageUrl: item.imageUrl, productUrl: item.productUrl, fromAlternative: false }
+}
+
 export default function PeripheralsPage() {
   const { state, setPeripherals } = usePlan()
   const { showToast } = useToast()
   const navigate = useNavigate()
-  const [selected, setSelected] = useState<Set<PeripheralKind>>(() => new Set(KINDS.map(kind => kind.id)))
+  const restored = state.editingSheet && state.peripheralSessionId && state.peripherals.length
+    ? restoredResult(state.peripherals, state.peripheralSessionId) : null
+  const [selected, setSelected] = useState<Set<PeripheralKind>>(() => new Set(restored?.items.map(item => item.kind) ?? KINDS.map(kind => kind.id)))
   // 사용자가 종류 카드를 직접 눌렀는지. 눌렀다면 문장을 읽을 때 그 종류를 서버에 함께 보낸다.
   const [kindsTouched, setKindsTouched] = useState(false)
   const [understood, setUnderstood] = useState<UnderstoodState>(EMPTY_UNDERSTOOD)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<PeripheralsResult | null>(null)
-  const [pickedKinds, setPickedKinds] = useState<Set<PeripheralKind>>(() => new Set())
-  const sessionId = useRef<string | null>(null)
+  const [result, setResult] = useState<PeripheralsResult | null>(restored)
+  const [pickedKinds, setPickedKinds] = useState<Set<PeripheralKind>>(() => new Set(restored?.items.map(item => item.kind) ?? []))
+  // 종류 → 1위 대신 고른 다른 선택지의 이름. 없으면 1위를 올린다.
+  const [selection, setSelection] = useState<Record<string, string>>({})
+  const sessionId = useRef<string | null>(restored?.sessionId ?? null)
 
   const showResults = result !== null
   const selectedKinds = useMemo(() => KINDS.filter(kind => selected.has(kind.id)).map(kind => kind.id), [selected])
   const selectedLabels = useMemo(() => selectedKinds.map(kindLabel), [selectedKinds])
   const pickedItems = useMemo(() => (result?.items ?? []).filter(item => pickedKinds.has(item.kind)), [pickedKinds, result])
-  const total = useMemo(() => pickedItems.reduce((sum, item) => sum + item.price, 0), [pickedItems])
+  const total = useMemo(() => pickedItems.reduce((sum, item) => sum + chosenProduct(item, selection).price, 0), [pickedItems, selection])
   const budget = understood.interpretation.budgetTotal
   const plan = state.currentPlan
   const conditionCount = useMemo(() => Object.values(understood.resolved).reduce((sum, entry) => sum + (entry ? entry.preferences.length + entry.filters.length : 0), 0), [understood])
@@ -270,6 +308,7 @@ export default function PeripheralsPage() {
       }, sessionId.current)
       sessionId.current = out.sessionId
       setResult(out)
+      setSelection({})
       setPickedKinds(new Set(out.items.map(item => item.kind)))
     } catch (caught) {
       setError(errorMessage(caught, '주변기기를 추천받지 못했습니다. 잠시 후 다시 시도해주세요.'))
@@ -295,14 +334,14 @@ export default function PeripheralsPage() {
       setNotice('장바구니에 담을 수 없어요. 주변기기 추천을 다시 받아 주세요.')
       return
     }
-    const items = result.items.filter(item => pickedKinds.has(item.kind) && item.variantId).map(item => ({
-      kind: item.kind, name: item.name, brand: item.brand, price: item.price, qty: 1,
-      variantId: item.variantId, imageUrl: item.imageUrl, productUrl: item.productUrl,
-    }))
+    const items = result.items.filter(item => pickedKinds.has(item.kind) && chosenProduct(item, selection).variantId).map(item => {
+      const product = chosenProduct(item, selection)
+      return { kind: item.kind, name: product.name, brand: product.brand, price: product.price, qty: 1, variantId: product.variantId, imageUrl: product.imageUrl, productUrl: product.productUrl }
+    })
     if (!items.length) { setNotice('장바구니에 담을 수 있는 품목이 없어요.'); return }
     setPeripherals(items, plan ? undefined : result.sessionId)
     showToast(`주변기기 ${items.length}개를 ${plan ? '통합 ' : ''}장바구니에 담았어요.`)
-    navigate('/cart')
+    navigate('/cart', { state: { plannerMode: 'peripherals' } })
   }
 
   function togglePicked(kind: PeripheralKind) {
@@ -313,7 +352,18 @@ export default function PeripheralsPage() {
     })
   }
 
+  // 다른 선택지를 고른다(그 종류도 견적에 담는다). 1위를 다시 고르면 선택이 풀린다.
+  function chooseAlternative(item: PeripheralItem, name: string) {
+    setSelection(previous => ({ ...previous, [item.kind]: name }))
+    setPickedKinds(previous => new Set(previous).add(item.kind))
+  }
+  function chooseFirst(item: PeripheralItem) {
+    setSelection(previous => { const { [item.kind]: _dropped, ...rest } = previous; return rest })
+    setPickedKinds(previous => new Set(previous).add(item.kind))
+  }
+
   function recommendationCard(item: PeripheralItem) {
+    const chosen = chosenProduct(item, selection)
     const evidence = reviewEvidence(item.reviewAspects)
     const picked = pickedKinds.has(item.kind)
     const entry = understood.resolved[item.kind]
@@ -321,12 +371,13 @@ export default function PeripheralsPage() {
     return <section className="pf-kind-result" key={item.kind}>
       <div className="pf-kind-heading"><h2>{item.kindLabel}</h2><span>조건과 리뷰 근거에 가장 잘 맞는 제품</span></div>
       <p className="pf-kind-pref">{understoodLabels.join(' · ') || '선택한 품목과 현재 조건을 기준으로 추천'}</p>
+      {chosen.fromAlternative && <p className="pf-chosen-note">다른 선택지를 골랐어요: <b>{chosen.name}</b> · {wonFmt(chosen.price)} — 견적에는 이 제품이 담겨요.</p>}
       <article className="pf-hero-card">
         <div className="pf-hero-side">
           <span className="pf-best">가장 잘 맞아요</span>
           <div className="pf-hero-image">{item.imageUrl ? <img src={item.imageUrl} alt={item.name} loading="lazy" referrerPolicy="no-referrer" onError={event => { event.currentTarget.style.display = 'none' }} /> : <span>제품 이미지</span>}</div>
           <strong className="pf-hero-price pl-mono">{wonFmt(item.price)}</strong>
-          <button type="button" className={'pf-pick' + (picked ? ' on' : '')} onClick={() => togglePicked(item.kind)}>{picked ? '담았습니다' : '견적에 담기'}</button>
+          <button type="button" className={'pf-pick' + (picked && !chosen.fromAlternative ? ' on' : '')} onClick={() => (chosen.fromAlternative ? chooseFirst(item) : togglePicked(item.kind))}>{chosen.fromAlternative ? '이 제품으로 선택' : picked ? '담았습니다' : '견적에 담기'}</button>
         </div>
         <div className="pf-hero-body">
           <h3>{item.name}</h3>
@@ -339,12 +390,15 @@ export default function PeripheralsPage() {
       </article>
       {item.alternatives.length > 0 && <details className="pf-more">
         <summary><span>다른 선택지 {item.alternatives.length}개 · {item.alternatives.map(alternative => alternative.name).join(' · ')}</span></summary>
-        <div className="pf-alt-grid">{item.alternatives.map((alternative, index) => <article className="pf-alt-card" key={alternative.name}>
+        <div className="pf-alt-grid">{item.alternatives.map((alternative, index) => { const selectedAlternative = chosen.fromAlternative && chosen.name === alternative.name; return <article className={'pf-alt-card' + (selectedAlternative ? ' on' : '')} key={alternative.name}>
           <header className="pf-alt-head"><i>{index + 2}</i><h3>{alternative.name}</h3><strong className="pl-mono">{wonFmt(alternative.price)}</strong></header>
           <p className="pf-alt-diff">1위보다 <b>{wonFmt(Math.abs(alternative.diff))} {alternative.diff < 0 ? '저렴' : alternative.diff > 0 ? '비쌈' : '같은 가격'}</b></p>
           <div className="pf-review-evidence pf-alt-evidence"><ReviewRows evidence={reviewEvidence(alternative.reviewAspects, 3)} withQuotes /></div>
           {alternative.reviewNote && <small className="pf-alt-note">{alternative.reviewNote}</small>}
-        </article>)}</div>
+          {alternative.variantId
+            ? <button type="button" className={'pf-alt-pick' + (selectedAlternative ? ' on' : '')} aria-pressed={selectedAlternative} onClick={() => (selectedAlternative ? chooseFirst(item) : chooseAlternative(item, alternative.name))}>{selectedAlternative ? '✓ 선택됨 (누르면 1위로 되돌려요)' : '이 제품으로 선택'}</button>
+            : <button type="button" className="pf-alt-pick" disabled title="서버가 이 제품의 식별 정보를 아직 주지 않아 견적에 담을 수 없어요.">선택 준비 중</button>}
+        </article> })}</div>
       </details>}
     </section>
   }
@@ -382,7 +436,7 @@ export default function PeripheralsPage() {
           {!plan && <div className="pl-alert warn" role="status">본체 견적 없이 주변기기만 담아 확정할 수 있어요. 본체와 함께 확정하려면 <Link to="/start" style={{ color: 'inherit', fontWeight: 700 }}>본체 추천 받으러 가기 →</Link></div>}
           {notice && <div className="pl-alert warn" role="status">{notice}</div>}
           <div className="pf-pick-bar">
-            <div>{pickedItems.length ? pickedItems.map(item => <span key={item.kind}><i>{item.kindLabel}</i>{item.name}</span>) : <span>담은 제품이 없습니다 · 종류마다 하나씩 담을 수 있어요</span>}</div>
+            <div>{pickedItems.length ? pickedItems.map(item => <span key={item.kind}><i>{item.kindLabel}</i>{chosenProduct(item, selection).name}</span>) : <span>담은 제품이 없습니다 · 종류마다 하나씩 담을 수 있어요</span>}</div>
             <strong>{pickedItems.length}개 · {wonFmt(total)}</strong>
             <button type="button" onClick={toCart} disabled={pickedItems.length === 0}>{plan ? '통합 장바구니로' : '견적 확정하기'}</button>
           </div>

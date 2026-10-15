@@ -20,7 +20,7 @@ export default function ReportPage() {
   const navigate = useNavigate()
   const { savedSetups, loading, storageError, conversations } = useSetups()
   const removeSheet = useRemoveSheet()
-  const { reviseSetup } = usePlan()
+  const { reviseSetup, revisePeripheralSetup } = usePlan()
   const latest = savedSetups.find(item => item.id === id)
   const wanted = Number(search.get('v')) || null
   const [older, setOlder] = useState<SavedSetup | null>(null)
@@ -48,6 +48,11 @@ export default function ReportPage() {
       ? await reviseSetup(id, { listId: id, revisionNo: setup.revisionNo, name: setup.title, date: setup.date, target: setup.target, memo: setup.memo })
       : null
     if (screen) navigate(screen === 'plan' ? '/plan' : '/start')
+  }
+
+  async function revisePeripherals() {
+    if (!setup || !await revisePeripheralSetup(setup)) return
+    navigate('/peripherals', { state: { plannerMode: 'peripherals' } })
   }
 
   async function remove() {
@@ -85,7 +90,9 @@ export default function ReportPage() {
           ))}
           {setup.revisionNo != null && (
             <>
-              {setup.plan.items.length > 0 && <button type="button" className="pl-pill mint" onClick={() => void revise()} title="이 견적서의 구성으로 추천 결과 화면을 열어 수정해요. 확정할 때 덮어쓸지 새로 저장할지 고를 수 있어요.">견적 수정하기</button>}
+              {setup.plan.items.length > 0
+                ? <button type="button" className="pl-pill mint" onClick={() => void revise()} title="이 견적서의 구성으로 추천 결과 화면을 열어 수정해요. 확정할 때 덮어쓸지 새로 저장할지 고를 수 있어요.">견적 수정하기</button>
+                : Boolean(setup.peripherals?.length) && <button type="button" className="pl-pill mint" onClick={() => void revisePeripherals()} title="저장된 주변기기를 다시 불러와 제품과 조건을 수정해요.">견적 수정하기</button>}
               <button type="button" className="pl-pill danger" onClick={() => void remove()} title="이 견적서만 삭제해요. 대화와 다른 견적서는 그대로예요.">견적서 삭제</button>
             </>
           )}

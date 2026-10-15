@@ -29,7 +29,12 @@ body { line-height: 1.45; }
 .tf-home-auth button { height: 36px; border: 1px solid var(--line2); border-radius: 9px; background: var(--panel); color: var(--text); font-weight: 700; }
 .tf-home-auth button:hover { border-color: var(--mint); color: var(--mint); background: var(--panel); }
 .tf-home-auth a:last-child button { border-color: transparent; background: var(--grad); color: #fff; box-shadow: 0 5px 12px rgba(49,87,255,.23); }
-.tf-home-auth a:last-child button:hover { color: #fff; filter: brightness(1.06); }
+.tf-home-auth a:last-child button:hover {
+  border-color: #3157ff;
+  background: #fff;
+  color: #3157ff;
+  filter: none;
+}
 .tf-user-name { color: var(--text); font-weight: 700; }
 .tf-user-name:hover, .tf-user-name[aria-expanded='true'] { border-color: var(--line2); background: var(--ink); color: var(--mint); }
 .tf-user-pop { border-color: var(--line); background: var(--panel); box-shadow: 0 16px 40px var(--shadow); }

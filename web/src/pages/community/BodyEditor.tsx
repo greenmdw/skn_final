@@ -33,6 +33,29 @@ export function serialize(blocks: Block[]): string {
 
 const imagesOf = (blocks: Block[]) => blocks.flatMap(block => (block.kind === 'image' ? [block.image] : []))
 
+const MARKER_LINE = /^[ \t]*!\[([^\]\n]*)\]\(image:([0-9a-f-]{8,})\)[ \t]*$/gim
+
+/** 저장된 본문(Markdown)을 편집기 덩어리로 푼다. 마커의 이미지를 글 사진 목록에서 찾고, 마커 없이 붙어 있던 이미지는 맨 아래에 이어 붙인다(보이는 모습 그대로). */
+export function blocksFromBody(body: string, images: WireCommunityImage[]): Block[] {
+  const byId = new Map(images.map(image => [image.id.toLowerCase(), image]))
+  const used = new Set<string>()
+  const known = body.replace(MARKER_LINE, (whole, _alt: string, id: string) => (byId.has(id.toLowerCase()) ? whole : ''))
+  const pieces = known.split(MARKER_LINE)          // [글, 설명, id, 글, 설명, id, …, 글]
+  const blocks: Block[] = []
+  for (let i = 0; i < pieces.length; i += 3) {
+    blocks.push({ key: newKey(), kind: 'text', text: (pieces[i] ?? '').replace(/^\n+|\n+$/g, '') })
+    const id = pieces[i + 2]
+    const image = id ? byId.get(id.toLowerCase()) : undefined
+    if (image) { used.add(image.id.toLowerCase()); blocks.push({ key: newKey(), kind: 'image', image, alt: pieces[i + 1] ?? '' }) }
+  }
+  if (blocks[blocks.length - 1].kind === 'image') blocks.push({ key: newKey(), kind: 'text', text: '' })
+  for (const image of images) {
+    if (used.has(image.id.toLowerCase())) continue
+    blocks.push({ key: newKey(), kind: 'image', image, alt: '' }, { key: newKey(), kind: 'text', text: '' })
+  }
+  return blocks
+}
+
 function AutoTextarea({ block, first, only, onText, onCaret, onPaste, onKeys, register }: {
   block: Extract<Block, { kind: 'text' }>; first: boolean; only: boolean
   onText: (key: string, text: string) => void
@@ -68,12 +91,14 @@ function AutoTextarea({ block, first, only, onText, onCaret, onPaste, onKeys, re
   )
 }
 
-export default function BodyEditor({ userName, onChange }: {
+export default function BodyEditor({ userName, initial, onChange }: {
   userName: string | null
+  /** 글 수정 때 처음에 채울 본문과 그 글의 사진 */
+  initial?: { body: string; images: WireCommunityImage[] }
   onChange: (body: string, images: WireCommunityImage[]) => void
 }) {
   const { showToast } = useToast()
-  const [blocks, setBlocks] = useState<Block[]>(() => [{ key: newKey(), kind: 'text', text: '' }])
+  const [blocks, setBlocks] = useState<Block[]>(() => (initial ? blocksFromBody(initial.body, initial.images) : [{ key: newKey(), kind: 'text', text: '' }]))
   const [uploading, setUploading] = useState(false)
   const [dragging, setDragging] = useState(false)
   const blocksRef = useRef(blocks)
@@ -83,6 +108,8 @@ export default function BodyEditor({ userName, onChange }: {
   const pendingFocus = useRef<{ key: string; pos: number } | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const report = useRef(onChange)
+  // 수정 화면에서 처음부터 글에 붙어 있던 이미지는 서버의 임시 이미지가 아니므로 지우기를 요청하지 않는다(저장할 때 글에서 빠진다).
+  const attachedIds = useRef(new Set((initial?.images ?? []).map(image => image.id)))
   report.current = onChange
 
   useEffect(() => { report.current(serialize(blocks), imagesOf(blocks)) }, [blocks])
@@ -90,7 +117,7 @@ export default function BodyEditor({ userName, onChange }: {
   // 글을 쓰다 취소하거나 화면을 떠나면 올려 둔 임시 이미지를 서버에서 지운다(서버는 글에 붙지 않은 이미지를 사용자당 10장까지만 받는다).
   // 게시하거나 임시 저장해서 이미 글에 붙은 이미지는 서버가 거절(409)하므로 그대로 남는다.
   useEffect(() => () => {
-    for (const image of imagesOf(blocksRef.current)) communityApi.removeUpload(image.id).catch(() => undefined)
+    for (const image of imagesOf(blocksRef.current)) if (!attachedIds.current.has(image.id)) communityApi.removeUpload(image.id).catch(() => undefined)
   }, [])
 
   // 이미지를 넣거나 지운 뒤에는 이어 쓸 글 칸으로 커서를 옮긴다.
@@ -192,7 +219,7 @@ export default function BodyEditor({ userName, onChange }: {
     // 아직 글에 붙지 않은 임시 이미지는 서버에서도 바로 지운다(서버는 글에 붙지 않은 이미지를 사용자당 10장까지만 받는다).
     // 임시 저장된 글에 붙은 이미지는 서버가 거절하는데(409), 그런 이미지는 저장할 때 글에서 빠지므로 무시한다.
     const removed = current[index]
-    if (removed.kind === 'image') communityApi.removeUpload(removed.image.id).catch(() => undefined)
+    if (removed.kind === 'image' && !attachedIds.current.has(removed.image.id)) communityApi.removeUpload(removed.image.id).catch(() => undefined)
     if (before?.kind === 'text' && after?.kind === 'text') {
       const head = before.text.replace(/\n+$/, '')
       const joined = head + (head.trim() && after.text.trim() ? '\n\n' : '') + after.text.replace(/^\n+/, '')

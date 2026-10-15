@@ -12,7 +12,7 @@ export default function AuthLayout({ switcher, children }: { switcher: ReactNode
           <div className="auth-wrap">
             <div className="auth-top">
               <Link className="auth-back" to="/">← TrueFit</Link>
-              <div className="auth-top-actions"><span>{switcher}</span><ThemeToggle /></div>
+              <div className="auth-top-actions">{switcher && <span>{switcher}</span>}<ThemeToggle /></div>
             </div>
             {children}
           </div>

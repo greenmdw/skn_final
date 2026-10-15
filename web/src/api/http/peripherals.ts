@@ -44,6 +44,7 @@ function itemFromWire(item: WirePeripheralItem): PeripheralItem {
     alternatives: item.alternatives.map(alternative => ({
       name: alternative.name, price: alternative.price, diff: alternative.diff,
       reviewAspects: aspectsFromWire(alternative.review), reviewNote: alternative.review_note ?? '',
+      variantId: alternative.variant_id ?? null, brand: alternative.brand ?? null, imageUrl: alternative.image_url ?? null, productUrl: alternative.product_url ?? null,
     })),
     feel: feelFromWire(item.feel), feelNote: item.feel_note ?? null,
   }

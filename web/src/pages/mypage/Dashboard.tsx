@@ -44,7 +44,7 @@ export default function Dashboard({ user, myPc, go, openConfig }: {
       <section className="mpx-welcome">
         <div className="mpx-hello">
           <div className="mpx-avatar" aria-hidden="true">{user.name.slice(0, 1)}</div>
-          <div><h1>{user.name}님, 다시 오셨네요! 👋</h1><p>오늘도 나에게 딱 맞는 PC를 찾아보세요.</p></div>
+          <div><h1>{user.name}님, 어서오세요! 👋</h1><p> 나에게 딱 맞는 PC를 찾아보세요.</p></div>
         </div>
         <button className="mpx-memory" type="button" onClick={() => navigate('/start')}>
           <span className="mpx-brain">🖥️</span>

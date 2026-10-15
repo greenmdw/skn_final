@@ -60,7 +60,7 @@ export default function CheckPage() {
   const { loadCheckedQuote, startUpgradeMode } = usePlan()
   const { savedSetups, loading: savedSetupsLoading, storageError: savedSetupsError } = useSetups()
   const navigate = useNavigate()
-  const [search, setSearch] = useSearchParams()
+  const [search] = useSearchParams()
   const analysisRef = useRef<HTMLElement | null>(null)
   const seq = useRef(0)
   const nextId = (prefix: string) => `${prefix}-${++seq.current}`
@@ -74,12 +74,13 @@ export default function CheckPage() {
   filesRef.current = files
   const [text, setText] = useState('')
   const [question, setQuestion] = useState('')
-  // 마이페이지의 "받은 견적 점검에 적용"으로 들어오면 내 현재 PC 기준 질문을 미리 채운다(한 번만).
+  // 마이페이지의 "받은 견적 점검에 적용"으로 들어오면 텍스트 견적 탭에 내 현재 PC 구성을 미리 채운다(한 번만).
   const location = useLocation()
   useEffect(() => {
-    const preset = (location.state as { question?: unknown } | null)?.question
-    if (typeof preset !== 'string' || !preset) return
-    setQuestion(current => (current.trim() ? current : preset))
+    const preset = location.state as { tab?: unknown; text?: unknown } | null
+    if (preset?.tab !== 'text' || typeof preset.text !== 'string' || !preset.text) return
+    setTab('text')
+    setText(current => (current.trim() ? current : preset.text as string))
     navigate(location.pathname + location.search, { replace: true, state: null })
   }, [location, navigate])
   const [activeChips, setActiveChips] = useState<string[]>([])
@@ -279,7 +280,6 @@ export default function CheckPage() {
   useEffect(() => {
     if (!restoreId || restoringRef.current === restoreId) return
     restoringRef.current = restoreId
-    setSearch({}, { replace: true })
     void restore(restoreId).finally(() => { restoringRef.current = null })
   }, [restoreId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -626,7 +626,7 @@ export default function CheckPage() {
       }
       loadCheckedQuote(plan, checkDraft)
       showToast('이 견적을 장바구니에 담았습니다.')
-      navigate('/cart')
+      navigate('/cart', { state: { plannerMode: 'check' } })
     } catch (caught) { setError(errorMessage(caught, '견적을 장바구니에 반영하지 못했습니다.')) }
     finally { setBusy(null) }
   }

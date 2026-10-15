@@ -504,6 +504,19 @@ export interface PeripheralReviewAspect {
   quote: string | null
 }
 
+export interface PeripheralAlternative {
+  name: string
+  price: number
+  diff: number
+  reviewAspects: PeripheralReviewAspect[]
+  reviewNote: string
+  /** 아래 네 값은 서버가 대안에도 제품 정보를 줄 때만 있다 */
+  variantId?: string | null
+  brand?: string | null
+  imageUrl?: string | null
+  productUrl?: string | null
+}
+
 export interface PeripheralItem {
   kind: PeripheralKind
   kindLabel: string
@@ -523,8 +536,8 @@ export interface PeripheralItem {
   reviewAspects: PeripheralReviewAspect[]
   reviewWeight: number
   reviewNote: string
-  /** 다른 선택지. 리뷰 근거는 1위와 같은 형식이고, 서버가 사양 점검·제품 식별자는 주지 않아 담기는 할 수 없다 */
-  alternatives: { name: string; price: number; diff: number; reviewAspects: PeripheralReviewAspect[]; reviewNote: string }[]
+  /** 다른 선택지. 서버가 제품 식별자(variantId)를 주는 경우에만 견적에 담을 수 있다(없으면 선택 버튼은 꺼져 있다) */
+  alternatives: PeripheralAlternative[]
   /** 체감 근거(사용기 분석). null 이면 보여 줄 근거가 없고 feelNote 만 보인다 */
   feel: PeripheralFeel | null
   feelNote: string | null

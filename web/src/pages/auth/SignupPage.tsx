@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
 import { setAuthUser } from '../../state/authStore'
@@ -6,7 +6,7 @@ import AuthLayout from './AuthLayout'
 import { authErrorMessage, validEmail, validPassword } from './messages'
 import { TERMS } from './terms'
 
-type Note = { text: string; tone: '' | 'ok' | 'bad'; loginLink?: boolean }
+type Note = { text: string; tone: '' | 'ok' | 'bad' }
 
 export default function SignupPage() {
   const navigate = useNavigate()
@@ -16,37 +16,10 @@ export default function SignupPage() {
   const [name, setName] = useState('')
   const [agreed, setAgreed] = useState([false, false])   // 필수 약관 2개(이용약관, 개인정보 처리방침)
   const [marketing, setMarketing] = useState(false)
-  const [emailNote, setEmailNote] = useState<Note>({ text: '', tone: '' })
-  const [emailAvailable, setEmailAvailable] = useState<boolean | null>(null)
+  const [openTerm, setOpenTerm] = useState<number | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState<string | null>(null)
-  const seq = useRef(0)
-
-  // 이메일 입력을 멈추고 400ms 뒤에 중복 확인 (옛 화면과 같다). 늦게 온 응답은 버린다.
-  useEffect(() => {
-    const value = email.trim()
-    const mine = ++seq.current
-    setEmailAvailable(null)
-    if (!value) { setEmailNote({ text: '', tone: '' }); return }
-    if (!validEmail(value)) { setEmailAvailable(false); setEmailNote({ text: '올바른 이메일 형식으로 입력해 주세요.', tone: 'bad' }); return }
-    setEmailNote({ text: '이메일 확인 중…', tone: '' })
-    const timer = window.setTimeout(async () => {
-      try {
-        const available = await api.auth.checkEmail(value)
-        if (mine !== seq.current) return
-        setEmailAvailable(available)
-        setEmailNote(available
-          ? { text: '사용할 수 있는 이메일입니다. ✓', tone: 'ok' }
-          : { text: '이미 가입된 이메일입니다. ', tone: 'bad', loginLink: true })
-      } catch {
-        if (mine !== seq.current) return
-        setEmailNote({ text: '지금은 중복 확인을 할 수 없어요. 가입할 때 다시 확인합니다.', tone: '' })
-      }
-    }, 400)
-    return () => window.clearTimeout(timer)
-  }, [email])
-
   const pwNote: Note = !password && !password2 ? { text: '', tone: '' }
     : !validPassword(password) ? { text: '영문과 숫자를 포함해 8자 이상으로 입력해 주세요.', tone: 'bad' }
     : password2 && password !== password2 ? { text: '비밀번호가 일치하지 않습니다.', tone: 'bad' }
@@ -67,7 +40,6 @@ export default function SignupPage() {
     const nameValue = name.trim()
     const problems: string[] = []
     if (!validEmail(emailValue)) problems.push('이메일을 확인해 주세요.')
-    else if (emailAvailable === false) problems.push('이미 가입된 이메일입니다.')
     if (!validPassword(password)) problems.push('비밀번호 조건을 확인해 주세요.')
     else if (password !== password2) problems.push('비밀번호가 일치하지 않습니다.')
     if (!nameValue) problems.push('표시 이름을 입력해 주세요.')
@@ -80,8 +52,7 @@ export default function SignupPage() {
       setDone(nameValue)
     } catch (err) {
       setBusy(false)
-      if ((err as { code?: string }).code === 'email_taken') setEmailAvailable(false)
-      setError(authErrorMessage(err))
+      setError((err as { code?: string }).code === 'email_taken' ? '이미 존재하는 계정입니다' : authErrorMessage(err))
     }
   }
 
@@ -99,7 +70,7 @@ export default function SignupPage() {
   }
 
   return (
-    <AuthLayout switcher={<>이미 계정이 있으신가요? <Link to="/login">로그인</Link></>}>
+    <AuthLayout switcher={null}>
       <section className="auth-card">
         <span className="auth-eyebrow">GET STARTED · EMAIL</span>
         <h1>이메일로 시작하기</h1>
@@ -108,11 +79,7 @@ export default function SignupPage() {
           <div className="auth-field">
             <label htmlFor="tf-signup-email">이메일 *</label>
             <input type="email" id="tf-signup-email" autoComplete="email" placeholder="you@example.com" required
-              className={emailNote.tone === 'ok' ? 'auth-ok' : emailNote.tone === 'bad' ? 'auth-invalid' : ''}
               value={email} onChange={e => setEmail(e.target.value)} />
-            <p className={noteClass(emailNote.tone)}>
-              {emailNote.text}{emailNote.loginLink && <Link to="/login">로그인하기 →</Link>}
-            </p>
           </div>
           <div className="auth-two-col">
             <div className="auth-field">
@@ -145,11 +112,10 @@ export default function SignupPage() {
                       onChange={e => setAgreed(prev => prev.map((v, j) => (j === i ? e.target.checked : v)))} />
                     <span><b>[필수]</b> {label}</span>
                   </label>
-                  <details>
-                    <summary>{TERMS[i].summary}</summary>
-                    <div className="auth-term-detail" dangerouslySetInnerHTML={{ __html: TERMS[i].html }} />
-                  </details>
+                  <button type="button" className="auth-term-toggle" aria-expanded={openTerm === i} aria-controls={`auth-term-detail-${i}`}
+                    onClick={() => setOpenTerm(current => current === i ? null : i)}>{openTerm === i ? '전문 닫기' : TERMS[i].summary}</button>
                 </div>
+                {openTerm === i && <div id={`auth-term-detail-${i}`} className="auth-term-detail" dangerouslySetInnerHTML={{ __html: TERMS[i].html }} />}
               </div>
             ))}
             <div className="auth-term-item">

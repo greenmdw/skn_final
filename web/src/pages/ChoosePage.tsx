@@ -1,5 +1,6 @@
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import MarketingHeader from '../components/MarketingHeader'
+import SiteFooter from '../components/SiteFooter'
 import '../styles/home.css'
 import { CHOICE_ART } from './home/choiceArt'
 
@@ -70,6 +71,7 @@ export default function ChoosePage() {
           ))}
         </div>
       </div>
+      <SiteFooter />
     </div>
   )
 }
