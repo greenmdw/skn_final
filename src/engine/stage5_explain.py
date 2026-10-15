@@ -91,12 +91,6 @@ def _review_line(candidate: dict | None) -> tuple[str, list[dict], str | None]:
     return line, evidence, caveat
 
 
-def explain_manual(service, request):
-    """Actual source-only explanation; does not invent a procedure or safety score."""
-    from dataclasses import replace
-    return service.answer(replace(request, purpose="recommendation"))
-
-
 def _contribution(build: BuildResult, rank: RankResult | None) -> dict[str, int]:
     """고른 구성이 [3-B] 점수를 가격·성능·리뷰 세 축 중 어디서 얻었는지(%, 합 100) — 전체 기여분 안의 비중이다.
     사용자 표시용 축별 점수(100×축 점수)·기여분(100×가중치×축 점수)은 이 값이 아니라 결과 API 의 items[].fit 이다.

@@ -27,43 +27,6 @@ BASKET_SEARCH_TOP_N = 8
 # pathological catalog from stalling a request; hitting it is reported as counts["capped"].
 WIDEN_NODE_CAP = 150_000
 
-# v3 (develop `da79839`, DEVELOP_DB_TRANSITION.md "Candidate edits and confirmation"):
-# engine.recommendation_candidate.qty is a purchase pack count, integer 1-99. Applies to
-# any to_purchase qty this module produces or re-validates — not a domain-required-qty
-# cap (owned coverage / a requirement's own required_qty are unbounded).
-PURCHASE_QTY_MIN, PURCHASE_QTY_MAX = 1, 99
-
-
-def _purchase_qty_out_of_range(qty: float) -> bool:
-    return not math.isfinite(qty) or not float(qty).is_integer() or not (PURCHASE_QTY_MIN <= qty <= PURCHASE_QTY_MAX)
-
-
-def _pack_count_for(need: float, unit_qty: float, req_unit_code: str) -> int | None:
-    """P4 review R4: two different requirement unit conventions coexist (P2/P4
-    contract) and must not be collapsed into one formula:
-
-    - `req_unit_code == "pack"`: required_qty already counts purchase packs (e.g.
-      "2 packs of diapers") — the conversion factor is 1 (OP04/OP08 fixtures fix
-      this: qty stays == the remaining pack count, never divided by unit_qty).
-      `unit_qty` there is a pure content-count statistic (how many individual
-      diapers per pack), not a purchase divisor.
-    - anything else (e.g. "each"): required_qty counts base units, so the purchase
-      pack count is ceil(need/unit_qty) for THAT candidate's pack size.
-
-    Returns None (candidate excluded, not silently clamped) when the inputs are
-    unusable or the resulting count falls outside the develop 1-99 pack range (P4
-    review R2 — applies uniformly regardless of timing, including soon/later)."""
-    if not math.isfinite(need) or need <= 0:
-        return None
-    if req_unit_code == "pack":
-        count = math.ceil(need)
-    else:
-        if not math.isfinite(unit_qty) or unit_qty <= 0:
-            return None
-        count = math.ceil(need / unit_qty)
-    return count if PURCHASE_QTY_MIN <= count <= PURCHASE_QTY_MAX else None
-
-
 def _ranked(rank: RankResult, slot: str) -> list[Candidate]:
     return [Candidate.model_validate(c) for c in rank.slots.get(slot, {}).get("ranked", [])]
 
@@ -99,15 +62,6 @@ def _apply_mainboard_compat(pools: dict[str, list[Candidate]], mb: Candidate) ->
     if form and "케이스" in pools:
         pools["케이스"] = [c for c in pools["케이스"]
                           if form in (c.specs.get(rules["motherboard_case"]["case_spec"]) or [form])] or pools["케이스"]
-
-
-def _pick_cheapest_fit(pool: list[Candidate], budget: int, running: int) -> Candidate:
-    """풀의 랭킹 1위를 기본으로, 예산 안에 들어오는 첫 후보로 대체한다(공용 그리디 픽)."""
-    cand = pool[0]
-    for c in pool:
-        if budget == 0 or running + c.price <= budget:
-            return c
-    return cand
 
 
 def _is_definite_mismatch(pool: list[Candidate], key: str, wanted: str) -> bool:

@@ -33,13 +33,3 @@ def tokens(text: str) -> list[str]:
         if re.fullmatch(r"[가-힣]+", word) and len(word) > 2:
             out.extend(word[i : i + 2] for i in range(len(word) - 1))
     return out
-
-
-def lexical_text(text: str) -> str:
-    return " ".join(tokens(text))
-
-
-def query_expression(text: str) -> str:
-    return " | ".join(
-        "'" + t.replace("'", "''") + "'" for t in sorted(set(tokens(text)))
-    )
