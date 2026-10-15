@@ -120,7 +120,7 @@ def extract_from_image(image_data_url: str) -> dict[str, str]:
 
 # ── 여러 제품 보존(받은 견적 점검 — 여러 장 업로드) ──────────────────────────────────────────────
 class _ImageItem(BaseModel):
-    category: Literal["cpu", "gpu", "ram", "motherboard", "storage", "psu", "case", "cooler"]
+    category: Literal["cpu", "gpu", "ram", "motherboard", "storage", "psu", "case", "cooler", "other"]   # other = 튜닝·액세서리·케이블 등 메인 부품이 아닌 것
     raw_text: str
     uncertain: bool = False        # 글자가 흐리거나 확신이 없어 읽은 이름이 틀렸을 수 있다 — 호출자가 카탈로그 확정을 하지 않는다
 
@@ -136,7 +136,7 @@ class ExtractedItems(list):
     quote_total: int | None = None
 
 
-_ITEM_SLOT_MAP = {**_IMAGE_SLOT_MAP, "case": "케이스"}
+_ITEM_SLOT_MAP = {**_IMAGE_SLOT_MAP, "case": "케이스", "other": "기타"}
 
 
 # 여러 제품 보존용 텍스트 추출은 슬롯당 하나로 줄이는 extract 보다 긴 입력을 받는다(제품이 여럿이라 줄 수가 많다).
@@ -177,4 +177,36 @@ def extract_items_from_image(image_data_url: str) -> list[dict[str, str]]:
                            if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text))
     if parsed.quote_total and _QUOTE_TOTAL_MIN <= parsed.quote_total <= _QUOTE_TOTAL_MAX:
         found.quote_total = int(parsed.quote_total)
+    if any(i.get("uncertain") for i in found):
+        _reread_uncertain(image_data_url, found)
     return found
+
+
+_REREAD_MIN_SIMILARITY = 0.5     # 다시 읽은 줄이 원래 줄과 이 정도는 닮아야 같은 줄로 본다
+
+
+def _reread_uncertain(image_data_url: str, found: "ExtractedItems") -> None:
+    """글자가 불확실하다고 표시된 줄만 한 번 더 읽는다(그 사진에서만 비전 호출 1회 추가). 다시 읽은 결과가 또렷하면(uncertain 아님)
+    그 줄을 바꾸고, 여전히 불확실하거나 같은 줄을 못 찾으면 원래 읽은 값과 uncertain 표시를 그대로 둔다. 실패해도 첫 판독을 쓴다."""
+    from difflib import SequenceMatcher
+
+    doubtful = [i for i in found if i.get("uncertain")]
+    listing = "\n".join(f"- ({i['category']}) {i['raw_text']}" for i in doubtful)
+    system = (SPEC_EXTRACTION_ITEMS_IMAGE_SYSTEM + "\n\n[다시 읽기] 아래 줄은 첫 판독에서 글자가 불확실했습니다. 이미지에서 같은 줄을 찾아 "
+              "글자를 한 글자씩 천천히 다시 읽고, 이 줄들만 items에 담아 답합니다(다른 줄·quote_total 은 null/빈 값). "
+              "그래도 확신이 없으면 uncertain 을 true 로 둡니다.\n" + listing)
+    try:
+        raw = call_llm_vision(image_data_url, system=system, output_schema=_SpecExtractionItems.model_json_schema(),
+                              model=SPEC_EXTRACTION_IMAGE_MODEL, temperature=0)
+        if isinstance(raw, dict) and "items" not in raw and isinstance(raw.get("properties"), dict):
+            raw = raw["properties"]
+        again = [_item_dict(i) for i in _SpecExtractionItems.model_validate(raw).items
+                 if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text)]
+    except Exception:  # noqa: BLE001 — 재독 실패는 첫 판독으로 간다
+        return
+    for old in doubtful:
+        best = max((a for a in again if a["category"] == old["category"] and not a.get("uncertain")),
+                   key=lambda a: SequenceMatcher(None, a["raw_text"].casefold(), old["raw_text"].casefold()).ratio(), default=None)
+        if best is not None and SequenceMatcher(None, best["raw_text"].casefold(), old["raw_text"].casefold()).ratio() >= _REREAD_MIN_SIMILARITY:
+            old["raw_text"] = best["raw_text"]
+            old.pop("uncertain", None)

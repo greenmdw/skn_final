@@ -1,6 +1,8 @@
 """견적 한 줄 → 항목 규칙(src/engine/quote_items.py) — DB·LLM 없이 도는 순수 함수."""
 from __future__ import annotations
 
+import pytest
+
 from src.engine.quote_items import default_selection, merge_same_products, spec_text, split_line
 
 
@@ -130,3 +132,12 @@ def test_shop_title_noise_words_do_not_block_a_match():
 
     pool = [Candidate(product_key="k1", slot="저장장치", name="Samsung PM9A1 NVMe 512GB", product_id="p1")]
     assert _match_nearest("삼성전자 병행수입 PM9A1 벌크 새상품", pool) is not None
+
+
+@pytest.mark.parametrize("line, expected", [
+    ("램 튜닝 킷 (방열판 포함)", True), ("슬리빙 케이블 연장 세트", True), ("서멀 구리스 MX-4", True), ("조립비 50,000원", True),
+    ("삼성전자 DDR5-5600 16GB", False), ("쿨러마스터 허리케인 팬 방열판 포함 SSD 990 PRO 1TB", False), ("Deepcool AG620 G2", False),
+])
+def test_non_part_lines_are_tuning_accessories_and_services_only(line, expected):
+    from src.engine.quote_items import is_non_part_line
+    assert is_non_part_line(line) is expected

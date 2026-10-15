@@ -466,3 +466,39 @@ def test_two_full_builds_are_hinted_as_separate_quotes_and_one_split_quote_as_si
     _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "R5 7500F"}, {"category": "GPU", "raw_text": "RTX 4060"}],
                                    "b": [{"category": "RAM", "raw_text": "DDR5 16GB"}, {"category": "파워", "raw_text": "600W"}]})
     assert _upload(client, ["a", "b"]).json()["source_mode_hint"] == "single"
+
+
+def test_accessory_lines_are_left_out_of_the_analysis_and_reported_on_their_source(client, monkeypatch):
+    """튜닝 킷·케이블 같은 줄은 부품군으로 억지 분류하지 않고 분석에서 빼며, 어떤 줄을 뺐는지 그 사진(source)에 남긴다."""
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "AMD Ryzen 5 7500F"},
+                                         {"category": "RAM", "raw_text": "램 튜닝 킷 (방열판)"},
+                                         {"category": "기타", "raw_text": "알 수 없는 액세서리"}]})
+    body = _upload(client, ["a"]).json()
+    assert [i["category"] for i in body["items"]] == ["CPU"]
+    assert body["sources"][0]["ignored_lines"] == ["램 튜닝 킷 (방열판)", "알 수 없는 액세서리"]
+
+
+def test_a_low_quality_photo_gets_a_warning_and_nothing_from_it_is_confirmed(client, monkeypatch):
+    """작거나 흐린 사진은 안내를 붙이고, 그 사진에서 읽은 부품은 카탈로그로 확정하지 않는다(분석은 한다)."""
+    from src.engine import image_prep
+    monkeypatch.setattr(image_prep, "assess_quality", lambda data: {"low": True, "reason": "blurry", "width": 1000, "blur": 300.0})
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "AMD Ryzen 5 7500F"}]})
+    body = _upload(client, ["a"]).json()
+    assert "흐려" in body["sources"][0]["quality_warning"]
+    assert all(i["match_status"] != "confirmed" for i in body["items"]) and body["items"][0]["uncertain"] is True
+
+
+def test_a_clear_photo_has_no_warning_and_no_ignored_lines(client, monkeypatch):
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "AMD Ryzen 5 7500F"}]})
+    source = _upload(client, ["a"]).json()["sources"][0]
+    assert source["quality_warning"] is None and source["ignored_lines"] == []
+
+
+def test_a_blurry_photo_that_was_read_clearly_keeps_its_warning_but_may_still_be_confirmed(client, monkeypatch):
+    from src.engine import image_prep
+    monkeypatch.setattr(image_prep, "assess_quality", lambda data: {"low": True, "reason": "blurry", "width": 1000, "blur": 300.0})
+    full = [{"category": c, "raw_text": t} for c, t in (("CPU", "AMD Ryzen 5 7500F"), ("GPU", "RTX 4060"), ("RAM", "DDR5 16GB"),
+                                                        ("파워", "600W"), ("케이스", "빈 케이스"))]
+    _fake_extraction(monkeypatch, {"a": full})
+    source = _upload(client, ["a"]).json()["sources"][0]
+    assert "흐려" in source["quality_warning"] and "자동으로 확정하지 않고" not in source["quality_warning"]

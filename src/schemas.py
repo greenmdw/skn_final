@@ -427,6 +427,8 @@ class QuoteDraftSourceOut(BaseModel):
     status: Literal["completed", "failed"]
     error_code: str | None = None
     quote_total: int | None = None                       # 사진에 적힌 견적 총액(원). 부품별 가격이 없는 견적의 가격 안내에 쓴다
+    quality_warning: str | None = None                   # 사진이 작거나 흐릴 때의 안내 — 이 사진에서 읽은 부품은 자동 확정하지 않는다
+    ignored_lines: list[str] = Field(default_factory=list)   # 튜닝·액세서리처럼 메인 부품이 아니라 분석에서 뺀 줄
 
 
 class QuoteDraftItemOut(BaseModel):

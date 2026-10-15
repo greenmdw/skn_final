@@ -163,3 +163,44 @@ def test_image_items_carry_the_quote_total_and_the_uncertain_flag(monkeypatch):
     assert items.quote_total == 2_280_000
     monkeypatch.setattr(agent, "call_llm_vision", lambda *a, **k: {"quote_total": 12, "items": [{"category": "cpu", "raw_text": "i5"}]})
     assert agent.extract_items_from_image("data:image/png;base64,AAAA").quote_total is None
+
+
+def test_uncertain_lines_are_read_once_more_and_replaced_only_by_a_clear_similar_reading(monkeypatch):
+    """불확실한 줄은 그 사진에서 한 번 더 읽는다 — 또렷하고 닮은 줄이면 바꾸고(uncertain 표시 제거), 아니면 그대로 둔다."""
+    from src.agent import spec_extraction_agent as agent
+    calls = []
+    answers = [
+        {"items": [{"category": "cpu", "raw_text": "라이젠 7800X3D"}, {"category": "gpu", "raw_text": "RTX 5O80", "uncertain": True},
+                   {"category": "ram", "raw_text": "DDR5 3?GB", "uncertain": True}]},
+        {"items": [{"category": "gpu", "raw_text": "RTX 5080", "uncertain": False}, {"category": "ram", "raw_text": "엉뚱한 줄", "uncertain": False}]},
+    ]
+    monkeypatch.setattr(agent, "call_llm_vision", lambda *a, **k: calls.append(k.get("system", "")) or answers[len(calls) - 1])
+    items = agent.extract_items_from_image("data:image/png;base64,AAAA")
+    assert len(calls) == 2 and "RTX 5O80" in calls[1] and "다시 읽기" in calls[1]
+    assert items[0] == {"category": "CPU", "raw_text": "라이젠 7800X3D"}
+    assert items[1] == {"category": "GPU", "raw_text": "RTX 5080"}                              # 닮고 또렷 → 교체
+    assert items[2] == {"category": "RAM", "raw_text": "DDR5 3?GB", "uncertain": True}         # 닮지 않음 → 그대로
+
+
+def test_no_second_read_when_nothing_is_uncertain_and_a_failed_second_read_keeps_the_first(monkeypatch):
+    from src.agent import spec_extraction_agent as agent
+    calls = []
+    monkeypatch.setattr(agent, "call_llm_vision", lambda *a, **k: calls.append(1) or {"items": [{"category": "cpu", "raw_text": "i5-14600K"}]})
+    agent.extract_items_from_image("data:image/png;base64,AAAA")
+    assert len(calls) == 1
+
+    def second_read_fails(*a, **k):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("down")
+        return {"items": [{"category": "gpu", "raw_text": "RTX 4O60", "uncertain": True}]}
+    calls.clear()
+    monkeypatch.setattr(agent, "call_llm_vision", second_read_fails)
+    assert agent.extract_items_from_image("data:image/png;base64,AAAA") == [{"category": "GPU", "raw_text": "RTX 4O60", "uncertain": True}]
+    assert len(calls) == 2
+
+
+def test_other_category_maps_to_the_non_part_group(monkeypatch):
+    from src.agent import spec_extraction_agent as agent
+    monkeypatch.setattr(agent, "call_llm_vision", lambda *a, **k: {"items": [{"category": "other", "raw_text": "램 튜닝 킷"}]})
+    assert agent.extract_items_from_image("data:image/png;base64,AAAA") == [{"category": "기타", "raw_text": "램 튜닝 킷"}]

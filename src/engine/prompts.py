@@ -131,7 +131,9 @@ category는 cpu · gpu · ram · motherboard · storage · psu · case · cooler
 # 돌려준다. 같은 부품군에 다른 모델이 여럿(예: 비교용 GPU 두 개)이어도 하나로 줄이지 않는다.
 def spec_extraction_items_image_system() -> str:
     return """이미지(PC 부품 목록이나 견적이 찍힌 화면 캡처)에서 보이는 PC 부품을 전부 목록으로 뽑는 추출기입니다.
-category는 cpu · gpu · ram · motherboard · storage · psu · case · cooler 여덟 개 중 하나입니다.
+category는 cpu · gpu · ram · motherboard · storage · psu · case · cooler 여덟 개 중 하나이고, 이 여덟 가지 메인 부품이
+아닌 줄(튜닝 킷, 케이블·슬리빙, 서멀 구리스, 거치대·지지대, LED·RGB 용품, 조립비 같은 서비스)은 other 입니다.
+튜닝 킷을 ram·cooler 로 넣지 않습니다 — 부품 이름에 "램"·"쿨러"가 들어 있어도 그 자체가 부품이 아니면 other 입니다.
 
 규칙:
 1. 이미지에 실제로 보이는 부품만 items에 넣습니다 — 추측하거나 지어내지 않습니다. PC 부품과 무관한 이미지

@@ -22,8 +22,9 @@ from uuid import UUID
 from src.agent import spec_extraction_agent
 from src.auth.deps import Principal
 from src.config import QUOTE_DRAFT_MAX_FILES, QUOTE_DRAFT_MAX_FILE_BYTES, QUOTE_DRAFT_MAX_TOTAL_BYTES
+from src.engine import image_prep
 from src.engine.owned_parts import preview_current_specs, resolve_owned_parts
-from src.engine.quote_items import default_selection, is_placeholder_line, merge_same_products, spec_text, split_line
+from src.engine.quote_items import default_selection, is_non_part_line, is_placeholder_line, merge_same_products, spec_text, split_line
 from src.engine.spec_text import parse_spec_lines
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.errors import Conflict, NotFound, ServiceUnavailable, TruefitError, ValidationFailed
@@ -106,6 +107,7 @@ def _data_url(content_type: str, data: bytes) -> str:
 
 
 def _extract_one(content_type: str, data: bytes) -> list[dict[str, str]]:
+    content_type, data = image_prep.prepare_for_reading(content_type, data)       # 작은 사진은 키우고 선명하게(원본은 저장하지 않는다)
     return spec_extraction_agent.extract_items_from_image(_data_url(content_type, data))
 
 
@@ -179,6 +181,9 @@ def recognize(files: list[tuple[str, str | None, bytes]], text: str | None, by_s
         sources.append({"id": f"source-{order}", "type": "image", "file_name": name, "sort_order": order,
                         "status": "completed", "error_code": None})
         jobs.append((order - 1, content_type or "image/png", data))
+        quality = image_prep.assess_quality(data)
+        if quality["low"]:           # 작거나 흐린 사진 — 분석은 하되 읽은 부품을 자동으로 확정하지 않고, 화면이 다시 올리기를 안내한다
+            sources[-1]["quality_warning"] = image_prep.WARNINGS[quality["reason"]]
     raw_by_source: dict[int, list[dict]] = {}
     if jobs:
         if not spec_extraction_agent.available():
@@ -202,15 +207,27 @@ def recognize(files: list[tuple[str, str | None, bytes]], text: str | None, by_s
         total = getattr(found, "quote_total", None)         # 사진에 적힌 견적 총액(있을 때만) — 부품별 가격이 없는 견적의 가격 안내에 쓴다
         if total:
             sources[index]["quote_total"] = int(total)
+        if image_prep.reading_is_unreliable(bool(sources[index].get("quality_warning")), list(found)):
+            sources[index]["quality_warning"] += image_prep.NOT_CONFIRMED_NOTE
+            low_quality = True
+        else:
+            low_quality = False
         for entry in found:
             if is_placeholder_line(entry["raw_text"]):      # "별도구매"·"기본 쿨러 장착" 같은 선택 안내 줄은 부품이 아니다
                 continue
-            items.append(_make_item(entry["category"], entry["raw_text"], sources[index]["id"], by_slot, bool(entry.get("uncertain"))))
+            if entry["category"] not in _SLOTS or is_non_part_line(entry["raw_text"]):     # 튜닝·액세서리 — 분석에서 빼고 따로 알린다
+                sources[index].setdefault("ignored_lines", []).append(entry["raw_text"])
+                continue
+            items.append(_make_item(entry["category"], entry["raw_text"], sources[index]["id"], by_slot,
+                                    bool(entry.get("uncertain")) or low_quality))
     if text and text.strip():
         sources.append({"id": "source-text", "type": "text", "file_name": None, "sort_order": len(sources) + 1,
                         "status": "completed", "error_code": None})
         for entry in _text_items(text):
             if is_placeholder_line(entry["raw_text"]):
+                continue
+            if is_non_part_line(entry["raw_text"]):
+                sources[-1].setdefault("ignored_lines", []).append(entry["raw_text"])
                 continue
             items.append(_make_item(entry["category"], entry["raw_text"], "source-text", by_slot))
     if jobs and all(s["status"] == "failed" for s in sources if s["type"] == "image") and not items:

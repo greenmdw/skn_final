@@ -21,6 +21,16 @@ _PLACEHOLDER_ALWAYS = re.compile(r"별도\s*구매|선택\s*안\s*함|선택\s*�
 _PLACEHOLDER_IF_NO_MODEL = re.compile(r"추가\s*선택\s*가능")
 
 
+# 부품이 아니라 튜닝·장식·소모품·연결 용품인 줄 — 부품군 하나로 억지로 분류되면(예: "램 튜닝 킷" → RAM) 대응 실패·잘못된 호환 판정이 생긴다.
+_NON_PART = re.compile(r"튜닝\s*(?:킷|세트|키트)|슬리빙|케이블\s*(?:연장|확장|정리)|연장\s*케이블|서멀\s*(?:구리스|패드)|써멀\s*(?:구리스|패드)|"
+                       r"거치대|지지대|LED\s*스트립|RGB\s*(?:스트립|컨트롤러|킷)|먼지\s*필터|스티커|나사\s*세트|조립\s*(?:비|대행)", re.I)
+
+
+def is_non_part_line(raw_text: str) -> bool:
+    """메인 부품(CPU·GPU·RAM·메인보드·저장장치·파워·케이스·쿨러)이 아닌 튜닝·액세서리·서비스 줄인가("램 튜닝 킷", "슬리빙 케이블")."""
+    return bool(_NON_PART.search(str(raw_text or "")))
+
+
 def is_placeholder_line(raw_text: str) -> bool:
     """부품이 아닌 선택 안내 줄인가("별도구매 (추가선택가능)", "CPU 기본 쿨러 장착 (추가선택가능)").
     "추가선택가능"만 있는 줄은 숫자(모델 번호)가 있으면 제품으로 본다 — 제품 이름 뒤에 붙은 옵션 안내일 수 있다."""
