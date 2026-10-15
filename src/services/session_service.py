@@ -1,6 +1,7 @@
 """세션 생성과 조건 대화 서비스 (계약: docs/frontend_외부수정요청.md §D-4-1)."""
 from __future__ import annotations
-import hashlib, logging, secrets
+import hashlib, logging, secrets, time
+import psycopg
 from uuid import UUID
 from src.agent import conditions_agent, spec_extraction_agent
 from src.auth.deps import Principal
@@ -37,6 +38,33 @@ def _owned(repo: PlanRepo, list_id: UUID, principal: Principal) -> dict:
     if not (user_ok or guest_ok):
         raise NotFound("목록을 찾을 수 없습니다.")
     return revision
+
+
+# 앞 턴을 기다리는 최대 시간 — 턴 하나가 모델 호출(LLM_TIMEOUT_SECONDS 기본 45초)을 품고 있어서 그보다 조금 길게.
+_TURN_WAIT_SECONDS = 60
+_TURN_WAIT_LOG_SECONDS = 0.2      # 잠금을 바로 잡을 때는 수 ms — 이보다 길면 앞 턴을 기다린 것
+
+
+def _one_turn_at_a_time(conn, list_id: UUID) -> None:
+    """같은 목록의 조건 대화 턴은 한 번에 하나 — 앞 턴이 끝날 때까지 기다렸다가 그 결과(조건·대화)를 읽고 처리한다.
+
+    연달아 보내면 두 턴이 같은 옛 조건·대화 기록을 읽고 따로 답해, 늦게 도착한 답의 칩이 이미 답한 질문을
+    다시 물었다(10/15 QA #55). 거절(409)하지 않고 줄을 세우는 것은 테스트 기획의 기준("순서대로 처리")과 보낸 말을
+    잃지 않기 위해서다. 화면은 답을 기다리는 동안 보내기를 막으므로 여기서 기다리는 건 탭 두 개 같은 경우뿐이다.
+    _TURN_WAIT_SECONDS 를 넘기면 409. 트랜잭션이 끝나면 잠금이 저절로 풀린다."""
+    previous = conn.execute("SELECT current_setting('lock_timeout')").fetchone()[0]
+    conn.execute("SELECT set_config('lock_timeout', %s, true)", (f"{int(_TURN_WAIT_SECONDS * 1000)}ms",))
+    started = time.monotonic()
+    try:
+        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"condition-turn:{list_id}",))
+    except psycopg.errors.LockNotAvailable:
+        log.warning("condition turn [%s] refused: previous turn still running after %ss", list_id, _TURN_WAIT_SECONDS)
+        raise Conflict("앞 메시지에 답하는 중이에요. 답이 온 뒤에 다시 보내 주세요.", code="turn_in_progress") from None
+    conn.execute("SELECT set_config('lock_timeout', %s, true)", (previous,))
+    # 줄을 섰다는 흔적 — 접속 기록에는 늦게 온 200 만 남는다. 경고 수준이라 로그 설정 없이도 서버 출력에 나온다.
+    waited = time.monotonic() - started
+    if waited >= _TURN_WAIT_LOG_SECONDS:
+        log.warning("condition turn [%s] waited %.1fs for the previous turn", list_id, waited)
 
 
 def create_session(conn, principal: Principal) -> dict:
@@ -382,6 +410,7 @@ def handle_message(
     """
     repo = PlanRepo(conn)
     current = _owned(repo, list_id, principal)
+    _one_turn_at_a_time(conn, list_id)
     values, category = _current_values(repo, current["id"])
     if category is None:
         raise Conflict("카테고리를 먼저 선택하세요.", code="category_required")
@@ -405,6 +434,11 @@ def handle_message(
             log.warning("conditions agent failed, falling back to slot_rules: %s", exc)
     if reply is None:
         extracted = slot_rules.extract(category, text)
+        pending = _next_question(cat_def, values)
+        if pending and pending["field"] == "budget_max" and "budget_max" not in extracted:
+            bare = slot_rules.parse_bare_manwon(text)     # 예산 차례에 "100" 만 — 만 원 단위 (에이전트 도구와 같은 규칙)
+            if bare is not None and slot_rules.BUDGET_MIN <= bare <= slot_rules.BUDGET_MAX:
+                extracted["budget_max"] = bare
 
     for key, value in extracted.items():
         repo.upsert_condition(current["id"], key, {"value": value}, "extracted", msg_id)
@@ -429,6 +463,7 @@ def handle_answer(
 ) -> dict:
     repo = PlanRepo(conn)
     current = _owned(repo, list_id, principal)
+    _one_turn_at_a_time(conn, list_id)
     values, category = _current_values(repo, current["id"])
     if category is None:
         raise Conflict("카테고리를 먼저 선택하세요.", code="category_required")

@@ -16,15 +16,19 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from src.engine.brands import canonical_slot, cpu_brand_pref
 from src.config import CONDITIONS_AGENT, LLM_MODEL, LLM_PROVIDER, LLM_TIMEOUT_SECONDS, MOCK_MODE, OPENAI_API_KEY
-from src.engine.slot_rules import BUDGET_RANGE_MESSAGE, _parse_won, normalize_budget
+from src.engine.slot_rules import BUDGET_RANGE_MESSAGE, _parse_won, normalize_budget, parse_bare_manwon
 from src.clients.llm_guard import llm_call_slot
+from src.agent.text_guard import final_answer, foreign_script
 from src.errors import ServiceUnavailable
+
+log = logging.getLogger(__name__)
 
 # 대화로 설정하지 않는 필드 — 사양 파일 첨부(/spec-file)가 채운다
 _NOT_CONVERSATIONAL = {"current_specs", "spec_file_name"}
@@ -56,6 +60,7 @@ class ConditionDraft:
     # identity.preference_signal에 반영한다(§7 — 게스트는 저장 안 함).
     conn: object = None            # 실시간 부품 검색 전용 — 읽기만 한다(카탈로그 조회·캐시), 조건은 여전히 안 쓴다
     search_confirmed: bool = False  # 직전 턴에 검색 동의를 구했고 이번 메시지가 동의인지(run_turn이 미리 판정)
+    part_swap: bool = False         # 이번 말이 부품 교체 요청인지(run_turn이 미리 판정) — 그러면 조건을 바꾸지 않는다
 
     def question(self, key: str) -> dict | None:
         return next((q for q in self.cat_def.get("question_sets", []) if q["maps_to"] == key), None)
@@ -97,8 +102,16 @@ class ConditionDraft:
         meta = self.schema().get(key)
         if meta is None:
             return self._record(call, f"오류: '{key}' 는 설정할 수 없는 필드입니다. 가능한 필드: {', '.join(self.schema())}")
+        if self.part_swap and key != "brand_pref":
+            # "쿨러 바꿔줘"를 우선순위 질문의 답으로 읽어 priority=performance 를 넣었다(10/15 측정 3/3, 프롬프트 규칙만으로 못 막음)
+            return self._record(call, "오류: 이번 말은 부품 교체 요청이라 조건을 바꾸지 않습니다 — 도구 없이 규칙 10대로 안내만 하세요.")
+        note = ""
         if key == "budget_max" and isinstance(raw, str) and raw.strip().lower() not in ("", "null", "none"):
-            value = _parse_amount(raw)
+            value = parse_bare_manwon(raw)
+            if value is not None:
+                note = f" ('{raw.strip()}' 은 만 원 단위로 읽음 — 사용자에게 {value // 10_000}만 원으로 확인)"
+            else:
+                value = _parse_amount(raw)
             if value is None or value <= 0:
                 return self._record(call, f"오류: {key} — 0보다 큰 금액으로 (예: 1500000 · 150만원)")
             try:
@@ -117,7 +130,7 @@ class ConditionDraft:
                 value = ["none"]
         self.patches[key] = value
         shown = json.dumps(value, ensure_ascii=False)
-        return self._record(call, f"{key} = {shown} 반영" + self._status())
+        return self._record(call, f"{key} = {shown} 반영{note}" + self._status())
 
     def clear(self, key: str) -> str:
         call = f"clear_condition({key!r})"
@@ -211,7 +224,11 @@ class ConditionDraft:
         if text not in items:
             items.append(text)
         self.patches["extra"] = items
-        return self._record(call, f"extra 에 추가: {text}" + self._status())
+        # extra 는 추천 엔진이 읽지 않는다(stage5_explain._extra_note 가 결과에서 '반영되지 않았다'고 밝힌다).
+        # 이 결과를 안 주면 모델이 "흰색 케이스 조건을 추가했습니다"라고 답했다(10/15 측정 6/6).
+        return self._record(call, f"extra 에 기록: {text} — 자동 추천에는 반영되지 않는 기록이다. 답변에서 '추가했다·반영했다'고 "
+                                  "하지 말고 '기록해 두었지만 자동 추천에는 반영되지 않아 결과 화면에서 직접 확인해야 한다'고 알린다"
+                                  + self._status())
 
 
 # ── DB 미보유 부품 실시간 검색 — 동의 확인(conditions_agent·result_agent 공유) ─────────
@@ -247,6 +264,17 @@ def is_search_confirmation(last_reply: str | None, text: str) -> bool:
     if _SEARCH_CONFIRM_RE.search(clean):
         return True
     return bool(_SEARCH_CONFIRM_LOOSE.match(_PUNCT_AND_SPACE.sub("", clean.lower())))
+
+
+# 부품 이름과 바꾸라는 말이 한 문장 안에 가까이 — "쿨러 바꿔줘"·"그래픽카드 더 좋은 걸로 바꿔줘"·"램 교체".
+# 조건 대화에는 아직 견적이 없어서 이건 조건이 아니다(프롬프트 규칙 10). "예산 바꿔줘"·"용도 변경" 은 부품이 아니라 해당 없음.
+_PART_SWAP = re.compile(
+    r"(?:쿨러|cpu|씨피유|시피유|그래픽\s*카드|글카|gpu|vga|램|ram|메모리|ssd|저장\s*장치|메인\s*보드|보드|파워|psu)"
+    r"[^.?!\n]{0,15}?(?:바꿔|바꾸|바꿀|교체|변경|업그레이드)", re.IGNORECASE)
+
+
+def is_part_swap(text: str) -> bool:
+    return bool(_PART_SWAP.search(text or ""))
 
 
 def _parse_amount(text: str) -> int | None:
@@ -439,7 +467,8 @@ def system_prompt(
         "4. 필수 항목이 모두 채워졌으면 '이 조건으로 추천을 받아볼 수 있다'고 안내하고 추가 조건이 있으면 말해 달라고 합니다.",
         "5. 값을 바꿀 때는 clear_condition 없이 set_condition 에 새 값만 넣습니다. clear 는 '취소'·'빼 주세요' 에만 씁니다.",
         "6. 제품 추천·가격·성능·호환성 판단을 하지 않습니다. 그건 다음 단계의 엔진이 합니다.",
-        "7. 금액은 원화로만 씁니다. 금액을 새로 계산하지 않습니다.",
+        "7. 금액은 원화로만 씁니다. 금액을 새로 계산하지 않습니다. 예산에 단위 없이 숫자만 말하면(예: \"100\") "
+        "그 숫자를 그대로 budget_max 에 넘깁니다 — 도구가 만 원 단위로 읽습니다.",
         "8. 사용자가 특정 부품 브랜드를 좋아하거나 싫어한다고 직접 말하면(예: \"인텔은 별로예요\", "
         "\"AMD가 좋아요\") record_brand_preference 로 기록합니다. 짐작해서 부르지 않습니다.",
         "9. 사용자가 구체적인 제품명을 말했으면(예: \"RTX 6090으로 해줘\", \"9950X3D 있어?\") "
@@ -447,6 +476,12 @@ def system_prompt(
         "동의를 구하는 문장이면 그걸로 끝내고, 검색 결과가 오면 '카탈로그 정식 등재 값이 아니다'는 "
         "부분까지 그대로 전합니다. 이 제품을 조건으로 확정하지 않습니다 — brand_pref·extra 외의 "
         "필드에 특정 제품명을 넣지 않습니다.",
+        "10. '쿨러 바꿔줘'·'그래픽카드 더 좋은 걸로'처럼 특정 부품을 바꾸라는 말은 조건이 아닙니다 — 아직 추천 견적이 "
+        "없어서 바꿀 부품이 없습니다. 어떤 도구도 부르지 말고(다음 질문의 답을 짐작해 set_condition 하지 않습니다), "
+        "추천을 받은 뒤 결과 화면 대화창에서 부품을 바꿀 수 있다고 안내한 뒤 다음 질문을 합니다.",
+        "11. 기준·수치·뜻·차이를 묻는 질문(예: \"부품별 소음 기준이 어떻게 돼?\")도 조건이 아닙니다. 기록하지 말고, 질문에 "
+        "나온 낱말로 필드를 짐작해 채우지도 않습니다(소음을 물었다고 priority 를 quiet 로 두지 않습니다). 이 단계는 조건만 받으며 부품별 정보는 추천 결과 화면에서 물어볼 수 있다고 한 문장으로 "
+        "안내한 뒤 다음 질문을 합니다.",
         *_mode_rules(draft),
         "",
         "답변 언어: 한국어 존댓말.",
@@ -457,7 +492,7 @@ def _mode_rules(draft: ConditionDraft) -> list[str]:
     """새 조립 화면에서 기존 PC 업그레이드를 말했을 때 — 조건으로 받은 척하지 않고 이 화면의 범위를 알린다."""
     if draft.values.get("mode") != "build" or "upgrade" not in (draft.cat_def.get("modes") or []):
         return []
-    return ["10. 이 화면은 새 컴퓨터 조립만 다룹니다. 사용자가 지금 쓰는 PC의 일부만 바꾸는 '업그레이드'를 원하면 "
+    return ["12. 이 화면은 새 컴퓨터 조립만 다룹니다. 사용자가 지금 쓰는 PC의 일부만 바꾸는 '업그레이드'를 원하면 "
             "그 내용을 조건으로 기록하거나 반영했다고 말하지 말고, 이 화면에서는 새 컴퓨터 조립만 가능하다고 "
             "안내한 뒤 새로 맞출 PC의 용도·예산을 묻습니다."]
 
@@ -517,7 +552,8 @@ def run_turn(category: str, cat_def: dict, values: dict, history: list[dict], te
     last_reply = next((r["content"] for r in reversed(history) if r["role"] == "assistant"), None)
     draft = ConditionDraft(category=category, cat_def=cat_def, values=dict(values),
                            missing_fn=missing_fn, next_question_fn=next_question_fn,
-                           conn=conn, search_confirmed=is_search_confirmation(last_reply, text))
+                           conn=conn, search_confirmed=is_search_confirmation(last_reply, text),
+                           part_swap=is_part_swap(text))
     agent = Agent(
         model=_model(),
         system_prompt=system_prompt(draft, text, history),
@@ -528,5 +564,34 @@ def run_turn(category: str, cat_def: dict, values: dict, history: list[dict], te
     )
     with llm_call_slot():
         result = agent(text)
-    return TurnResult(reply=str(result).strip(), patches=dict(draft.patches), trace=list(draft.trace),
+    raw = str(result).strip()
+    reply = final_answer(raw)            # 초안을 두 번 쓰거나 내부 생각·형식 태그를 흘린 답 → 마지막 한국어 답만
+    if reply != raw:
+        log.warning("conditions agent reply trimmed (draft or leaked text): %r", raw[:200])
+    foreign = foreign_script(reply)
+    if not reply or foreign:
+        # 다른 언어 글자가 섞인 답(10/15 QA #40 "日博 -vesm")은 버리고 코드 문장으로. 도구가 반영한 조건은 검사를 거친 값이라 둔다.
+        log.warning("conditions agent reply rejected (foreign script %s) — replaced: %r", foreign, reply[:120])
+        reply = _fallback_reply(draft)
+    elif not _changed(draft) and _CLAIM.search(reply):
+        # 바꾼 조건이 없는데 "기록했습니다"·"취소했습니다"(비어 있던 조건) — 10/15 QA #36·#64
+        log.warning("conditions agent reply rejected (claims a change, none made) — replaced: %r", reply[:120])
+        reply = _fallback_reply(draft)
+    return TurnResult(reply=reply, patches=dict(draft.patches), trace=list(draft.trace),
                       preference_patches=list(draft.preference_patches))
+
+
+# 조건을 바꿨다는 말 — "기록했습니다"·"추가했습니다"·"반영해 두었어요"·"취소했습니다"
+_CLAIM = re.compile(r"(?:추가|반영|기록|저장|취소|설정|변경)(?:했|하였|해\s*(?:두었|뒀|드렸|놓았|놨)|되었|됐)")
+
+
+def _changed(draft: ConditionDraft) -> bool:
+    """이번 턴에 실제로 값이 달라진 조건이 있는지 — 비어 있던 조건을 비운 것은 변화가 아니다."""
+    return any(v != draft.values.get(k) for k, v in draft.patches.items()) or bool(draft.preference_patches)
+
+
+def _fallback_reply(draft: ConditionDraft) -> str:
+    """모델 문장을 쓸 수 없을 때 — 반영 여부와 규칙이 정한 다음 질문만 말한다."""
+    head = "말씀하신 조건을 반영했어요. " if _changed(draft) else "그 말은 조건으로 반영하지 않았어요. "
+    nq = draft.next_question()
+    return head + (nq["text"] if nq else "필요한 조건을 모두 확인했어요. 이 조건으로 추천을 받아보세요.")
