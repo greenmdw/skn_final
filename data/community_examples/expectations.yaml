@@ -20,7 +20,7 @@ reference_date: 2026-10-12          # 기획표의 기준일("최근 3개월 사
 no_evidence: [F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F13, F14, F15, F16]
 
 # 사용 기간을 6개월 이상 밝힌 글만 내구성 근거를 낼 수 있다(config/peripherals.yaml feel.durability_min_months).
-durability_allowed: [A2-1, A9-4]
+durability_allowed: [A2-1, A9-4, C1-4, C2-4, C3-4, D1-4, D5-4, D6-4]   # 사용 기간 6개월 이상(제목·본문). 기획서 "오래 쓴 글" + 6개월 글
 
 posts:
   A1-1: {product: "Logitech G PRO X SUPERLIGHT 2", must: {weight_feel: light, grip: good, wireless: good, battery: good}}
