@@ -1,6 +1,6 @@
 import json
 import pytest
-from tests.test_review_preparation import prepared
+from tests.test_review_preparation import prepared  # noqa: F401 — pytest 픽스처로 쓰인다(이름으로 주입)
 from src.services.review_preparation import preparation_plan
 from src.services.review_source_quarantine import compensate_source_conflicts
 

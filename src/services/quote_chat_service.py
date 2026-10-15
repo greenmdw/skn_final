@@ -19,7 +19,7 @@ from src.auth.deps import Principal
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.errors import ValidationFailed
 from src.repo.user_repo import ConversationRepo
-from src.services import quote_alternatives, quote_comparison_service, quote_facts, quote_review_service as qrs, session_service
+from src.services import quote_alternatives, quote_comparison_service, quote_facts, session_service
 
 log = logging.getLogger(__name__)
 

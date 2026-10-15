@@ -2,7 +2,6 @@
 tests/test_owned_parts_preview.py가 순수 함수로 이미 촘촘히 본다. 세션·로그인 없이 부른다."""
 from __future__ import annotations
 
-import os
 
 import pytest
 

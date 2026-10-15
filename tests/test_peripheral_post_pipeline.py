@@ -10,7 +10,6 @@ from uuid import uuid4
 import pytest
 
 from src.engine import peripheral_post_contract as pc
-from src.services import community_post_intake as intake
 from src.services import peripheral_post_pipeline as pipeline
 
 DSN = os.getenv("DATABASE_URL")

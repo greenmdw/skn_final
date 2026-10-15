@@ -15,7 +15,6 @@ DSN = os.getenv("DATABASE_URL")
 pytestmark = [pytest.mark.db, pytest.mark.skipif(not DSN, reason="일회용 DB 필요")]
 
 if DSN:
-    import psycopg
     from fastapi.testclient import TestClient
 
     from src.agent import spec_extraction_agent

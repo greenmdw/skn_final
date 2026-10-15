@@ -36,7 +36,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from src.engine.peripheral_feel import FeelObservation
-from src.engine.peripheral_intent import Kind, kinds_all_order, looks_like_injected_instruction
+from src.engine.peripheral_intent import Kind, looks_like_injected_instruction
 from src.engine.peripheral_rules import (
     feel_attributes, feel_config, load_peripheral_rules, purpose_codes, situations,
 )
@@ -287,8 +287,3 @@ def summarize(analyses: list[PostAnalysis]) -> CorpusSummary:
         held=sum(1 for i in items if i.status == "held"),
         excluded=sum(1 for i in items if i.status == "excluded"),
     )
-
-
-def supported_kinds(post: PostInput) -> list[str]:
-    """글에 연결된 점수 낼 수 있는 제품의 종류(고정 순서)."""
-    return kinds_all_order([p.kind for p in post.products if p.kind and p.product_id])

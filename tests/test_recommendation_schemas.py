@@ -3,9 +3,7 @@
 이전엔 recommendation_run_id/candidates 모양(구 계약)을 검증했으나, 프론트 계약서가
 list_id/run_id/items 모양(§D-4-2)으로 확정되면서 스키마가 교체됐다 — 이 테스트도 같이 갱신.
 """
-import pytest
 from fastapi import FastAPI
-from pydantic import ValidationError
 
 from src.schemas import ItemOut, ProductOut, RecommendAcceptedOut, RecommendResultOut, TextStatusOut
 

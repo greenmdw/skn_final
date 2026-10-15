@@ -279,7 +279,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
     돌아온다 — 엔진 작업자가 LLM 응답을 기다리며 묶이지 않게 한다(src/services/recommendation_runner.py)."""
     from src.db import get_background_conn as get_conn
     from src.engine import feasibility as feasibility_engine
-    from src.engine import stage2_requirement, stage3a_hardfilter, stage3c_verify, stage4_optimize, stage5_explain
+    from src.engine import stage2_requirement, stage3a_hardfilter, stage3c_verify, stage5_explain
     from src.engine import research_loop
     from src.engine.stage3a_hardfilter import CandidateShortage
     from src.repo.catalog_repo import load_candidates_by_slot_from_db
@@ -742,11 +742,9 @@ def reverify_set(conn, revision_id: UUID, run: dict) -> None:
     (stage3c.verify_build)를 지금 선택된 부품으로 다시 돌린다. 순위·설명 문장은 다시 만들지 않는다.
     """
     from src.engine import stage3c_verify
-    from src.engine.owned_parts import owned_for_conditions
     from src.engine.stage2_requirement import load_computer_rules
     from src.engine.stage4_optimize import pc_link_check
     from src.dto import BuildResult
-    from src.repo.catalog_repo import load_candidates_by_slot_from_db
     from src.repo.engine_repo import EngineRepo
     from src.repo.plan_repo import PlanRepo
 
@@ -1120,9 +1118,6 @@ def patch_item(conn, revision_id: UUID, item_id: UUID, *, selected: bool | None,
 
     erepo, run = _require_done_run(conn, revision_id)
     current = _find_candidate(erepo.get_candidates(run["id"]), item_id)
-    if selected is True:
-        values = {r["condition_key"]: r["value"].get("value")
-                  for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
     erepo.update_candidate_state(item_id, selected=selected, qty=qty, timing=timing)
     if selected is not None or qty is not None:
         reverify_set(conn, revision_id, run)      # 빼거나 수량을 바꾸면 총액(예산)·점검 대상 부품이 달라진다
@@ -1425,7 +1420,6 @@ def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID,
     # 있었다) 코드가 아는 사실만으로 한 줄 적는다 — 판단이 아니라 교체 기록이다.
     old_price = (int(current["price"]) if current["price"] is not None else 0) * old_qty
     new_price = (int(target["price"]) if target.get("price") is not None else 0) * new_qty
-    cvals = {r["condition_key"]: r["value"].get("value") for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
     delta = fmt_money(new_price - old_price, signed=True)
     erepo.update_candidate_reason(item_id, (f"사용자 요청으로 교체한 부품입니다 — 자동 추천은 '{current['product_name']}'({fmt_money(old_price)})였고 "
         f"이 후보는 {delta}입니다. 순위는 교체 전 구성 기준이고, 호환 점검은 교체 후 구성으로 다시 했습니다."))

@@ -3,7 +3,6 @@
 실제(DB) 카탈로그를 쓴다 — 제품 ID가 있어야 "정확한 제품 ID"로 비교·교체할 수 있다. 이미지 인식은 가짜로 바꿔 끼운다."""
 from __future__ import annotations
 
-import base64
 import os
 from datetime import datetime, timezone
 

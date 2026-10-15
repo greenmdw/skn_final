@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.dto import Candidate, PeripheralRequirement
+from src.dto import Candidate
 from src.engine import peripheral_intent as pi
 from src.engine import peripheral_select as sel
 from src.engine import spec_rules

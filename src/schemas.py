@@ -506,7 +506,7 @@ class QuotePriceExcludedOut(BaseModel):
     reason: str
 
 
-class QuotePriceRowOut(BaseModel):
+class QuoteDraftPriceRowOut(BaseModel):
     category: str
     item_id: str
     quantity: int
@@ -525,7 +525,7 @@ class QuoteDraftAnalysisOut(QuoteReviewOut):
     question: str | None = None
     draft_version: int
     price_excluded: list[QuotePriceExcludedOut] = Field(default_factory=list)   # 가격이 없어 합계에서 뺀 항목
-    price_rows: list[QuotePriceRowOut] = Field(default_factory=list)            # 항목별 견적·카탈로그 가격(BE-08)
+    price_rows: list[QuoteDraftPriceRowOut] = Field(default_factory=list)            # 항목별 견적·카탈로그 가격(BE-08)
 
 
 # BE-05 분석 전 제품 비교 · BE-06 교체 영향 미리보기

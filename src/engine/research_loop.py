@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from src.config import CONFIDENCE_THRESHOLD, MAX_RESEARCH_ROUNDS
+from src.config import MAX_RESEARCH_ROUNDS
 from src.dto import BuildResult, Candidate, RankResult, RequirementSpec, VerificationResult
 from src.engine import LogFn
 from src.engine import eligibility as elig

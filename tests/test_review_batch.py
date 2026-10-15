@@ -4,7 +4,6 @@ from uuid import uuid4
 import pytest
 from src.services.review_batch import short_wire,restore_keys,isolate_batch,prepare_batches
 from src.services.review_evidence_wire import segment,reconstruct_wire
-from src.services.review_preparation import digest
 
 
 def fixture_data():

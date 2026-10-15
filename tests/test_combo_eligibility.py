@@ -12,7 +12,7 @@ import uuid
 import pytest
 
 from src.config import CONFIDENCE_THRESHOLD
-from src.dto import BuildResult, Candidate, Issue, RankResult, RequirementSpec, VerificationResult, VerificationTarget
+from src.dto import BuildResult, Candidate, RankResult, RequirementSpec, VerificationResult, VerificationTarget
 from src.engine import eligibility as elig
 from src.engine import research_loop, stage3c_verify
 from src.engine.stage2_requirement import load_computer_rules

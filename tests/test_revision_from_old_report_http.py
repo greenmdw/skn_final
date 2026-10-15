@@ -13,9 +13,7 @@ DSN = os.getenv("DATABASE_URL")
 pytestmark = [pytest.mark.db, pytest.mark.skipif(not DSN, reason="일회용 DB 필요")]
 
 if DSN:
-    from fastapi.testclient import TestClient
 
-    from src.api import app
     from tests.test_list_history_http import _recommended_list, _signed_up
 
 

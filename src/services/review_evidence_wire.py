@@ -1,5 +1,5 @@
 """Lossless prompt-only span addressing; canonical importer format unchanged."""
-import json,re
+import re
 SEGMENT_VERSION='lossless-character-spans-v1'
 MAX_CHARS=180
 
