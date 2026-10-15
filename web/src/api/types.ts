@@ -241,6 +241,8 @@ export interface QuoteDraftSource {
   sortOrder: number
   status: 'completed' | 'failed'
   errorCode: string | null
+  qualityWarning: string | null     // 사진이 작거나 흐릴 때의 안내
+  ignoredLines: string[]            // 튜닝·액세서리라 분석에서 뺀 줄
 }
 
 export type QuoteMatchStatus = 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'

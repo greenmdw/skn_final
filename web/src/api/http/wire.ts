@@ -129,7 +129,7 @@ export interface WireQuoteDraft {
   draft_id: string; version: number
   /** 올린 사진이 서로 다른 견적처럼 보이는지(separate) 한 견적의 여러 장처럼 보이는지(single) — 화면의 기본 선택 */
   source_mode_hint?: 'single' | 'separate'
-  sources: { id: string; type: 'image' | 'text' | 'replacement' | 'manual'; file_name: string | null; sort_order: number; status: 'completed' | 'failed'; error_code: string | null }[]
+  sources: { id: string; type: 'image' | 'text' | 'replacement' | 'manual'; file_name: string | null; sort_order: number; status: 'completed' | 'failed'; error_code: string | null; quality_warning?: string | null; ignored_lines?: string[] }[]
   items: WireQuoteDraftItem[]
   selected_item_by_category: Record<string, string>
   conditions: Record<string, unknown>

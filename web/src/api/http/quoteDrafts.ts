@@ -26,6 +26,7 @@ function draftFromWire(draft: WireQuoteDraft): QuoteDraft {
     draftId: draft.draft_id, version: draft.version,
     sources: draft.sources.map(source => ({
       id: source.id, type: source.type, fileName: source.file_name, sortOrder: source.sort_order, status: source.status, errorCode: source.error_code,
+      qualityWarning: source.quality_warning ?? null, ignoredLines: source.ignored_lines ?? [],
     })),
     items: draft.items.map(itemFromWire),
     selectedItemByCategory: draft.selected_item_by_category ?? {},
