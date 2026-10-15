@@ -363,9 +363,14 @@ export default function CheckPage() {
     setAnalysis(result)
     setShowAnalysis(true)
     setComparison(null); setSavedVisible(false); setAnswers([]); setOpenAnswerIds(new Set())
-    const asked = question.trim() && question.trim() !== (target.question ?? '').trim() ? question.trim() : null
     let history: QuoteDraftChatMessage[] = []
     try { history = await api.quoteDrafts.chatHistory(result.listId) } catch { /* 이력을 못 읽어도 분석 결과는 보여준다 */ }
+    // 채팅창에서 새로 적은 질문이 있으면 그것을, 없으면 업로드할 때 적은 질문(target.question)을 아직 답하지 않았을 때 보낸다.
+    // 이전에는 업로드 때 적은 질문이 "평가 요청"으로 보이기만 하고 답이 없었다("두 견적 중에 고민돼"가 일반 안내만 나왔다).
+    const typed = question.trim() && question.trim() !== (target.question ?? '').trim() ? question.trim() : null
+    const uploadQuestion = (target.question ?? '').trim()
+    const alreadyAsked = uploadQuestion !== '' && history.some(message => message.role === 'user' && message.text.trim() === uploadQuestion)
+    const asked = typed ?? (uploadQuestion && !alreadyAsked ? uploadQuestion : null)
     const general: ChatEntry[] = history
       .filter(message => !message.comparisonId && message.role !== 'system')
       .map(message => ({ id: `h-${message.id}`, kind: message.role === 'user' ? 'user' : 'bot', text: message.text } as ChatEntry))

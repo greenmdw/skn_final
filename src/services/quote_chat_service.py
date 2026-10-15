@@ -41,11 +41,15 @@ _INTENT_WORDS = {
     "balance": ("부족", "과해", "과한", "충분", "용도", "성능", "균형", "병목", "예산 비중", "오버"),
     "compare": ("우리 추천", "비교", "차이", "뭐가 달라", "뭐가 다른", "추천이랑", "추천과"),
 }
-EVIDENCE_LABEL = {"overview": "견적 분석 요약", "compat": "호환 검사", "prices": "가격 비교", "balance": "용도 대비 균형",
+EVIDENCE_LABEL = {"game": "게임 요구 사양 비교", "overview": "견적 분석 요약", "compat": "호환 검사", "prices": "가격 비교", "balance": "용도 대비 균형",
                   "compare": "우리 추천과 비교", "alternatives": "대안 조회", "compare_parts": "부품 비교",
                   "saved_comparison": "저장 견적 비교", "series_hint": "제품 후보", "search_consent": "실시간 검색 동의",
                   "live_search": "실시간 검색"}
 _PART_WORDS = ("스펙", "사양", "리뷰", "후기", "부품 비교", "다른 제품이랑", "이랑 비교", "와 비교", "과 비교", "랑 비교")
+# "이 견적으로 사이버펑크 돌아가?"·"RTX 5070 으로 바꾸면 배그 돌아가?" — 게임 요구 사양 표와 구성을 견주는 질문. 게임 이름이 질문에 있어도 같다.
+_GAME_ASK = ("돌아가", "돌릴", "돌려", "구동", "프레임", "fps", "원활", "버벅")
+_SWAP_WORDS = ("바꾸면", "바꿔", "바꾼", "대신", "쓰면", "교체", "으로 하면", "로 하면", "넣으면")
+_GAME_SLOTS = ("GPU", "CPU", "RAM")
 
 
 # 부품군 이름이 없어도 브랜드·시리즈·칩셋 이름이면 부품군을 안다 — "라이젠 9000이랑 비교해줘"·"RTX 4070 대신"은 이게 없으면 부품군을 못 찾아
@@ -148,12 +152,35 @@ def series_options(tokens: list[str], pool: list, limit: int = 6) -> list[str]:
     return []
 
 
+def _game_call(text: str, low: str, slot: str | None, by_slot_loader, review: dict | None) -> tuple[str, dict] | None:
+    """게임이 돌아가는지 묻는 질문이면 ("game", 인자). "RTX 5070 으로 바꾸면 …"처럼 바꿔 본 부품이 있으면 그 부품을 같이 넘긴다."""
+    from src.engine.stage2_requirement import match_games
+
+    if not (any(w in low for w in _GAME_ASK) or match_games(text)[0]):
+        return None
+    swap_slot = swap_product = ""
+    if slot in _GAME_SLOTS and by_slot_loader is not None and any(w in low for w in _SWAP_WORDS):
+        baseline = None
+        if review is not None:
+            from src.categories import load_category
+            from src.engine.owned_parts import resolve_owned_parts
+            specs = (review.get("input") or {}).get("current_specs") or {}
+            baseline = (resolve_owned_parts(specs, by_slot_loader(), load_category("computer")["slot_structure"]).get(slot) or {}).get("name")
+        targets = extract_targets(text, slot, by_slot_loader().get(slot, []), baseline)
+        if targets:
+            swap_slot, swap_product = slot, targets[0]
+    return ("game", {"text": text, "swap_slot": swap_slot, "swap_product": swap_product})
+
+
 def route(text: str, by_slot_loader=None, review: dict | None = None) -> list[tuple[str, dict]]:
     """질문에서 어떤 사실을 읽을지 — [(도구 이름, 인자)]. 규칙 경로의 답이면서 에이전트에는 미리 조회한 근거가 된다.
 
     카탈로그 로더와 저장된 결과를 주면 질문 속 제품 이름을 찾아 부품 비교(compare_parts)의 대상으로 넘긴다."""
     low = text.lower()
     slot = match_slot(low)
+    game = _game_call(text, low, slot, by_slot_loader, review)
+    if game is not None:                    # 게임 질문은 부품 비교보다 먼저 — "5070 으로 바꾸면 배그 돌아가?"를 부품 비교로 읽지 않는다
+        return [game]
     if slot and by_slot_loader is not None and any(w in low for w in _COMPARE_WORDS):
         baseline = None
         if review is not None:
@@ -205,7 +232,45 @@ def route(text: str, by_slot_loader=None, review: dict | None = None) -> list[tu
     return calls or [("overview", {})]
 
 
+def game_fact(review: dict, text: str, by_slot_loader, swap_slot: str = "", swap_product: str = "") -> str:
+    """게임 요구 사양 표와 견적 구성을 견준 문장. 바꿔 본 부품이 있으면 그 부품으로 바꾼 구성 기준(견적은 그대로).
+    견적의 CPU·GPU 가 카탈로그 제품으로 확정되지 않았으면 등급을 모르므로 그 사실을 먼저 적는다."""
+    from src.categories import load_category
+    from src.engine.game_requirements_check import check_games, have_from_specs
+    from src.engine.owned_parts import resolve_owned_parts
+    from src.engine.stage2_requirement import match_games
+
+    specs = (review.get("input") or {}).get("current_specs") or {}
+    by_slot = by_slot_loader()
+    owned = resolve_owned_parts(specs, by_slot, load_category("computer")["slot_structure"])
+    chosen = {slot: dict((owned.get(slot) or {}).get("specs") or {}) for slot in _GAME_SLOTS}
+    notes: list[str] = []
+    swapped = None
+    if swap_slot and swap_product:
+        pool = by_slot.get(swap_slot, [])
+        swapped = next((c for c in pool if c.name == swap_product), None)
+        if swapped is None:      # 에이전트가 "RTX 5070"처럼 줄여 넘긴 이름 — 카탈로그 이름으로 한 제품에 특정될 때만 쓴다
+            found = extract_targets(swap_product, swap_slot, pool)
+            swapped = next((c for c in pool if c.name == found[0]), None) if len(found) == 1 else None
+        if swapped is None:
+            notes.append(f"바꿔 볼 제품('{swap_product}')을 카탈로그에서 하나로 찾지 못해 지금 견적 기준으로 비교했습니다.")
+    if swapped is not None:
+        chosen[swap_slot] = dict(swapped.specs)
+        notes.append(f"가정: {swap_slot} 를 {swapped.name} 로 바꾼 구성 기준입니다(견적은 그대로).")
+    for slot in ("CPU", "GPU"):
+        info = owned.get(slot)
+        if info and info.get("source") != "catalog" and not (swapped is not None and swap_slot == slot):
+            notes.append(f"견적의 {slot}({info.get('name')})는 카탈로그 제품으로 확정되지 않아 성능 등급을 알 수 없습니다.")
+    game = text if match_games(text)[0] else ", ".join(
+        str(g) for g in ((review.get("input") or {}).get("conditions") or {}).get("games") or [])
+    have = have_from_specs(chosen["GPU"], chosen["CPU"], chosen["RAM"] or None, 1)
+    body = check_games(game or text, have, subject="바꾼 뒤" if swapped is not None else "지금")
+    return "\n".join([*notes, body])
+
+
 def run_fact(review: dict, name: str, args: dict, by_slot_loader) -> str:
+    if name == "game":
+        return game_fact(review, args.get("text") or "", by_slot_loader, args.get("swap_slot") or "", args.get("swap_product") or "")
     if name == "overview":
         return quote_facts.overview(review)
     if name == "compat":

@@ -26,7 +26,7 @@ from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, QUOTE
 log = logging.getLogger(__name__)
 
 FactFn = Callable[[str, dict], str]          # (도구 이름, 인자) -> 근거 문장
-EVIDENCE_LABEL = {"series_hint": "제품 후보", "search_consent": "실시간 검색 동의", "live_search": "실시간 검색",
+EVIDENCE_LABEL = {"game": "게임 요구 사양 비교", "series_hint": "제품 후보", "search_consent": "실시간 검색 동의", "live_search": "실시간 검색",
                   "overview": "견적 분석 요약", "compat": "호환 검사", "prices": "가격 비교", "balance": "용도 대비 균형",
                   "compare": "우리 추천과 비교", "alternatives": "대안 조회", "compare_parts": "부품 비교",
                   "saved_comparison": "저장 견적 비교"}
@@ -134,7 +134,20 @@ def make_tools(s: _Session) -> list:
             out = f"※ 질문에 적히지 않은 제품({', '.join(dropped)})은 비교 대상에서 뺐습니다.\n" + out
         return out
 
-    return [overview, compat, prices, balance, compare, alternatives, compare_parts]
+    @tool
+    def game_check(game: str = "", slot: str = "", product: str = "") -> str:
+        """게임 요구 사양 표와 견적 구성의 성능 등급·RAM·VRAM 을 비교한다("이 견적으로 사이버펑크 돌아가?"). 사용자가 부품을 **바꿔 보겠다고** 말했으면
+        slot(GPU·CPU·RAM)과 그 제품 이름을 함께 주면 그 부품으로 바꾼 구성 기준으로 비교한다(견적은 바뀌지 않는다). fps 는 계산하지 않는다.
+
+        Args:
+            game: 게임 이름(예: "사이버펑크 2077", "배그"). 비우면 사용자가 조건에 적은 게임
+            slot: 바꿔 볼 슬롯. 지금 견적 그대로면 비움
+            product: 바꿔 볼 제품 이름·모델명(사용자 질문에 적힌 것만). 지금 견적 그대로면 비움
+        """
+        kept = s.grounded_targets([product]) if product else []
+        return s.call("game", text=game or s.user_text, swap_slot=slot if kept else "", swap_product=kept[0] if kept else "")
+
+    return [overview, compat, prices, balance, compare, alternatives, compare_parts, game_check]
 
 
 def system_prompt(review: dict, overview: str, prefetched: str = "") -> str:
@@ -157,6 +170,9 @@ def system_prompt(review: dict, overview: str, prefetched: str = "") -> str:
         "안내하지 않고 어떤 대안이 있는지만 말합니다.",
         "5. 답변은 4문장 이내, 한국어 존댓말. '죄송'·'확인할 수 없다'로 시작하지 않고 아는 사실부터 말합니다.",
         "6. 분석 결과에 없는 부품·조건을 물으면 없다고 하고, 견적에 무엇이 들어 있는지 알려 줍니다.",
+        "7-1. 게임이 돌아가는지 묻는 질문은 [게임 요구 사양 비교] 근거(또는 game_check)의 등급·용량 비교를 그대로 전합니다. 근거에 가정한 부품이 "
+        "있으면 그 부품으로 바꾼 구성 기준이라고 밝히고, 견적의 CPU·GPU 가 확정되지 않아 등급을 모른다고 적혀 있으면 그대로 전합니다. "
+        "fps·프레임·'부드럽다' 같은 체감 평가와 '사도 된다'는 판단은 하지 않습니다.",
         "7. 미리 조회한 근거에 [저장 견적 비교]가 있으면 질문은 받은 견적과 저장한 견적의 차이를 묻는 것입니다 — 그 근거의 제품·금액으로 "
         "답하고, 카탈로그 가격 비교로 대신하지 않습니다. 근거에 없는 제품·금액을 만들지 않습니다.",
         *(["", "질문에 대해 미리 조회한 근거(이걸로 답하고, 더 필요하면 도구를 부릅니다):", prefetched] if prefetched else []),

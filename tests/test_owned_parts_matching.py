@@ -95,3 +95,14 @@ def test_a_qualifier_in_the_text_that_the_catalog_name_lacks_is_a_different_prod
     assert _confirmed_name(pool, "GPU", "RTX 4060 SUPER") != "NVIDIA GeForce RTX 4060"
     assert _confirmed_name(pool, "GPU", "RTX 4070 SUPER") == "NVIDIA GeForce RTX 4070 SUPER"
     assert _confirmed_name(pool, "GPU", "RTX 4060") == "NVIDIA GeForce RTX 4060"
+
+
+@pytest.mark.parametrize("slot, text, expected", [
+    ("CPU", "CPU 라이젠 7800X3D", "AMD Ryzen 7 7800X3D"),
+    ("저장장치", "SSD 에센코어 CRAS C910 500GB", "KLEVV CRAS C910"),
+    ("메인보드", "메인보드 기가바이트 B650M K", "GIGABYTE B650M K"),
+    ("GPU", "그래픽카드 만리 5060 Ti 폴라 폭스", "NVIDIA GeForce RTX 5060 Ti"),
+])
+def test_a_part_category_word_in_front_of_the_name_does_not_block_the_match(pool, slot, text, expected):
+    """텍스트로 붙여 넣은 견적은 줄 앞에 부품군 이름이 붙는다 — 그 낱말 때문에 연결이 막히면 안 된다."""
+    assert _confirmed_name(pool, slot, text) == expected

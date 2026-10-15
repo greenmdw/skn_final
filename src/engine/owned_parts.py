@@ -18,7 +18,9 @@ from src.engine.stage2_requirement import normalize_pc_slot
 
 # 모델 식별에 도움이 안 되는 말 — 비교에서 뺀다.
 _GENERIC = {"nvidia", "geforce", "amd", "radeon", "intel", "core", "ryzen", "gb", "tb", "mhz", "rgb", "ddr", "x",
-            "그래픽카드", "그래픽", "프로세서", "메모리", "패키지", "정품", "벌크", "멀티팩", "한글"}
+            "그래픽카드", "그래픽", "프로세서", "메모리", "패키지", "정품", "벌크", "멀티팩", "한글",
+            # 견적 한 줄 앞에 붙는 부품군 이름("CPU 라이젠 7800X3D"·"SSD 에센코어 CRAS C910") — 제품 이름이 아니다
+            "cpu", "gpu", "vga", "ssd", "ram", "psu", "메인보드", "쿨러", "케이스", "파워", "저장장치"}
 _SOCKET = re.compile(r"\b(AM[345]|LGA\s*-?\s*\d{3,4})\b", re.IGNORECASE)
 _DDR = re.compile(r"\bDDR\s*([345])\b", re.IGNORECASE)
 _WATT = re.compile(r"(\d{3,4})\s*W\b", re.IGNORECASE)

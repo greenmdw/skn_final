@@ -386,12 +386,16 @@ class ResultSession:
             slots.append(it["slot"])
         return self._record(call, result_advice.savings_options(self.conn, self.revision_id, amount, keep=slots))
 
-    def game_check(self, game: str) -> str:
+    def game_check(self, game: str, slot: str = "", candidate_id: str = "") -> str:
         from src.services import result_advice
-        call = f"game_check({game!r})"
+        call = f"game_check({game!r}, {slot!r}, {candidate_id!r})"
         if (no := self._pc_only(call)) is not None:
             return no
-        return self._record(call, result_advice.game_check(self.conn, self.revision_id, game))
+        it = self.item(slot) if slot.strip() else None
+        if slot.strip() and it is None:
+            return self._record(call, f"오류: '{slot}' 슬롯이 없습니다.")
+        return self._record(call, result_advice.game_check(self.conn, self.revision_id, game, it["slot"] if it else None,
+                                                           candidate_id.strip() or None))
 
     # ── DB 미보유 부품 실시간 검색 (docs/미보유부품_실시간스펙검색_설계.md 확장) ──
     def search_unavailable_part(self, slot: str, product_text: str) -> str:
@@ -555,13 +559,17 @@ def make_tools(s: ResultSession) -> list:
         return s.check_build()
 
     @tool
-    def game_check(game: str) -> str:
-        """게임 요구 사양 표와 지금 구성의 성능 등급·RAM·VRAM 을 비교한다. "이 구성으로 배그 돌아가?" 에 쓴다.
+    def game_check(game: str, slot: str = "", candidate_id: str = "") -> str:
+        """게임 요구 사양 표와 구성의 성능 등급·RAM·VRAM 을 비교한다. "이 구성으로 배그 돌아가?" 에 쓴다.
+        "그 GPU 로 바꿔도 사이버펑크 돌아가?"처럼 **바꿨다고 가정한** 구성이면 slot 과 후보의 candidate_id 를 함께 준다
+        (앞 턴 preview_swap·list_alternatives 가 준 값) — 구성표는 바뀌지 않는다.
 
         Args:
             game: 게임 이름만 (예: "배그", "사이버펑크 2077")
+            slot: 바꿔 볼 슬롯(GPU·CPU·RAM). 지금 구성 그대로면 비움
+            candidate_id: 바꿔 볼 후보의 candidate_id. 지금 구성 그대로면 비움
         """
-        return s.game_check(game)
+        return s.game_check(game, slot, candidate_id)
 
     @tool
     def search_unavailable_part(slot: str, product_text: str) -> str:
@@ -784,7 +792,7 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "'→' 줄을 결론으로 전합니다. '예산을 다 쓰지 못했다'처럼 실패로 말하지 않습니다 — 예산은 상한입니다.",
         "7. '뭘 바꾸면 싸져?', 'N만원 줄이고 싶어' → savings_options(target). 'CPU는 그대로 두고'처럼 바꾸지 말라는 부품이 있으면 keep 에 넣습니다. 금액을 말했으면 '→ … 성능을 가장 적게 잃는 조합' 줄을 먼저 전합니다 "
         "— 가장 많이 줄어드는 후보를 대신 권하지 않습니다. 요구 사양을 낮춰야 하는 항목은 그 사실(⚠)과 함께 전합니다.",
-        "8. '파워 충분해?', '호환 문제 없어?', '이대로 사도 돼?', 'CPU가 발목 잡아?(병목)' → check_build. '쿨러 꼭 사야 돼?', '기본 쿨러 들어 있어?' → explain('쿨러') 의 'CPU 기본 쿨러' 값으로 답합니다. 이 게임 돌아가? → game_check(게임 이름). 도구 결과에 있는 항목만 말하고 fps·체감 성능은 말하지 않습니다.",
+        "8. '파워 충분해?', '호환 문제 없어?', '이대로 사도 돼?', 'CPU가 발목 잡아?(병목)' → check_build. '쿨러 꼭 사야 돼?', '기본 쿨러 들어 있어?' → explain('쿨러') 의 'CPU 기본 쿨러' 값으로 답합니다. 이 게임 돌아가? → game_check(게임 이름). 앞 턴에서 바꿔 보던 후보가 있고 \"그 부품으로 바꿔도 게임 돌아가?\"·\"확인해줘\"라고 하면 그 후보의 candidate_id 와 슬롯으로 game_check(게임 이름, 슬롯, candidate_id) 를 부릅니다 — 지금 구성 기준으로만 답하고 \"그 제품 기준으로 확인해 드릴까요?\"라고 되묻지 않습니다. 도구 결과에 있는 항목만 말하고 fps·체감 성능은 말하지 않습니다.",
         "9. **이 견적**의 부품 우열, 리뷰의 진위, 호환 여부를 스스로 판정하지 않고 도구 결과에 없는 수치·사실을 만들지 않습니다. 금액을 직접 더하거나 빼지 말고 도구가 계산한 금액을 옮깁니다. "
         "호환은 '문제 없다'·'충분하다'고 단정하지 말고 '점검 기준(예: 230W ≤ 675W)을 통과했다'처럼 도구가 계산한 비교를 옮깁니다.",
         "10. 답변은 5문장 이내. 바꿨으면 바뀐 것과 총액·예산 잔여를 말하고, 도구 결과에 '예산 초과'나 '호환 점검 문제'가 있으면 그것도 한 번 언급합니다.",
