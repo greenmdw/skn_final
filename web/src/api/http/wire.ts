@@ -307,6 +307,7 @@ export interface WireReviewSummary {
   data_notice: string
   status: 'unavailable' | 'ready' | string
   product_manipulation_risk?: { evidence?: string[]; reliable_range?: boolean | null; control_scope?: string | null } | null
+  aspect_facts?: string[]
   // synthetic_demo 는 일부러 읽지 않는다 — 서버가 "합성 데모값, 실사용자 노출 금지"로 표시한 값이다.
 }
 

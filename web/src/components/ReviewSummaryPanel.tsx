@@ -39,6 +39,9 @@ export default function ReviewSummaryPanel({ productKey }: { productKey: string 
                   {data.excludedCount !== null && <span><small>검수에서 제외</small><b className="pl-mono">{data.excludedCount.toLocaleString('ko-KR')}건{data.excludedRatio !== null ? ` · ${Math.round(data.excludedRatio * 100)}%` : ''}</b></span>}
                 </div>
               ) : <span className="pl-note">서버가 이 제품의 실제 리뷰 분석을 아직 갖고 있지 않아요.</span>}
+              {data.aspectFacts.length > 0 && (
+                <ul className="pl-revsum-facts">{data.aspectFacts.map(text => <li key={text}>{text}</li>)}</ul>
+              )}
               {data.riskEvidence.length > 0 && (
                 <ul className="pl-revsum-facts">{data.riskEvidence.map(text => <li key={text}>{text}</li>)}</ul>
               )}
