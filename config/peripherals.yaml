@@ -17,7 +17,7 @@
 # hard_filters·preferences 절은 쓰지 않는다 — E11 은 requirements.<kind>.hard/soft 를 그대로
 # 평가한다. 로더(src/engine/peripheral_rules.py)는 두 이름을 "알려진 선택 절"로 예약만 해 둔다.
 schema_version: 1
-rule_set_version: peripheral-rules-v5   # v2: verify 절(E12) 추가 · v3: 견적 입력 절 추가, requirements.soft 제거 · v4: 변별력 없던 스펙 임계값 보정(해상도·응답속도·폴링레이트) · v5: QA 해석 보강(4K·QHD·유선·노래, 2026-10-15)
+rule_set_version: peripheral-rules-v6   # v2: verify 절(E12) 추가 · v3: 견적 입력 절 추가, requirements.soft 제거 · v4: 변별력 없던 스펙 임계값 보정(해상도·응답속도·폴링레이트) · v5: QA 해석 보강(4K·QHD·유선·노래, 2026-10-15) · v6: chat 절 추가(질문 답변)
 
 kinds:
   monitor:
@@ -642,6 +642,148 @@ adjust_chips:
     - {id: desk_casual, label: 책상 위에서 써요, add: {purposes: [desk_casual]}}
     - {id: room, label: 방 전체에 울려야 해요, add: {purposes: [room]}}
     - {id: low_volume, label: 밤에 작게 들어요, add: {purposes: [low_volume]}}
+
+# chat: 채팅 한 턴의 질문 답변과 설명(QA PQA-012·013·014, docs/local/주변기기_추천_QA_기획.md 2.3절).
+# 질문 종류는 낱말로 가르고(언어 모델이 꺼져 있어도 돈다), 답 문장은 **여기 적힌 글과 추천 결과·스펙·사용기에서만** 만든다.
+# 언어 모델은 질문 종류를 고르는 데만 쓰고 답 문장을 쓰지 않는다 — 없는 사실을 지어낼 수 없게 하려는 것이다.
+#   markers        — 이 말이 있어야 질문으로 본다("무게 가벼운 마우스 추천"처럼 질문이 아닌 문장을 조건으로 읽게 한다)
+#   request_words  — 질문 안에 이 말이 있으면 조건도 함께 말한 문장으로 보고 조건을 지우지 않는다
+#   types          — 질문 종류별 낱말. 위에서부터 먼저 맞는 종류가 된다. spec·review 는 topics 로 이어서 가른다
+#   spec_topics    — 스펙 질문 주제: 낱말 → 라벨과 스펙 키(그 상품에 값이 있는 키만 답한다), 값 꼴(unit)
+#   spec_summary   — 주제 없이 "스펙이 어때?"라고 물으면 답할 스펙 주제(종류별)
+#   review_topics  — 사용기 질문 주제: 낱말 → 체감 속성 코드(feel.attributes). 근거가 없으면 없다고 답한다
+#   glossary       — 용어 설명(words 로 찾는다). 카탈로그 값이 아니라 일반 설명이다
+#   unsupported    — 아직 조건으로 고를 수 없는 말과 그 설명(단어 규칙이 못 읽은 말도 사용자에게 알린다)
+#   chips          — 다음에 물어볼 문장. 모두 위 낱말로 같은 종류에 읽혀야 한다(시험이 확인한다)
+chat:
+  markers: ["?", "？", 뭐야, 뭔데, 뭔가요, 뭐예요, 뭘까, 어때, 어떻게, 얼마나, 되나, 인가요, 일까, 나눌 수 있, 왜, 맞나, 알려줘, 설명해, 무슨 뜻]   # "있어요"·"돼요"·"차이"처럼 평서문에도 흔한 말은 넣지 않는다
+  request_words: [추천, 찾아, 좋겠, 원해, 싶어, 해줘, 해 줘, 골라, 이면, 으로 해]
+  types:
+    term: {words: [뭐야, 뭔가요, 무슨 뜻, 설명해, 뭔데, 뭐예요, 이란, 가 뭐]}
+    compat: {words: [내 컴퓨터, 내 pc, 내 피씨, 호환, 맞아, 맞나, 연결 돼, 연결돼]}
+    capabilities: {words: [대답할, 대답 할, 할 수 있는, 할수 있는, 도와줄, 사용법, 어떻게 쓰, 뭘 해, 뭐 해]}
+    conditions: {words: [어떤 조건, 무슨 조건, 조건으로, 어떤 기준, 어떤 말, 뭐라고 말, 뭘 말]}
+    compare: {words: [차이, 비교, 뭐가 달라, 더 나은, 2위, 두 번째, 다른 선택지]}
+    why: {words: [왜 이, 왜 골, 왜 추천, 이유, 근거]}
+    spec: {words: [스펙, 사양]}                      # 주제 낱말(spec_topics)이 있어도 같은 종류다
+    review: {words: [후기, 리뷰, 사용기, 평가, 평이, 쓰는 사람]}   # 주제 낱말(review_topics)이 있어도 같은 종류다
+  spec_topics:
+    weight: {label: 무게, words: [무게, 무거, 몇 g, 몇g], keys: [weight_g], unit: g}
+    size: {label: 크기, words: [크기, 사이즈, 길이], keys: [size_longest_mm], unit: mm}
+    refresh: {label: 주사율, words: [주사율, hz], keys: [refresh_hz], unit: Hz}
+    resolution: {label: 해상도, words: [해상도], keys: [resolution_raw]}
+    screen: {label: 화면 크기, words: [인치], keys: [screen_size_inch], unit: 인치}
+    panel: {label: 패널, words: [패널], keys: [panel_raw]}
+    response: {label: 응답속도, words: [응답속도], keys: [response_ms_gtg], unit: ms}
+    brightness: {label: 밝기, words: [밝기, 니트], keys: [brightness_nit], unit: nit}
+    usb_c: {label: USB-C, words: [usb-c, c타입, 충전], keys: [usb_c_video, usb_c_power_w]}
+    polling: {label: 폴링레이트, words: [폴링], keys: [polling_hz_max], unit: Hz}
+    dpi: {label: DPI, words: [dpi], keys: [dpi_max]}
+    buttons: {label: 버튼 수, words: [버튼], keys: [button_count], unit: 개}
+    battery: {label: 배터리, words: [배터리], keys: [battery_power_raw]}
+    connection: {label: 연결 방식, words: [무선, 블루투스, 유선, 연결 방식], keys: [connectivity_wired, connectivity_wireless, connectivity_bluetooth]}
+    switch: {label: 스위치, words: [스위치], keys: [switch_kind_raw, switch_method_raw]}
+    rapid_trigger: {label: 래피드 트리거, words: [래피드], keys: [rapid_trigger]}
+    key_force: {label: 키압, words: [키압], keys: [key_force_min_g, key_force_max_g], unit: g}
+    output: {label: 출력, words: [출력, 와트], keys: [output_w], unit: W}
+    channels: {label: 채널, words: [채널], keys: [channels]}
+    power: {label: 전원, words: [전원], keys: [power_source_raw]}
+  spec_summary:
+    monitor: [screen, resolution, refresh, panel, usb_c]
+    keyboard: [switch, size, weight, connection]
+    mouse: [weight, size, connection, polling]
+    speaker: [output, channels, connection, power]
+  review_topics:
+    sound: {label: 소리, words: [소리, 소음, 시끄, 조용], attributes: [key_noise, hollow, sound_volume, click_sound, noise]}
+    feel: {label: 타건감, words: [타건, 키감, 키압], attributes: [typing_feel, input_response, key_force, rebound]}
+    grip: {label: 그립·손 맞춤, words: [그립, 손에, 손목, 쥐], attributes: [grip, wrist, size_feel, weight_feel]}
+    battery: {label: 배터리, words: [배터리], attributes: [battery]}
+    connection: {label: 연결 안정성, words: [연결, 끊김, 끊기], attributes: [wireless, connection]}
+    image: {label: 화질, words: [화질, 색감, 선명], attributes: [image_quality, color, color_accuracy, black_level, readability, brightness_feel]}
+    ghosting: {label: 잔상, words: [잔상], attributes: [ghosting]}
+    audio: {label: 음질, words: [음질, 저음, 고음, 음색], attributes: [sound_quality, bass, balance, clarity, instrument_separation]}
+  glossary:
+    래피드 트리거:
+      words: [래피드 트리거, 래피드트리거]
+      text: 키를 눌렀다 떼는 움직임을 정해진 깊이가 아니라 움직이는 대로 바로 읽어서, 살짝만 떼도 입력이 끊기고 다시 누르면 곧바로 입력되게 하는 기능이에요. 빠른 반응이 중요한 FPS·리듬 게임에서 쓰고, 자석(홀 이펙트) 스위치 키보드가 주로 지원해요.
+    폴링레이트:
+      words: [폴링레이트, 폴링 레이트, 폴링]
+      text: 마우스가 PC에 위치를 알려 주는 횟수예요(1초에 몇 번, Hz). 1000Hz는 1ms마다 한 번이에요. 높을수록 커서가 더 매끄럽지만 일반 사용에서는 체감 차이가 크지 않아요.
+    주사율:
+      words: [주사율]
+      text: 1초에 화면이 몇 번 바뀌는지(Hz)예요. 60Hz보다 144Hz·240Hz가 움직임이 부드럽고 빠른 게임에서 차이가 나요. 모니터만 높다고 되는 게 아니라 PC(그래픽카드)가 그만큼 프레임을 만들어야 해요.
+    응답속도:
+      words: [응답속도, 응답 속도]
+      text: 화면의 한 점이 색을 바꾸는 데 걸리는 시간(ms)이에요. 짧을수록 빠르게 움직이는 장면의 잔상이 줄어요. 보통 GTG 기준으로 적어요.
+    패널:
+      words: [패널, ips, oled, 올레드]
+      text: IPS는 색이 정확하고 보는 각도에 강해 문서·사진 작업에 많이 쓰고, VA는 명암비가 높아 영화에 어울려요. OLED는 검은색이 완전히 꺼져 명암과 응답속도가 좋지만 가격이 높고 같은 화면을 오래 띄우면 잔상(번인)에 주의해야 해요.
+    해상도:
+      words: [해상도, qhd, fhd, uhd]
+      text: 화면의 가로·세로 점 수예요. FHD(1920x1080), QHD(2560x1440), 4K(3840x2160)처럼 높을수록 선명하지만 그래픽카드 부담도 커져요.
+    키압:
+      words: [키압]
+      text: 키를 눌러 입력이 되기까지 필요한 힘(g)이에요. 숫자가 작을수록 가볍게 눌려요. 보통 45g 이하는 가벼운 편, 50g 이상은 묵직한 편으로 봐요.
+    마그네틱 스위치:
+      words: [마그네틱, 자석축, 홀 이펙트]
+      text: 자석과 센서로 키가 눌린 깊이를 읽는 스위치예요. 입력 지점을 바꿀 수 있고 래피드 트리거를 지원하는 제품이 많아요.
+    텐키리스:
+      words: [텐키리스]
+      text: 숫자 키패드(텐키)가 없는 키보드예요. 가로가 짧아 책상이 좁거나 마우스를 가까이 쓰고 싶을 때 좋고, 숫자를 많이 입력하면 불편해요.
+    풀배열:
+      words: [풀배열, 풀사이즈]
+      text: 숫자 키패드까지 모두 있는 키보드예요. 엑셀·회계처럼 숫자 입력이 많은 일에 편해요.
+    로우프로파일:
+      words: [로우프로파일, 저상]
+      text: 키가 낮은(저상) 키보드예요. 손목을 덜 꺾어도 되고 휴대하기 좋지만 키가 얕게 눌려 타건감이 다를 수 있어요.
+    DPI:
+      words: [dpi]
+      text: 마우스를 한 번 움직일 때 커서가 얼마나 움직이는지(감도)를 나타내는 값이에요. 높다고 좋은 것이 아니라 해상도와 취향에 맞춰 조절해서 써요.
+    버티컬 마우스:
+      words: [버티컬, 트랙볼]
+      text: 손을 세워 쥐도록 만든 마우스(버티컬)나 공을 굴려 쓰는 마우스(트랙볼)예요. 손목 비틀림이 줄어 손목이 불편한 분이 쓰지만 적응 기간이 필요해요.
+    북셸프 스피커:
+      words: [북셸프]
+      text: 책장이나 책상 위에 올려 쓰는 중형 스피커예요. 작은 위성 스피커보다 소리가 풍부해서 음악 감상에 많이 써요.
+    2.1채널:
+      words: ["2.1"]
+      text: 좌우 스피커 두 개에 저음을 맡는 서브우퍼가 더해진 구성이에요. 영화·게임에서 저음이 풍부해져요.
+    USB-C 영상·충전:
+      words: [usb-c, c타입, 썬더볼트]
+      text: USB-C 케이블 하나로 영상 신호와 충전을 함께 보내는 기능이에요. 노트북을 모니터에 연결할 때 케이블이 줄어요. 모니터가 영상 입력과 충전 와트(W)를 모두 지원하는지 확인해야 해요.
+  unsupported:
+    - words: [청축, 갈축, 적축, 흑축, 딸깍]
+      text: 스위치 색(청축·갈축 등)은 아직 조건으로 고를 수 없어요. 결과 카드의 스위치 종류를 확인하시거나 "조용한 키보드"처럼 소리로 말씀해 주세요.
+    - words: [사운드바, 우퍼]
+      text: 사운드바·우퍼는 아직 조건으로 고를 수 없어요. 저음이 필요하시면 "2.1채널 스피커"나 "영화 볼 스피커"라고 말씀해 주세요.
+    - words: [성능 우선, 성능우선, 성능 위주, 비싼 거, 비싼거, 비싼 걸]
+      text: '"성능 우선"·"비싼 거"는 아직 조건으로 읽지 못해요. 예산을 "30만 원 이하"처럼 말씀하시거나 "후기 좋은 걸로"처럼 말씀해 주세요.'
+    - words: [헤드셋, 이어폰, 웹캠, 게임패드]
+      text: 헤드셋·이어폰 같은 기기는 아직 찾을 수 없어요. 모니터·키보드·마우스·스피커를 도와 드릴 수 있어요.
+    - words: [rgb, 조명, 불빛]
+      text: 조명·색상은 아직 조건으로 고를 수 없어요.
+  answers:
+    capabilities: 모니터·키보드·마우스·스피커 추천을 도와요. 쓰는 목적이나 원하는 느낌을 말씀해 주시면 조건으로 읽어 반영하고, 추천 결과가 나오면 왜 골랐는지·다른 선택지와의 차이·스펙·사용기 근거를 물어보실 수 있어요.
+    other: 그 질문에는 답하기 어려워요. 모니터·키보드·마우스·스피커 추천의 조건이나 추천 결과에 대해 물어봐 주세요.
+    no_result: 추천 결과가 있어야 답할 수 있어요. 품목을 고르고 조건을 말씀해 주시면 추천해 드릴게요.
+    no_kind: 어떤 기기에 대한 질문인지 알 수 없어요. 아래에서 골라 주세요.
+    no_pc: PC 견적을 연결하지 않아 내 PC와 맞는지는 확인할 수 없어요. PC 견적을 먼저 만들거나 쓰시는 PC 사양을 알려 주세요.
+    no_cross_check: 이 품목은 PC와 따로 맞춰 볼 항목이 없어요. 연결 방식(유선·무선·블루투스)만 확인해 주세요.
+  examples:                        # 종류별 말하기 예문(조건 안내 답변 끝에 붙인다). 시험이 모두 조건으로 읽히는지 확인한다
+    monitor: 게임용 4K 모니터 50만원 이하
+    keyboard: 사무실에서 쓸 조용한 무선 키보드 10만원 이하
+    mouse: 발로란트 할 가벼운 무선 마우스 5만원 이하
+    speaker: 책상 위에서 음악 들을 블루투스 스피커 3만원 이하
+  chips:
+    start:
+      - 모니터는 어떤 조건으로 나눌 수 있어?
+      - 키보드는 어떤 조건으로 나눌 수 있어?
+      - 너가 대답할 수 있는 게 뭐야?
+    after_result:
+      - 왜 이걸 1위로 골랐어?
+      - 1위랑 2위 차이가 뭐야?
+      - 스펙이 어떻게 돼?
+      - 소리는 어때?
 
 # interpretation: 문장 해석의 남용 방어(견적 입력 설계 10장). 값은 잠정이다.
 interpretation:

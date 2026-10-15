@@ -1041,12 +1041,47 @@ class PeripheralInterpretIn(BaseModel):
     kinds: list[PeripheralKind] | None = None    # 종류 카드로 고른 값
 
 
+class PeripheralChatIn(PeripheralInterpretIn):
+    """POST /session/{id}/peripherals/chat — 채팅 한 턴. 해석 입력에 묶을 PC 견적(`pc_list_id`)을 더했다."""
+
+    pc_list_id: Optional[str] = None
+
+
 class PeripheralInterpretOut(BaseModel):
     interpretation: PeripheralInterpretation
     resolved: dict[str, PeripheralResolvedKind] = Field(default_factory=dict)    # 종류 → 풀이 결과
     needs_kind: bool                       # True 면 화면이 "어떤 기기를 찾으세요?" 카드를 띄운다
     source: Literal["llm", "rules"]        # 어떻게 읽었는가(규칙은 모델을 쓰지 못했을 때)
     truncated: bool = False                # 문장이 길어 앞부분만 읽었는가
+
+
+class PeripheralNewConditionOut(BaseModel):
+    kind: str          # 종류 이름 또는 "*"(종류와 무관한 항목: 예산 합계·손 크기)
+    label: str
+
+
+class PeripheralAnswerOut(BaseModel):
+    """질문의 답. text 는 설정·추천 결과·스펙·사용기에서만 만든 문장이다 — 화면은 그대로 보여 준다."""
+    type: str          # term · compat · capabilities · conditions · compare · why · spec · review · other
+    topic: str | None = None
+    text: str
+    kinds: list[PeripheralKind] = Field(default_factory=list)
+    chips: list[str] = Field(default_factory=list)       # 이어서 물어볼 만한 문장
+
+
+class PeripheralTurnOut(BaseModel):
+    """채팅 한 턴의 서버 답장(QA PQA-012·013·014). reply 는 아래를 순서대로 이은 문장이다."""
+    new_conditions: list[PeripheralNewConditionOut] = Field(default_factory=list)   # 이번 문장에서 새로 반영한 것
+    not_reflected: list[str] = Field(default_factory=list)       # 반영하지 못한 말과 이유
+    notes: list[str] = Field(default_factory=list)               # 어떻게 읽었는지·함께 고를 수 없어 정리한 조건
+    answer: PeripheralAnswerOut | None = None
+    reply: str
+    chips: list[str] = Field(default_factory=list)               # 이번 답 뒤에 보여 줄 질문 칩
+    result_chips: list[str] = Field(default_factory=list)        # 추천 결과가 나온 뒤에 보여 줄 질문 칩
+
+
+class PeripheralChatOut(PeripheralInterpretOut):
+    turn: PeripheralTurnOut
 
 
 class SwapIn(BaseModel):

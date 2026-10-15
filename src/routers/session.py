@@ -1,7 +1,7 @@
 """/session HTTP handlers."""
 from __future__ import annotations
 from uuid import UUID
-from fastapi import APIRouter, BackgroundTasks, Depends, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 from src import schemas
 from src.auth.deps import Principal, optional_principal
 from src.clients.llm_guard import llm_request_slot
@@ -205,6 +205,31 @@ def recommend_peripherals(
         )
         payload = peripherals_service.recommend(conn, body, pc_context)
     return schemas.PeripheralsOut(**payload)
+
+@router.post("/{list_id}/peripherals/chat", response_model=schemas.PeripheralChatOut)
+def chat_peripherals(
+    list_id: UUID, body: schemas.PeripheralChatIn, request: Request, principal: Principal = Depends(optional_principal),
+) -> schemas.PeripheralChatOut:
+    """주변기기 채팅 한 턴 — 문장 해석과 질문 답변을 한 번에. 이번에 새로 반영한 것·반영하지 못한 말·질문의 답·답장 문장을 서버가
+    만든다. 언어 모델을 쓰므로 `/peripherals/interpret` 와 같은 주소별 분당 요청 수 제한을 쓴다."""
+    from src.auth import ratelimit
+    from src.engine.peripheral_rules import interpretation_settings
+    from src.errors import RateLimited
+    from src.services import peripheral_chat_service, peripherals_service
+
+    if not ratelimit.allow(f"peripheral-interpret:{ratelimit.client_ip(request)}",
+                           limit=interpretation_settings()["per_minute"], window_seconds=60):
+        raise RateLimited("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")
+    with get_conn() as conn:       # 소유 확인과 PC 맥락만 — 언어 모델을 부르는 동안 연결을 잡고 있지 않는다
+        session_service._owned(PlanRepo(conn), list_id, principal)
+        pc_context = (
+            peripherals_service.pc_context_from_list(conn, UUID(body.pc_list_id), principal)
+            if body.pc_list_id else None
+        )
+    out = peripheral_chat_service.turn(
+        body.text, body.previous, body.kinds, pc_list_id=body.pc_list_id, pc_context=pc_context, open_conn=get_conn,
+    )
+    return schemas.PeripheralChatOut(**out)
 
 @router.post("/{list_id}/result-message", response_model=schemas.ResultMessageOut)
 def result_message(

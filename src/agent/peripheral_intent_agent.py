@@ -61,6 +61,10 @@ def build_system_prompt(rules: dict | None = None, kinds_hint: list[str] | None 
         "- 가격·후기·AS 를 특히 중요하게 말했을 때만 emphasis 에 그 축을 넣는다(예: 가성비 → 가격, 평 좋은 → 리뷰).",
         "- 브랜드는 목록의 이름만 쓴다. 고르고 싶다고 말하면 brand_like, 빼 달라거나 싫다고 하면 brand_avoid 다.",
         "- 종류를 알 수 없으면 kinds 를 비운다. 지어내지 않는다.",
+        "- 조건을 말한 것이 아니라 질문(왜·뭐야·어때·차이·몇)을 했으면 question 에 종류를 넣고 조건 필드는 비운다. 답은 쓰지 않는다.",
+        "  question.type: term 용어 뜻 / compat 내 PC와 맞는지 / capabilities 할 수 있는 일 / conditions 말할 수 있는 조건 /"
+        " compare 1위와 다른 선택지 차이 / why 고른 이유 / spec 스펙 값 / review 사용기·리뷰 / other 위에 없는 질문.",
+        "  topic 은 용어나 스펙·사용기 주제를 사용자가 쓴 말 그대로 짧게(없으면 null). 조건 문장이면 question 은 null.",
         *([f"- 사용자가 이미 종류를 골랐다: {', '.join(kinds_hint)}. kinds 에 넣고, 종류를 가리지 않은 조건과 금액은 그 종류에 붙인다."]
           if kinds_hint else []),
         "",
@@ -126,9 +130,18 @@ def _output_schema(rules: dict) -> dict[str, Any]:
             },
             "budget_total": {"type": ["integer", "null"]},
             "unrecognized": {"type": "array", "items": {"type": "string"}},
+            "question": {
+                "type": ["object", "null"],
+                "additionalProperties": False,
+                "properties": {
+                    "type": {"type": "string", "enum": list(peripheral_intent.QUESTION_TYPES)},
+                    "topic": {"type": ["string", "null"]},
+                },
+                "required": ["type", "topic"],
+            },
         },
         "required": ["kinds", "purposes", "situations", "stated", "emphasis", "brand_like", "brand_avoid", "hand_size",
-                     "budget", "budget_total", "unrecognized"],
+                     "budget", "budget_total", "unrecognized", "question"],
     }
 
 

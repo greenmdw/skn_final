@@ -52,7 +52,7 @@ def _write(tmp_path: Path, rules: dict, name: str = "peripherals.yaml") -> Path:
 def test_default_yaml_loads_four_kinds():
     rules = peripheral_rules.load_peripheral_rules()
     assert rules["schema_version"] == 1
-    assert rules["rule_set_version"] == "peripheral-rules-v5"
+    assert rules["rule_set_version"] == "peripheral-rules-v6"
     assert peripheral_rules.peripheral_kinds(rules) == ["keyboard", "monitor", "mouse", "speaker"]
 
 

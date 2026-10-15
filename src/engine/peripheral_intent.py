@@ -50,6 +50,24 @@ _INJECTION_CUES = re.compile(
 )
 
 
+QUESTION_TYPES = ("term", "compat", "capabilities", "conditions", "compare", "why", "spec", "review", "other")
+QUESTION_TOPIC_MAX_CHARS = 40
+
+
+class Question(BaseModel):
+    """이번 문장이 조건이 아니라 질문일 때의 종류(QA PQA-014). 조건과 달리 **이번 턴에만** 있다 — 이어 말해도 누적하지 않는다.
+
+    type — term 용어 설명 · compat 내 PC와 맞는지 · capabilities 할 수 있는 일 · conditions 말할 수 있는 조건 · compare 1위와 다른
+           선택지의 차이 · why 고른 이유 · spec 스펙 값 · review 사용기 근거 · other 위에 없는 질문(범위 밖)
+    topic — term 은 용어 이름, spec·review 는 설정 chat.spec_topics·review_topics 의 이름. 없으면 None
+    kinds — 질문이 가리키는 종류(문장에 이름이 나온 것). 비면 결과의 모든 종류
+    """
+
+    type: str
+    topic: str | None = None
+    kinds: list[Kind] = Field(default_factory=list)
+
+
 class Interpretation(BaseModel):
     """문장 해석 결과(견적 입력 설계 4.1). 이어서 말하면 이전 결과에 더해진다(`merge`)."""
 
@@ -64,6 +82,7 @@ class Interpretation(BaseModel):
     brand_like: dict[Kind, list[str]] = Field(default_factory=dict)  # 선호 브랜드(카탈로그 이름)
     brand_avoid: dict[Kind, list[str]] = Field(default_factory=dict)  # 기피 브랜드 — 후보에서 뺀다
     unrecognized: list[str] = Field(default_factory=list)
+    question: Question | None = None                                  # 이번 문장이 질문이면 그 종류(누적하지 않는다)
 
 
 class ResolvedCondition(BaseModel):
@@ -137,6 +156,16 @@ def _positive_won(value: Any) -> int | None:
     return won if 0 < won <= BUDGET_MAX_WON else None
 
 
+def _question(raw: Any, kinds_all: list[str]) -> Question | None:
+    """질문 종류는 정해진 목록 안의 값만 받는다. 모르는 종류·형식이면 질문이 아닌 것으로 본다."""
+    if not isinstance(raw, dict) or raw.get("type") not in QUESTION_TYPES:
+        return None
+    topic = raw.get("topic")
+    topic = topic.strip()[:QUESTION_TOPIC_MAX_CHARS] if isinstance(topic, str) and topic.strip() else None
+    kinds = raw.get("kinds") if isinstance(raw.get("kinds"), list) else []
+    return Question(type=raw["type"], topic=topic, kinds=kinds_all_order([k for k in kinds if k in kinds_all]))
+
+
 def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
     """언어 모델이나 요청 바디의 dict 를 목록 안의 값만 남긴 `Interpretation` 으로 바꾼다.
     목록에 없는 값은 조용히 뺀다(만들어 넣지 않는다). 형식이 아예 맞지 않으면 빈 결과다."""
@@ -204,6 +233,7 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
         budget_total=_positive_won(data.get("budget_total")),
         emphasis=emphasis, brand_like=brand_like, brand_avoid=brand_avoid,
         unrecognized=_unique(unrecognized)[:UNRECOGNIZED_MAX_ITEMS],
+        question=_question(data.get("question"), kinds_all),
     )
 
 
@@ -230,6 +260,7 @@ def merge(previous: Interpretation | None, new: Interpretation) -> Interpretatio
         brand_like=_union_per_kind(previous.brand_like, new.brand_like),
         brand_avoid=_union_per_kind(previous.brand_avoid, new.brand_avoid),
         unrecognized=_unique([*previous.unrecognized, *new.unrecognized])[:UNRECOGNIZED_MAX_ITEMS],
+        question=new.question,                         # 질문은 이번 턴 것만 — 앞 턴의 질문을 다시 답하지 않는다
     )
 
 
@@ -340,6 +371,26 @@ def _near_hit(text: str, rule: dict, kind: str | None) -> bool:
             if not _contains_any(between, others):
                 return True
     return False
+
+
+def kinds_in_text(text: str) -> list[str]:
+    """문장에 이름이 나온 종류(고정 순서)."""
+    lowered = normalize_text(text)
+    return kinds_all_order([kind for kind, words in _KIND_WORDS.items() if _contains_any(lowered, words)])
+
+
+def near_reading(text: str, entry: dict, kind: str | None = None) -> str | None:
+    """이 항목이 낱말(`words`)이 아니라 가까이 나온 두 낱말(`near`)로만 읽혔으면 그 느낌 낱말을 돌려준다. 아니면 None.
+    채팅이 "'묵직한'을 키압이 묵직한 쪽으로 읽었어요"처럼 어떻게 읽었는지 말하는 데 쓴다."""
+    lowered = normalize_text(text)
+    for phrase in entry.get("exclude", ()):
+        lowered = lowered.replace(phrase.lower(), " " * len(phrase))
+    if _contains_any(lowered, entry["words"]):
+        return None
+    for rule in entry.get("near", ()):
+        if _near_hit(lowered, rule, kind):
+            return next((w for w in rule["feel"] if w in lowered), None)
+    return None
 
 
 def _entry_hits(text: str, entry: dict, kind: str | None = None) -> bool:
