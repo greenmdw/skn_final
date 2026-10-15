@@ -443,3 +443,47 @@ def test_search_unavailable_part_says_5070_is_in_the_catalog_instead_of_asking_t
     out = d.search_unavailable_part("GPU", "엔비디아 5070")
     assert ca.SEARCH_PERMISSION_MARKER not in out
     assert "카탈로그에 있는 제품" in out and "RTX 5070" in out and "외부 검색을 묻지 마세요" in out
+
+
+# ── 부품 교체 요청은 조건이 아니다 (10/15 QA #36) ─────────────────────────────
+@pytest.mark.parametrize("text, swap", [
+    ("쿨러 바꿔줘", True), ("그래픽카드 더 좋은 걸로 바꿔줘", True), ("CPU 교체하고 싶어요", True), ("램 업그레이드", True),
+    ("예산 바꿔줘 200만원", False), ("용도를 작업용으로 변경", False), ("조용한 게 좋아요", False), ("흰색 케이스로 해주세요", False),
+])
+def test_part_swap_detection(text, swap):
+    assert ca.is_part_swap(text) is swap
+
+
+def test_part_swap_turn_refuses_conditions_but_keeps_brand_preference():
+    d = _draft("computer", {"category": "computer", "mode": "build", "purpose": "game", "budget_max": 1_500_000})
+    d.part_swap = True
+    assert d.set("priority", "performance").startswith("오류")      # "쿨러 바꿔줘"를 우선순위 답으로 읽지 않는다
+    assert not d.set("brand_pref", "intel").startswith("오류")        # "CPU는 인텔로 바꿔줘" 는 브랜드 선호
+    assert "priority" not in d.patches
+
+
+def test_claim_without_a_change_is_replaced(monkeypatch):
+    import strands
+
+    class _Claims:
+        def __init__(self, *, tools, **_):
+            self.tools = {t.tool_name: t for t in tools}
+
+        def __call__(self, text):
+            self.tools["clear_condition"]("wanted_parts")          # 비어 있던 것을 비움 — 변화 아님
+            return "원하시는 쿨러 조건을 취소했습니다. 주로 어떤 용도로 쓰실 건가요?"
+
+    monkeypatch.setattr(strands, "Agent", _Claims)
+    monkeypatch.setattr(ca, "_model", lambda: None)
+    cat_def = load_category("computer")
+    turn = ca.run_turn("computer", cat_def, {"category": "computer", "mode": "build"}, [], "쿨러 바꿔줘",
+                       missing_fn=lambda v: compute_missing(cat_def, v),
+                       next_question_fn=lambda v: _next_question(cat_def, v))
+    assert turn.reply.startswith("그 말은 조건으로 반영하지 않았어요.")
+    assert "취소했습니다" not in turn.reply
+
+
+def test_extra_tool_result_tells_the_model_it_is_not_applied():
+    d = _draft("computer")
+    out = d.add_extra("흰색 케이스")
+    assert "자동 추천에는 반영되지 않는" in out
