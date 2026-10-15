@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import PeripheralResultSection from '../components/PeripheralResultSection'
 import PlannerShell from '../components/PlannerShell'
@@ -20,7 +20,8 @@ import '../styles/peripherals.css'
 
 type ChatMessage = { id: number; role: 'user' | 'assistant'; text: string }
 
-const GREETING = '필요한 품목을 고르고 원하는 느낌을 말해 주세요. 예를 들면 “조용하고 쫀득한 키보드”, “손이 작아서 가벼운 마우스”처럼요.\n궁금한 것은 물어보셔도 돼요. 예: “스피커는 어떤 조건으로 나눌 수 있어?”'
+// 예시는 서버가 실제로 읽는 조건만 쓴다(조용한 곳·손 크기·무선·가벼운 무게·해상도·주사율·예산).
+const GREETING = '필요한 품목을 고르고 원하는 조건을 말해 주세요. 예를 들면 “조용한 키보드”, “손이 작아서 가벼운 무선 마우스”, “QHD 165Hz 모니터”처럼요. 예산도 함께 말할 수 있어요(“10만원 이하”, “6만원 이상”).\n궁금한 것은 물어보셔도 돼요. 예: “스피커는 어떤 조건으로 나눌 수 있어?”'
 // 서버 설정(chat.chips)과 같은 문장이다. 서버가 같은 종류의 질문으로 읽는다는 것을 서버 시험이 보장한다.
 const START_QUESTION_CHIPS = ['모니터는 어떤 조건으로 나눌 수 있어?', '키보드는 어떤 조건으로 나눌 수 있어?', '너가 대답할 수 있는 게 뭐야?']
 const RESULT_QUESTION_CHIPS = ['왜 이걸 1위로 골랐어?', '1위랑 2위 차이가 뭐야?', '스펙이 어떻게 돼?', '소리는 어때?']
@@ -129,7 +130,7 @@ function PeripheralChat({ messages, onSay, selectedKinds, selectedLabels, condit
           </div>
           <button type="button" className="pf-kind-card-go" disabled={busy || pendingKinds.size === 0} onClick={chooseKinds}>이 종류로 찾기</button>
         </div>}
-        {busy && <div className="pl-typing pl-mono" aria-label="문장을 읽는 중">···</div>}
+        {busy && <div className="pf-typing" role="status" aria-label="문장을 읽는 중"><i /><i /><i /></div>}
         {selectedLabels.length > 0 && <div className="pf-reflected">✓ 선택 품목: {selectedLabels.join(' · ')}{conditionCount ? ` · 조건 ${conditionCount}개` : ''}</div>}
         {showingResults && <div className="pl-msg-bot">품목마다 하나씩 골랐어요. 스펙 조건과 리뷰 근거를 함께 확인해 주세요.</div>}
       </div>
@@ -362,6 +363,17 @@ export default function PeripheralsPage() {
     setPickedKinds(previous => new Set(previous).add(item.kind))
   }
 
+  // 탭에서 ← → 로 품목을 옮긴다.
+  function moveTab(event: KeyboardEvent<HTMLDivElement>) {
+    if (!result || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return
+    const kinds = result.items.map(item => item.kind)
+    const current = kinds.indexOf(activeItem?.kind ?? kinds[0])
+    const next = kinds[(current + (event.key === 'ArrowRight' ? 1 : kinds.length - 1)) % kinds.length]
+    setActiveKind(next)
+    event.currentTarget.querySelector<HTMLButtonElement>(`[data-kind="${next}"]`)?.focus()
+    event.preventDefault()
+  }
+
   function recommendationCard(item: PeripheralItem) {
     const chosen = chosenProduct(item, selection)
     return <PeripheralResultSection key={item.kind} item={item} chosenName={chosen.fromAlternative ? chosen.name : null}
@@ -423,11 +435,12 @@ export default function PeripheralsPage() {
           {error && <div className="pl-alert bad" role="alert">{error}</div>}
           {result.status === 'skipped' && <div className="pl-alert warn" role="status">서버가 이번 요청은 추천하지 않았어요. 조건을 바꿔 다시 시도해 주세요.</div>}
           {result.empty.length > 0 && <div className="pl-alert warn" role="status">{result.empty.map(row => `${KINDS.find(kind => kind.id === row.kind)?.label ?? row.kind}: ${row.reason}`).join(' · ')}</div>}
-          {result.items.length > 1 && <div className="pr-tabs" role="tablist" aria-label="품목">
+          {result.items.length > 1 && <div className="pr-tabs" role="tablist" aria-label="품목" onKeyDown={moveTab}>
             {result.items.map(item => <button type="button" role="tab" key={item.kind} aria-selected={item.kind === activeItem?.kind}
+              tabIndex={item.kind === activeItem?.kind ? 0 : -1} data-kind={item.kind}
               className={'pr-tab' + (item.kind === activeItem?.kind ? ' on' : '')} onClick={() => setActiveKind(item.kind)}>
               <b>{item.kindLabel}</b>
-              <span>{pickedKinds.has(item.kind) ? wonFmt(chosenProduct(item, selection).price) : '견적에서 뺌'}</span>
+              {!pickedKinds.has(item.kind) && <span>견적에서 뺌</span>}
             </button>)}
           </div>}
           <div className="pf-results-list">{activeItem && recommendationCard(activeItem)}</div>
