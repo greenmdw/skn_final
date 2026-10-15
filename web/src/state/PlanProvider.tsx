@@ -11,6 +11,7 @@ import { newId } from '../utils/id'
 import { useToast } from './ToastContext'
 import { PlanContext, type PlanContextValue } from './PlanContext'
 import { useAuthUser } from './authStore'
+import { readOfferReply } from './offerReply'
 
 const INITIAL_GREETING = '안녕하세요! TrueFit입니다.\n어떤 PC가 필요하신가요?\n\n하고 싶은 일과 원하는 성능을 말씀해주세요.'
 const initialState: PlanState = {
@@ -64,6 +65,8 @@ export function PlanProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<PlanState>(restored?.state ? { ...initialState, ...restored.state } : initialState)
   const [checkDraft, setCheckDraft] = useState<CheckDraft>(restored?.checkDraft ?? createCheckDraft())
   const [messages, setMessages] = useState<ChatMessage[]>(() => [makeMessage('bot', restored?.state.stage ? '작성 중인 구성을 복원했습니다. 입력한 조건을 확인하고 이어서 진행하세요.' : INITIAL_GREETING, restored?.state.stage ? undefined : INITIAL_CHOICES)])
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
   const [busy, setBusy] = useState(false)
   const [analyzingIndex, setAnalyzingIndex] = useState(0)
   const [customHeading, setCustomHeading] = useState<{ title: string; desc: string } | null>(null)
@@ -203,11 +206,32 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     offerPrevious()
   }, [authUser, idle, resetCount, offerPrevious])
 
+  // 이어가기 제안의 답 — 칩을 눌러도, 글로 "이어서 해줘"라고 해도 같은 동작.
+  const resumePrevious = useCallback((said: string, from: string) => {
+    addMessage('user', said)
+    runConditionTurn(() => api.conditions.resume(stateRef.current.sessionId, from))
+  }, [addMessage, runConditionTurn])
+  const startFresh = useCallback((said: string) => {
+    addMessage('user', said)
+    addMessage('bot', '좋아요, 새로 시작할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.', INITIAL_CHOICES)
+  }, [addMessage])
+
   const handleInput = useCallback((text: string) => {
     const clean = text.trim()
     if (!clean) return
-    addMessage('user', clean)
     const current = stateRef.current
+    if (current.stage === 0) {
+      // 아직 답하지 않은 이어가기 제안이 있으면 글로 한 답도 그 제안의 답으로 받는다(QA #65)
+      const msgs = messagesRef.current
+      const at = msgs.findLastIndex(m => m.choices?.some(c => c.resumeFrom))
+      if (at >= 0 && !msgs.slice(at + 1).some(m => m.role === 'user')) {
+        const reply = readOfferReply(clean, at === msgs.length - 1)
+        const from = msgs[at].choices?.find(c => c.resumeFrom)?.resumeFrom
+        if (reply === 'resume' && from) return resumePrevious(clean, from)
+        if (reply === 'fresh') return startFresh(clean)
+      }
+    }
+    addMessage('user', clean)
     const askApi = (topic: ChatTopic) => {
       const mine = epoch.current
       api.chat.reply({ topic, text: clean, selectedPart: current.selectedPart, plan: current.currentPlan })
@@ -224,17 +248,12 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     } else if (current.stage === 3) {
       addMessage('bot', '구성을 만드는 중입니다. 완료 후 이어서 질문해주세요.')
     } else askApi('followup')
-  }, [addMessage, updateState, sendConditionTurn])
+  }, [addMessage, updateState, sendConditionTurn, resumePrevious, startFresh])
   // 선택지(칩)를 누르면: 서버 질문의 선택지는 화면에 라벨("가성비")을 내 말로 보여 주고, 내부 값("value")은 구조화된 답변으로
   // 보낸다 — 예전에는 값 문자열을 그대로 말풍선에 띄우고 자유 문장으로 보내서 "value" 가 보였다.
   const handleChoice = useCallback((choice: ChatChoice) => {
     const sessionId = stateRef.current.sessionId
-    if (choice.resumeFrom) {
-      addMessage('user', choice.label)
-      const from = choice.resumeFrom
-      runConditionTurn(() => api.conditions.resume(stateRef.current.sessionId, from))
-      return
-    }
+    if (choice.resumeFrom) return resumePrevious(choice.label, choice.resumeFrom)
     if (choice.preferenceHint) {
       addMessage('user', choice.label)
       const { signalId, accepted } = choice.preferenceHint
@@ -248,18 +267,14 @@ export function PlanProvider({ children }: { children: ReactNode }) {
         .catch(error => addMessage('bot', errorMessage(error, '응답을 저장하지 못했어요. 잠시 후 다시 시도해주세요.')))
       return
     }
-    if (choice.startFresh) {
-      addMessage('user', choice.label)
-      addMessage('bot', '좋아요, 새로 시작할게요. 하고 싶은 일과 원하는 성능을 말씀해주세요.', INITIAL_CHOICES)
-      return
-    }
+    if (choice.startFresh) return startFresh(choice.label)
     if (choice.questionId && sessionId && stateRef.current.stage <= 2) {
       addMessage('user', choice.label)
       sendConditionAnswer(sessionId, choice.questionId, choice.value)
       return
     }
     handleInput(choice.value)
-  }, [addMessage, sendConditionAnswer, handleInput, runConditionTurn, updateState])
+  }, [addMessage, sendConditionAnswer, handleInput, resumePrevious, startFresh, updateState])
   // 현재 조건(예산 포함)으로 서버 추천을 새로 받는다. 처음 시작할 때와, 구성이 나온 뒤 예산을 바꿨을 때 같이 쓴다.
   const runAnalysis = useCallback((intro: string) => {
     const current = stateRef.current
