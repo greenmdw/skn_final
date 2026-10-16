@@ -79,6 +79,7 @@ def _intent_from_body(body, pc_purpose: str | None = None):
         "emphasis": body.emphasis,
         "brand_like": body.brand_like,
         "brand_avoid": body.brand_avoid,
+        "exclude": body.exclude,
         "hand_size": body.hand_size,
     }
     interp = peripheral_intent.sanitize(raw)
@@ -135,6 +136,7 @@ def recommend_detailed(conn, body, pc_context: dict | None) -> tuple[dict, "Peri
         # 선호·기피 브랜드와 강조 축은 목록 안의 값으로 정리한 해석에서 온다(예전 입력과 같은 경로).
         "peripheral_brand_like": {k: list(v) for k, v in interp.brand_like.items() if k in body.kinds},
         "peripheral_brand_avoid": {k: list(v) for k, v in interp.brand_avoid.items() if k in body.kinds},
+        "peripheral_exclude": {k: list(v) for k, v in interp.exclude.items() if k in body.kinds},
         "peripheral_emphasis": {k: list(v) for k, v in interp.emphasis.items() if k in body.kinds},
         # 사용기 분석이 쌓은 근거(종류 → 관측). 분석 결과가 없으면 비어 있고 체감 점수는 외부 리뷰만으로 계산된다.
         "peripheral_feel_observations": peripheral_post_pipeline.current_observations(

@@ -475,6 +475,8 @@ export interface PeripheralInterpretation {
   brandLike: Partial<Record<PeripheralKind, string[]>>
   /** 빼 달라고 한 브랜드(종류 → 브랜드 이름). 후보에서 빠진다 */
   brandAvoid: Partial<Record<PeripheralKind, string[]>>
+  /** 뺄 제품(종류 → 제품 이름). 채팅의 "다른 걸로"가 그때의 1위를 넣는다 */
+  exclude: Partial<Record<PeripheralKind, string[]>>
   /** 서버가 목록에서 찾지 못해 반영하지 못한 말 */
   unrecognized: string[]
 }
@@ -528,6 +530,7 @@ export interface PeripheralRecommendRequest {
   emphasis?: Partial<Record<PeripheralKind, string[]>>
   brandLike?: Partial<Record<PeripheralKind, string[]>>
   brandAvoid?: Partial<Record<PeripheralKind, string[]>>
+  exclude?: Partial<Record<PeripheralKind, string[]>>
   handSize?: 'small' | 'medium' | 'large' | null
   /** 주면 그 PC 견적의 해상도로 모니터 교차검사를 켠다(내 것이 아니면 서버가 조용히 무시) */
   pcListId?: string
@@ -543,6 +546,12 @@ export interface PeripheralTurn {
   notes: string[]
   /** 질문이면 답 */
   answer: { type: string; topic: string | null; text: string; kinds: PeripheralKind[]; chips: string[] } | null
+  /** 결과 화면 명령(reset · remove · swap · cheaper · relative_budget). 명령이 아니면 null */
+  command: string | null
+  /** 이번 문장으로 뺀 것. 있으면 받은 interpretation 으로 추천을 다시 받는다 */
+  removedConditions: { kind: string; label: string }[]
+  /** true 면 조건을 모두 지웠다 — 결과를 지우고 첫 화면으로 돌아간다 */
+  reset: boolean
   /** 위를 순서대로 이은 채팅 답장 */
   reply: string
   /** 이번 답 뒤에 보여 줄 질문 칩 */

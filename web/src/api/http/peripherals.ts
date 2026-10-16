@@ -87,7 +87,7 @@ function itemFromWire(item: WirePeripheralItem): PeripheralItem {
 const interpretationFromWire = (wire: WirePeripheralInterpretation): PeripheralInterpretation => ({
   kinds: wire.kinds ?? [], purposes: wire.purposes ?? [], situations: wire.situations ?? [], stated: wire.stated ?? {},
   handSize: wire.hand_size ?? null, budget: wire.budget ?? {}, budgetMin: wire.budget_min ?? {}, budgetTotal: wire.budget_total ?? null,
-  emphasis: wire.emphasis ?? {}, brandLike: wire.brand_like ?? {}, brandAvoid: wire.brand_avoid ?? {},
+  emphasis: wire.emphasis ?? {}, brandLike: wire.brand_like ?? {}, brandAvoid: wire.brand_avoid ?? {}, exclude: wire.exclude ?? {},
   unrecognized: wire.unrecognized ?? [],
 })
 
@@ -97,7 +97,8 @@ const interpretationToWire = (value: PeripheralInterpretation): WirePeripheralIn
   hand_size: value.handSize, budget: value.budget as Record<string, number>, budget_min: value.budgetMin as Record<string, number>,
   budget_total: value.budgetTotal,
   emphasis: value.emphasis as Record<string, string[]>, brand_like: value.brandLike as Record<string, string[]>,
-  brand_avoid: value.brandAvoid as Record<string, string[]>, unrecognized: value.unrecognized,
+  brand_avoid: value.brandAvoid as Record<string, string[]>, exclude: value.exclude as Record<string, string[]>,
+  unrecognized: value.unrecognized,
 })
 
 /** 해석 응답(interpret 과 chat 이 같다)을 화면 모양으로 */
@@ -135,6 +136,7 @@ export const peripherals: Api['peripherals'] = {
       emphasis: input.emphasis ?? {},
       brand_like: input.brandLike ?? {},
       brand_avoid: input.brandAvoid ?? {},
+      exclude: input.exclude ?? {},
       hand_size: input.handSize ?? null,
       pc_list_id: input.pcListId,
     }
@@ -167,7 +169,8 @@ export const peripherals: Api['peripherals'] = {
       sessionId: id,
       turn: {
         newConditions: turn.new_conditions ?? [], notReflected: turn.not_reflected ?? [], notes: turn.notes ?? [],
-        answer: turn.answer, reply: turn.reply, chips: turn.chips ?? [], resultChips: turn.result_chips ?? [],
+        answer: turn.answer, command: turn.command ?? null, removedConditions: turn.removed_conditions ?? [], reset: Boolean(turn.reset),
+        reply: turn.reply, chips: turn.chips ?? [], resultChips: turn.result_chips ?? [],
       },
     }
   },

@@ -61,9 +61,11 @@ def interpret(text: str, previous: dict[str, Any] | None = None, kinds: list[str
     if new is None:
         new, source = _read(sentence, key, rules, settings["cache_size"], hint)
 
+    base = peripheral_intent.sanitize(previous, rules) if previous else None
+    if source == "llm":
+        new = peripheral_intent.reconcile_budget(new, sentence, [*(base.kinds if base else []), *hint], rules)
     new = _with_question(new, sentence, rules)
 
-    base = peripheral_intent.sanitize(previous, rules) if previous else None
     merged = peripheral_intent.merge(base, new, rules)
     if kinds:      # 종류 카드로 고른 값 — 질문은 이번 문장의 것이므로 합치면서 지워지지 않게 되돌려 놓는다
         merged = peripheral_intent.merge(merged, peripheral_intent.sanitize({"kinds": kinds}, rules), rules)

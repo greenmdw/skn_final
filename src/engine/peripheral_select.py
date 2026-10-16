@@ -195,6 +195,15 @@ def _drop_avoided_brands(cands: list[Candidate], avoid: set[str]) -> tuple[list[
     return kept, len(cands) - len(kept)
 
 
+def _drop_excluded(cands: list[Candidate], names: list[str] | None) -> tuple[list[Candidate], int]:
+    """채팅에서 "다른 걸로 바꿔줘"로 뺀 제품(이름)을 후보에서 뺀다. (남은 후보, 뺀 수)."""
+    if not names:
+        return cands, 0
+    drop = {n.casefold() for n in names}
+    kept = [c for c in cands if c.name.casefold() not in drop]
+    return kept, len(cands) - len(kept)
+
+
 def _brand_axis(cand: Candidate, like: set[str]) -> float:
     """선호 브랜드를 말했으면 그 브랜드 후보는 1, 나머지는 0.5. 말하지 않았으면 모두 0.5(판매량으로 점수를 주지 않는다)."""
     return 1.0 if like and _brand_key(cand.brand) in like else 0.5
@@ -361,8 +370,29 @@ def choose(
     if any(len(ranked) > top_n for ranked in pools.values()):
         counts["truncated"] = 1
     limited = {kind: ranked[:top_n] for kind, ranked in pools.items()}
-    kinds_order = sorted(limited)
+    best, cheapest, considered = _search_combos(limited, budget_max)
+    if best is None and counts.get("truncated"):
+        # 점수 top-N 끼리는 예산을 못 맞춰도 더 싼 후보로는 맞출 수 있다(4종 30만 원: top-5 최저 346,130원, 전체 최저 224,700원
+        # — QA 10/16 #8). 종류마다 가장 싼 top-N 을 더해 한 번 더 찾는다. 그래도 없으면 cheapest 가 전체 최저가 조합이다.
+        widened = {kind: list({c.product_key: c for c in [*ranked[:top_n], *sorted(ranked, key=lambda c: (c.price, -c.score))[:top_n]]}.values())
+                   for kind, ranked in pools.items()}
+        best, cheapest, more = _search_combos(widened, budget_max)
+        considered += more
+        counts["widened"] = 1
+    counts["considered"] = considered
 
+    if best is not None:
+        return best[0], counts
+    counts["over_budget"] = 1
+    assert cheapest is not None  # pools가 비지 않았으니 최소 한 조합은 반드시 있다
+    return cheapest[0], counts
+
+
+def _search_combos(
+    limited: dict[str, list[Candidate]], budget_max: int,
+) -> tuple[tuple[dict[str, Candidate], int, float] | None, tuple[dict[str, Candidate], int, float] | None, int]:
+    """후보 곱 전수 탐색 → (예산 이하 중 점수 합 최대, 최저가 조합, 본 조합 수)."""
+    kinds_order = sorted(limited)
     considered = 0
     best: tuple[dict[str, Candidate], int, float] | None = None
     cheapest: tuple[dict[str, Candidate], int, float] | None = None
@@ -379,13 +409,17 @@ def choose(
             best is None or total_score > best[2] or (total_score == best[2] and total_price < best[1])
         ):
             best = (picks, total_price, total_score)
-    counts["considered"] = considered
+    return best, cheapest, considered
 
-    if best is not None:
-        return best[0], counts
-    counts["over_budget"] = 1
-    assert cheapest is not None  # pools가 비지 않았으니 최소 한 조합은 반드시 있다
-    return cheapest[0], counts
+
+def _over_budget_notice(budget_info: dict[str, Any], labels: list[str]) -> dict[str, str]:
+    """예산 안 조합이 없을 때 채팅에 알리는 문장(QA 10/16 #8 — 예산 10만 원에 34만 원 결과가 경고 없이 나왔다).
+    결과는 조건에 맞는 것 중 가장 싼 조합이므로, 그 합계가 곧 이 조건으로 가능한 최저 금액이다."""
+    total, limit = budget_info["total"], budget_info["max"]
+    return {"kind": "budget", "code": "over_budget",
+            "text": f"{'·'.join(labels)}를 예산 {limit:,}원 안에서는 고를 수 없어요. 조건에 맞는 것 중 가장 싼 "
+                    f"{'조합' if len(labels) > 1 else '제품'}도 {total:,}원이라 {total - limit:,}원 넘어요. "
+                    + ("예산을 올리거나 품목을 줄여 주세요." if len(labels) > 1 else "예산을 올리거나 조건을 줄여 주세요.")}
 
 
 def _mark_close_calls(picks: list[PeripheralPick], rules: dict) -> None:
@@ -524,9 +558,12 @@ def run_peripherals(
         kind_budget = (values.get("peripheral_kind_budget") or {}).get(kind)
         kind_budget_min = (values.get("peripheral_kind_budget_min") or {}).get(kind)
         cands, avoided = _drop_avoided_brands(cands, _brand_keys((values.get("peripheral_brand_avoid") or {}).get(kind)))
+        cands, excluded = _drop_excluded(cands, (values.get("peripheral_exclude") or {}).get(kind))
         kept, stats = filter_candidates(kind, req, cands, max_price=kind_budget, min_price=kind_budget_min)
         if avoided:
             stats["avoided_brand"] = avoided
+        if excluded:
+            stats["excluded"] = excluded
         counts[kind] = stats
         label = kind_def(kind, rules)["label"]
         if not kept:
@@ -583,6 +620,9 @@ def run_peripherals(
     picked_requirements = {kind: requirements[kind] for kind in picks_by_kind if kind in requirements}
     feel_blocks = _feel_blocks(picks, values, rules)
     notices = [n for p in picks if p.kind == "monitor" for n in monitor_notices(p.candidate, requirements["monitor"], values)]
+    if budget_info is not None and budget_info["over_budget"]:
+        picked = {p.kind for p in picks}
+        notices.insert(0, _over_budget_notice(budget_info, [kind_def(k, rules)["label"] for k in kinds if k in picked]))
     return PeripheralResult(status="ready", picks=picks, empty=empty, counts=counts,
                              budget=budget_info, verification=verification, requirements=picked_requirements,
                              feel=feel_blocks, notices=notices)

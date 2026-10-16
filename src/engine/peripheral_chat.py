@@ -143,6 +143,9 @@ def _reflected(interp: Interpretation, rules: dict) -> dict[tuple, dict[str, str
     for kind, brands in interp.brand_avoid.items():
         for brand in brands:
             items[(kind, "brand_avoid", brand)] = {"kind": kind, "label": f"{brand} 제외"}
+    for kind, names in interp.exclude.items():
+        for name in names:
+            items[(kind, "exclude", name)] = {"kind": kind, "label": f"{kind_def(kind, rules)['label']}에서 뺀 제품: {name}"}
     if interp.hand_size:
         names = {"small": "작은 편", "medium": "보통", "large": "큰 편"}
         items[("*", "hand_size", interp.hand_size)] = {"kind": "*", "label": f"손 크기 {names[interp.hand_size]}"}

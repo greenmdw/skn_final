@@ -923,6 +923,8 @@ class PeripheralsRecommendIn(BaseModel):
     # 선호·기피 브랜드(종류 → 브랜드 이름). 선호는 브랜드 축에서 1점, 기피는 후보에서 뺀다.
     brand_like: dict[str, list[str]] = Field(default_factory=dict)
     brand_avoid: dict[str, list[str]] = Field(default_factory=dict)
+    # 뺄 제품(종류 → 제품 이름). 채팅의 "다른 걸로 바꿔줘"가 그때의 1위를 넣는다 — 후보에서 뺀다.
+    exclude: dict[str, list[str]] = Field(default_factory=dict)
     # 강조하는 축(종류 → 축 이름: 리뷰·가격·브랜드·무상AS 또는 그 종류의 스펙 기준 이름). 강조한 축 가중치 ×1.5.
     emphasis: dict[str, list[str]] = Field(default_factory=dict)
     # 손 크기(문장 해석의 hand_size 를 그대로 넘긴다). 체감 점수가 같은 손 크기 사용기 작성자를 묶는 데 쓴다(QA PQA-004).
@@ -1035,7 +1037,7 @@ class PeripheralAdjustChipOut(BaseModel):
 class PeripheralNoticeOut(BaseModel):
     """채팅으로 알릴 유의사항(QA PQA-001). 추천은 그대로 하고 주의할 점만 말한다 — 화면은 text 를 채팅에 그대로 보여 준다."""
     kind: str
-    code: str        # pc_unknown · gpu_4k · gpu_high_res · low_refresh
+    code: str        # pc_unknown · gpu_4k · gpu_high_res · low_refresh · over_budget(kind="budget")
     text: str
 
 
@@ -1106,6 +1108,11 @@ class PeripheralTurnOut(BaseModel):
     not_reflected: list[str] = Field(default_factory=list)       # 반영하지 못한 말과 이유
     notes: list[str] = Field(default_factory=list)               # 어떻게 읽었는지·함께 고를 수 없어 정리한 조건
     answer: PeripheralAnswerOut | None = None
+    # 결과 화면 명령(빼기·취소·다른 걸로·더 싸게·처음부터 — peripheral_commands). 화면은 removed_conditions 나 new_conditions 가
+    # 있으면 받은 interpretation 으로 추천을 다시 받고, reset 이면 결과를 지우고 첫 화면으로 돌아간다.
+    command: str | None = None                                   # reset · remove · swap · relative_budget · cheaper · None
+    removed_conditions: list[PeripheralNewConditionOut] = Field(default_factory=list)   # 이번 문장으로 뺀 것
+    reset: bool = False
     reply: str
     chips: list[str] = Field(default_factory=list)               # 이번 답 뒤에 보여 줄 질문 칩
     result_chips: list[str] = Field(default_factory=list)        # 추천 결과가 나온 뒤에 보여 줄 질문 칩

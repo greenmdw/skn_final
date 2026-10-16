@@ -30,6 +30,8 @@ from src.engine.peripheral_rules import (
 Kind = PeripheralKind
 HandSize = Literal["small", "medium", "large"]
 
+EXCLUDE_MAX_ITEMS = 10               # 종류마다 뺄 제품 이름 개수 상한
+EXCLUDE_NAME_MAX_CHARS = 120
 BUDGET_MAX_WON = 10_000_000          # 이 값을 넘는 금액은 예산으로 읽지 않는다(오입력·오해석 방어)
 UNRECOGNIZED_MAX_ITEMS = 5
 UNRECOGNIZED_MAX_CHARS = 40
@@ -82,6 +84,7 @@ class Interpretation(BaseModel):
     emphasis: dict[Kind, list[str]] = Field(default_factory=dict)    # 강조한 축(종류 → 가격·리뷰·무상AS·브랜드·스펙 기준 이름)
     brand_like: dict[Kind, list[str]] = Field(default_factory=dict)  # 선호 브랜드(카탈로그 이름)
     brand_avoid: dict[Kind, list[str]] = Field(default_factory=dict)  # 기피 브랜드 — 후보에서 뺀다
+    exclude: dict[Kind, list[str]] = Field(default_factory=dict)      # 뺄 제품 이름("다른 걸로 바꿔줘"로 뺀 1위) — 후보에서 뺀다
     unrecognized: list[str] = Field(default_factory=list)
     question: Question | None = None                                  # 이번 문장이 질문이면 그 종류(누적하지 않는다)
 
@@ -225,6 +228,12 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
     for kind in brand_like:                                # 선호 브랜드를 말했으면 브랜드 축을 강조한다(기획 3.3)
         emphasis[kind] = _unique([*emphasis.get(kind, []), "브랜드"])
 
+    exclude: dict[str, list[str]] = {}       # 제품 이름은 목록이 없으므로 길이·개수만 막는다(모르는 이름은 엔진이 그냥 못 맞춘다)
+    for kind, names in (data.get("exclude") if isinstance(data.get("exclude"), dict) else {}).items():
+        kept = _unique(squash_spaces(n)[:EXCLUDE_NAME_MAX_CHARS] for n in _strings(names) if squash_spaces(n))[:EXCLUDE_MAX_ITEMS]
+        if kind in kinds_all and kept:
+            exclude[kind] = kept
+
     purpose_hits, situation_hits = split_purpose_codes(_strings(data.get("purposes")), _strings(data.get("situations")), rules)
     return Interpretation(
         kinds=kinds,
@@ -235,7 +244,7 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
         budget=budget,
         budget_min=budget_min,
         budget_total=_positive_won(data.get("budget_total")),
-        emphasis=emphasis, brand_like=brand_like, brand_avoid=brand_avoid,
+        emphasis=emphasis, brand_like=brand_like, brand_avoid=brand_avoid, exclude=exclude,
         unrecognized=_unique(unrecognized)[:UNRECOGNIZED_MAX_ITEMS],
         question=_question(data.get("question"), kinds_all),
     )
@@ -274,18 +283,22 @@ def merge(previous: Interpretation | None, new: Interpretation, rules: dict | No
     for kind, lower in new.budget_min.items():
         if kind in previous.budget and kind not in new.budget and previous.budget[kind] < lower:
             del budget[kind]
+    kinds = kinds_all_order(_unique([*previous.kinds, *new.kinds]))
+    # 종류가 하나뿐인 대화에서 그 종류의 예산을 새로 말했으면 이전 합계 예산은 그 말로 바뀐 것이다(남겨 두면 올린 예산이 막힌다).
+    single_kind_budget = len(kinds) == 1 and kinds[0] in new.budget
     return Interpretation(
-        kinds=kinds_all_order(_unique([*previous.kinds, *new.kinds])),
+        kinds=kinds,
         purposes=_unique([*previous.purposes, *new.purposes]),
         situations=_unique([*previous.situations, *new.situations]),
         stated=stated,
         hand_size=new.hand_size or previous.hand_size,
         budget=budget,
         budget_min=budget_min,
-        budget_total=new.budget_total if new.budget_total is not None else previous.budget_total,
+        budget_total=new.budget_total if new.budget_total is not None else (None if single_kind_budget else previous.budget_total),
         emphasis=_union_per_kind(previous.emphasis, new.emphasis),
         brand_like=_union_per_kind(previous.brand_like, new.brand_like),
         brand_avoid=_union_per_kind(previous.brand_avoid, new.brand_avoid),
+        exclude=_union_per_kind(previous.exclude, new.exclude),
         unrecognized=_unique([*previous.unrecognized, *new.unrecognized])[:UNRECOGNIZED_MAX_ITEMS],
         question=new.question,                         # 질문은 이번 턴 것만 — 앞 턴의 질문을 다시 답하지 않는다
     )
@@ -565,3 +578,29 @@ def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[st
         budget_total=budget_total,
         emphasis=emphasis, brand_like=brand_like, brand_avoid=brand_avoid,
     )
+
+
+def reconcile_budget(new: Interpretation, sentence: str, context_kinds: list[str], rules: dict | None = None) -> Interpretation:
+    """이번 문장의 금액을 단어 규칙과 맞춘다 — 언어 모델이 읽은 해석에 쓴다(규칙 해석에는 바뀌는 것이 없다).
+
+    - 모델이 금액을 하나도 못 읽었는데 단어 규칙이 예산을 읽었으면 그 값을 쓴다. 모델이 "예산 20만원으로"를 2판 중
+      1판 빈 해석으로 냈다(10/16 실측). 금액은 낱말 규칙이 정확히 읽는다.
+    - 대화의 종류가 하나뿐이면 합계 예산을 그 종류의 예산으로 옮긴다. 모델은 종류 이름이 없는 "아니 25만원"을 합계로
+      읽는데, 합계로 두면 이전에 말한 종류 예산(30만 원)이 그대로 남아 계속 거른다.
+
+    `context_kinds` 는 이전 해석과 종류 카드에서 고른 종류다."""
+    rules = rules or load_peripheral_rules()
+    context = kinds_all_order(_unique([*new.kinds, *context_kinds]))
+    if not (new.budget or new.budget_min or new.budget_total is not None):
+        words = interpret_by_words(sentence, rules, context)
+        if words.budget or words.budget_min or words.budget_total is not None:
+            new = new.model_copy(update={
+                "budget": words.budget, "budget_min": words.budget_min, "budget_total": words.budget_total,
+                "kinds": kinds_all_order(_unique([*new.kinds, *words.budget, *words.budget_min])),
+            })
+    if new.budget_total is not None and len(context) == 1 and context[0] not in new.budget:
+        new = new.model_copy(update={"budget": {**new.budget, context[0]: new.budget_total}, "budget_total": None})
+    if (new.budget or new.budget_min or new.budget_total is not None) and new.unrecognized:
+        # 금액을 예산으로 읽었는데 모델이 그 금액 말("25만원", "20만원으로")을 못 읽은 말에도 넣으면 "반영하지 못했어요"가 같이 나간다.
+        new = new.model_copy(update={"unrecognized": [u for u in new.unrecognized if not _AMOUNT.search(normalize_text(u))]})
+    return new

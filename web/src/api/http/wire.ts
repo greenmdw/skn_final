@@ -441,6 +441,7 @@ export interface WirePeripheralInterpretation {
   emphasis?: Record<string, string[]>
   brand_like?: Record<string, string[]>
   brand_avoid?: Record<string, string[]>
+  exclude?: Record<string, string[]>
   unrecognized: string[]
 }
 export interface WirePeripheralResolvedCondition { condition: string; label: string; sources?: string[] }
@@ -464,6 +465,9 @@ export interface WirePeripheralChat extends WirePeripheralInterpret {
     not_reflected: string[]
     notes: string[]
     answer: { type: string; topic: string | null; text: string; kinds: ('monitor' | 'keyboard' | 'mouse' | 'speaker')[]; chips: string[] } | null
+    command?: string | null
+    removed_conditions?: { kind: string; label: string }[]
+    reset?: boolean
     reply: string
     chips: string[]
     result_chips: string[]
