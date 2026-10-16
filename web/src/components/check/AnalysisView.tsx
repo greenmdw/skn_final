@@ -1,6 +1,8 @@
 import type { ReactNode, RefObject } from 'react'
 import type { LiveSpecLookupResult, QuoteDraftAnalysis, QuoteDraftItem } from '../../api'
 import { checkedAgo, conditionTags, searchedAgo, signedWon, wonText } from '../../utils/checkReview'
+import { partKeyOf } from '../../utils/partIcon'
+import ProductThumb from '../ProductThumb'
 
 export type LiveLookupState = { status: 'loading' | 'done'; result?: LiveSpecLookupResult; error?: string }
 
@@ -224,7 +226,13 @@ export default function AnalysisView({
               return (
                 <div className="ck-unmatched-row" key={item.id}>
                   <div className="ck-unmatched-head">
-                    <div><b>{item.category}</b><span>{item.name}</span></div>
+                    <div className="ck-unmatched-title">
+                      <ProductThumb imageUrl={item.imageUrl} partKey={partKeyOf(item.category)} name={item.name} />
+                      <div>
+                        <b>{item.category}</b><span>{item.name}</span>
+                        {item.imageUrl && <em className="ck-unmatched-imgnote">카탈로그에서 가장 비슷한 제품의 이미지예요(정확히 같은 제품이 아닐 수 있어요)</em>}
+                      </div>
+                    </div>
                     {!lookup && <button type="button" className="ck-group-compare" onClick={() => onLiveLookup(item)}>실시간으로 찾아볼까요?</button>}
                     {lookup?.status === 'loading' && <span className="ck-unmatched-loading"><span className="pl-spin" />검색 중…</span>}
                   </div>
