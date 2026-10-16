@@ -1,5 +1,5 @@
 import type { ReactNode, RefObject } from 'react'
-import type { LiveSpecLookupResult, QuoteDraftAnalysis, QuoteDraftItem, QuoteRecommendedOption } from '../../api'
+import type { LiveSpecLookupResult, QuoteDraftAnalysis, QuoteDraftItem, QuoteRecommendedOption, QuoteReplacementPreview } from '../../api'
 import { checkedAgo, conditionTags, searchedAgo, signedWon, wonText } from '../../utils/checkReview'
 
 export type LiveLookupState = { status: 'loading' | 'done'; result?: LiveSpecLookupResult; error?: string }
@@ -9,7 +9,7 @@ const STATE_CLASS = { ok: 'ok', fail: 'miss', unknown: 'warn', skipped: 'warn' }
 
 export default function AnalysisView({
   analysis, conditions, sectionRef, onBack, onOpenSaved, savedOpen, onCart, cartBusy, savedPanel, liveLookup, onLiveLookup,
-  onCompare, staleBasis, replacements, onReanalyze, reanalyzeBusy,
+  onCompare, staleBasis, replacements, onReanalyze, reanalyzeBusy, cartPreview, cartPreviewBusy, onRecheck, recheckBusy,
 }: {
   analysis: QuoteDraftAnalysis
   conditions: Record<string, unknown>
@@ -30,6 +30,12 @@ export default function AnalysisView({
   replacements: Record<string, QuoteRecommendedOption>
   onReanalyze: () => void
   reanalyzeBusy: boolean
+  /** 교체 후보를 적용했을 때 합계·호환이 어떻게 바뀌는지(서버가 미리 계산한 값). 교체 후보가 없으면 null */
+  cartPreview: QuoteReplacementPreview | null
+  cartPreviewBusy: boolean
+  /** 전체 선택 부품의 호환성 검사를 다시 한다. 교체 후보가 있으면 먼저 적용한 구성으로 검사한다 */
+  onRecheck: () => void
+  recheckBusy: boolean
 }) {
   const checks = analysis.compat.checks
   const failed = checks.filter(check => check.state === 'fail')
@@ -213,7 +219,30 @@ export default function AnalysisView({
         </article>
 
         <article className="ck-summary-card">
-          <div className="ck-summary-title"><h3>호환 검사</h3><span>문제와 정보 부족을 먼저 보여드려요</span></div>
+          <div className="ck-summary-title">
+            <h3>호환 검사</h3><span>문제와 정보 부족을 먼저 보여드려요</span>
+            <button type="button" className="ck-outline ck-recheck-btn" disabled={recheckBusy} onClick={onRecheck}
+              title={swapRows.length > 0 ? '교체 후보를 적용한 구성으로 전체 선택 부품의 호환성을 다시 검사해요' : '지금 선택한 전체 부품의 호환성을 다시 검사해요'}>
+              {recheckBusy ? <span className="ck-busy-label" role="status">검사 중<i /><i /><i /></span> : swapRows.length > 0 ? '교체 후보 적용하고 호환성 검사 재진행' : '호환성 검사 재진행'}
+            </button>
+          </div>
+          {swapRows.length > 0 && (
+            <div className="ck-recheck-box">
+              <b>교체 후보 {swapRows.length}개를 적용하면</b>
+              {cartPreviewBusy && <span>교체 영향을 계산하는 중이에요…</span>}
+              {!cartPreviewBusy && cartPreview && (
+                <>
+                  <span>선택 합계 <b>{wonText(cartPreview.beforeTotal)}</b> → <b>{wonText(cartPreview.afterTotal)}</b> ({signedWon(cartPreview.totalDiff)})</span>
+                  <span>새로 생기는 호환 문제 <b>{cartPreview.newIssues.length}</b> · 해소되는 문제 <b>{cartPreview.resolvedIssues.length}</b></span>
+                  {cartPreview.additionalReplacements.length > 0 && (
+                    <span>함께 바꿔야 할 부품 · {cartPreview.additionalReplacements.map(row => `${row.category}(${row.reason})`).join(', ')}</span>
+                  )}
+                  {cartPreview.newIssues.map(issue => <span className="bad" key={`${issue.axis}-${issue.detail}`}>⚠ {issue.label} · {issue.detail}</span>)}
+                </>
+              )}
+              <small>위 값은 미리 계산한 영향이에요. 버튼을 누르면 후보를 적용하고 전체 부품의 호환성을 다시 검사합니다.</small>
+            </div>
+          )}
           {checks.length === 0 ? <div className="pl-empty">서버가 반환한 호환성 검사 항목이 없습니다.</div> : (
             <>
               <div className="ck-compat-summary">

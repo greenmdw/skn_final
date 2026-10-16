@@ -737,6 +737,9 @@ export default function CheckPage() {
               savedPanel={savedPanel} liveLookup={liveLookup} onLiveLookup={item => void runLiveLookup(item)}
               onCompare={category => void openCompare(category)} staleBasis={staleBasis} replacements={cart}
               onReanalyze={() => void reanalyzeBasis()} reanalyzeBusy={busy === 'analyze'}
+              cartPreview={cartPreview} cartPreviewBusy={cartPreviewBusy}
+              onRecheck={() => void (Object.keys(cart).length > 0 ? applyCart() : reanalyzeBasis())}
+              recheckBusy={busy === 'cart' || busy === 'analyze'}
             />
           </div>
         )}

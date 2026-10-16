@@ -530,3 +530,10 @@
 .ck-swap-line em.delta-down, .ck-swap-summary b.delta-down { color: var(--ok); }
 .ck-swap-line em.delta-up, .ck-swap-summary b.delta-up { color: var(--ck-bad, var(--bad)); }
 .ck-swap-summary { border-top: 0; padding-top: 0; margin-top: 8px; }
+
+/* 호환 검사 카드: 호환성 검사 재진행 버튼과 교체 후보 영향 요약 */
+.ck-summary-title .ck-recheck-btn { margin-left: auto; padding: 7px 12px; font-size: 12px; font-weight: 800; color: var(--mint); }
+.ck-recheck-box { display: flex; flex-direction: column; gap: 4px; margin: 0 0 14px; padding: 11px 14px; border: 1px solid color-mix(in srgb, var(--mint) 35%, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--mint) 6%, var(--panel)); font-size: 12.5px; }
+.ck-recheck-box > b { font-size: 13px; }
+.ck-recheck-box .bad { color: var(--ck-bad, var(--bad)); }
+.ck-recheck-box small { color: var(--muted); font-size: 11px; }
