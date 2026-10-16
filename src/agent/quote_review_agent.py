@@ -296,6 +296,10 @@ def reply_is_grounded(reply: str, sources: list[str]) -> tuple[bool, set[str], l
     return (not outside and not bad), outside, bad
 
 
+NO_GROUNDED_REPLY = ("이 질문에 맞는 확인된 근거를 찾지 못해 정확하게 답하지 못했어요. 부품 이름이나 항목(호환·가격·용도 균형·게임)을 "
+                     "함께 적어 다시 물어봐 주세요.")
+
+
 @dataclass
 class TurnResult:
     reply: str
@@ -323,12 +327,13 @@ def run_turn(review: dict, history: list[tuple[str, str]], text: str,
     )
     with llm_call_slot():
         reply = str(agent(text)).strip()
-    ok, outside, bad = reply_is_grounded(reply, [prompt, text, *session.outputs])
+    # 앞 턴의 질문·답도 근거다 — 그 답은 이미 검증을 거쳤고, "둘 중 뭐가 나아?" 같은 후속 질문은 앞 턴에서 말한 수치를 다시 쓴다.
+    earlier = [t for pair in history for t in pair]
+    ok, outside, bad = reply_is_grounded(reply, [prompt, text, *session.outputs, *earlier])
     ok = ok and price_claims_are_grounded(reply, review)
     if not ok:
         log.warning("quote review agent reply rejected (numbers %s, words %s) — replaced: %r", sorted(outside), bad, reply[:120])
-        facts = pre or overview
-        reply = facts
+        reply = pre or NO_GROUNDED_REPLY      # 질문에 맞는 조회가 없었는데 요약 전체를 던지면 질문과 상관없는 글이 된다
         session.used = session.used or [EVIDENCE_LABEL["overview"]]
     # 도구를 안 부르고 프롬프트의 분석 요약만으로 답한 턴도 근거는 그 요약이다.
     return TurnResult(reply=reply, evidence=list(session.used) or [EVIDENCE_LABEL["overview"]], trace=list(session.trace))
