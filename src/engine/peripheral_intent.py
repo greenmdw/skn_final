@@ -274,15 +274,18 @@ def merge(previous: Interpretation | None, new: Interpretation, rules: dict | No
     for kind, lower in new.budget_min.items():
         if kind in previous.budget and kind not in new.budget and previous.budget[kind] < lower:
             del budget[kind]
+    kinds = kinds_all_order(_unique([*previous.kinds, *new.kinds]))
+    # 종류가 하나뿐인 대화에서 그 종류의 예산을 새로 말했으면 이전 합계 예산은 그 말로 바뀐 것이다(남겨 두면 올린 예산이 막힌다).
+    single_kind_budget = len(kinds) == 1 and kinds[0] in new.budget
     return Interpretation(
-        kinds=kinds_all_order(_unique([*previous.kinds, *new.kinds])),
+        kinds=kinds,
         purposes=_unique([*previous.purposes, *new.purposes]),
         situations=_unique([*previous.situations, *new.situations]),
         stated=stated,
         hand_size=new.hand_size or previous.hand_size,
         budget=budget,
         budget_min=budget_min,
-        budget_total=new.budget_total if new.budget_total is not None else previous.budget_total,
+        budget_total=new.budget_total if new.budget_total is not None else (None if single_kind_budget else previous.budget_total),
         emphasis=_union_per_kind(previous.emphasis, new.emphasis),
         brand_like=_union_per_kind(previous.brand_like, new.brand_like),
         brand_avoid=_union_per_kind(previous.brand_avoid, new.brand_avoid),
@@ -565,3 +568,26 @@ def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[st
         budget_total=budget_total,
         emphasis=emphasis, brand_like=brand_like, brand_avoid=brand_avoid,
     )
+
+
+def reconcile_budget(new: Interpretation, sentence: str, context_kinds: list[str], rules: dict | None = None) -> Interpretation:
+    """이번 문장의 금액을 단어 규칙과 맞춘다 — 언어 모델이 읽은 해석에 쓴다(규칙 해석에는 바뀌는 것이 없다).
+
+    - 모델이 금액을 하나도 못 읽었는데 단어 규칙이 예산을 읽었으면 그 값을 쓴다. 모델이 "예산 20만원으로"를 2판 중
+      1판 빈 해석으로 냈다(10/16 실측). 금액은 낱말 규칙이 정확히 읽는다.
+    - 대화의 종류가 하나뿐이면 합계 예산을 그 종류의 예산으로 옮긴다. 모델은 종류 이름이 없는 "아니 25만원"을 합계로
+      읽는데, 합계로 두면 이전에 말한 종류 예산(30만 원)이 그대로 남아 계속 거른다.
+
+    `context_kinds` 는 이전 해석과 종류 카드에서 고른 종류다."""
+    rules = rules or load_peripheral_rules()
+    context = kinds_all_order(_unique([*new.kinds, *context_kinds]))
+    if not (new.budget or new.budget_min or new.budget_total is not None):
+        words = interpret_by_words(sentence, rules, context)
+        if words.budget or words.budget_min or words.budget_total is not None:
+            new = new.model_copy(update={
+                "budget": words.budget, "budget_min": words.budget_min, "budget_total": words.budget_total,
+                "kinds": kinds_all_order(_unique([*new.kinds, *words.budget, *words.budget_min])),
+            })
+    if new.budget_total is not None and len(context) == 1 and context[0] not in new.budget:
+        new = new.model_copy(update={"budget": {**new.budget, context[0]: new.budget_total}, "budget_total": None})
+    return new
