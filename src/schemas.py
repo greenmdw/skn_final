@@ -1122,6 +1122,21 @@ class PeripheralChatOut(PeripheralInterpretOut):
     turn: PeripheralTurnOut
 
 
+class PeripheralHistoryMessageOut(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str
+    at: str
+
+
+class PeripheralHistoryOut(BaseModel):
+    """GET /session/{id}/peripherals/messages — 저장된 주변기기 채팅과 마지막 상태(peripheral_history_service)."""
+    messages: list[PeripheralHistoryMessageOut] = Field(default_factory=list)
+    interpretation: PeripheralInterpretation
+    resolved: dict[str, PeripheralResolvedKind] = Field(default_factory=dict)
+    showing_results: bool = False          # 마지막으로 추천을 받은 상태였는가("처음부터 다시" 뒤면 False)
+    notices: list[str] = Field(default_factory=list)   # 마지막 추천 때 채팅에 말한 유의사항(다시 받을 때 되풀이하지 않게)
+
+
 class SwapIn(BaseModel):
     candidate_id: str
 
@@ -1235,6 +1250,7 @@ class ListSummaryOut(BaseModel):
     name: str
     category: Optional[str] = None
     stage: Literal["category", "conditions", "results", "report"]   # 현재 revision 기준(새 견적서 작성 중이면 그 단계)
+    chat: Literal["computer", "peripheral"] = "computer"   # 주변기기 채팅 기록이 있는 목록이면 peripheral
     updated_at: datetime
     # 대화 목록(패널 "대화 내역")용 — 제목 대신 첫 사용자 말, 대화까지 포함한 마지막 활동, 조건 요약
     last_active_at: datetime | None = None
