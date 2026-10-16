@@ -175,6 +175,7 @@ function UnderstoodChips({ understood, kinds, hasPlan, onRemove }: {
       ...(interpretation.emphasis[kind] ?? []).filter(axis => axis !== '브랜드').map(axis => chip(`${kind}:e:${axis}`, '중요', axis, { type: 'emphasis', kind, axis })),
       ...(interpretation.brandLike[kind] ?? []).map(brand => chip(`${kind}:bl:${brand}`, '선호 브랜드', brand, { type: 'brand_like', kind, brand })),
       ...(interpretation.brandAvoid[kind] ?? []).map(brand => chip(`${kind}:ba:${brand}`, '뺄 브랜드', brand, { type: 'brand_avoid', kind, brand })),
+      ...(interpretation.exclude[kind] ?? []).map(name => chip(`${kind}:x:${name}`, '뺀 제품', name, { type: 'exclude', kind, name })),
     ]
     return { kind, chips }
   })
@@ -276,7 +277,15 @@ export default function PeripheralsPage() {
     if (out.turn.resultChips.length) resultChips.current = out.turn.resultChips
     setQuestionChips(showResults ? resultChips.current : out.turn.chips)
     if (out.needsKind && !chosen && !hintKind) return { reply: out.turn.answer?.text ?? '', needsKind: true }
-    const changed = out.turn.newConditions.length > 0
+    // "처음부터 다시": 서버가 조건을 모두 지웠다 — 결과를 지우고 첫 화면(조건 대화)으로 돌아간다. 고른 품목은 둔다.
+    if (out.turn.reset) {
+      setUnderstood({ interpretation: out.interpretation, resolved: out.resolved, adjusted: [] })
+      setResult(null)
+      setNotice('')
+      return { reply: out.turn.reply, needsKind: false }
+    }
+    // 결과 화면 명령("키보드 빼줘"·"무선 조건 취소")은 조건을 빼기만 하므로 removedConditions 로도 바뀐 것을 안다.
+    const changed = out.turn.newConditions.length > 0 || out.turn.removedConditions.length > 0
     // 질문만 한 턴(조건을 바꾸지 않은 질문)은 선택한 품목과 이해한 내용을 건드리지 않는다. "모니터는 어떤 조건으로…?"라고
     // 물었다고 선택 품목이 모니터 하나로 줄면 안 된다. 종류 카드로 종류를 골라 보낸 경우만 그 종류를 받아들인다.
     const questionOnly = out.turn.answer !== null && !changed && !chosen && !hintKind
@@ -297,8 +306,10 @@ export default function PeripheralsPage() {
     }
     setNotice(''); setError(''); setLoading(true)
     try {
+      // 이번 턴에 품목이 바뀌었으면(예: "키보드는 빼줘") 선택 상태가 아직 갱신되기 전이다 — 받은 해석의 품목을 쓴다.
+      const kinds = next.interpretation.kinds.length ? next.interpretation.kinds : selectedKinds
       const out = await api.peripherals.recommend({
-        kinds: selectedKinds,
+        kinds,
         pcListId: plan?.id,
         ...recommendInputs(next.interpretation),
       }, sessionId.current)
