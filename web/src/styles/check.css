@@ -209,10 +209,10 @@
 .ck-price-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
 .ck-price-table th, .ck-price-table td { padding: 8px 5px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .ck-price-table th { color: var(--muted); font-weight: 500; white-space: nowrap; }
-.ck-price-table th:nth-child(1), .ck-price-table td:nth-child(1) { width: 20%; text-align: left; }
-.ck-price-table th:nth-child(2), .ck-price-table td:nth-child(2) { width: 12%; text-align: center; }
-.ck-price-table th:nth-child(3), .ck-price-table td:nth-child(3), .ck-price-table th:nth-child(4), .ck-price-table td:nth-child(4) { width: 23%; text-align: right; }
-.ck-price-table th:nth-child(5), .ck-price-table td:nth-child(5) { width: 22%; text-align: right; }
+.ck-price-table th:nth-child(1), .ck-price-table td:nth-child(1) { width: 18%; text-align: left; }
+.ck-price-table th:nth-child(2), .ck-price-table td:nth-child(2) { width: 9%; text-align: center; }
+.ck-price-table th:nth-child(3), .ck-price-table td:nth-child(3), .ck-price-table th:nth-child(4), .ck-price-table td:nth-child(4) { width: 20%; text-align: right; }
+.ck-price-table th:nth-child(5), .ck-price-table td:nth-child(5) { width: 17%; text-align: right; }
 .ck-price-table td { font-family: ui-monospace, monospace; white-space: nowrap; }
 .ck-price-summary { margin: 13px 0 0; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.65; }
 .ck-price-summary b { color: var(--text); }
@@ -516,3 +516,6 @@
 .ck-candidate-thumb .pl-thumb { width: 76px; height: 76px; }
 .ck-candidate-thumb .pl-thumb.icon svg { width: 34px; height: 34px; }
 
+
+/* 가격 비교 표 맨 오른쪽의 제품 비교 열 */
+.ck-price-table th.ck-compare-col, .ck-price-table td.ck-compare-col { width: 16%; text-align: right; white-space: nowrap; font-family: inherit; }

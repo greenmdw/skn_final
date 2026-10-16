@@ -120,14 +120,13 @@ export default function AnalysisView({
             <>
               <div className="ck-table-wrap">
                 <table className="ck-price-table">
-                  <thead><tr><th>슬롯</th><th>수량</th><th>인식한 가격</th><th>카탈로그</th><th>차이</th></tr></thead>
+                  <thead><tr><th>슬롯</th><th>수량</th><th>인식한 가격</th><th>카탈로그</th><th>차이</th><th className="ck-compare-col">제품 비교</th></tr></thead>
                   <tbody>
                     {priceRows.map(row => (
                       <tr key={row.part}>
                         <td>
                           <div className="ck-part-cell">
                             <b>{row.part}</b>
-                            <button type="button" className="ck-row-compare" onClick={() => onCompare(row.part)}>제품 비교</button>
                             {staleBasis[row.part] && <span className="ck-row-mark base">분석 기준 변경</span>}
                             {replaceCategories.includes(row.part) && <span className="ck-row-mark cart">교체 후보 1</span>}
                           </div>
@@ -136,6 +135,7 @@ export default function AnalysisView({
                         <td>{wonText(row.quoted)}</td>
                         <td>{row.catalog == null ? '—' : wonText(row.catalog)}</td>
                         <td className={row.diff == null || row.diff === 0 ? '' : row.diff > 0 ? 'delta-up' : 'delta-down'}>{row.diff == null ? '—' : row.diff === 0 ? '0원' : signedWon(row.diff)}</td>
+                        <td className="ck-compare-col"><button type="button" className="ck-row-compare" onClick={() => onCompare(row.part)}>제품 비교</button></td>
                       </tr>
                     ))}
                   </tbody>
