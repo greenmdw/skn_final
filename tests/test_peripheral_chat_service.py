@@ -260,6 +260,15 @@ def test_model_total_budget_in_a_one_kind_chat_replaces_that_kinds_budget(monkey
     assert both["interpretation"].budget_total == 400000 and both["interpretation"].budget == {}
 
 
+def test_amount_the_model_also_left_unrecognized_is_not_reported_as_missed(monkeypatch):
+    _fake_model(monkeypatch, Interpretation(kinds=["monitor"], budget={"monitor": 300000}))
+    first = _turn("모니터 30만원")
+    _fake_model(monkeypatch, Interpretation(budget_total=250000, unrecognized=["25만원", "번쩍이는"]))
+    second = _turn("아니 25만원 번쩍이는", _prev(first), ["monitor"])
+    assert second["interpretation"].budget == {"monitor": 250000}
+    assert second["turn"]["not_reflected"] == ["“번쩍이는”: 아직 조건으로 고를 수 없어서 반영하지 못했어요."]
+
+
 def test_raising_the_budget_of_the_only_kind_drops_the_old_total():
     previous = Interpretation(kinds=["monitor"], budget_total=200000).model_dump()
     out = _turn("모니터 25만원", previous)

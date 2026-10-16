@@ -195,6 +195,15 @@ def _drop_avoided_brands(cands: list[Candidate], avoid: set[str]) -> tuple[list[
     return kept, len(cands) - len(kept)
 
 
+def _drop_excluded(cands: list[Candidate], names: list[str] | None) -> tuple[list[Candidate], int]:
+    """채팅에서 "다른 걸로 바꿔줘"로 뺀 제품(이름)을 후보에서 뺀다. (남은 후보, 뺀 수)."""
+    if not names:
+        return cands, 0
+    drop = {n.casefold() for n in names}
+    kept = [c for c in cands if c.name.casefold() not in drop]
+    return kept, len(cands) - len(kept)
+
+
 def _brand_axis(cand: Candidate, like: set[str]) -> float:
     """선호 브랜드를 말했으면 그 브랜드 후보는 1, 나머지는 0.5. 말하지 않았으면 모두 0.5(판매량으로 점수를 주지 않는다)."""
     return 1.0 if like and _brand_key(cand.brand) in like else 0.5
@@ -549,9 +558,12 @@ def run_peripherals(
         kind_budget = (values.get("peripheral_kind_budget") or {}).get(kind)
         kind_budget_min = (values.get("peripheral_kind_budget_min") or {}).get(kind)
         cands, avoided = _drop_avoided_brands(cands, _brand_keys((values.get("peripheral_brand_avoid") or {}).get(kind)))
+        cands, excluded = _drop_excluded(cands, (values.get("peripheral_exclude") or {}).get(kind))
         kept, stats = filter_candidates(kind, req, cands, max_price=kind_budget, min_price=kind_budget_min)
         if avoided:
             stats["avoided_brand"] = avoided
+        if excluded:
+            stats["excluded"] = excluded
         counts[kind] = stats
         label = kind_def(kind, rules)["label"]
         if not kept:

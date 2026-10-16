@@ -580,7 +580,8 @@ def _check_interpretation(data: dict) -> None:
 
 
 _CHAT_KEYS = {"markers", "request_words", "types", "spec_topics", "spec_summary", "review_topics",
-              "glossary", "unsupported", "answers", "examples", "chips"}
+              "glossary", "unsupported", "answers", "examples", "chips", "commands"}
+_CHAT_COMMANDS = {"reset", "remove", "swap", "cheaper", "budget_words"}
 _CHAT_TYPES = ("term", "compat", "capabilities", "conditions", "compare", "why", "spec", "review")
 _CHAT_ANSWERS = {"capabilities", "other", "no_result", "no_kind", "no_pc", "no_cross_check"}
 
@@ -652,6 +653,11 @@ def _check_chat(data: dict) -> None:
     if not isinstance(section, dict) or set(section) != _CHAT_KEYS:
         raise PeripheralRuleError(f"주변기기 chat 절 키 오류: {sorted(_CHAT_KEYS)}")
     _check_name_list("chat.markers", section["markers"], allow_empty=False)
+    commands = section["commands"]
+    if not isinstance(commands, dict) or set(commands) != _CHAT_COMMANDS:
+        raise PeripheralRuleError(f"주변기기 chat.commands 키 오류: {sorted(_CHAT_COMMANDS)}")
+    for name, words in commands.items():
+        _check_name_list(f"chat.commands.{name}", words, allow_empty=False)
     _check_name_list("chat.request_words", section["request_words"], allow_empty=False)
 
     types = section["types"]
