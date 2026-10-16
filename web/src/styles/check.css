@@ -183,7 +183,8 @@
 .ck-verdict p { margin: 0; color: var(--muted); line-height: 1.65; }
 .ck-verdict-points { display: flex; flex-direction: column; gap: 7px; align-items: flex-end; }
 .ck-verdict-points span { padding: 6px 9px; border-radius: 999px; background: var(--panel2); color: var(--muted); font-size: 11px; white-space: nowrap; }
-.ck-analysis-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+/* 가격 비교를 먼저, 호환 검사를 그 아래에 한 칸씩 넓게 보인다 */
+.ck-analysis-grid { display: grid; grid-template-columns: 1fr; gap: 18px; }
 .ck-summary-card { min-width: 0; padding: 20px 24px; border: 1px solid var(--line); border-radius: 15px; background: var(--panel); overflow: hidden; }
 .ck-summary-title { display: flex; align-items: baseline; gap: 9px; margin-bottom: 18px; flex-wrap: wrap; }
 .ck-summary-title h3 { margin: 0; font-size: 19px; }
@@ -515,6 +516,3 @@
 .ck-candidate-thumb .pl-thumb { width: 76px; height: 76px; }
 .ck-candidate-thumb .pl-thumb.icon svg { width: 34px; height: 34px; }
 
-.ck-unmatched-head .ck-unmatched-title { flex-direction: row; align-items: center; gap: 12px; }
-.ck-unmatched-title > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ck-unmatched-imgnote { color: var(--muted); font-size: 11.5px; font-style: normal; }

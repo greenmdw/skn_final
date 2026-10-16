@@ -1,8 +1,6 @@
 import type { ReactNode, RefObject } from 'react'
 import type { LiveSpecLookupResult, QuoteDraftAnalysis, QuoteDraftItem } from '../../api'
 import { checkedAgo, conditionTags, searchedAgo, signedWon, wonText } from '../../utils/checkReview'
-import { partKeyOf } from '../../utils/partIcon'
-import ProductThumb from '../ProductThumb'
 
 export type LiveLookupState = { status: 'loading' | 'done'; result?: LiveSpecLookupResult; error?: string }
 
@@ -117,38 +115,7 @@ export default function AnalysisView({
 
       <div className="ck-analysis-grid">
         <article className="ck-summary-card">
-          <div className="ck-summary-title"><h3>호환 검사</h3><span>문제와 정보 부족을 먼저 보여드려요</span></div>
-          {checks.length === 0 ? <div className="pl-empty">서버가 반환한 호환성 검사 항목이 없습니다.</div> : (
-            <>
-              <div className="ck-compat-summary">
-                <span className="pass">통과 {passed.length}</span>
-                <span className="attention">우선 확인 {failed.length}</span>
-                <span className="unknown">정보 부족 {unknown.length}</span>
-              </div>
-              {failed.length > 0 && (
-                <details className="ck-compat-details" open>
-                  <summary>우선 확인할 항목 {failed.length}개</summary>
-                  <div className="ck-compat-list">{failed.map(check => <CompatRow key={check.axis} check={check} />)}</div>
-                </details>
-              )}
-              {unknown.length > 0 && (
-                <details className="ck-compat-details">
-                  <summary>정보가 부족한 항목 {unknown.length}개</summary>
-                  <div className="ck-compat-list">{unknown.map(check => <CompatRow key={check.axis} check={check} />)}</div>
-                </details>
-              )}
-              {passed.length > 0 && (
-                <details className="ck-compat-details">
-                  <summary>통과한 항목 {passed.length}개</summary>
-                  <div className="ck-compat-list">{passed.map(check => <CompatRow key={check.axis} check={check} />)}</div>
-                </details>
-              )}
-            </>
-          )}
-        </article>
-
-        <article className="ck-summary-card">
-          <div className="ck-summary-title"><h3>가격 비교</h3><span>인식한 가격 vs 카탈로그 가격 · 수량 반영</span></div>
+          <div className="ck-summary-title"><h3>가격 비교</h3><span>받은 견적의 가격 vs 우리 카탈로그(DB)에 등록된 가격 · 수량 반영</span></div>
           {analysis.prices?.available && priceRows.length > 0 ? (
             <>
               <div className="ck-table-wrap">
@@ -206,6 +173,37 @@ export default function AnalysisView({
             </>
           )}
         </article>
+
+        <article className="ck-summary-card">
+          <div className="ck-summary-title"><h3>호환 검사</h3><span>문제와 정보 부족을 먼저 보여드려요</span></div>
+          {checks.length === 0 ? <div className="pl-empty">서버가 반환한 호환성 검사 항목이 없습니다.</div> : (
+            <>
+              <div className="ck-compat-summary">
+                <span className="pass">통과 {passed.length}</span>
+                <span className="attention">우선 확인 {failed.length}</span>
+                <span className="unknown">정보 부족 {unknown.length}</span>
+              </div>
+              {failed.length > 0 && (
+                <details className="ck-compat-details" open>
+                  <summary>우선 확인할 항목 {failed.length}개</summary>
+                  <div className="ck-compat-list">{failed.map(check => <CompatRow key={check.axis} check={check} />)}</div>
+                </details>
+              )}
+              {unknown.length > 0 && (
+                <details className="ck-compat-details">
+                  <summary>정보가 부족한 항목 {unknown.length}개</summary>
+                  <div className="ck-compat-list">{unknown.map(check => <CompatRow key={check.axis} check={check} />)}</div>
+                </details>
+              )}
+              {passed.length > 0 && (
+                <details className="ck-compat-details">
+                  <summary>통과한 항목 {passed.length}개</summary>
+                  <div className="ck-compat-list">{passed.map(check => <CompatRow key={check.axis} check={check} />)}</div>
+                </details>
+              )}
+            </>
+          )}
+        </article>
       </div>
 
       {analysis.compare?.available && analysis.compare.notes.length > 0 && (
@@ -226,13 +224,7 @@ export default function AnalysisView({
               return (
                 <div className="ck-unmatched-row" key={item.id}>
                   <div className="ck-unmatched-head">
-                    <div className="ck-unmatched-title">
-                      <ProductThumb imageUrl={item.imageUrl} partKey={partKeyOf(item.category)} name={item.name} />
-                      <div>
-                        <b>{item.category}</b><span>{item.name}</span>
-                        {item.imageUrl && <em className="ck-unmatched-imgnote">카탈로그에서 가장 비슷한 제품의 이미지예요(정확히 같은 제품이 아닐 수 있어요)</em>}
-                      </div>
-                    </div>
+                    <div><b>{item.category}</b><span>{item.name}</span></div>
                     {!lookup && <button type="button" className="ck-group-compare" onClick={() => onLiveLookup(item)}>실시간으로 찾아볼까요?</button>}
                     {lookup?.status === 'loading' && <span className="ck-unmatched-loading"><span className="pl-spin" />검색 중…</span>}
                   </div>

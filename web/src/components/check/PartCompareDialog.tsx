@@ -73,7 +73,7 @@ export default function PartCompareDialog({ category, data, loading, error, draf
                     <div className="ck-candidate-kicker"><span className={`ck-status ${status?.tone ?? 'ok'}`}>인식 제품 {index + 1}</span><b>{current ? '현재 분석 기준' : '인식된 비교안'}</b></div>
                     <div className="ck-candidate-source">{item ? `견적 이미지 ${sourceBadge(item, draft)}` : '받은 견적'} · {MATCH_LABEL[option.matchStatus]}</div>
                     <div className="ck-candidate-main">
-                      <span className="ck-candidate-thumb"><ProductThumb imageUrl={option.imageUrl} partKey={partKeyOf(category)} name={option.name} /></span>
+                      <span className="ck-candidate-thumb"><ProductThumb imageUrl={option.matchStatus === 'confirmed' ? option.imageUrl : null} partKey={partKeyOf(category)} name={option.name} /></span>
                       <div>
                         <h3>{option.name}{option.quantity > 1 ? ` × ${option.quantity}` : ''}</h3>
                         <div className="ck-amount">{wonText(option.quoteLineTotal)}</div>
