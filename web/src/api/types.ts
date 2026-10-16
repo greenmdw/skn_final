@@ -241,6 +241,8 @@ export interface QuoteDraftSource {
   sortOrder: number
   status: 'completed' | 'failed'
   errorCode: string | null
+  qualityWarning: string | null     // 사진이 작거나 흐릴 때의 안내
+  ignoredLines: string[]            // 튜닝·액세서리라 분석에서 뺀 줄
 }
 
 export type QuoteMatchStatus = 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'
@@ -266,6 +268,8 @@ export interface QuoteDraftItem {
   sourceIds: string[]
   selectedForAnalysis: boolean
   userEdited: boolean
+  /** 'model' = 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾아 확정했다(제조사 확인을 권한다) */
+  matchVia?: 'model' | null
   /** 실시간 검색 값이 저장소에 있어 점검에 쓰인다. 제품 확정이 아니다 */
   liveValue?: boolean
 }
@@ -280,6 +284,8 @@ export interface QuoteDraft {
   question: string | null
   partialSuccess: boolean
   groups: { id: string; name: string; sourceIds: string[]; itemIds: string[] }[]
+  /** 올린 사진이 서로 다른 견적처럼 보이면 'separate' — 화면의 기본 선택일 뿐이다 */
+  sourceModeHint: 'single' | 'separate'
   createdAt: string
 }
 
@@ -390,7 +396,24 @@ export interface QuoteSavedComparison {
   rows: { category: string; sameProduct: boolean; received: QuoteComparisonProduct | null; saved: QuoteComparisonProduct | null; priceDiff: number | null }[]
   briefSummary: { changedCount: number; largestPriceDifferenceCategory: string | null; text: string }
   savedName: string
+  /** 'draft_quotes' = 올린 두 견적끼리 비교(저장 견적 비교가 아님) */
+  kind: string | null
+  labels: { received: string; saved: string }
+  /** 서로 다른 두 견적의 기준별 값. 기준마다 따로 보여 주고 종합 우열은 없다 */
+  criteria: QuoteCriterion[]
   computedAt: string
+}
+
+export interface QuoteCriterion {
+  key: string
+  label: string
+  aText: string
+  bText: string
+  /** 어느 쪽 값이 더 좋은가('a'·'b'·같음 'tie'·확인 못 해 비교 안 함 null) — 기준마다 따로다 */
+  better: 'a' | 'b' | 'tie' | null
+  higherIsBetter: boolean
+  /** true 면 우열이 없는 참고 줄(예: 카탈로그로 확정된 부품 수) */
+  info: boolean
 }
 
 /** 서버가 조립한 질문 답변 자료. 알 수 없는 형식은 화면에서 버린다(서버 값만 그대로 그린다). */
@@ -841,7 +864,9 @@ export interface Api {
     /** 여러 항목 수정·분석 기준 선택을 한 번에 저장한다. 버전이 다르면 STALE_REVIEW_VERSION */
     patchItems(draftId: string, expectedVersion: number, items: QuoteDraftItemEdit[], selectedItemByCategory?: Record<string, string>): Promise<QuoteDraft>
     /** 분석 기준으로 고른 항목만 분석한다(저장된 점검 결과가 만들어진다) */
-    analyze(draftId: string): Promise<QuoteDraftAnalysis>
+    analyze(draftId: string, sourceIds?: string[]): Promise<QuoteDraftAnalysis>
+    /** 올린 서로 다른 두 견적을 비교한다(저장 견적 비교와 같은 모양) */
+    compareQuotes(draftId: string, aSourceIds: string[], bSourceIds: string[]): Promise<QuoteSavedComparison>
     compareCategory(draftId: string, category: string, baselineItemId?: string): Promise<QuoteDraftComparison>
     previewReplacements(draftId: string, replacements: { category: string; candidateProductId: string }[]): Promise<QuoteReplacementPreview>
     applyReplacements(draftId: string, expectedVersion: number, replacements: { category: string; candidateProductId: string }[]): Promise<QuoteDraft>

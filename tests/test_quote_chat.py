@@ -247,8 +247,10 @@ def test_price_claims_guard_catches_a_state_attached_to_the_wrong_part(review):
     assert price_claims_are_grounded(bad, review) is False
 
 
-def test_price_claims_guard_accepts_a_correct_single_part_claim(review):
+def test_price_claims_guard_accepts_a_correct_single_part_claim():
+    """판정은 가격 비교 행의 상태와 문장의 방향이 같은지만 본다 — 매칭 결과에 기대지 않게 상태를 직접 준다."""
     from src.agent.quote_review_agent import price_claims_are_grounded
+    review = _prices_review({"GPU": "cheaper", "메인보드": "no_catalog"})
     assert price_claims_are_grounded("GPU는 견적이 더 저렴했습니다.", review) is True
     assert price_claims_are_grounded("메인보드는 카탈로그에서 찾지 못해 비교하지 못했습니다.", review) is True
 
@@ -430,3 +432,66 @@ def test_a_series_question_is_answered_with_the_model_options_without_the_agent(
     list_id = _created(client)
     res = client.post(f"/pc/reviews/{list_id}/messages", json={"text": "라이젠 9000이랑 비교해줘"}).json()
     assert res["via"] == "rules" and "시리즈 이름" in res["reply"] and res["evidence"] == ["제품 후보"]
+
+
+# ── 게임이 돌아가는지 묻는 질문(C5) ──────────────────────────────────────────────────
+
+GAME_QUOTE = {"CPU": "라이젠 5 7600", "GPU": "RTX 4060", "RAM": "삼성전자 DDR5-5600 (16GB)"}
+
+
+def _game_review():
+    return qrs.analyze(GAME_QUOTE, {"purpose": "game"})
+
+
+@pytest.mark.parametrize("text", ["이 견적으로 사이버펑크 돌아가?", "배그 돌릴 수 있어?", "엘든링 프레임 잘 나와?"])
+def test_a_game_question_routes_to_the_game_check(text):
+    assert chat.route(text, loader(), _game_review())[0][0] == "game"
+
+
+def test_a_swap_in_a_game_question_is_passed_as_the_hypothetical_part():
+    call = chat.route("RTX 5070 으로 바꾸면 사이버펑크 돌아가?", loader(), _game_review())[0]
+    assert call[0] == "game" and call[1]["swap_slot"] == "GPU" and "5070" in call[1]["swap_product"]
+
+
+def test_the_game_fact_compares_the_requirement_table_with_the_current_build():
+    review = _game_review()
+    out = chat.run_fact(review, "game", {"text": "사이버펑크 돌아가?", "swap_slot": "", "swap_product": ""}, loader())
+    assert "GPU 성능 등급 요구" in out and "지금" in out and "fps" in out
+    assert "가정:" not in out
+
+
+def test_the_game_fact_uses_the_swapped_part_and_says_the_quote_is_unchanged():
+    review = _game_review()
+    pool = loader()()
+    name = next(c.name for c in pool["GPU"] if "5070" in c.name)
+    out = chat.run_fact(review, "game", {"text": "사이버펑크 돌아가?", "swap_slot": "GPU", "swap_product": name}, loader())
+    assert f"가정: GPU 를 {name} 로 바꾼 구성" in out and "바꾼 뒤" in out and "견적은 그대로" in out
+
+
+def test_an_unconfirmed_cpu_or_gpu_is_reported_instead_of_guessed():
+    review = qrs.analyze({"CPU": "라이젠 5 7600", "GPU": "만리 폴라 폭스"}, {"purpose": "game"})
+    out = chat.run_fact(review, "game", {"text": "사이버펑크 돌아가?"}, loader())
+    assert "확정되지 않아 성능 등급을 알 수 없습니다" in out
+
+
+def test_every_fact_the_router_can_choose_has_a_label_in_both_label_tables():
+    """에이전트가 근거 이름표를 못 찾아 KeyError 로 규칙 경로로 떨어지던 일(게임 점검을 추가할 때 한쪽에만 넣었다)을 막는다."""
+    from src.agent.quote_review_agent import EVIDENCE_LABEL as agent_labels
+    for name in ("game", "overview", "compat", "prices", "balance", "compare", "alternatives", "compare_parts", "series_hint",
+                 "search_consent"):
+        assert name in chat.EVIDENCE_LABEL and name in agent_labels, name
+
+
+def test_a_shortened_swap_product_from_the_agent_is_resolved_to_the_catalog_name_or_reported():
+    """에이전트가 "RTX 5070"처럼 줄여 넘겨도 카탈로그 제품으로 풀어 쓰고, 못 풀면 지금 견적 기준이라고 밝힌다(조용히 무시하지 않는다)."""
+    review = _game_review()
+    out = chat.run_fact(review, "game", {"text": "사이버펑크 돌아가?", "swap_slot": "GPU", "swap_product": "RTX 5070"}, loader())
+    assert "가정: GPU 를" in out and "5070" in out
+    out = chat.run_fact(review, "game", {"text": "사이버펑크 돌아가?", "swap_slot": "GPU", "swap_product": "RTX 9999"}, loader())
+    assert "하나로 찾지 못해 지금 견적 기준" in out and "가정:" not in out
+
+
+@pytest.mark.parametrize("text", ["롤 돌리기 좋아?", "R02에서 GPU를 바꿔도 배그 돌아가?", "롤이랑 배그 돼?"])
+def test_a_short_game_nickname_inside_a_sentence_is_found_in_the_requirement_table(text):
+    out = chat.run_fact(_game_review(), "game", {"text": text, "swap_slot": "", "swap_product": ""}, loader())
+    assert "게임 요구 사양 표에 없어" not in out and "요구" in out

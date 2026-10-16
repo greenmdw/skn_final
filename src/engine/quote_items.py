@@ -21,6 +21,16 @@ _PLACEHOLDER_ALWAYS = re.compile(r"별도\s*구매|선택\s*안\s*함|선택\s*�
 _PLACEHOLDER_IF_NO_MODEL = re.compile(r"추가\s*선택\s*가능")
 
 
+# 부품이 아니라 튜닝·장식·소모품·연결 용품인 줄 — 부품군 하나로 억지로 분류되면(예: "램 튜닝 킷" → RAM) 대응 실패·잘못된 호환 판정이 생긴다.
+_NON_PART = re.compile(r"튜닝\s*(?:킷|세트|키트)|슬리빙|케이블\s*(?:연장|확장|정리)|연장\s*케이블|서멀\s*(?:구리스|패드)|써멀\s*(?:구리스|패드)|"
+                       r"거치대|지지대|LED\s*스트립|RGB\s*(?:스트립|컨트롤러|킷)|먼지\s*필터|스티커|나사\s*세트|조립\s*(?:비|대행)", re.I)
+
+
+def is_non_part_line(raw_text: str) -> bool:
+    """메인 부품(CPU·GPU·RAM·메인보드·저장장치·파워·케이스·쿨러)이 아닌 튜닝·액세서리·서비스 줄인가("램 튜닝 킷", "슬리빙 케이블")."""
+    return bool(_NON_PART.search(str(raw_text or "")))
+
+
 def is_placeholder_line(raw_text: str) -> bool:
     """부품이 아닌 선택 안내 줄인가("별도구매 (추가선택가능)", "CPU 기본 쿨러 장착 (추가선택가능)").
     "추가선택가능"만 있는 줄은 숫자(모델 번호)가 있으면 제품으로 본다 — 제품 이름 뒤에 붙은 옵션 안내일 수 있다."""
@@ -69,11 +79,21 @@ def spec_text(item: dict[str, Any]) -> str:
     return " ".join(p for p in parts if p)
 
 
+def _name_key(item: dict[str, Any]) -> str:
+    """글자만 같으면 같은 이름 — 대소문자·공백·기호 차이는 무시한다. 이름이 없으면 빈 문자열(병합하지 않는다)."""
+    return re.sub(r"[^0-9a-z가-힣]", "", str(item.get("normalized_name") or "").lower())
+
+
 def merge_same_products(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """같은 카탈로그 제품으로 **확정된**(confirmed) 항목만 합친다 — 출처만 모으고 수량·가격은 먼저 온 것을 쓴다(같은
-    견적이 두 장에 겹쳐 찍힌 경우 수량이 두 배가 되면 안 된다). 같은 부품군의 다른 모델·확정 안 된 항목은 모두 그대로 둔다."""
+    """같은 부품을 한 항목으로 합친다 — 출처만 모으고 수량·가격은 먼저 온 것을 쓴다(같은 견적이 두 장에 겹쳐 찍힌 경우 수량이
+    두 배가 되면 안 된다).
+    1) 같은 카탈로그 제품으로 **확정된**(confirmed) 항목은 합친다.
+    2) 카탈로그에 연결되지 않은 항목도 부품군과 이름 글자가 같고 **서로 다른 출처**(다른 사진)에서 읽혔으면 합친다 — 같은 견적이
+       두 장에 찍힌 경우다. 같은 사진 안의 같은 이름 두 줄(SSD 두 개를 따로 적음)은 합치지 않는다.
+    같은 부품군의 다른 모델은 모두 그대로 둔다."""
     out: list[dict[str, Any]] = []
     seen: dict[tuple[str, str], dict[str, Any]] = {}
+    by_name: dict[tuple[str, str], dict[str, Any]] = {}
     for item in items:
         product_id = item.get("matched_product_id")
         if item.get("match_status") == "confirmed" and product_id:
@@ -83,6 +103,14 @@ def merge_same_products(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 kept["source_ids"] = sorted(set(kept["source_ids"]) | set(item["source_ids"]))
                 continue
             seen[key] = item
+        else:
+            name = _name_key(item)
+            if name:
+                kept = by_name.get((item["category"], name))
+                if kept is not None and not (set(kept["source_ids"]) & set(item["source_ids"])):
+                    kept["source_ids"] = sorted(set(kept["source_ids"]) | set(item["source_ids"]))
+                    continue
+                by_name.setdefault((item["category"], name), item)
         out.append(item)
     return out
 

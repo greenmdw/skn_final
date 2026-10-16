@@ -1,6 +1,8 @@
 """견적 한 줄 → 항목 규칙(src/engine/quote_items.py) — DB·LLM 없이 도는 순수 함수."""
 from __future__ import annotations
 
+import pytest
+
 from src.engine.quote_items import default_selection, merge_same_products, spec_text, split_line
 
 
@@ -54,6 +56,17 @@ def test_only_confirmed_same_products_are_merged_and_other_models_are_kept():
     ]
     merged = merge_same_products(items)
     assert [i["id"] for i in merged] == ["a", "c", "d", "e"]
+    assert merged[0]["source_ids"] == ["source-1", "source-2"]
+
+
+def test_unmatched_items_with_the_same_name_from_different_sources_are_merged():
+    """카탈로그에 없는 부품도 두 사진에 같은 글자로 찍혔으면 한 항목이다. 같은 사진 안의 같은 이름 두 줄은 합치지 않는다."""
+    def named(i, name, source):
+        return {**_item(i, "저장장치", sources=(source,)), "normalized_name": name}
+    items = [named("a", "에센코어 CRAS C910 (500GB)", "source-1"), named("b", "에센코어 CRAS C910(500GB)", "source-2"),
+             named("c", "에센코어 CRAS C910 (500GB)", "source-1"), named("d", "다른 SSD", "source-2")]
+    merged = merge_same_products(items)
+    assert [i["id"] for i in merged] == ["a", "c", "d"]            # b 는 a 와 합쳐지고, 같은 사진의 c 는 따로 남는다
     assert merged[0]["source_ids"] == ["source-1", "source-2"]
 
 
@@ -119,3 +132,12 @@ def test_shop_title_noise_words_do_not_block_a_match():
 
     pool = [Candidate(product_key="k1", slot="저장장치", name="Samsung PM9A1 NVMe 512GB", product_id="p1")]
     assert _match_nearest("삼성전자 병행수입 PM9A1 벌크 새상품", pool) is not None
+
+
+@pytest.mark.parametrize("line, expected", [
+    ("램 튜닝 킷 (방열판 포함)", True), ("슬리빙 케이블 연장 세트", True), ("서멀 구리스 MX-4", True), ("조립비 50,000원", True),
+    ("삼성전자 DDR5-5600 16GB", False), ("쿨러마스터 허리케인 팬 방열판 포함 SSD 990 PRO 1TB", False), ("Deepcool AG620 G2", False),
+])
+def test_non_part_lines_are_tuning_accessories_and_services_only(line, expected):
+    from src.engine.quote_items import is_non_part_line
+    assert is_non_part_line(line) is expected

@@ -537,3 +537,17 @@
 .ck-recheck-box > b { font-size: 13px; }
 .ck-recheck-box .bad { color: var(--ck-bad, var(--bad)); }
 .ck-recheck-box small { color: var(--muted); font-size: 11px; }
+
+/* 올린 사진이 한 견적의 여러 장인지, 서로 다른 견적인지 고르는 안내 */
+.ck-source-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 14px 16px; margin-bottom: 14px; }
+.ck-source-mode small { flex-basis: 100%; color: var(--muted); }
+.ck-source-mode label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
+/* 서로 다른 두 견적의 기준별 비교표 */
+.ck-criteria { padding: 14px 18px 4px; }
+.ck-criteria > b span { color: var(--muted); font-weight: 400; }
+.ck-criteria table { width: 100%; border-collapse: collapse; margin: 10px 0 6px; font-size: 14px; }
+.ck-criteria th, .ck-criteria td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line2); }
+.ck-criteria td.win { font-weight: 700; color: var(--ok, #1a7f4b); }
+.ck-criteria tr.info td { color: var(--muted); }
+.ck-criteria > small { display: block; color: var(--muted); padding-bottom: 8px; }

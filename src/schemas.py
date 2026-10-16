@@ -382,6 +382,7 @@ class QuoteSavedComparisonOut(BaseModel):
     saved: dict[str, Any] = Field(default_factory=dict)                      # 비교한 저장 견적(list_id·revision_no·name)
     labels: dict[str, str] = Field(default_factory=dict)                     # received/saved 쪽의 이름(견적 이름 — 없으면 받은 견적/저장 견적)
     sides: dict[str, Any] | None = None                                      # 견적끼리 비교할 때 각 견적의 합계·호환 요약
+    criteria: list[dict[str, Any]] | None = None                             # 견적끼리 비교할 때 기준별 값(호환·용도·등급·총액) — 종합 우열은 없다
     kind: str | None = None
     computed_at: str
 
@@ -425,6 +426,9 @@ class QuoteDraftSourceOut(BaseModel):
     sort_order: int
     status: Literal["completed", "failed"]
     error_code: str | None = None
+    quote_total: int | None = None                       # 사진에 적힌 견적 총액(원). 부품별 가격이 없는 견적의 가격 안내에 쓴다
+    quality_warning: str | None = None                   # 사진이 작거나 흐릴 때의 안내 — 이 사진에서 읽은 부품은 자동 확정하지 않는다
+    ignored_lines: list[str] = Field(default_factory=list)   # 튜닝·액세서리처럼 메인 부품이 아니라 분석에서 뺀 줄
 
 
 class QuoteDraftItemOut(BaseModel):
@@ -442,6 +446,8 @@ class QuoteDraftItemOut(BaseModel):
     matched_name: str | None = None
     image_url: str | None = None                         # catalog.product.image_url, 없으면 null
     match_status: Literal["confirmed", "ambiguous", "candidate", "inferred", "unmatched"] = "unmatched"
+    match_via: Literal["model"] | None = None            # "model" = 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾아 확정했다(화면에 근거를 보인다)
+    uncertain: bool = False                              # 사진 글자가 흐려 읽은 이름이 틀렸을 수 있다 — 카탈로그 확정을 하지 않는다
     candidate_count: int | None = None
     source_ids: list[str] = Field(default_factory=list)
     selected_for_analysis: bool = False
@@ -468,6 +474,8 @@ class QuoteDraftOut(BaseModel):
     question: str | None = None
     partial_success: bool = False
     groups: list[QuoteDraftGroupOut] = Field(default_factory=list)
+    # 올린 사진이 서로 다른 견적처럼 보이는지(separate) 한 견적의 여러 장처럼 보이는지(single) — 화면의 기본 선택일 뿐이다
+    source_mode_hint: Literal["single", "separate"] = "single"
     created_at: str
 
 

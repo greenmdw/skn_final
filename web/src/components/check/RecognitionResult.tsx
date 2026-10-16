@@ -72,6 +72,16 @@ export default function RecognitionResult({
           <span><b>일부 이미지를 읽지 못했어요</b> · {failedSources.map(source => source.fileName ?? '이미지').join(', ')} — 읽은 나머지 이미지의 결과는 그대로 남겼습니다.</span>
         </div>
       )}
+      {completedSources.filter(source => source.qualityWarning).map(source => (
+        <div className="ck-normalization-note warn" key={`q-${source.id}`}>
+          <span><b>{source.fileName ?? '이미지'}</b> · {source.qualityWarning}</span>
+        </div>
+      ))}
+      {completedSources.filter(source => source.ignoredLines.length > 0).map(source => (
+        <div className="ck-normalization-note" key={`i-${source.id}`}>
+          <span><b>부품이 아니라 분석에서 뺀 줄</b> · {source.ignoredLines.join(' / ')}</span>
+        </div>
+      ))}
       <div className="ck-normalization-note">
         <span><b>제품명 정리 완료</b> · 가격 문구는 제품명에서 제외하고 별도 금액으로 저장했어요.</span>
         <span>동일 제품 중복만 병합 · 다른 모델은 모두 유지</span>

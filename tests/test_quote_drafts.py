@@ -442,3 +442,63 @@ def test_added_item_can_belong_to_one_uploaded_quote_and_bad_input_is_rejected(c
     assert client.post(url, json={"expected_version": 2, "category": "케이스", "raw_text": "x", "source_id": "nope"}).status_code == 422
     assert client.post(url, json={"expected_version": 2, "category": "모니터", "raw_text": "x"}).status_code == 422
     assert client.post(url, json={"expected_version": 1, "category": "케이스", "raw_text": "x"}).status_code == 409     # 버전이 지났다
+
+
+def test_an_uncertain_reading_is_never_confirmed_and_the_quote_total_is_kept(client, monkeypatch):
+    """흐린 글자로 읽은 이름은 카탈로그 제품으로 확정하지 않고(제품 확인 필요), 사진에 적힌 총액은 그 견적(source)에 남는다."""
+    class Found(list):
+        quote_total = 2_280_000
+    monkeypatch.setattr(spec_extraction_agent, "available", lambda: True)
+    monkeypatch.setattr(spec_extraction_agent, "extract_items_from_image", lambda _url: Found([
+        {"category": "CPU", "raw_text": "AMD Ryzen 5 7500F"},
+        {"category": "CPU", "raw_text": "AMD Ryzen 5 7500F", "uncertain": True}]))
+    body = _upload(client, ["x"]).json()
+    cpu = _items(body, "CPU")
+    assert body["sources"][0]["quote_total"] == 2_280_000
+    assert any(i["match_status"] != "confirmed" and i.get("uncertain") for i in cpu)
+
+
+def test_two_full_builds_are_hinted_as_separate_quotes_and_one_split_quote_as_single(client, monkeypatch):
+    """부품군이 5개 이상 보이는 사진이 둘 이상이면 서로 다른 견적(separate), 한 견적을 나눠 찍은 것 같으면 single 이 기본 선택이다."""
+    full = lambda tag: [{"category": c, "raw_text": f"{c} {tag}"} for c in ("CPU", "GPU", "RAM", "메인보드", "저장장치", "파워")]    # noqa: E731
+    _fake_extraction(monkeypatch, {"a": full("A"), "b": full("B")})
+    assert _upload(client, ["a", "b"]).json()["source_mode_hint"] == "separate"
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "R5 7500F"}, {"category": "GPU", "raw_text": "RTX 4060"}],
+                                   "b": [{"category": "RAM", "raw_text": "DDR5 16GB"}, {"category": "파워", "raw_text": "600W"}]})
+    assert _upload(client, ["a", "b"]).json()["source_mode_hint"] == "single"
+
+
+def test_accessory_lines_are_left_out_of_the_analysis_and_reported_on_their_source(client, monkeypatch):
+    """튜닝 킷·케이블 같은 줄은 부품군으로 억지 분류하지 않고 분석에서 빼며, 어떤 줄을 뺐는지 그 사진(source)에 남긴다."""
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "AMD Ryzen 5 7500F"},
+                                         {"category": "RAM", "raw_text": "램 튜닝 킷 (방열판)"},
+                                         {"category": "기타", "raw_text": "알 수 없는 액세서리"}]})
+    body = _upload(client, ["a"]).json()
+    assert [i["category"] for i in body["items"]] == ["CPU"]
+    assert body["sources"][0]["ignored_lines"] == ["램 튜닝 킷 (방열판)", "알 수 없는 액세서리"]
+
+
+def test_a_low_quality_photo_gets_a_warning_and_nothing_from_it_is_confirmed(client, monkeypatch):
+    """작거나 흐린 사진은 안내를 붙이고, 그 사진에서 읽은 부품은 카탈로그로 확정하지 않는다(분석은 한다)."""
+    from src.engine import image_prep
+    monkeypatch.setattr(image_prep, "assess_quality", lambda data: {"low": True, "reason": "blurry", "width": 1000, "blur": 300.0})
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "AMD Ryzen 5 7500F"}]})
+    body = _upload(client, ["a"]).json()
+    assert "흐려" in body["sources"][0]["quality_warning"]
+    assert all(i["match_status"] != "confirmed" for i in body["items"]) and body["items"][0]["uncertain"] is True
+
+
+def test_a_clear_photo_has_no_warning_and_no_ignored_lines(client, monkeypatch):
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "AMD Ryzen 5 7500F"}]})
+    source = _upload(client, ["a"]).json()["sources"][0]
+    assert source["quality_warning"] is None and source["ignored_lines"] == []
+
+
+def test_a_blurry_photo_that_was_read_clearly_keeps_its_warning_but_may_still_be_confirmed(client, monkeypatch):
+    from src.engine import image_prep
+    monkeypatch.setattr(image_prep, "assess_quality", lambda data: {"low": True, "reason": "blurry", "width": 1000, "blur": 300.0})
+    full = [{"category": c, "raw_text": t} for c, t in (("CPU", "AMD Ryzen 5 7500F"), ("GPU", "RTX 4060"), ("RAM", "DDR5 16GB"),
+                                                        ("파워", "600W"), ("케이스", "빈 케이스"))]
+    _fake_extraction(monkeypatch, {"a": full})
+    source = _upload(client, ["a"]).json()["sources"][0]
+    assert "흐려" in source["quality_warning"] and "자동으로 확정하지 않고" not in source["quality_warning"]

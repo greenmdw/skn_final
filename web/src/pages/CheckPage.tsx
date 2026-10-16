@@ -93,6 +93,8 @@ export default function CheckPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   // 비교 창에서 분석 기준을 바꿨지만 아직 다시 분석하지 않은 부품(부품 → 고른 제품 이름). 종합 평가 위에 "다시 분석하기" 띠로 보인다.
   const [staleBasis, setStaleBasis] = useState<Record<string, string>>({})
+  // 마지막 종합 평가가 대상으로 삼은 사진(source) 목록. 서로 다른 견적을 올렸을 때 첫 견적만 분석한 것을 다시 분석할 때 쓴다.
+  const analyzedSourceIds = useRef<string[] | undefined>(undefined)
   // 부품 비교·교체 목록
   const [compareCategory, setCompareCategory] = useState<string | null>(null)
   const [compareData, setCompareData] = useState<QuoteDraftComparison | null>(null)
@@ -111,6 +113,8 @@ export default function CheckPage() {
   const [pickerError, setPickerError] = useState('')
   const [pickedSetupId, setPickedSetupId] = useState<string | null>(null)
   const [comparison, setComparison] = useState<QuoteSavedComparison | null>(null)
+  // 올린 사진이 한 견적의 여러 장인지, 서로 다른 견적인지 — 사용자가 고르기 전에는 서버의 추정(draft.sourceModeHint)을 따른다
+  const [sourceModeChoice, setSourceModeChoice] = useState<{ draftId: string; mode: 'single' | 'separate' } | null>(null)
   const [savedVisible, setSavedVisible] = useState(false)
   const [differenceOnly, setDifferenceOnly] = useState(false)
   const [answers, setAnswers] = useState<ComparisonAnswer[]>([])
@@ -359,15 +363,21 @@ export default function CheckPage() {
   }
 
   // ── 분석 ─────────────────────────────────────────────────────────────────
-  async function runAnalysis(target: QuoteDraft) {
-    const result = await api.quoteDrafts.analyze(target.draftId)
+  async function runAnalysis(target: QuoteDraft, options: { sourceIds?: string[]; autoAsk?: boolean } = {}) {
+    const result = await api.quoteDrafts.analyze(target.draftId, options.sourceIds)
+    analyzedSourceIds.current = options.sourceIds   // 종합 평가에서 다시 분석할 때 같은 견적(사진)만 대상으로 삼는다
     setStaleBasis({})
     setAnalysis(result)
     setShowAnalysis(true)
     setComparison(null); setSavedVisible(false); setAnswers([]); setOpenAnswerIds(new Set())
-    const asked = question.trim() && question.trim() !== (target.question ?? '').trim() ? question.trim() : null
     let history: QuoteDraftChatMessage[] = []
     try { history = await api.quoteDrafts.chatHistory(result.listId) } catch { /* 이력을 못 읽어도 분석 결과는 보여준다 */ }
+    // 채팅창에서 새로 적은 질문이 있으면 그것을, 없으면 업로드할 때 적은 질문(target.question)을 아직 답하지 않았을 때 보낸다.
+    // 이전에는 업로드 때 적은 질문이 "평가 요청"으로 보이기만 하고 답이 없었다("두 견적 중에 고민돼"가 일반 안내만 나왔다).
+    const typed = question.trim() && question.trim() !== (target.question ?? '').trim() ? question.trim() : null
+    const uploadQuestion = (target.question ?? '').trim()
+    const alreadyAsked = uploadQuestion !== '' && history.some(message => message.role === 'user' && message.text.trim() === uploadQuestion)
+    const asked = typed ?? (uploadQuestion && !alreadyAsked ? uploadQuestion : null)
     const general: ChatEntry[] = history
       .filter(message => !message.comparisonId && message.role !== 'system')
       .map(message => ({ id: `h-${message.id}`, kind: message.role === 'user' ? 'user' : 'bot', text: message.text } as ChatEntry))
@@ -378,7 +388,31 @@ export default function CheckPage() {
       ...general,
     ])
     scrollTo('ck-analysis')
-    if (asked) void sendChat(asked, result)
+    if (asked && options.autoAsk !== false) void sendChat(asked, result)
+    return result
+  }
+
+  // 서로 다른 두 견적을 올렸을 때 — 첫 견적을 분석해 채팅 세션을 열고, 두 견적을 기준별로 비교한 뒤 질문(있으면)을 그 비교로 묻는다.
+  async function compareDraftQuotes() {
+    if (!draft) return
+    const ids = draft.sources.filter(source => source.type === 'image' && source.status === 'completed').map(source => source.id)
+    if (ids.length < 2) return
+    setBusy('analyze'); setError('')
+    try {
+      const saved = await persist()
+      if (!saved) return
+      const result = await runAnalysis(saved, { sourceIds: [ids[0]], autoAsk: false })
+      const compared = await api.quoteDrafts.compareQuotes(saved.draftId, [ids[0]], ids.slice(1))
+      rememberCheckComparison(result.listId, compared.comparisonId)
+      setComparison(compared); setSavedVisible(true); setDifferenceOnly(false)
+      setAnswers([]); setOpenAnswerIds(new Set())
+      scrollTo('ck-saved-comparison')
+      const asked = (saved.question ?? '').trim() || question.trim()
+      if (asked) void sendChat(asked, result, compared.comparisonId)
+      showToast('두 견적을 기준별로 비교했어요.')
+    } catch (caught) {
+      setError(errorMessage(caught, '두 견적을 비교하지 못했습니다.'))
+    } finally { setBusy(null) }
   }
 
   async function analyze() {
@@ -401,7 +435,7 @@ export default function CheckPage() {
     try {
       const saved = await persist()
       if (!saved) return
-      await runAnalysis(saved)
+      await runAnalysis(saved, { sourceIds: analyzedSourceIds.current })
       showToast('고른 제품 기준으로 종합 평가를 다시 계산했어요.')
     } catch (caught) {
       setError(errorMessage(caught, '견적을 다시 분석하지 못했습니다.'))
@@ -502,7 +536,7 @@ export default function CheckPage() {
       setSelection(effectiveSelection(next, {}))
       setCart({}); setCartPreview(null)
       showToast(`${entries.length}개 부품을 한 번에 바꾸고 합계를 다시 계산했어요.`)
-      if (showAnalysis) await runAnalysis(next)
+      if (showAnalysis) await runAnalysis(next, { sourceIds: analyzedSourceIds.current })
     } catch (caught) {
       setError(errorMessage(caught, '교체 후보를 반영하지 못했습니다.'))
     } finally { setBusy(null) }
@@ -543,7 +577,7 @@ export default function CheckPage() {
   }
 
   // ── 대화 ─────────────────────────────────────────────────────────────────
-  async function sendChat(textValue: string, target: QuoteDraftAnalysis | null = analysis) {
+  async function sendChat(textValue: string, target: QuoteDraftAnalysis | null = analysis, comparisonOverride?: string) {
     if (!target) {
       setQuestion(previous => (previous.trim() ? `${previous.trim()} ${textValue}` : textValue))
       setChatEntries(previous => [...previous, { id: nextId('u'), kind: 'user', text: textValue }])
@@ -551,7 +585,7 @@ export default function CheckPage() {
       return
     }
     const clientId = newClientId()
-    const comparisonId = target === analysis ? comparison?.comparisonId : undefined
+    const comparisonId = comparisonOverride ?? (target === analysis ? comparison?.comparisonId : undefined)
     const placeholderId = `pending-${clientId}`
     setChatEntries(previous => [...previous, { id: `u-${clientId}`, kind: 'user', text: textValue }])
     if (comparisonId) {
@@ -710,6 +744,24 @@ export default function CheckPage() {
             {error && <div className="pl-alert bad" role="alert">{error}</div>}
             {restoring && <div className="ck-loading"><div className="pl-spin" /><b>지난 견적 점검을 불러오는 중이에요</b><span>저장된 제품·분석 결과를 다시 읽고 있어요.</span></div>}
             {busy === 'analyze' && <div className="ck-loading"><div className="pl-spin" /><b>호환성·가격·밸런스를 분석하고 있어요</b><span>실제 카탈로그 응답을 기다리는 중입니다.</span></div>}
+
+            {draft && !analysis && draft.sources.filter(source => source.type === 'image' && source.status === 'completed').length >= 2 && (() => {
+              const mode = sourceModeChoice?.draftId === draft.draftId ? sourceModeChoice.mode : draft.sourceModeHint
+              const pick = (value: 'single' | 'separate') => setSourceModeChoice({ draftId: draft.draftId, mode: value })
+              return (
+                <div className="ck-card ck-source-mode" role="group" aria-label="올린 사진의 관계">
+                  <b>올린 사진은 어떤 견적인가요?</b>
+                  <label><input type="radio" name="ck-source-mode" checked={mode === 'single'} onChange={() => pick('single')} /> 한 견적을 나눠 찍은 여러 장</label>
+                  <label><input type="radio" name="ck-source-mode" checked={mode === 'separate'} onChange={() => pick('separate')} /> 서로 다른 견적 (비교하고 싶어요)</label>
+                  {mode === 'separate' && (
+                    <button type="button" className="pl-btn" disabled={busy !== null} onClick={() => void compareDraftQuotes()}>견적 비교하기</button>
+                  )}
+                  <small>{mode === 'separate'
+                    ? '견적마다 호환·용도 충족·성능 등급·총액을 기준별로 나란히 보여 드려요. 어느 쪽이 더 낫다고 단정하지는 않아요.'
+                    : '여러 장의 중복 부품은 합치고 한 견적으로 분석해요. 아래에서 부품을 확인하고 분석하세요.'}</small>
+                </div>
+              )
+            })()}
 
             {draft && (
               <RecognitionResult

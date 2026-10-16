@@ -112,10 +112,13 @@ def test_a_part_the_catalog_does_not_have_is_not_compared():
     assert rows["CPU"]["state"] == "no_catalog" and rows["CPU"]["catalog"] is None and "찾지 못해" in rows["CPU"]["detail"]
 
 
-def test_only_a_confirmed_same_product_is_compared_not_the_nearest_one():
-    """"5800X3D"처럼 짧게 적어 '가장 비슷한 제품'으로만 잡힌 부품은 같은 제품이 확인되지 않아 가격을 비교하지 않는다."""
+def test_a_shortened_name_confirmed_by_its_model_number_is_compared_and_a_wrong_model_is_not():
+    """"5800X3D"처럼 제조사·시리즈를 줄여 써도 모델 번호가 카탈로그에서 유일하면 같은 제품으로 확정해 가격을 비교한다.
+    모델이 다르면("5800") 확정하지 않아 비교하지 않는다."""
     rows = rows_by_part({"CPU": "5800X3D 290,000원"})
-    assert rows["CPU"]["state"] == "no_catalog" and "확인되지 않아" in rows["CPU"]["detail"]
+    assert rows["CPU"]["state"] != "no_catalog" and rows["CPU"]["catalog"] is not None
+    rows = rows_by_part({"CPU": "5800 290,000원"})
+    assert rows["CPU"]["state"] == "no_catalog"
 
 
 def test_the_capacity_written_in_the_text_picks_the_catalog_price():
@@ -181,3 +184,18 @@ def test_a_kit_written_as_two_sticks_is_compared_against_two_catalog_sticks():
 def test_a_single_stick_is_compared_as_it_is():
     rows = rows_by_part({"RAM": "삼성전자 DDR5-5600 16GB 62,000원"})
     assert rows["RAM"]["quantity"] == 1 and rows["RAM"]["catalog"] == 60_000 and "개 기준" not in rows["RAM"]["detail"]
+
+
+def test_only_the_quote_total_is_reported_when_no_part_has_a_price():
+    """부품별 가격이 없고 총액만 읽혔으면 부품별 비교는 하지 않고 총액과 카탈로그로 확인된 부품의 합계를 알린다."""
+    prices = qrs.analyze({"CPU": "라이젠 7 7800X3D", "GPU": "RTX 4060 Ti", "RAM": "DDR5 32GB"}, by_slot=POOL, quote_total=1_000_000)["prices"]
+    assert prices["available"] is False and prices["rows"] == []
+    note = prices["quote_total"]
+    assert note["quote_total"] == 1_000_000 and note["parts"] == 3 and note["catalog_parts"] == 2
+    assert note["catalog_total"] == 390_000 + 500_000
+    assert "견적 총액 1,000,000원" in prices["reason"] and "합계에 빠졌으니" in prices["reason"]
+
+
+def test_without_a_quote_total_the_old_no_price_message_is_unchanged():
+    prices = qrs.analyze({"CPU": "라이젠 7 7800X3D"}, by_slot=POOL)["prices"]
+    assert "가격이 적혀 있지 않아" in prices["reason"] and "quote_total" not in prices

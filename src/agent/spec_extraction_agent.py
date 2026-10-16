@@ -120,15 +120,23 @@ def extract_from_image(image_data_url: str) -> dict[str, str]:
 
 # ── 여러 제품 보존(받은 견적 점검 — 여러 장 업로드) ──────────────────────────────────────────────
 class _ImageItem(BaseModel):
-    category: Literal["cpu", "gpu", "ram", "motherboard", "storage", "psu", "case", "cooler"]
+    category: Literal["cpu", "gpu", "ram", "motherboard", "storage", "psu", "case", "cooler", "other"]   # other = 튜닝·액세서리·케이블 등 메인 부품이 아닌 것
     raw_text: str
+    uncertain: bool = False        # 글자가 흐리거나 확신이 없어 읽은 이름이 틀렸을 수 있다 — 호출자가 카탈로그 확정을 하지 않는다
 
 
 class _SpecExtractionItems(BaseModel):
     items: list[_ImageItem] = Field(default_factory=list)
+    quote_total: int | None = None  # 견적에 적힌 합계(총액) 금액(원). 안 보이면 null — 항목 가격이 아니다
 
 
-_ITEM_SLOT_MAP = {**_IMAGE_SLOT_MAP, "case": "케이스"}
+class ExtractedItems(list):
+    """이미지에서 읽은 항목 목록(그냥 list 처럼 쓴다) + 견적 총액. 총액은 `.quote_total` 로만 읽는다(없으면 None)."""
+
+    quote_total: int | None = None
+
+
+_ITEM_SLOT_MAP = {**_IMAGE_SLOT_MAP, "case": "케이스", "other": "기타"}
 
 
 # 여러 제품 보존용 텍스트 추출은 슬롯당 하나로 줄이는 extract 보다 긴 입력을 받는다(제품이 여럿이라 줄 수가 많다).
@@ -141,8 +149,18 @@ def extract_items(text: str) -> list[dict[str, str]]:
     raw = call_llm(text[:_MAX_ITEMS_INPUT_CHARS], system=SPEC_EXTRACTION_ITEMS_TEXT_SYSTEM,
                    output_schema=_SpecExtractionItems.model_json_schema())
     parsed = _SpecExtractionItems.model_validate(raw)
-    return [{"category": _ITEM_SLOT_MAP[i.category], "raw_text": i.raw_text.strip()}
-            for i in parsed.items if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text)]
+    return [_item_dict(i) for i in parsed.items if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text)]
+
+
+def _item_dict(item: _ImageItem) -> dict:
+    out = {"category": _ITEM_SLOT_MAP[item.category], "raw_text": item.raw_text.strip()}
+    if item.uncertain:             # 불확실한 것만 표시한다 — 나머지 항목의 모양은 그대로
+        out["uncertain"] = True
+    return out
+
+
+# 견적 합계로 믿을 수 있는 범위 — 글자 오독으로 터무니없는 값이 총액이 되지 않게 한다(조립 PC 한 대 기준).
+_QUOTE_TOTAL_MIN, _QUOTE_TOTAL_MAX = 100_000, 100_000_000
 
 
 def extract_items_from_image(image_data_url: str) -> list[dict[str, str]]:
@@ -155,5 +173,40 @@ def extract_items_from_image(image_data_url: str) -> list[dict[str, str]]:
     if isinstance(raw, dict) and "items" not in raw and isinstance(raw.get("properties"), dict):
         raw = raw["properties"]
     parsed = _SpecExtractionItems.model_validate(raw)
-    return [{"category": _ITEM_SLOT_MAP[i.category], "raw_text": i.raw_text.strip()}
-            for i in parsed.items if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text)]
+    found = ExtractedItems(_item_dict(i) for i in parsed.items
+                           if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text))
+    if parsed.quote_total and _QUOTE_TOTAL_MIN <= parsed.quote_total <= _QUOTE_TOTAL_MAX:
+        found.quote_total = int(parsed.quote_total)
+    if any(i.get("uncertain") for i in found):
+        _reread_uncertain(image_data_url, found)
+    return found
+
+
+_REREAD_MIN_SIMILARITY = 0.5     # 다시 읽은 줄이 원래 줄과 이 정도는 닮아야 같은 줄로 본다
+
+
+def _reread_uncertain(image_data_url: str, found: "ExtractedItems") -> None:
+    """글자가 불확실하다고 표시된 줄만 한 번 더 읽는다(그 사진에서만 비전 호출 1회 추가). 다시 읽은 결과가 또렷하면(uncertain 아님)
+    그 줄을 바꾸고, 여전히 불확실하거나 같은 줄을 못 찾으면 원래 읽은 값과 uncertain 표시를 그대로 둔다. 실패해도 첫 판독을 쓴다."""
+    from difflib import SequenceMatcher
+
+    doubtful = [i for i in found if i.get("uncertain")]
+    listing = "\n".join(f"- ({i['category']}) {i['raw_text']}" for i in doubtful)
+    system = (SPEC_EXTRACTION_ITEMS_IMAGE_SYSTEM + "\n\n[다시 읽기] 아래 줄은 첫 판독에서 글자가 불확실했습니다. 이미지에서 같은 줄을 찾아 "
+              "글자를 한 글자씩 천천히 다시 읽고, 이 줄들만 items에 담아 답합니다(다른 줄·quote_total 은 null/빈 값). "
+              "그래도 확신이 없으면 uncertain 을 true 로 둡니다.\n" + listing)
+    try:
+        raw = call_llm_vision(image_data_url, system=system, output_schema=_SpecExtractionItems.model_json_schema(),
+                              model=SPEC_EXTRACTION_IMAGE_MODEL, temperature=0)
+        if isinstance(raw, dict) and "items" not in raw and isinstance(raw.get("properties"), dict):
+            raw = raw["properties"]
+        again = [_item_dict(i) for i in _SpecExtractionItems.model_validate(raw).items
+                 if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text)]
+    except Exception:  # noqa: BLE001 — 재독 실패는 첫 판독으로 간다
+        return
+    for old in doubtful:
+        best = max((a for a in again if a["category"] == old["category"] and not a.get("uncertain")),
+                   key=lambda a: SequenceMatcher(None, a["raw_text"].casefold(), old["raw_text"].casefold()).ratio(), default=None)
+        if best is not None and SequenceMatcher(None, best["raw_text"].casefold(), old["raw_text"].casefold()).ratio() >= _REREAD_MIN_SIMILARITY:
+            old["raw_text"] = best["raw_text"]
+            old.pop("uncertain", None)

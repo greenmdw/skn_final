@@ -119,12 +119,17 @@ export interface WireQuoteDraftItem {
   image_url: string | null
   match_status: 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'
   candidate_count: number | null; source_ids: string[]; selected_for_analysis: boolean; user_edited: boolean
+  uncertain?: boolean
   /** 실시간 검색 값이 임시 저장소에 있다(저장되지 않는 표시) */
   live_value?: boolean
+  /** 'model' = 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾아 확정했다 */
+  match_via?: 'model' | null
 }
 export interface WireQuoteDraft {
   draft_id: string; version: number
-  sources: { id: string; type: 'image' | 'text' | 'replacement' | 'manual'; file_name: string | null; sort_order: number; status: 'completed' | 'failed'; error_code: string | null }[]
+  /** 올린 사진이 서로 다른 견적처럼 보이는지(separate) 한 견적의 여러 장처럼 보이는지(single) — 화면의 기본 선택 */
+  source_mode_hint?: 'single' | 'separate'
+  sources: { id: string; type: 'image' | 'text' | 'replacement' | 'manual'; file_name: string | null; sort_order: number; status: 'completed' | 'failed'; error_code: string | null; quality_warning?: string | null; ignored_lines?: string[] }[]
   items: WireQuoteDraftItem[]
   selected_item_by_category: Record<string, string>
   conditions: Record<string, unknown>
@@ -179,6 +184,9 @@ export interface WireQuoteSavedComparison {
   brief_summary: { changed_count: number; largest_price_difference_category: string | null; text: string }
   saved: Record<string, unknown>
   labels: Record<string, string>
+  kind?: string | null
+  /** 서로 다른 두 견적을 비교할 때 기준별 값 — 종합 우열은 없다 */
+  criteria?: { key: string; label: string; a_text: string; b_text: string; better: 'a' | 'b' | 'tie' | null; higher_is_better: boolean; info?: boolean }[] | null
   computed_at: string
 }
 export interface WireQuoteGuideRef { id: string; slot: string; kind: 'care' | 'install'; text: string; score: number | null }
