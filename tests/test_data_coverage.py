@@ -176,9 +176,6 @@ def test_a_large_unused_budget_is_explained_to_the_user(recommendation_grid):
     assert silent == {}, f"예산이 절반 넘게 남는데 안내가 없는 조합(총액/예산): {silent}"
 
 
-@pytest.mark.xfail(reason="관찰된 이상(2026-10-07): 게임·성능 우선에서 예산 300만→500만원인데 총액이 2,187,280→2,032,610원으로 줄었다. "
-                          "요구 성능을 채운 뒤 남는 예산을 쓰지 않는 설계(budget_notice)인지, 예산 배분의 결함인지 확인이 필요하다.",
-                   strict=False)
 def test_a_bigger_budget_never_gets_a_cheaper_performance_build(recommendation_grid):
     """성능 우선인데 예산을 더 줬더니 더 싼(=더 약한) 구성이 나오면 예산 배분이 이상한 것이다(허용 오차 5%)."""
     for purpose in PURPOSES:

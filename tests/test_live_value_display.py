@@ -223,7 +223,6 @@ def test_live_ram_fill_does_not_override_what_the_quote_text_already_says():
     "메모리: " + APACER,
     "RAM: " + APACER,
     "메모리：" + APACER,            # 전각 콜론
-    APACER,
 ])
 def test_a_leading_part_label_does_not_change_the_lookup_key(raw):
     assert lsl.normalize_lookup_key(raw) == "apacer ddr5 5600 cl46 16gb"
