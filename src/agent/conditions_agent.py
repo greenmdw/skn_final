@@ -131,6 +131,17 @@ class ConditionDraft:
                 value = _coerce(meta, raw)
             except ValueError as exc:
                 return self._record(call, f"오류: {key} — {exc}")
+        moved = ""
+        if key == "games" and isinstance(value, list):
+            # "프리미어 프로랑 애프터이펙트 써요"가 games 에 들어가 화면에 '하는 게임'으로 보였다(10/15 QA #66, 측정 3판 중 1판).
+            # 프로그램 칸이 없으니 extra 로 옮긴다 — 추천 엔진은 extra 를 읽지 않는다는 안내까지 add_extra 가 붙인다.
+            programs = [g for g in value if is_work_program(g)]
+            if programs:
+                value = [g for g in value if not is_work_program(g)]
+                moved = self.add_extra("사용 프로그램: " + ", ".join(map(str, programs)))
+                if not value:
+                    return self._record(call, f"오류: {', '.join(map(str, programs))} 은(는) 게임이 아니라 작업 프로그램이라 games 에 넣지 않았다. "
+                                              + moved)
         q = self.question(key)
         if meta.get("type") == "list" and q and q.get("none_option"):
             # 목록형 "없음" 은 ["none"] 하나로 — 규칙 경로(slot_rules)·칩 선택(handle_answer)과 같은 표현
@@ -138,7 +149,7 @@ class ConditionDraft:
                 value = ["none"]
         self.patches[key] = value
         shown = json.dumps(value, ensure_ascii=False)
-        return self._record(call, f"{key} = {shown} 반영{note}" + self._status())
+        return self._record(call, f"{key} = {shown} 반영{note}" + (f" · 작업 프로그램은 games 에서 뺐다 — {moved}" if moved else self._status()))
 
     def clear(self, key: str) -> str:
         call = f"clear_condition({key!r})"
@@ -276,6 +287,26 @@ def is_search_confirmation(last_reply: str | None, text: str) -> bool:
 
 # 부품 이름과 바꾸라는 말이 한 문장 안에 가까이 — "쿨러 바꿔줘"·"그래픽카드 더 좋은 걸로 바꿔줘"·"램 교체".
 # 조건 대화에는 아직 견적이 없어서 이건 조건이 아니다(프롬프트 규칙 10). "예산 바꿔줘"·"용도 변경" 은 부품이 아니라 해당 없음.
+# 게임이 아닌 작업 프로그램·벤치마크 — games 칸에 들어오면 extra 로 옮긴다(QA #66). 사용자 말을 가르는 데 쓰지 않고
+# 모델이 games 에 넣은 값만 본다. 목록에 없는 프로그램은 프롬프트 규칙 2가 맡는다.
+_WORK_PROGRAMS = (
+    "프리미어", "premiere", "애프터이펙트", "애프터 이펙트", "aftereffects", "after effects", "포토샵", "photoshop",
+    "일러스트레이터", "illustrator", "라이트룸", "lightroom", "다빈치", "davinci", "리졸브", "resolve", "파이널컷", "finalcut",
+    "베가스", "vegas", "블렌더", "blender", "마야", "maya", "3ds max", "3dsmax", "시네마4d", "cinema 4d", "cinema4d",
+    "지브러시", "zbrush", "서브스턴스", "substance", "오토캐드", "autocad", "캐드", "cad", "스케치업", "sketchup",
+    "솔리드웍스", "solidworks", "레빗", "revit", "라이노", "rhino", "언리얼", "unreal", "유니티", "unity",
+    "obs", "프리즘", "prism", "엑스스플릿", "xsplit", "3dmark", "3d마크", "시네벤치", "cinebench", "긱벤치", "geekbench",
+    "matlab", "매트랩", "파이참", "pycharm", "비주얼 스튜디오", "visual studio", "엑셀", "excel", "캡컷", "capcut",
+)
+_WORK_PROGRAM_KEYS = tuple(dict.fromkeys(p.replace(" ", "") for p in _WORK_PROGRAMS))
+
+
+def is_work_program(name) -> bool:
+    """games 값 하나가 작업 프로그램인가 — 영문 짧은 이름(cad·obs)은 낱말 전체가 같을 때만."""
+    n = str(name).lower().replace(" ", "")
+    return any(n == k or (len(k) > 3 and k in n) for k in _WORK_PROGRAM_KEYS)
+
+
 _PART_SWAP = re.compile(
     r"(?:쿨러|cpu|씨피유|시피유|그래픽\s*카드|글카|gpu|vga|램|ram|메모리|ssd|저장\s*장치|메인\s*보드|보드|파워|psu)"
     r"[^.?!\n]{0,15}?(?:바꿔|바꾸|바꿀|교체|변경|업그레이드)", re.IGNORECASE)
@@ -495,7 +526,10 @@ def system_prompt(
         "규칙:",
         "1. 사용자가 말하지 않은 값을 추측해서 넣지 않습니다. 애매하면 되묻습니다. 도구가 '오류:' 를 돌려주면 값을 고쳐 다시 부릅니다.",
         "2. 필드에 맞는 값(예: 게임 제목 → games, 해상도 → resolution)은 add_extra_condition 이 아니라 그 필드에 넣습니다. "
-        "'게임용'·'게임 위주'·'작업용'·'사무용' 처럼 용도가 드러나면 games 와 별개로 purpose 도 반드시 설정합니다.",
+        "'게임용'·'게임 위주'·'작업용'·'사무용' 처럼 용도가 드러나면 games 와 별개로 purpose 도 반드시 설정합니다. "
+        "쓰는 작업 프로그램(프리미어 프로·블렌더·포토샵·오토캐드·OBS, 3DMark 같은 벤치마크 등)은 게임이 아니고 맞는 필드가 없습니다 — "
+        "games 에 넣지 말고 purpose 와 별개로 add_extra_condition('사용 프로그램: …')으로 반드시 남깁니다. "
+        "도구로 남기지 않은 것을 '기록했다'·'확인했다'고 말하지 않습니다.",
         "3. 답변은 2문장 이내. 반영한 내용을 짧게 확인합니다. " + ask,
         "4. 필수 항목이 모두 채워졌으면 '이 조건으로 추천을 받아볼 수 있다'고 안내하고 추가 조건이 있으면 말해 달라고 합니다.",
         "5. 값을 바꿀 때는 clear_condition 없이 set_condition 에 새 값만 넣습니다. clear 는 '취소'·'빼 주세요' 에만 씁니다.",
