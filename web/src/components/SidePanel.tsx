@@ -5,6 +5,7 @@ import { usePlan } from '../state/PlanContext'
 import { useSetups } from '../state/SetupsContext'
 import { useToast } from '../state/ToastContext'
 import { isCheckSession } from '../utils/checkSessions'
+import { peripheralConversationPath, peripheralConversationState } from '../utils/peripheralSession'
 import { useRemoveSheet } from '../state/useRemoveSheet'
 import { logout, useAuthUser } from '../state/authStore'
 import { compactWon, dateGroup, fullDate, shortDate } from '../utils/format'
@@ -192,6 +193,7 @@ export default function SidePanel() {
   async function openHistory(item: ConversationSummary) {
     // 서버에 저장된 이름도 함께 확인하므로 다른 브라우저에서 만든 점검 대화도 올바른 주소로 연다.
     if (isCheckSession(item.listId) || item.name === '받은 견적 점검') { navigate('/check?draft=' + item.listId); return }
+    if (item.chat === 'peripheral') { navigate(peripheralConversationPath(item.listId), peripheralConversationState(item.listId)); return }
     const confirmed = item.stage === 'report'
     const opened = await openConversation(item.listId, item.stage === 'results' || confirmed, confirmed)
     if (opened === 'plan') navigate('/plan')
@@ -414,7 +416,7 @@ export default function SidePanel() {
                         ) : (
                           <button type="button" className="sp-conv-main" onClick={guard(() => void openHistory(item))}>
                             <span className="sp-name sp-conv-name">{conversationTitle(item)}</span>
-                            <span className="sp-meta">{[STAGE_LABEL[item.stage], fullDate(item.lastActiveAt)].filter(Boolean).join(' · ')}</span>
+                            <span className="sp-meta">{[item.chat === 'peripheral' ? '주변기기' : STAGE_LABEL[item.stage], fullDate(item.lastActiveAt)].filter(Boolean).join(' · ')}</span>
                           </button>
                         )}
                         {item.reports.length > 0 && editingId !== item.listId && (

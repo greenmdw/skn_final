@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import PeripheralResultSection from '../components/PeripheralResultSection'
 import PlannerShell from '../components/PlannerShell'
 import ResizeHandle, { usePanelWidth } from '../components/ResizeHandle'
@@ -11,6 +11,7 @@ import type { SetupPeripheral } from '../state/types'
 import { useToast } from '../state/ToastContext'
 import { wonFmt } from '../utils/format'
 import { Linkified } from '../utils/linkify'
+import { rememberedPeripheralSession, rememberPeripheralSession } from '../utils/peripheralSession'
 import {
   EMPTY_INTERPRETATION, EMPTY_UNDERSTOOD, HAND_SIZE_LABEL, PERIPHERAL_KINDS as KINDS, QUICK_CONDITIONS, SITUATION_LABEL, applyAdjustChip,
   recommendInputs, removeUnderstood, withKinds,
@@ -240,6 +241,9 @@ export default function PeripheralsPage() {
   // 종류 → 1위 대신 고른 다른 선택지의 이름. 없으면 1위를 올린다.
   const [selection, setSelection] = useState<Record<string, string>>({})
   const sessionId = useRef<string | null>(restored?.sessionId ?? null)
+  const location = useLocation()
+  // 사용자가 이 화면에서 무언가 말했는가 — 저장된 대화를 받아 오기 전에 말했으면 받아 온 것으로 덮지 않는다.
+  const spokeHere = useRef(false)
 
   const showResults = result !== null
   const selectedKinds = useMemo(() => KINDS.filter(kind => selected.has(kind.id)).map(kind => kind.id), [selected])
@@ -253,7 +257,53 @@ export default function PeripheralsPage() {
   const activeItem = result?.items.find(item => item.kind === activeKind) ?? result?.items[0] ?? null
   const conditionCount = useMemo(() => Object.values(understood.resolved).reduce((sum, entry) => sum + (entry ? entry.preferences.length + entry.filters.length : 0), 0), [understood])
 
-  const say = (role: ChatMessage['role'], text: string) => setMessages(previous => [...previous, { id: nextMessageId.current++, role, text }])
+  const say = (role: ChatMessage['role'], text: string) => {
+    if (role === 'user') spokeHere.current = true
+    setMessages(previous => [...previous, { id: nextMessageId.current++, role, text }])
+  }
+  const adoptSession = (id: string) => {
+    sessionId.current = id
+    rememberPeripheralSession(id)
+  }
+
+  // 저장된 대화를 되살린다(QA 10/15 #19·#30·#47) — 대화 내역에서 연 대화(?session=), 견적 수정하기로 연 견적, 아니면 이 브라우저에서
+  // 마지막으로 쓰던 대화. "새 대화"로 들어왔으면 이어 가지 않는다. 마지막에 추천을 받은 상태였으면 같은 조건으로 추천을 다시 받는다
+  // (결과는 저장하지 않는다 — 가격이 바뀐다). 견적 수정하기는 확정한 구성을 보여 주므로 대화와 조건만 되살린다.
+  const resumeStarted = useRef(false)
+  useEffect(() => {
+    if (resumeStarted.current) return
+    resumeStarted.current = true
+    const fromPanel = new URLSearchParams(location.search).get('session')
+    const startedNew = !fromPanel && Boolean((location.state as { newConversationKey?: string } | null)?.newConversationKey)
+    if (startedNew) {
+      // "새 대화" 표시는 브라우저 기록에 남아 새로고침해도 그대로다 — 지우지 않으면 새로고침마다 방금 시작한 대화를 버린다.
+      rememberPeripheralSession(null)
+      navigate(location.pathname, { replace: true, state: { ...(location.state as object), newConversationKey: undefined } })
+      return
+    }
+    const remembered = rememberedPeripheralSession()
+    const id = fromPanel ?? restored?.sessionId ?? remembered
+    if (!id) return
+    api.peripherals.history(id).then(history => {
+      if (spokeHere.current || sessionId.current && sessionId.current !== id) return
+      adoptSession(id)
+      if (!history.messages.length) return
+      setMessages([{ id: 1, role: 'assistant', text: GREETING },
+        ...history.messages.map(message => ({ id: nextMessageId.current++, role: message.role, text: message.text }))])
+      spokenNotices.current = history.notices.join('\n')
+      if (!history.interpretation.kinds.length) return
+      const next: UnderstoodState = { interpretation: history.interpretation, resolved: history.resolved, adjusted: [] }
+      setUnderstood(next)
+      setSelected(new Set(history.interpretation.kinds))
+      setKindsTouched(true)
+      if (history.showingResults && !restored) void requestRecommendation(next)
+    }).catch(() => {
+      // 내 것이 아니거나 지운 대화 — 새 대화로 시작한다. 이 브라우저가 기억하던 것이면 잊는다.
+      if (id === remembered) rememberPeripheralSession(null)
+    })
+    // 처음 그릴 때 한 번만 — 이후 바뀌는 값은 쓰지 않는다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function toggle(kind: PeripheralKind) {
     const next = new Set(selected)
@@ -273,7 +323,7 @@ export default function PeripheralsPage() {
     const base = kindsTouched ? selectedKinds : []
     const kinds = chosen ?? (hintKind ? [...new Set([...base, hintKind])] : (base.length ? base : undefined))
     const out = await api.peripherals.chat({ text, previous, kinds, sessionId: sessionId.current, pcListId: plan?.id })
-    sessionId.current = out.sessionId
+    adoptSession(out.sessionId)
     if (out.turn.resultChips.length) resultChips.current = out.turn.resultChips
     setQuestionChips(showResults ? resultChips.current : out.turn.chips)
     if (out.needsKind && !chosen && !hintKind) return { reply: out.turn.answer?.text ?? '', needsKind: true }
@@ -313,7 +363,7 @@ export default function PeripheralsPage() {
         pcListId: plan?.id,
         ...recommendInputs(next.interpretation),
       }, sessionId.current)
-      sessionId.current = out.sessionId
+      adoptSession(out.sessionId)
       setResult(out)
       setSelection({})
       setPickedKinds(new Set(out.items.map(item => item.kind)))

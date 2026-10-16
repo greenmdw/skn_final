@@ -281,6 +281,7 @@ export interface WireListSummary {
   name: string
   category: string | null
   stage: 'category' | 'conditions' | 'results' | 'report'
+  chat?: 'computer' | 'peripheral'
   updated_at: string
   last_active_at: string | null
   first_message: string | null
@@ -459,6 +460,14 @@ export interface WirePeripheralInterpret {
   source: 'llm' | 'rules'
   truncated?: boolean
 }
+export interface WirePeripheralHistory {
+  messages: { role: 'user' | 'assistant'; text: string; at: string }[]
+  interpretation: WirePeripheralInterpretation
+  resolved: WirePeripheralInterpret['resolved']
+  showing_results: boolean
+  notices: string[]
+}
+
 export interface WirePeripheralChat extends WirePeripheralInterpret {
   turn: {
     new_conditions: { kind: string; label: string }[]
