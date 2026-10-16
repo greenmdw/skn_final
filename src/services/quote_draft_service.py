@@ -22,7 +22,7 @@ from uuid import UUID
 from src.agent import spec_extraction_agent
 from src.auth.deps import Principal
 from src.config import QUOTE_DRAFT_MAX_FILES, QUOTE_DRAFT_MAX_FILE_BYTES, QUOTE_DRAFT_MAX_TOTAL_BYTES
-from src.engine import image_prep
+from src.engine import image_prep, match_reason
 from src.engine.owned_parts import preview_current_specs, resolve_owned_parts
 from src.engine.quote_items import default_selection, is_non_part_line, is_placeholder_line, merge_same_products, spec_text, split_line
 from src.engine.spec_text import parse_spec_lines
@@ -160,16 +160,25 @@ def _match(category: str, text: str, by_slot: dict) -> dict[str, Any]:
             "match_via": row.get("match_via")}
 
 
-def _make_item(category: str, raw_text: str, source_id: str, by_slot: dict, uncertain: bool = False) -> dict[str, Any]:
+def _set_reason(item: dict[str, Any], by_slot: dict, *, uncertain: bool = False, low_quality: bool = False) -> None:
+    """항목이 왜 확정되지 않았는지(화면의 "제품 확인 필요" 이유). 확정이면 None."""
+    item["match_reason"] = match_reason.explain(
+        item["category"], spec_text(item), by_slot.get(item["category"], []), status=item["match_status"],
+        matched_name=item.get("matched_name"), candidate_count=item.get("candidate_count"), uncertain=uncertain, low_quality=low_quality)
+
+
+def _make_item(category: str, raw_text: str, source_id: str, by_slot: dict, uncertain: bool = False,
+               low_quality: bool = False) -> dict[str, Any]:
     parts = split_line(raw_text)
     item = {"id": str(uuid.uuid4()), "category": category, "raw_text": raw_text, **parts,
             "image_url": None, "source_ids": [source_id], "selected_for_analysis": False, "user_edited": False}
     item.update(_match(category, spec_text(item), by_slot))
-    if uncertain:
+    if uncertain or low_quality:
         # 글자가 흐려 읽은 이름이 틀렸을 수 있다 — 카탈로그 제품으로 확정하지 않고 "제품 확인 필요"로 둔다(찾은 제품 이름은 힌트로 남긴다).
         item["uncertain"] = True
         if item["match_status"] == "confirmed":
             item.update(match_status="candidate", matched_product_id=None, matched_product_key=None, match_via=None)
+    _set_reason(item, by_slot, uncertain=uncertain, low_quality=low_quality)
     return item
 
 
@@ -219,7 +228,7 @@ def recognize(files: list[tuple[str, str | None, bytes]], text: str | None, by_s
                 sources[index].setdefault("ignored_lines", []).append(entry["raw_text"])
                 continue
             items.append(_make_item(entry["category"], entry["raw_text"], sources[index]["id"], by_slot,
-                                    bool(entry.get("uncertain")) or low_quality))
+                                    uncertain=bool(entry.get("uncertain")), low_quality=low_quality))
     if text and text.strip():
         sources.append({"id": "source-text", "type": "text", "file_name": None, "sort_order": len(sources) + 1,
                         "status": "completed", "error_code": None})
@@ -404,6 +413,8 @@ def patch_items(conn, list_id: UUID, principal: Principal, expected_version: int
         if renamed:
             by_slot = by_slot or load_pc_catalog(lambda _msg: None)
             item.update(_match(item["category"], spec_text(item), by_slot))
+            item.pop("uncertain", None)                     # 사용자가 이름을 고쳤으면 사진 글자 불확실은 더는 해당 없다
+            _set_reason(item, by_slot)
             _attach_image_urls(conn, [item])
     if deleted:
         draft["items"] = [i for i in draft["items"] if i["id"] not in deleted]

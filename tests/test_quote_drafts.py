@@ -502,3 +502,26 @@ def test_a_blurry_photo_that_was_read_clearly_keeps_its_warning_but_may_still_be
     _fake_extraction(monkeypatch, {"a": full})
     source = _upload(client, ["a"]).json()["sources"][0]
     assert "흐려" in source["quality_warning"] and "자동으로 확정하지 않고" not in source["quality_warning"]
+
+
+def test_each_item_carries_the_reason_it_was_not_confirmed(client, monkeypatch):
+    """확정된 항목은 이유가 없고, 카탈로그에 없는 항목은 not_in_catalog 로 이유가 붙는다. 사용자가 이름을 고치면 이유도 다시 계산한다."""
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "Intel Core i5-14600K"},
+                                         {"category": "케이스", "raw_text": "1stPlayer Mi5 WING"}]})
+    body = _upload(client, ["a"]).json()
+    cpu, case = _items(body, "CPU")[0], _items(body, "케이스")[0]
+    assert cpu["match_status"] == "confirmed" and cpu["match_reason"] is None
+    assert case["match_reason"]["code"] == "not_in_catalog" and "같은 모델이 없어요" in case["match_reason"]["message"]
+    url = f"/pc/review-drafts/{body['draft_id']}/items"
+    fixed = client.patch(url, json={"expected_version": body["version"], "items": [{"id": case["id"], "normalized_name": "NZXT H5 Flow"}]}).json()
+    fixed_case = _items(fixed, "케이스")[0]
+    assert fixed_case["match_status"] == "confirmed" and fixed_case["match_reason"] is None
+
+
+def test_a_photo_flagged_as_low_quality_gets_the_low_quality_reason(client, monkeypatch):
+    from src.engine import image_prep
+    monkeypatch.setattr(image_prep, "assess_quality", lambda data: {"low": True, "reason": "blurry", "width": 1000, "blur": 300.0})
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "Intel Core i5-14600K"}]})
+    item = _items(_upload(client, ["a"]).json(), "CPU")[0]
+    assert item["match_status"] == "candidate" and item["match_reason"]["code"] == "low_quality_photo"
+    assert item["match_reason"]["candidates"][0]["name"] == "Intel Core i5-14600K"

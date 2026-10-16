@@ -431,6 +431,14 @@ class QuoteDraftSourceOut(BaseModel):
     ignored_lines: list[str] = Field(default_factory=list)   # 튜닝·액세서리처럼 메인 부품이 아니라 분석에서 뺀 줄
 
 
+class MatchReasonOut(BaseModel):
+    """항목이 카탈로그 제품으로 확정되지 않은 이유(확정이면 항목의 match_reason 이 null) — 코드 의미는 src/engine/match_reason.py."""
+    code: Literal["not_in_catalog", "variant_mismatch", "ambiguous", "insufficient_info", "uncertain_reading", "low_quality_photo"]
+    message: str
+    nearest: dict[str, Any] | None = None                # 가장 가까운 제품과 연결하지 않은 이유(name, why_not, key_specs)
+    candidates: list[dict[str, Any]] = Field(default_factory=list)   # 고를 수 있는 후보(name, key_specs) 최대 3개
+
+
 class QuoteDraftItemOut(BaseModel):
     id: str
     category: str
@@ -449,6 +457,7 @@ class QuoteDraftItemOut(BaseModel):
     match_via: Literal["model"] | None = None            # "model" = 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾아 확정했다(화면에 근거를 보인다)
     uncertain: bool = False                              # 사진 글자가 흐려 읽은 이름이 틀렸을 수 있다 — 카탈로그 확정을 하지 않는다
     candidate_count: int | None = None
+    match_reason: MatchReasonOut | None = None           # 왜 "제품 확인 필요"인지 — 확정된 항목은 null
     source_ids: list[str] = Field(default_factory=list)
     selected_for_analysis: bool = False
     user_edited: bool = False
