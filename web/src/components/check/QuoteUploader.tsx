@@ -75,8 +75,9 @@ export default function QuoteUploader({
   }
 
   const textMode = tab === 'text'
+  // 인식하는 동안 버튼 글자는 점 세 개가 차례로 튀어 오르는 모양으로 보인다(채팅의 입력 중 표시와 같은 움직임).
   const recognizeLabel = busy
-    ? '인식 중…'
+    ? <span className="ck-busy-label" role="status">인식 중<i /><i /><i /></span>
     : textMode ? '텍스트 견적 인식하기' : files.length ? `${files.length}장 함께 인식하기` : '사진을 먼저 추가해주세요'
   const disabled = busy || (textMode ? !text.trim() : files.length === 0 || !imageOn)
 

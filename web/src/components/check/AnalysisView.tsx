@@ -108,7 +108,7 @@ export default function AnalysisView({
                 </details>
               )}
               {unknown.length > 0 && (
-                <details className="ck-compat-details" open={failed.length === 0}>
+                <details className="ck-compat-details">
                   <summary>정보가 부족한 항목 {unknown.length}개</summary>
                   <div className="ck-compat-list">{unknown.map(check => <CompatRow key={check.axis} check={check} />)}</div>
                 </details>

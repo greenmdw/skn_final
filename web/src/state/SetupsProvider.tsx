@@ -58,13 +58,14 @@ export function SetupsProvider({ children }: { children: ReactNode }) {
       setStorageError('')
       setAuthRequired(false)
       reload()
+      void refreshConversations()   // 확정하면 서버가 대화 이름을 견적 이름으로 바꾸므로 좌측 패널 목록도 바로 다시 읽는다
       return true
     } catch (error) {
       setStorageError(errorMessage(error, '저장하지 못했습니다. 잠시 후 다시 시도해주세요.'))
       setAuthRequired(error instanceof ApiError && error.code === 'AUTH_REQUIRED')
       return false
     }
-  }, [reload])
+  }, [reload, refreshConversations])
   const removeSetup = useCallback(async (id: string) => {
     try {
       await api.setups.remove(id)
