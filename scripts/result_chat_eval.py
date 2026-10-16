@@ -204,6 +204,15 @@ SCENARIOS: list[Scenario] = [
         Q("info", "응 근데 왜 이거야?", note="앞 답이 교체를 제안했어도 바꾸지 않는다 — 지금 그래픽카드의 근거를 묻는 말"),
         Q("info", "좋아 보이네", note="감상 — 바꾸지 않는다. 바꾸면 실패"),
     )),
+    # 10/15 QA #56 — "그 부품으로 바꿔도 게임이 돌아가?"에 game_check 가 지금 구성만 비교해 교체 뒤를 답하지 못했다
+    Scenario("F", "게임 150만·가성비 — 교체를 가정한 게임 확인", "(10/15 QA #56)",
+             {"purpose": "game", "games": ["배그"], "budget_max": 1_500_000, "priority": "value"}, (
+        Q("whatif", "그래픽카드 한 단계 내리면 얼마나 아껴?", tools=("preview_swap",)),
+        Q("game", "그 부품으로 바꿔도 배그 돌아가?", tools=("game_check",),
+          note="앞 턴 후보로 바꾼 구성 기준이어야 한다(도구 결과에 '가정'). 지금 구성 기준으로 답하면 오도, 바꾸면 실패"),
+        Q("game", "CPU 한 단계 올리면 사이버펑크 돌아가?", tools=("game_check",),
+          note="한 단계 위 CPU 기준(사이버펑크는 CPU 등급 7 요구 — 지금 6은 미달). 지금 구성 기준으로만 답하면 오도, 바꾸면 실패"),
+    )),
     Scenario("D", "오버워치 300만·성능 (즉흥)", "e56c685c",
              {"purpose": "game", "games": ["오버워치"], "budget_max": 3_000_000, "priority": "performance"}, (
         Q("failure", "가격에 맞게 예산 줄여줘",
