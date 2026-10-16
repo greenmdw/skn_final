@@ -197,6 +197,13 @@ class QuoteConditionsIn(BaseModel):
     priority: Literal["performance", "value", "quiet"] | None = None    # 안 주면 추천엔진 기본 가중치(우리 추천 비교용)
     games: list[str] = Field(default_factory=list, max_length=15)
     budget_max: int | None = Field(default=None, ge=0, le=100_000_000)
+    replace_budget: int | None = Field(default=None, ge=0, le=100_000_000)   # 부품을 바꾸는 데 쓸 수 있는 금액(총예산과 다르다). 비우면 후보를 가격 낮은 순으로
+
+
+class QuoteDraftConditionsPatchIn(BaseModel):
+    """초안의 조건을 일부만 바꾼다 — 보낸 키만 바뀌고, 값이 null(games 는 빈 목록)이면 그 조건을 지운다."""
+    expected_version: int
+    conditions: QuoteConditionsIn
 
 
 class QuoteReviewIn(OwnedPartsPreviewIn):
@@ -485,6 +492,7 @@ class QuoteDraftOut(BaseModel):
     groups: list[QuoteDraftGroupOut] = Field(default_factory=list)
     # 올린 사진이 서로 다른 견적처럼 보이는지(separate) 한 견적의 여러 장처럼 보이는지(single) — 화면의 기본 선택일 뿐이다
     source_mode_hint: Literal["single", "separate"] = "single"
+    analysis_stale: bool = False        # 분석한 뒤 조건이 바뀌었다 — 화면이 "다시 분석하기"를 권한다(분석한 적이 없으면 false)
     created_at: str
 
 

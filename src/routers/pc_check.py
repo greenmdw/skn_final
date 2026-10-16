@@ -187,6 +187,17 @@ def patch_quote_draft_items(
     return _draft_response(draft_id, draft)
 
 
+@router.patch("/review-drafts/{draft_id}/conditions", response_model=schemas.QuoteDraftOut)
+def patch_quote_draft_conditions(
+    draft_id: UUID, body: schemas.QuoteDraftConditionsPatchIn, principal: Principal = Depends(optional_principal),
+) -> schemas.QuoteDraftOut:
+    """조건 일부 수정 — 보낸 키만 바뀌고 null 은 지운다. 분석은 돌리지 않고 결과가 오래됐는지(`analysis_stale`)만 알린다."""
+    with get_conn() as conn:
+        draft = quote_draft_service.update_conditions(
+            conn, draft_id, principal, body.expected_version, body.conditions.model_dump(exclude_unset=True))
+    return _draft_response(draft_id, draft)
+
+
 @router.post("/review-drafts/{draft_id}/items", response_model=schemas.QuoteDraftOut, status_code=201)
 def add_quote_draft_item(
     draft_id: UUID, body: schemas.QuoteDraftItemAddIn, principal: Principal = Depends(optional_principal),

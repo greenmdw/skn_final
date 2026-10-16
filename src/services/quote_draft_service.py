@@ -354,8 +354,32 @@ def source_mode_hint(draft: dict) -> str:
     return "separate" if len(full) >= 2 else "single"
 
 
+def analysis_stale(draft: dict) -> bool:
+    """마지막 분석에 쓴 조건과 지금 조건이 다르면 True — 분석한 적이 없으면 False."""
+    analyzed = draft.get("analyzed_conditions")
+    return analyzed is not None and analyzed != (draft.get("conditions") or {})
+
+
 def draft_out(list_id: str, draft: dict) -> dict:
-    return {"draft_id": list_id, **draft, "groups": groups(draft), "source_mode_hint": source_mode_hint(draft)}
+    return {"draft_id": list_id, **draft, "groups": groups(draft), "source_mode_hint": source_mode_hint(draft),
+            "analysis_stale": analysis_stale(draft)}
+
+
+def update_conditions(conn, list_id: UUID, principal: Principal, expected_version: int, patch: dict[str, Any]) -> dict:
+    """조건을 일부만 바꾼다(재기획: 폼·채팅·교체 예산이 같은 조건 하나를 쓴다). 분석은 돌리지 않는다 — 결과가 오래됐다고만 표시한다."""
+    repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
+    if draft["version"] != expected_version:
+        raise StaleReviewVersion("초안이 다른 곳에서 바뀌었습니다. 새로 불러온 뒤 다시 시도해 주세요.", field="expected_version")
+    merged = dict(draft.get("conditions") or {})
+    for key, value in patch.items():
+        if value in (None, "", 0, []):
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    draft["conditions"] = quote_review_service.normalise_conditions(merged)
+    draft["version"] += 1
+    _save(repo, revision["id"], draft)
+    return draft
 
 
 def items_for_sources(draft: dict, source_ids: list[str]) -> list[dict]:
@@ -475,6 +499,8 @@ def analyze_selected(conn, list_id: UUID, principal: Principal, source_ids: list
     totals = [s["quote_total"] for s in draft["sources"] if s["id"] in involved and s.get("quote_total")]
     review = quote_review_service.analyze(specs, draft.get("conditions"), conn=conn, quote_total=totals[0] if totals else None)
     quote_review_service._save(repo, revision["id"], review)
+    draft["analyzed_conditions"] = dict(review["input"]["conditions"])        # 이 분석에 쓴 조건 — 이후 조건이 바뀌면 analysis_stale
+    _save(repo, revision["id"], draft)
     rows = price_rows(chosen, review, load_pc_catalog(lambda _msg: None))
     excluded = [{"category": i["category"], "item_id": i["id"], "reason": "견적에 가격이 없어 합계에서 제외했습니다."}
                 for i in chosen if i["quote_price_type"] == "unknown"]

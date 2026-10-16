@@ -525,3 +525,38 @@ def test_a_photo_flagged_as_low_quality_gets_the_low_quality_reason(client, monk
     item = _items(_upload(client, ["a"]).json(), "CPU")[0]
     assert item["match_status"] == "candidate" and item["match_reason"]["code"] == "low_quality_photo"
     assert item["match_reason"]["candidates"][0]["name"] == "Intel Core i5-14600K"
+
+
+def _patch_conditions(client, draft_id, version, conditions):
+    return client.patch(f"/pc/review-drafts/{draft_id}/conditions", json={"expected_version": version, "conditions": conditions})
+
+
+def test_conditions_are_patched_partially_and_null_clears_one(client, monkeypatch):
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "Intel Core i5-14600K"}]})
+    created = _upload(client, ["a"], conditions='{"purpose":"game","resolution":"QHD_165","budget_max":2500000}').json()
+    assert created["conditions"] == {"purpose": "game", "resolution": "QHD_165", "budget_max": 2500000} and created["analysis_stale"] is False
+    patched = _patch_conditions(client, created["draft_id"], created["version"], {"resolution": "4K", "replace_budget": 800000, "priority": "performance"}).json()
+    assert patched["conditions"] == {"purpose": "game", "resolution": "4K", "budget_max": 2500000, "replace_budget": 800000, "priority": "performance"}
+    assert patched["version"] == created["version"] + 1
+    cleared = _patch_conditions(client, created["draft_id"], patched["version"], {"replace_budget": None, "games": []}).json()
+    assert "replace_budget" not in cleared["conditions"] and cleared["conditions"]["purpose"] == "game"
+
+
+def test_changing_conditions_after_an_analysis_marks_the_result_stale(client, monkeypatch):
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "Intel Core i5-14600K"}]})
+    created = _upload(client, ["a"], conditions='{"purpose":"game","resolution":"QHD_165"}').json()
+    assert client.post(f"/pc/review-drafts/{created['draft_id']}/analysis", json={}).status_code == 200
+    assert client.get(f"/pc/review-drafts/{created['draft_id']}").json()["analysis_stale"] is False        # 분석 직후엔 오래되지 않았다
+    patched = _patch_conditions(client, created["draft_id"], created["version"], {"resolution": "4K"}).json()
+    assert patched["analysis_stale"] is True
+    assert client.post(f"/pc/review-drafts/{created['draft_id']}/analysis", json={}).status_code == 200
+    assert client.get(f"/pc/review-drafts/{created['draft_id']}").json()["analysis_stale"] is False        # 다시 분석하면 풀린다
+
+
+def test_a_conditions_patch_rejects_a_stale_version_a_bad_value_and_someone_elses_draft(client, monkeypatch):
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "Intel Core i5-14600K"}]})
+    created = _upload(client, ["a"]).json()
+    assert _patch_conditions(client, created["draft_id"], created["version"] + 5, {"purpose": "game"}).status_code == 409
+    assert _patch_conditions(client, created["draft_id"], created["version"], {"purpose": "spaceship"}).status_code == 422
+    with TestClient(app) as other:
+        assert _patch_conditions(other, created["draft_id"], created["version"], {"purpose": "game"}).status_code == 404
