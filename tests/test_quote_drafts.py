@@ -60,6 +60,13 @@ def _upload(client, tags, *, text=None, question=None, conditions=None, field="i
     return client.post("/pc/review-drafts", files=files or None, data=data)
 
 
+def _confirm_relation(client, draft_id, version, mode="single"):
+    """사진이 2장 이상이고 관계가 애매한 초안은 사용자가 확인해야 일반 분석을 할 수 있다 — 확인하고 새 버전을 돌려준다."""
+    r = client.patch(f"/pc/review-drafts/{draft_id}/source-relation", json={"expected_version": version, "mode": mode})
+    assert r.status_code == 200, r.text
+    return r.json()["version"]
+
+
 def _items(body, category):
     return [i for i in body["items"] if i["category"] == category]
 
@@ -250,12 +257,13 @@ def test_renaming_an_item_rematches_only_that_item(client, monkeypatch):
 def test_analysis_uses_only_the_selected_items_and_saves_to_the_same_session(client, monkeypatch):
     draft = _draft(client, monkeypatch)
     gpu_a, gpu_b = _items(draft, "GPU")
+    version = _confirm_relation(client, draft["draft_id"], 1)
     client.patch(f"/pc/review-drafts/{draft['draft_id']}/items", json={
-        "expected_version": 1, "selected_item_by_category": {"GPU": gpu_b["id"]}})
+        "expected_version": version, "selected_item_by_category": {"GPU": gpu_b["id"]}})
     r = client.post(f"/pc/review-drafts/{draft['draft_id']}/analysis")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["list_id"] == draft["draft_id"] and body["draft_version"] == 2
+    assert body["list_id"] == draft["draft_id"] and body["draft_version"] == version + 1
     used = {i["category"]: i["normalized_name"] for i in body["used_items"]}
     assert used["GPU"] == gpu_b["normalized_name"]                  # 고른 GPU만 — 다른 GPU는 분석에 안 들어간다
     assert {p["part"] for p in body["parts"]} == set(used)
@@ -266,6 +274,7 @@ def test_analysis_uses_only_the_selected_items_and_saves_to_the_same_session(cli
 
 def test_items_without_a_price_are_listed_as_excluded_from_the_total(client, monkeypatch):
     draft = _draft(client, monkeypatch)
+    _confirm_relation(client, draft["draft_id"], 1)
     body = client.post(f"/pc/review-drafts/{draft['draft_id']}/analysis").json()
     no_price = [i for i in body["used_items"] if i["quote_price_type"] == "unknown"]
     assert {e["item_id"] for e in body["price_excluded"]} == {i["id"] for i in no_price}
@@ -276,6 +285,7 @@ def test_conditions_are_kept_and_reach_the_analysis(client, monkeypatch):
     _fake_extraction(monkeypatch, TWO_IMAGES)
     draft = _upload(client, ["a", "b"], conditions='{"purpose": "game", "resolution": "FHD_144"}').json()
     assert draft["conditions"]["purpose"] == "game"
+    _confirm_relation(client, draft["draft_id"], draft["version"])
     body = client.post(f"/pc/review-drafts/{draft['draft_id']}/analysis").json()
     assert body["input"]["conditions"]["purpose"] == "game"
 
@@ -347,6 +357,8 @@ def test_analysis_can_be_limited_to_one_quote(client, monkeypatch):
     assert {i["category"] for i in b["used_items"]} == {"CPU", "GPU", "메인보드"}
     assert "MSI RTX 4060" in [i["normalized_name"] for i in b["used_items"] if i["category"] == "GPU"][0]
     assert client.post(url, json={"source_ids": ["source-9"]}).status_code == 422
+    assert client.post(url).status_code == 409                                        # 사진 관계를 확인하기 전에는 합쳐 분석하지 않는다
+    _confirm_relation(client, body["draft_id"], body["version"])
     assert client.post(url).status_code == 200                                        # 안 주면 기존처럼 고른 기준 제품 전체
 
 
@@ -429,6 +441,7 @@ def test_user_can_add_a_part_the_model_missed(client, monkeypatch):
     assert added["quote_line_total"] == 140000 and added["user_edited"] is True and added["source_ids"] == ["manual"]
     assert body["selected_item_by_category"]["파워"] == added["id"] and added["selected_for_analysis"] is True
     assert body["sources"][-1]["type"] == "manual" and body["version"] == 2
+    _confirm_relation(client, draft["draft_id"], body["version"])
     analysis = client.post(f"/pc/review-drafts/{draft['draft_id']}/analysis").json()
     assert "파워" in {i["category"] for i in analysis["used_items"]}                        # 추가한 항목도 분석에 들어간다
 
@@ -560,3 +573,39 @@ def test_a_conditions_patch_rejects_a_stale_version_a_bad_value_and_someone_else
     assert _patch_conditions(client, created["draft_id"], created["version"], {"purpose": "spaceship"}).status_code == 422
     with TestClient(app) as other:
         assert _patch_conditions(other, created["draft_id"], created["version"], {"purpose": "game"}).status_code == 404
+
+
+def test_the_draft_reports_how_the_photos_relate_and_the_user_can_overrule_it(client, monkeypatch):
+    full = lambda tag: [{"category": c, "raw_text": f"{c} {tag}"} for c in ("CPU", "GPU", "RAM", "메인보드", "파워", "케이스")]    # noqa: E731
+    _fake_extraction(monkeypatch, {"a": full("A"), "b": full("B")})
+    body = _upload(client, ["a", "b"]).json()
+    relation = body["source_relation"]
+    assert relation["applies"] and relation["mode"] == "separate" and relation["confidence"] == "high" and relation["confirmed"] is False
+    assert body["source_mode_hint"] == "separate"
+    flipped = client.patch(f"/pc/review-drafts/{body['draft_id']}/source-relation", json={"expected_version": body["version"], "mode": "single"}).json()
+    assert flipped["source_relation"]["mode"] == "single" and flipped["source_relation"]["confirmed"] is True and flipped["version"] == body["version"] + 1
+
+
+def test_separate_quotes_cannot_be_analysed_as_one_but_one_quote_can_be_picked(client, monkeypatch):
+    full = lambda tag: [{"category": c, "raw_text": f"{c} {tag}"} for c in ("CPU", "GPU", "RAM", "메인보드", "파워", "케이스")]    # noqa: E731
+    _fake_extraction(monkeypatch, {"a": full("A"), "b": full("B")})
+    body = _upload(client, ["a", "b"]).json()
+    url = f"/pc/review-drafts/{body['draft_id']}/analysis"
+    refused = client.post(url)
+    assert refused.status_code == 409 and refused.json()["error"]["code"] == "source_relation_separate"
+    assert client.post(url, json={"source_ids": ["source-1"]}).status_code == 200            # 한 견적을 골라 분석하는 것은 된다
+
+
+def test_an_unclear_relation_blocks_plain_analysis_until_the_user_confirms(client, monkeypatch):
+    body = _two_quotes(client, monkeypatch)                         # 같은 부품군(GPU)에 서로 다른 제품이 하나뿐 — 근거가 약하다
+    assert body["source_relation"]["confidence"] == "low"
+    refused = client.post(f"/pc/review-drafts/{body['draft_id']}/analysis")
+    assert refused.status_code == 409 and refused.json()["error"]["code"] == "source_relation_unconfirmed"
+
+
+def test_a_single_photo_has_no_relation_to_confirm(client, monkeypatch):
+    _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "Intel Core i5-14600K"}]})
+    body = _upload(client, ["a"]).json()
+    assert body["source_relation"]["applies"] is False
+    assert client.patch(f"/pc/review-drafts/{body['draft_id']}/source-relation", json={"expected_version": body["version"], "mode": "single"}).status_code == 422
+    assert client.post(f"/pc/review-drafts/{body['draft_id']}/analysis").status_code == 200

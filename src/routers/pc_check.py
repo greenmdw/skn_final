@@ -198,6 +198,16 @@ def patch_quote_draft_conditions(
     return _draft_response(draft_id, draft)
 
 
+@router.patch("/review-drafts/{draft_id}/source-relation", response_model=schemas.QuoteDraftOut)
+def patch_quote_draft_source_relation(
+    draft_id: UUID, body: schemas.QuoteSourceRelationPatchIn, principal: Principal = Depends(optional_principal),
+) -> schemas.QuoteDraftOut:
+    """올린 사진이 한 견적인지 서로 다른 견적인지 사용자가 확인한다 — 자동 판정보다 우선하고 다시 바꿀 수 있다."""
+    with get_conn() as conn:
+        draft = quote_draft_service.set_source_relation(conn, draft_id, principal, body.expected_version, body.mode)
+    return _draft_response(draft_id, draft)
+
+
 @router.post("/review-drafts/{draft_id}/items", response_model=schemas.QuoteDraftOut, status_code=201)
 def add_quote_draft_item(
     draft_id: UUID, body: schemas.QuoteDraftItemAddIn, principal: Principal = Depends(optional_principal),

@@ -480,6 +480,21 @@ class QuoteDraftGroupOut(BaseModel):
     item_ids: list[str]
 
 
+class SourceRelationOut(BaseModel):
+    """올린 사진들의 관계 판정. applies=false(사진 1장)이면 나머지는 무시한다."""
+    applies: bool
+    mode: Literal["single", "separate"]            # single=한 견적을 나눠 찍은 여러 장, separate=서로 다른 견적
+    confidence: Literal["high", "low"]             # low 이면 사용자가 확인하기 전까지 일반 분석을 막는다(409)
+    confirmed: bool = False                        # 사용자가 직접 확인했다
+    reasons: list[str] = Field(default_factory=list)   # 고른 쪽을 받치는 근거
+    doubts: list[str] = Field(default_factory=list)    # 반대쪽을 받치는 근거(애매함의 이유)
+
+
+class QuoteSourceRelationPatchIn(BaseModel):
+    expected_version: int
+    mode: Literal["single", "separate"]
+
+
 class QuoteDraftOut(BaseModel):
     draft_id: str
     version: int
@@ -492,6 +507,7 @@ class QuoteDraftOut(BaseModel):
     groups: list[QuoteDraftGroupOut] = Field(default_factory=list)
     # 올린 사진이 서로 다른 견적처럼 보이는지(separate) 한 견적의 여러 장처럼 보이는지(single) — 화면의 기본 선택일 뿐이다
     source_mode_hint: Literal["single", "separate"] = "single"
+    source_relation: SourceRelationOut | None = None
     analysis_stale: bool = False        # 분석한 뒤 조건이 바뀌었다 — 화면이 "다시 분석하기"를 권한다(분석한 적이 없으면 false)
     created_at: str
 

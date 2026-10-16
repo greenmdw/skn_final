@@ -23,6 +23,7 @@ from src.agent import spec_extraction_agent
 from src.auth.deps import Principal
 from src.config import QUOTE_DRAFT_MAX_FILES, QUOTE_DRAFT_MAX_FILE_BYTES, QUOTE_DRAFT_MAX_TOTAL_BYTES
 from src.engine import image_prep, match_reason
+from src.engine import source_relation as source_relation_engine
 from src.engine.owned_parts import preview_current_specs, resolve_owned_parts
 from src.engine.quote_items import default_selection, is_non_part_line, is_placeholder_line, merge_same_products, spec_text, split_line
 from src.engine.spec_text import parse_spec_lines
@@ -339,19 +340,27 @@ def mark_live_values(conn, draft: dict) -> dict:
     return draft
 
 
-_FULL_BUILD_CATEGORIES = 5          # 사진 한 장에 이만큼의 부품군이 보이면 그 사진은 한 대 분량의 견적이다
+def source_relation(draft: dict) -> dict:
+    """올린 사진들의 관계 판정(한 견적의 여러 장 / 서로 다른 견적) — 사용자가 확인했으면 그 값을 따른다. 규칙은 engine/source_relation.py."""
+    return source_relation_engine.judge(draft.get("sources") or [], draft.get("items") or [], draft.get("source_relation_choice"))
 
 
 def source_mode_hint(draft: dict) -> str:
-    """사진이 "서로 다른 견적"인지 "한 견적의 여러 장"인지 추정한다 — 'separate' 는 부품군이 5개 이상 보이는 사진이 둘 이상일 때다.
-    한 견적을 여러 장으로 나눠 찍으면 장마다 일부 부품군만 보인다. 화면은 이 값을 기본 선택으로만 쓰고 사용자가 바꿀 수 있다."""
-    per_source: dict[str, set[str]] = {}
-    for item in draft.get("items") or []:
-        for source_id in item.get("source_ids") or []:
-            per_source.setdefault(source_id, set()).add(item["category"])
-    images = {s["id"] for s in draft.get("sources") or [] if s.get("type") == "image"}
-    full = [sid for sid, categories in per_source.items() if sid in images and len(categories) >= _FULL_BUILD_CATEGORIES]
-    return "separate" if len(full) >= 2 else "single"
+    """하위 호환용 — 판정의 mode 만. 화면은 `source_relation` 을 쓴다."""
+    return source_relation(draft)["mode"]
+
+
+def set_source_relation(conn, list_id: UUID, principal: Principal, expected_version: int, mode: str) -> dict:
+    """사용자가 사진 관계를 확인한다("한 견적" / "서로 다른 견적"). 이 값이 있으면 자동 판정보다 우선하고 뒤집을 수 있다."""
+    repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
+    if draft["version"] != expected_version:
+        raise StaleReviewVersion("초안이 다른 곳에서 바뀌었습니다. 새로 불러온 뒤 다시 시도해 주세요.", field="expected_version")
+    if not source_relation_engine.judge(draft.get("sources") or [], [], None)["applies"]:
+        raise ValidationFailed("사진이 2장 이상일 때만 정할 수 있어요.", field="mode")
+    draft["source_relation_choice"] = mode
+    draft["version"] += 1
+    _save(repo, revision["id"], draft)
+    return draft
 
 
 def analysis_stale(draft: dict) -> bool:
@@ -361,7 +370,8 @@ def analysis_stale(draft: dict) -> bool:
 
 
 def draft_out(list_id: str, draft: dict) -> dict:
-    return {"draft_id": list_id, **draft, "groups": groups(draft), "source_mode_hint": source_mode_hint(draft),
+    relation = source_relation(draft)
+    return {"draft_id": list_id, **draft, "groups": groups(draft), "source_mode_hint": relation["mode"], "source_relation": relation,
             "analysis_stale": analysis_stale(draft)}
 
 
@@ -490,6 +500,14 @@ def analyze_selected(conn, list_id: UUID, principal: Principal, source_ids: list
     """선택한 항목만 기존 점검에 넣어 분석하고 같은 세션에 저장한다. source_ids 를 주면 그 견적(이미지)의 항목만 —
     서로 다른 견적을 올렸을 때 한 견적을 골라 분석한다(안 주면 부품군마다 고른 기준 제품 전체)."""
     repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
+    if not source_ids:         # 견적을 하나 고르지 않은 일반 분석은 사진들이 한 견적일 때만 — 서로 다른 견적을 합치면 결과가 섞인다
+        relation = source_relation(draft)
+        if relation["applies"] and not relation["confirmed"] and relation["confidence"] == "low":
+            raise Conflict("올린 사진이 한 견적을 나눠 찍은 것인지 서로 다른 견적인지 확실하지 않아요. 먼저 확인해 주세요.",
+                           code="source_relation_unconfirmed")
+        if relation["applies"] and relation["mode"] == "separate":
+            raise Conflict("올린 사진은 서로 다른 견적이에요. 견적 비교를 하거나 한 견적을 골라 분석해 주세요.",
+                           code="source_relation_separate")
     chosen = items_for_sources(draft, source_ids) if source_ids else \
         [i for i in draft["items"] if i["id"] in set(draft["selected_item_by_category"].values())]
     if not chosen:
