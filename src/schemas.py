@@ -1035,7 +1035,7 @@ class PeripheralAdjustChipOut(BaseModel):
 class PeripheralNoticeOut(BaseModel):
     """채팅으로 알릴 유의사항(QA PQA-001). 추천은 그대로 하고 주의할 점만 말한다 — 화면은 text 를 채팅에 그대로 보여 준다."""
     kind: str
-    code: str        # pc_unknown · gpu_4k · gpu_high_res · low_refresh
+    code: str        # pc_unknown · gpu_4k · gpu_high_res · low_refresh · over_budget(kind="budget")
     text: str
 
 
