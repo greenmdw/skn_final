@@ -3,7 +3,6 @@
 저장 견적(확정 견적서)은 가짜 리포트로 바꿔 끼운다 — 확정까지의 전체 흐름이 아니라 비교·질문 로직을 본다."""
 from __future__ import annotations
 
-import base64
 import os
 
 import pytest
@@ -18,7 +17,7 @@ if DSN:
     from src.api import app
     from src.auth import ratelimit
     from src.engine.stage3_0_candidates import load_pc_catalog
-    from src.services import quote_chat_service, quote_comparison_service as qcs
+    from src.services import quote_comparison_service as qcs
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
 
@@ -253,3 +252,12 @@ def test_summary_names_the_basis_when_only_some_parts_are_comparable():
           "GPU": {"product_key": "h", "name": "H", "line_total": None, "quantity": 1}}
     text = qcs.build_comparison(rx, sv)["brief_summary"]["text"]
     assert "가격이 양쪽에 있는 1개 부품 기준" in text and "20,000원" in text
+
+
+def test_the_price_table_is_left_out_when_no_part_has_a_price():
+    """부품별 가격이 하나도 없으면(총액만 적힌 사진) 줄마다 '—'뿐인 가격표를 보여 주지 않는다."""
+    from src.services import quote_comparison_service as svc
+    row = lambda cat: {"category": cat, "received": {"name": "a", "line_total": None}, "saved": {"name": "b", "line_total": None}}   # noqa: E731
+    comparison = {"rows": [row("CPU"), row("GPU")], "labels": {"received": "26", "saved": "27"}}
+    out = svc.answer_extras(comparison, {}, "총액 차이 알려줘", {}, search=lambda *a, **k: [])
+    assert not [v for v in out["visuals"] if v.get("type") == "price_table" or "가격" in str(v.get("title", ""))]

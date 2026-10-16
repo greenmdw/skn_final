@@ -38,10 +38,17 @@ def test_several_tied_candidates_are_ambiguous_with_a_count():
     assert "후보 3개" in row["matched_note"] and "공통값만 사용" in row["matched_note"]
 
 
-def test_the_nearest_candidate_case_is_still_its_own_status_not_ambiguous():
+def test_a_shortened_name_is_confirmed_by_model_number_and_says_so():
     pool = {"CPU": [_cand("CPU", "AMD Ryzen 7 5800X3D", socket="AM4")]}
     row = preview_current_specs({"CPU": "5800X3D"}, pool, SLOT_STRUCTURE)[0]
-    assert row["match_status"] == "candidate" and row["candidate_count"] is None
+    assert row["match_status"] == "confirmed" and row["candidate_count"] is None
+    assert row["match_via"] == "model" and "모델 번호로 찾음" in row["matched_note"]
+
+
+def test_a_model_number_shared_by_two_products_is_not_confirmed():
+    pool = {"CPU": [_cand("CPU", "AMD Ryzen 7 5800X3D", socket="AM4"), _cand("CPU", "AMD Ryzen 9 5800X3D", socket="AM4")]}
+    row = preview_current_specs({"CPU": "5800X3D"}, pool, SLOT_STRUCTURE)[0]
+    assert row["match_status"] != "confirmed"
 
 
 def test_no_match_at_all_is_unmatched():

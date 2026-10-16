@@ -12,9 +12,10 @@ export default function ChatPanel({ title, placeholder }: { title: string; place
   const [draft, setDraft] = useState('')
   const size = usePanelWidth(CHAT_WIDTH.key, CHAT_WIDTH.initial, CHAT_WIDTH.min, CHAT_WIDTH.max)
   const log = useRef<HTMLDivElement>(null)
-  const last = messages[messages.length - 1]
-  // 선택지는 마지막 봇 메시지에 붙은 것만 누를 수 있다(지난 질문의 칩은 남기지 않는다).
-  const choices = last?.role === 'bot' ? last.choices : undefined
+  // 선택지는 마지막 사용자 말 뒤의 봇 메시지들에 붙은 것만 누를 수 있다(지난 질문의 칩은 남기지 않는다).
+  // 마지막 봇 메시지 하나만 보면 이어가기 제안 뒤에 선호 되묻기가 붙을 때 '이어서 하기' 칩이 가려졌다(QA #65).
+  const lastUser = messages.findLastIndex(m => m.role === 'user')
+  const choices = messages.slice(lastUser + 1).flatMap(m => m.choices ?? [])
   const disabled = state.stage === 3 || state.viewOnly   // 추천을 계산하는 동안, 확정된 견적서를 보는 동안은 입력을 받지 않는다
 
   useEffect(() => { if (log.current) log.current.scrollTop = log.current.scrollHeight }, [messages, busy])
@@ -22,7 +23,8 @@ export default function ChatPanel({ title, placeholder }: { title: string; place
   function submit(event: FormEvent) {
     event.preventDefault()
     const text = draft.trim()
-    if (!text || disabled) return
+    // 답을 기다리는 동안은 보내지 않는다 — 연달아 보내면 두 턴이 같은 옛 조건으로 답했다(QA #55). 입력은 계속 쓸 수 있다.
+    if (!text || disabled || busy) return
     setDraft('')
     handleInput(text)
   }
@@ -39,14 +41,14 @@ export default function ChatPanel({ title, placeholder }: { title: string; place
       <div className="pl-chat-foot">
         {choices && choices.length > 0 && !busy && (
           <div className="pl-choices" style={{ marginBottom: 10 }}>
-            {choices.map(choice => (
-              <button key={choice.value} type="button" className="pl-choice" onClick={() => handleChoice(choice)}>{choice.label}</button>
+            {choices.map((choice, i) => (
+              <button key={`${i}-${choice.value}`} type="button" className="pl-choice" onClick={() => handleChoice(choice)}>{choice.label}</button>
             ))}
           </div>
         )}
         <form className="pl-input" onSubmit={submit}>
           <input value={draft} onChange={e => setDraft(e.target.value)} placeholder={state.viewOnly ? '확정된 견적서예요. 견적 수정하기를 누르면 대화로 바꿀 수 있어요' : placeholder} disabled={disabled} aria-label="메시지 입력" />
-          <button type="submit" className="pl-send" disabled={disabled || !draft.trim()}>보내기</button>
+          <button type="submit" className="pl-send" disabled={disabled || busy || !draft.trim()}>보내기</button>
         </form>
       </div>
       <ResizeHandle width={size.width} min={size.min} max={size.max} label="대화창 너비" onChange={size.setWidth} onReset={size.reset} />

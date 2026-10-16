@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode, type TouchEvent as ReactTouchEvent } from 'react'
 import { api, errorMessage, type ConversationSummary, type ReportSummary } from '../api'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { usePlan } from '../state/PlanContext'
@@ -116,6 +116,10 @@ function readCollapsedGroups(): Record<string, boolean> {
 
 const LONG_PRESS_MS = 500
 
+// 이 패널은 화면(페이지)마다 새로 그려져서, 다른 대화를 눌러 화면이 바뀌면 목록 스크롤이 맨 위로 돌아갔다.
+// 탭별 스크롤 위치를 모듈에 기억해 두었다가 다시 그려질 때 되돌린다(새로고침하면 처음부터).
+const savedScroll: Record<Tab, number> = { history: 0, saved: 0 }
+
 export default function SidePanel() {
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const size = usePanelWidth(PANEL_WIDTH.key, PANEL_WIDTH.initial, PANEL_WIDTH.min, PANEL_WIDTH.max)
@@ -139,10 +143,15 @@ export default function SidePanel() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editingSheet, setEditingSheet] = useState<{ listId: string; revisionNo: number } | null>(null)
   const [draft, setDraft] = useState('')
+  const listRef = useRef<HTMLDivElement | null>(null)
   const pressTimer = useRef<number | null>(null)
   const pressOrigin = useRef({ x: 0, y: 0 })
   const suppressClick = useRef(false)
   const viewingId = pathname.startsWith('/report/') ? pathname.slice('/report/'.length) : null
+  const currentDraftId = pathname.startsWith('/check') ? new URLSearchParams(search).get('draft') : null
+  const inComputerFlow = ['/start', '/plan', '/cart', '/report/'].some(path => pathname === path || pathname.startsWith(path))
+  // 다른 모드로 이동한 뒤에도 PlanProvider에는 직전 본체 세션이 남아 있을 수 있다. 현재 URL의 흐름에 속한 대화만 활성 표시한다.
+  const activeConversationId = viewingId ?? currentDraftId ?? (inComputerFlow ? state.sessionId : null)
   const isOpen = (id: string) => toggled[id] ?? id === viewingId
   const toggle = (id: string) => setToggled(prev => ({ ...prev, [id]: !(prev[id] ?? id === viewingId) }))
   function toggleGroup(label: string) {
@@ -161,6 +170,11 @@ export default function SidePanel() {
   useEffect(() => {
     try { localStorage.setItem(TAB_KEY, tab) } catch { /* 보관 실패는 무시 */ }
   }, [tab])
+  // 목록(대화 내역·저장한 견적)이 그려지거나 바뀌면 기억해 둔 스크롤 위치로 되돌린다.
+  useLayoutEffect(() => {
+    const list = listRef.current
+    if (list && Math.abs(list.scrollTop - savedScroll[tab]) > 1) list.scrollTop = savedScroll[tab]
+  }, [tab, conversations, collapsed])
   // 다른 견적서를 열면 그 견적은 직접 접어 둔 상태를 버리고 펼쳐서 보여 준다.
   useEffect(() => {
     if (viewingId) setToggled(prev => { if (!(viewingId in prev)) return prev; const { [viewingId]: _drop, ...rest } = prev; return rest })
@@ -176,8 +190,8 @@ export default function SidePanel() {
   // 대화를 누르면 그 대화의 채팅과 함께 "2 추천 결과" 화면이 열린다. 확정된 대화는 구성을 보기만 하고(고치려면 견적 수정하기),
   // 구성을 못 읽으면 리포트로 간다. 견적서를 누르면 리포트가 열린다(견적서 행).
   async function openHistory(item: ConversationSummary) {
-    // 받은 견적 점검으로 만든 대화는 점검 화면에서 이어 본다(이 브라우저에서 만든 것만 구분할 수 있다).
-    if (isCheckSession(item.listId)) { navigate('/check?draft=' + item.listId); return }
+    // 서버에 저장된 이름도 함께 확인하므로 다른 브라우저에서 만든 점검 대화도 올바른 주소로 연다.
+    if (isCheckSession(item.listId) || item.name === '받은 견적 점검') { navigate('/check?draft=' + item.listId); return }
     const confirmed = item.stage === 'report'
     const opened = await openConversation(item.listId, item.stage === 'results' || confirmed, confirmed)
     if (opened === 'plan') navigate('/plan')
@@ -320,6 +334,15 @@ export default function SidePanel() {
 
   function startNew() {
     resetPlan()
+    const newConversationKey = `${Date.now()}-${Math.random()}`
+    if (pathname.startsWith('/check')) {
+      navigate('/check', { state: { newConversationKey } })
+      return
+    }
+    if (pathname.startsWith('/peripherals')) {
+      navigate('/peripherals', { state: { newConversationKey } })
+      return
+    }
     navigate('/start')
   }
 
@@ -358,7 +381,7 @@ export default function SidePanel() {
         </div>
 
         {tab === 'history' && (
-          <div className="sp-list">
+          <div className="sp-list" ref={listRef} onScroll={event => { savedScroll.history = event.currentTarget.scrollTop }}>
             {historyError && <div className="sp-note bad" role="alert">{historyError}</div>}
             {!historyError && conversations === null && <div className="sp-note">불러오는 중이에요…</div>}
             {conversations?.length === 0 && <div className="sp-note">아직 나눈 대화가 없어요. 새 견적으로 시작해 보세요.</div>}
@@ -376,7 +399,7 @@ export default function SidePanel() {
                   const latestRevisionNo = item.reports[item.reports.length - 1]?.revisionNo ?? 0
                   return (
                     <div key={item.listId}>
-                      <div className={'sp-item sp-conv' + (state.sessionId === item.listId ? ' on' : '') + (sameTarget(ctx?.target, { kind: 'conv', listId: item.listId }) ? ' ctx' : '')}
+                      <div className={'sp-item sp-conv' + (activeConversationId === item.listId ? ' on' : '') + (sameTarget(ctx?.target, { kind: 'conv', listId: item.listId }) ? ' ctx' : '')}
                         tabIndex={editingId === item.listId ? -1 : 0}
                         {...rowHandlers({ kind: 'conv', listId: item.listId })}>
                         {item.reports.length > 0
@@ -431,7 +454,7 @@ export default function SidePanel() {
                 )}
               </div>
             )}
-            <div className="sp-list">
+            <div className="sp-list" ref={listRef} onScroll={event => { savedScroll.saved = event.currentTarget.scrollTop }}>
               {!user && (
                 <div className="sp-note">
                   저장한 견적은 로그인한 계정에만 있어요.{' '}

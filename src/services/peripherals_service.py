@@ -14,6 +14,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from src.auth.deps import Principal
+from src.dto import PeripheralResult
 from src.errors import NotFound
 
 
@@ -88,9 +89,11 @@ def _intent_from_body(body, pc_purpose: str | None = None):
         "situations": list(body.situations),
         "stated": body.stated,
         "budget": body.kind_budget,
+        "budget_min": body.kind_budget_min,
         "emphasis": body.emphasis,
         "brand_like": body.brand_like,
         "brand_avoid": body.brand_avoid,
+        "hand_size": body.hand_size,
     }
     interp = peripheral_intent.sanitize(raw)
 
@@ -106,8 +109,14 @@ def _intent_from_body(body, pc_purpose: str | None = None):
 
 
 def recommend(conn, body, pc_context: dict | None) -> dict:
+    """요청 바디를 추천으로 돌려 공개 계약 모양(peripheral_payload)으로 낸다. 자세한 설명은 `recommend_detailed`."""
+    return recommend_detailed(conn, body, pc_context)[0]
+
+
+def recommend_detailed(conn, body, pc_context: dict | None) -> tuple[dict, "PeripheralResult"]:
     """요청 바디(kinds·budget_max·purpose 등)를 run_peripherals()의 조건 dict로 옮겨
-    돌리고, 공개 계약 모양(peripheral_payload)으로 낸다.
+    돌리고, 공개 계약 모양(peripheral_payload)과 엔진 결과를 함께 낸다. 채팅 질문 답변(peripheral_chat_service)이 스펙 값을
+    엔진 결과의 후보에서 읽으려고 둘 다 받는다.
 
     `pc_context` 는 `pc_context_from_list` 가 낸 {resolution, gpu_specs, purpose} 다. `purpose`(PC 견적 용도)는 모니터 요구사양의
     주사율 상향과 주변기기 목적 풀이에, 해상도는 아래 설명대로 쓰인다.
@@ -134,6 +143,7 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
         "peripherals": body.kinds,
         "peripheral_budget_max": body.budget_max,
         "peripheral_kind_budget": interp.budget,
+        "peripheral_kind_budget_min": interp.budget_min,
         "peripheral_intent": interp,
         "peripheral_resolved": peripheral_intent.resolve(interp),
         # 선호·기피 브랜드와 강조 축은 목록 안의 값으로 정리한 해석에서 온다(예전 입력과 같은 경로).
@@ -160,4 +170,4 @@ def recommend(conn, body, pc_context: dict | None) -> dict:
     payload["ignored_inputs"] = ignored
     payload["adjust_chips"] = suggest_chips(values, interp, candidates, result, pc_context=pc_context,
                                           require_review_details=True)
-    return payload
+    return payload, result

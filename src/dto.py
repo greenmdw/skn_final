@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, get_args
 
 from pydantic import BaseModel, Field
 
@@ -15,6 +15,7 @@ Verdict = Literal["Pass", "Fail", "Pending"]
 # E8 — 모니터/키보드/마우스/스피커. 독립 카테고리가 아니라 computer 요청의 부속 결과라
 # Category에는 안 넣는다(config/peripherals.yaml이 config/categories/ 밖에 있는 이유와 같다).
 PeripheralKind = Literal["monitor", "keyboard", "mouse", "speaker"]
+PERIPHERAL_KINDS: tuple[str, ...] = get_args(PeripheralKind)      # 화면·결과가 늘 같은 순서로 보여 주는 고정 순서
 
 
 # ── [1] 의도 분해 · 슬롯필링 ──────────────────────────────────────────────
@@ -322,6 +323,11 @@ class PeripheralPick(BaseModel):
     # 접전 여부: 1·2위 점수 차가 기준(config scoring.close_call_margin) 안이다. 한 응답에서 최대 close_call_max_items 개 품목에만 true.
     close_call: bool = False
     score_gap: float | None = None                                     # 2위와의 점수 차(대안이 없으면 None)
+    # 결과 화면 표시 값(peripheral_display). 점수·순위에는 쓰지 않는다.
+    requested: list[dict[str, Any]] = Field(default_factory=list)      # 사용자가 말한 항목별 근거 연결
+    price_position: dict[str, int] | None = None                       # 통과한 후보 안에서 싼 순서 {rank, of}
+    # `alternatives` 와 같은 순서: {"feel": 체감 블록|None, "requested": [...], "price_position": {...}|None}
+    alternative_views: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class PeripheralResult(BaseModel):
@@ -340,6 +346,8 @@ class PeripheralResult(BaseModel):
     # picks에 있는 종류만큼 채워진다. peripheral_payload()가 requirement/reason을 만드는 재료다
     # — payload가 [1]의 원본 조건(values)을 다시 안 받아도 되게 여기 실어 둔다.
     requirements: dict[str, PeripheralRequirement] = Field(default_factory=dict)
+    # 채팅으로 알릴 유의사항 [{kind, code, text}] — 추천은 그대로 하고 주의할 점만 말한다(QA PQA-001). status 가 ready 일 때만.
+    notices: list[dict[str, str]] = Field(default_factory=list)
     # 종류 → 체감 근거 블록(peripheral_evidence.build_feel_block). 보여 줄 근거가 없는 종류는 키가 없다.
     feel: dict[str, Any] = Field(default_factory=dict)
 

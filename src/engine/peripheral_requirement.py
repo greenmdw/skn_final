@@ -29,19 +29,42 @@ from __future__ import annotations
 
 from typing import Any
 
-from src.dto import PeripheralRequirement
+from src.dto import Candidate, PeripheralRequirement
 from src.engine.peripheral_rules import load_peripheral_rules
 
-# 해상도를 말하지 않은 주변기기(모니터) 요청의 기본값. PC 규칙의 기본(FHD_144)과 일부러 다르다 —
-# FHD 144Hz 이상 모니터가 카탈로그에 없어 기본 요청이 항상 비었기 때문이다. 아래 build_requirements 참고.
-PERIPHERAL_DEFAULT_RESOLUTION = "QHD_165"
+# PC 해상도를 모를 때(PC 견적을 묶지 않은 단독 요청) 모니터 요구사양에 남기는 안내. 해상도·주사율로 거르지 않는다.
+PC_UNKNOWN_NOTE = "PC 사양을 몰라 해상도·주사율로 거르지 않고 모든 모니터에서 골랐습니다"
 
-_RESOLUTION_LABELS = {"FHD_144": "FHD 144Hz", "QHD_165": "QHD 165Hz", "4K": "4K 60Hz"}
+_GAME_PURPOSES = {"game", "fps"}
+_WIDE_PIXELS = 3440 * 1440          # 이 화소 수 이상이면 게임에서 그래픽카드 부담이 큰 편(QHD 와이드)
+_SMOOTH_REFRESH_HZ = 144
 
 
-def _resolution_label(resolution: str) -> str:
-    """화면 안내 문구용 해상도 표시명. 표에 없는 값(방어적으로만 대비)은 코드 그대로 쓴다."""
-    return _RESOLUTION_LABELS.get(resolution, str(resolution))
+def monitor_notices(cand: Candidate, requirement: PeripheralRequirement, values: dict) -> list[dict[str, str]]:
+    """PC 견적 없이 고른 모니터 1위에 붙이는 채팅용 유의사항(QA PQA-001). 추천은 막지 않고 주의할 점만 알린다.
+
+    PC 견적이 묶였으면(해상도 하드 조건이 있으면) 그 PC 에 맞춰 골랐으므로 내지 않는다. 문장은 서버가 만들고 화면은
+    그대로 채팅에 보여 준다. 스펙 값이 없으면 그 유의사항은 내지 않는다(모르는 값으로 단정하지 않는다)."""
+    if "resolution" not in requirement.assumed:
+        return []
+    notices = [{"kind": "monitor", "code": "pc_unknown",
+                "text": "PC 사양을 모르는 상태로 골랐어요. 쓰시는 PC나 PC 견적을 알려 주시면 해상도·단자가 맞는지 확인해 드릴게요."}]
+    resolved = (values.get("peripheral_resolved") or {}).get("monitor")
+    codes = {p["code"] for p in resolved.purposes} if resolved is not None else set()
+    if not (codes & _GAME_PURPOSES or values.get("purpose") == "game"):
+        return notices
+    width, height = cand.specs.get("resolution_w"), cand.specs.get("resolution_h")
+    if height and height >= 2160:
+        notices.append({"kind": "monitor", "code": "gpu_4k",
+                        "text": "4K 모니터로 게임을 하려면 높은 그래픽카드 성능이 필요해요. 지금 PC가 4K를 감당하는지 먼저 확인해 주세요."})
+    elif width and height and width * height >= _WIDE_PIXELS:
+        notices.append({"kind": "monitor", "code": "gpu_high_res",
+                        "text": "해상도가 높아 그래픽카드 부담이 커요. 게임용이면 PC 사양을 먼저 확인해 주세요."})
+    refresh = cand.specs.get("refresh_hz")
+    if refresh and refresh < _SMOOTH_REFRESH_HZ:
+        notices.append({"kind": "monitor", "code": "low_refresh",
+                        "text": f"이 모니터는 주사율이 {int(refresh)}Hz라 빠른 게임에서는 화면이 덜 부드러울 수 있어요."})
+    return notices
 
 
 def _build_monitor_hard(hard_cfg: dict, resolution: str, purpose: Any) -> dict[str, Any]:
@@ -77,20 +100,16 @@ def build_requirements(
     """요청된 종류(kinds)만 담아 PeripheralRequirement 를 낸다. 요청하지 않은 종류는 결과에
     아예 없다(존재하지 않는 조건을 만들지 않는다).
 
-    resolution 조건이 없으면 주변기기 기본 해상도(`PERIPHERAL_DEFAULT_RESOLUTION`, QHD_165)를
-    쓰고, `assumed`에 `"resolution"`을, `notes`에 화면 안내 문장을 남긴다 — 이 표시는 monitor
-    요청에만 붙는다(다른 종류는 해상도 조건을 쓰지 않는다).
-
-    PC 규칙의 기본 해상도(FHD_144)를 쓰지 않는 이유: 카탈로그에 FHD·144Hz 이상 모니터가 없어
-    해상도를 말하지 않은 첫 요청에서 모니터가 항상 비었다(조건을 완화하지 않는 설계라 비는 것
-    자체는 맞다). PC 쪽 기본값(추천 엔진의 GPU 등급 가정)은 그대로 FHD_144다.
+    resolution 조건(묶은 PC 견적의 해상도 또는 요청의 `resolution`)이 있으면 그 해상도로 모니터 하드 조건(해상도 등급·
+    주사율 하한)을 건다 — PC 그래픽카드 목표에 맞추는 것이 설계 의도다. 없으면(PC 견적 없는 단독 요청) **하드 조건을
+    걸지 않는다**: 4K 를 포함한 모든 모니터가 후보이고, 해상도·주사율은 목적에서 풀린 선호(game → 고주사율, docs·creative →
+    고해상도)로만 순위에 들어간다. 이때 `assumed`에 `"resolution"`을, `notes`에 안내를 남기고, 1위에 따른 유의사항은
+    `monitor_notices` 가 채팅용으로 만든다(QA PQA-001, 2026-10-15 결정 — 예전에는 QHD_165 로 걸러 33종 중 8종만 남았다).
     """
     rules = rules or load_peripheral_rules()
-    default_resolution = PERIPHERAL_DEFAULT_RESOLUTION
 
-    raw_resolution = values.get("resolution")
-    resolution = raw_resolution or default_resolution
-    resolution_assumed = not raw_resolution
+    resolution = values.get("resolution")
+    resolution_assumed = not resolution
     purpose = values.get("purpose")
 
     req_cfg = rules.get("requirements") or {}
@@ -102,10 +121,11 @@ def build_requirements(
         notes: list[str] = []
 
         if kind == "monitor":
-            hard = _build_monitor_hard(kind_cfg.get("hard") or {}, resolution, purpose)
             if resolution_assumed:
                 assumed.append("resolution")
-                notes.append(f"해상도를 말하지 않아 기본값({_resolution_label(default_resolution)})으로 골랐습니다")
+                notes.append(PC_UNKNOWN_NOTE)
+            else:
+                hard = _build_monitor_hard(kind_cfg.get("hard") or {}, resolution, purpose)
 
         resolved = (values.get("peripheral_resolved") or {}).get(kind)
         preferences = resolved.preference_prefs() if resolved is not None else []

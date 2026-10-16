@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import MarketingHeader from '../components/MarketingHeader'
+import SiteFooter from '../components/SiteFooter'
 import '../styles/home.css'
 
 // 메인 화면. 정적 소개 문구뿐이고 서버 데이터는 쓰지 않는다. 시작 버튼은 실제 화면으로 이동한다.
@@ -63,6 +64,7 @@ export default function HomePage() {
 </section>
 
       </div>
+      <SiteFooter />
     </div>
   )
 }

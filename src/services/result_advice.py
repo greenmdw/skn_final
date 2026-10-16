@@ -945,14 +945,13 @@ def savings_options(conn, revision_id: UUID, target: int | None = None, keep: li
 
 
 # ── 5. 이 게임 돌아가나 ──────────────────────────────────────────────────────
-def game_check(conn, revision_id: UUID, game: str) -> str:
-    """게임 요구 사양 표(추천 엔진이 쓰는 game_titles)와 지금 구성의 성능 등급·용량을 비교한다."""
-    from src.engine.stage2_requirement import game_title_label, game_title_status, load_computer_rules, match_games
-    rules = load_computer_rules()
-    keys, tiers, unknown = match_games(game, rules)
-    if not keys:
-        return (f"'{game}'은(는) 게임 요구 사양 표에 없어 비교할 수 없습니다. "
-                "해당 게임의 공식 권장 사양을 확인해 주세요.")
+def game_check(conn, revision_id: UUID, game: str, swap_slot: str | None = None, candidate_id: str | None = None) -> str:
+    """게임 요구 사양 표(추천 엔진이 쓰는 game_titles)와 구성의 성능 등급·용량을 비교한다.
+
+    `swap_slot`·`candidate_id` 를 주면 그 자리의 부품을 후보로 **바꿨다고 가정한** 구성으로 비교한다(구성표는 바꾸지 않는다) —
+    "RTX 4070 SUPER 로 바꿔도 사이버펑크 돌아가?"처럼 앞 답에서 본 후보 기준으로 확인하는 질문용이다."""
+    from src.engine.game_requirements_check import check_games, have_from_specs
+    from src.engine.stage2_requirement import normalize_pc_slot
     ctx = _context(conn, revision_id)
 
     def spec_of(slot: str) -> dict:
@@ -961,42 +960,27 @@ def game_check(conn, revision_id: UUID, game: str) -> str:
         if cand is not None:
             return cand.specs
         return ((ctx.spec.owned.get(slot) or {}).get("specs") or {})
-    gpu, cpu = spec_of("GPU"), spec_of("CPU")
+    gpu, cpu, ram_specs = spec_of("GPU"), spec_of("CPU"), spec_of("RAM")
     ram_row = ctx.row("RAM")
-    ram_gb = (spec_of("RAM").get("capacity_gb") or 0) * _qty(ram_row) if ram_row else None
-    gpu_left_out = "GPU" in ctx.spec.omitted_slots and ctx.row("GPU") is None
-    have = {"gpu": gpu.get("perf_tier"), "cpu": cpu.get("perf_tier"), "ram_gb": ram_gb or None, "vram_gb": gpu.get("vram_gb")}
-    label = {"gpu": "GPU 성능 등급", "cpu": "CPU 성능 등급", "ram_gb": "RAM 용량(GB)", "vram_gb": "VRAM(GB)"}
-    lines = []
-    for key, need in zip(keys, tiers):
-        status = game_title_status(key, rules)["status"]
-        parts, short, skipped = [], [], []
-        for k in ("gpu", "cpu", "ram_gb", "vram_gb"):
-            if need.get(k) is None:
-                continue
-            if k in ("gpu", "vram_gb") and gpu_left_out:
-                parts.append(f"{label[k]} 요구 {need[k]:g} / 그래픽카드를 넣지 않은 내장 그래픽 구성이라 비교하지 않음")
-                skipped.append(label[k])
-                continue
-            h = have.get(k)
-            if h is None:
-                parts.append(f"{label[k]} 요구 {need[k]:g} / 지금 정보 없음")
-                continue
-            ok = float(h) >= float(need[k])
-            parts.append(f"{label[k]} 요구 {need[k]:g} / 지금 {float(h):g}" + ("" if ok else " ⚠ 미달"))
-            if not ok:
-                short.append(label[k])
-        verdict = (f"요구 기준 미달: {', '.join(short)}" if short else
-                   "비교한 요구 기준을 모두 채움(그래픽카드가 없는 내장 그래픽 구성이라 GPU·VRAM 기준은 비교하지 않음)" if skipped else
-                   "표의 요구 기준을 모두 채움")
-        src = "배급사 권장 사양 확인값" if status == "approved" else "권장 사양을 대략 옮긴 잠정값이라 공식 권장 사양 확인 필요"
-        aliases = (rules["requirements"]["game_titles"].get(key) or {}).get("aliases") or []
-        names = "/".join(dict.fromkeys(a for a in aliases if re.search(r"[가-힣]", a))) or game_title_label(key, rules)
-        lines.append(f"{names}: {verdict} — " + " · ".join(parts) + f" ({src})")
-    if unknown:
-        lines.append(f"표에 없는 게임: {', '.join(unknown)}")
-    lines.append("표의 기준은 권장 사양 수준이며 실제 프레임(fps)은 계산하지 않습니다.")
-    return "\n".join(lines)
+    ram_qty = _qty(ram_row) if ram_row else 1
+    note = ""
+    if swap_slot and candidate_id:
+        cand = ctx.by_variant.get(str(candidate_id))
+        slot = normalize_pc_slot(swap_slot) or swap_slot
+        if cand is None or slot not in ("GPU", "CPU", "RAM"):
+            return "오류: 바꿔 볼 후보를 찾지 못했습니다. list_alternatives 가 준 candidate_id 와 GPU·CPU·RAM 슬롯을 쓰세요."
+        if slot == "GPU":
+            gpu = cand.specs
+        elif slot == "CPU":
+            cpu = cand.specs
+        else:
+            ram_specs, ram_qty, ram_row = cand.specs, ram_config.pair_qty(cand.specs) or 1, True
+        # candidate_id 는 다음 턴("확인해줘")이 같은 후보로 이어 묻게 도구 결과에 남긴다 — 화면에 낼 때는 for_user 가 뺀다.
+        note = f"가정: {slot} 를 {cand.name} 로 바꾼 구성 기준입니다(구성표는 그대로) · candidate_id={candidate_id}\n"
+    # 신규 조립에서 일부러 뺀 GPU(내장 그래픽 구성)는 GPU·VRAM 기준을 "정보 없음"이 아니라 비교 제외로 낸다 — GPU 를 바꿔 본 가정이면 비교한다.
+    gpu_left_out = "GPU" in ctx.spec.omitted_slots and ctx.row("GPU") is None and not (note and slot == "GPU")
+    have = have_from_specs(gpu, cpu, ram_specs if ram_row else None, ram_qty)
+    return note + check_games(game, have, subject="바꾼 뒤" if note else "지금", integrated_graphics=gpu_left_out)
 
 
 # ── 화면에 낼 때 ─────────────────────────────────────────────────────────────

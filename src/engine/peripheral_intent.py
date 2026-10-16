@@ -20,13 +20,14 @@ from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, Field
 
+from src.dto import PERIPHERAL_KINDS, PeripheralKind
 from src.engine import spec_rules
 from src.engine.peripheral_rules import (
-    emphasis_cfg, kind_def, load_peripheral_rules, pc_purpose_map, peripheral_kinds, purpose_codes, purposes, ranking_def,
-    situations, spec_conditions,
+    conflicts, emphasis_cfg, kind_def, load_peripheral_rules, pc_purpose_map, peripheral_kinds, purpose_codes, purposes, ranking_def,
+    situations, spec_conditions, split_purpose_codes,
 )
 
-Kind = Literal["monitor", "keyboard", "mouse", "speaker"]
+Kind = PeripheralKind
 HandSize = Literal["small", "medium", "large"]
 
 BUDGET_MAX_WON = 10_000_000          # 이 값을 넘는 금액은 예산으로 읽지 않는다(오입력·오해석 방어)
@@ -49,6 +50,24 @@ _INJECTION_CUES = re.compile(
 )
 
 
+QUESTION_TYPES = ("term", "compat", "capabilities", "conditions", "compare", "why", "spec", "review", "other")
+QUESTION_TOPIC_MAX_CHARS = 40
+
+
+class Question(BaseModel):
+    """이번 문장이 조건이 아니라 질문일 때의 종류(QA PQA-014). 조건과 달리 **이번 턴에만** 있다 — 이어 말해도 누적하지 않는다.
+
+    type — term 용어 설명 · compat 내 PC와 맞는지 · capabilities 할 수 있는 일 · conditions 말할 수 있는 조건 · compare 1위와 다른
+           선택지의 차이 · why 고른 이유 · spec 스펙 값 · review 사용기 근거 · other 위에 없는 질문(범위 밖)
+    topic — term 은 용어 이름, spec·review 는 설정 chat.spec_topics·review_topics 의 이름. 없으면 None
+    kinds — 질문이 가리키는 종류(문장에 이름이 나온 것). 비면 결과의 모든 종류
+    """
+
+    type: str
+    topic: str | None = None
+    kinds: list[Kind] = Field(default_factory=list)
+
+
 class Interpretation(BaseModel):
     """문장 해석 결과(견적 입력 설계 4.1). 이어서 말하면 이전 결과에 더해진다(`merge`)."""
 
@@ -58,11 +77,13 @@ class Interpretation(BaseModel):
     stated: dict[Kind, list[str]] = Field(default_factory=dict)      # 직접 말한 스펙 조건(종류 → 조건 이름)
     hand_size: HandSize | None = None
     budget: dict[Kind, int] = Field(default_factory=dict)            # 종류별 예산 상한(원)
+    budget_min: dict[Kind, int] = Field(default_factory=dict)        # 종류별 가격 하한(원) — "6만원 이상"
     budget_total: int | None = None                                   # 여러 종류를 합친 예산(원)
     emphasis: dict[Kind, list[str]] = Field(default_factory=dict)    # 강조한 축(종류 → 가격·리뷰·무상AS·브랜드·스펙 기준 이름)
     brand_like: dict[Kind, list[str]] = Field(default_factory=dict)  # 선호 브랜드(카탈로그 이름)
     brand_avoid: dict[Kind, list[str]] = Field(default_factory=dict)  # 기피 브랜드 — 후보에서 뺀다
     unrecognized: list[str] = Field(default_factory=list)
+    question: Question | None = None                                  # 이번 문장이 질문이면 그 종류(누적하지 않는다)
 
 
 class ResolvedCondition(BaseModel):
@@ -82,6 +103,8 @@ class ResolvedKind(BaseModel):
     filters: list[ResolvedCondition] = Field(default_factory=list)
     feel: list[str] = Field(default_factory=list)
     taste: list[str] = Field(default_factory=list)
+    # 함께 있을 수 없는 조건이 둘 다 풀린 경우(설정 conflicts). kept 가 None 이면 둘 다 뺐다 — 채팅에서 되묻는다.
+    conflicts: list[dict[str, Any]] = Field(default_factory=list)
 
     def preference_prefs(self) -> list[dict[str, Any]]:
         return spec_rules.dedupe_prefs([p for c in self.preferences for p in c.prefs])
@@ -97,17 +120,21 @@ class ResolvedKind(BaseModel):
 
 def kinds_all_order(kinds: list[str]) -> list[str]:
     """화면과 결과에서 종류를 늘 같은 순서로 보여주기 위한 고정 순서."""
-    order = ["monitor", "keyboard", "mouse", "speaker"]
-    return [k for k in order if k in kinds]
+    return [k for k in PERIPHERAL_KINDS if k in kinds]
 
 
 def _unique(values) -> list:
     return list(dict.fromkeys(values))
 
 
+def squash_spaces(text: str | None) -> str:
+    """연속 공백(줄바꿈 포함)을 한 칸으로, 앞뒤 공백은 없앤다."""
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
 def normalize_text(text: str) -> str:
     """같은 문장을 같은 열쇠로 보게 한다: 공백 정리, 소문자."""
-    return re.sub(r"\s+", " ", (text or "")).strip().lower()
+    return squash_spaces(text).lower()
 
 
 def looks_like_injected_instruction(text: str) -> bool:
@@ -130,6 +157,16 @@ def _positive_won(value: Any) -> int | None:
     return won if 0 < won <= BUDGET_MAX_WON else None
 
 
+def _question(raw: Any, kinds_all: list[str]) -> Question | None:
+    """질문 종류는 정해진 목록 안의 값만 받는다. 모르는 종류·형식이면 질문이 아닌 것으로 본다."""
+    if not isinstance(raw, dict) or raw.get("type") not in QUESTION_TYPES:
+        return None
+    topic = raw.get("topic")
+    topic = topic.strip()[:QUESTION_TOPIC_MAX_CHARS] if isinstance(topic, str) and topic.strip() else None
+    kinds = raw.get("kinds") if isinstance(raw.get("kinds"), list) else []
+    return Question(type=raw["type"], topic=topic, kinds=kinds_all_order([k for k in kinds if k in kinds_all]))
+
+
 def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
     """언어 모델이나 요청 바디의 dict 를 목록 안의 값만 남긴 `Interpretation` 으로 바꾼다.
     목록에 없는 값은 조용히 뺀다(만들어 넣지 않는다). 형식이 아예 맞지 않으면 빈 결과다."""
@@ -137,8 +174,11 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
     data = raw if isinstance(raw, dict) else {}
     kinds_all = peripheral_kinds(rules)
 
+    def _strings(value: Any) -> list[str]:
+        return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
     def _names(value: Any, allowed: set[str]) -> list[str]:
-        return _unique(v for v in (value if isinstance(value, list) else []) if isinstance(v, str) and v in allowed)
+        return _unique(v for v in _strings(value) if v in allowed)
 
     stated: dict[str, list[str]] = {}
     raw_stated = data.get("stated") if isinstance(data.get("stated"), dict) else {}
@@ -150,16 +190,18 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
 
     raw_budget = data.get("budget") if isinstance(data.get("budget"), dict) else {}
     budget = {k: w for k, v in raw_budget.items() if k in kinds_all and (w := _positive_won(v)) is not None}
+    raw_budget_min = data.get("budget_min") if isinstance(data.get("budget_min"), dict) else {}
+    budget_min = {k: w for k, v in raw_budget_min.items() if k in kinds_all and (w := _positive_won(v)) is not None}
 
     # 직접 말한 조건이나 예산이 있는 종류는 찾는 종류에도 넣는다(종류를 따로 적지 않은 모델 출력 보정).
-    kinds = _unique([*_names(data.get("kinds"), set(kinds_all)), *stated, *budget])
+    kinds = _unique([*_names(data.get("kinds"), set(kinds_all)), *stated, *budget, *budget_min])
     kinds = kinds_all_order(kinds)
 
     unrecognized: list[str] = []
     for item in data.get("unrecognized") if isinstance(data.get("unrecognized"), list) else []:
         if not isinstance(item, str):
             continue
-        text = re.sub(r"\s+", " ", item).strip()[:UNRECOGNIZED_MAX_CHARS]
+        text = squash_spaces(item)[:UNRECOGNIZED_MAX_CHARS]
         if text and not looks_like_injected_instruction(text):
             unrecognized.append(text)
 
@@ -183,18 +225,19 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
     for kind in brand_like:                                # 선호 브랜드를 말했으면 브랜드 축을 강조한다(기획 3.3)
         emphasis[kind] = _unique([*emphasis.get(kind, []), "브랜드"])
 
-    sit_codes = set(situations(rules))
-    purpose_hits = _names(data.get("purposes"), set(purpose_vocabulary(rules)) | sit_codes)
+    purpose_hits, situation_hits = split_purpose_codes(_strings(data.get("purposes")), _strings(data.get("situations")), rules)
     return Interpretation(
         kinds=kinds,
-        purposes=[c for c in purpose_hits if c not in sit_codes],
-        situations=_unique([*_names(data.get("situations"), sit_codes), *(c for c in purpose_hits if c in sit_codes)]),
+        purposes=purpose_hits,
+        situations=situation_hits,
         stated=stated,
         hand_size=data.get("hand_size") if data.get("hand_size") in ("small", "medium", "large") else None,
         budget=budget,
+        budget_min=budget_min,
         budget_total=_positive_won(data.get("budget_total")),
         emphasis=emphasis, brand_like=brand_like, brand_avoid=brand_avoid,
         unrecognized=_unique(unrecognized)[:UNRECOGNIZED_MAX_ITEMS],
+        question=_question(data.get("question"), kinds_all),
     )
 
 
@@ -202,25 +245,49 @@ def _union_per_kind(a: dict[str, list[str]], b: dict[str, list[str]]) -> dict[st
     return {kind: _unique([*a.get(kind, []), *b.get(kind, [])]) for kind in {*a, *b}}
 
 
-def merge(previous: Interpretation | None, new: Interpretation) -> Interpretation:
-    """문장을 이어서 말하면 이전 조건에 더한다(견적 입력 설계 3장). 조건을 빼려면 칩을 지운다."""
+def merge(previous: Interpretation | None, new: Interpretation, rules: dict | None = None) -> Interpretation:
+    """문장을 이어서 말하면 이전 조건에 더한다(견적 입력 설계 3장). 조건을 빼려면 칩을 지운다.
+
+    직접 말한 조건끼리 함께 있을 수 없는 쌍(설정 conflicts)이면 **나중에 말한 쪽이 이긴다**: 이번 문장이 한쪽을 말했고
+    이전에 반대쪽이 있으면 이전의 반대쪽을 지운다. 이번 문장이 쌍을 둘 다 말했으면 둘 다 둔다(풀이가 둘 다 빼고 되묻는다).
+    목적·상황에서 풀린 조건은 직접 말한 것이 아니라서 건드리지 않는다."""
     if previous is None:
         return new
     stated: dict[str, list[str]] = {}
     for kind in {*previous.stated, *new.stated}:
-        stated[kind] = _unique([*previous.stated.get(kind, []), *new.stated.get(kind, [])])
+        earlier = previous.stated.get(kind, [])
+        said_now = new.stated.get(kind, [])
+        if earlier and said_now:
+            for a, b in conflicts(kind, rules):
+                for kept, other in ((a, b), (b, a)):
+                    if kept in said_now and other not in said_now:
+                        earlier = [c for c in earlier if c != other]
+        stated[kind] = _unique([*earlier, *said_now])
+    # 가격 상한·하한은 나중에 말한 쪽이 이긴다 — 새로 말한 상한이 이전 하한보다 낮으면 이전 하한을, 새로 말한 하한이
+    # 이전 상한보다 높으면 이전 상한을 지운다(서로 어긋나 후보가 하나도 안 남는 것을 막는다). 이번 문장 안에서
+    # 둘 다 말했으면 둘 다 둔다.
+    budget = {**previous.budget, **new.budget}
+    budget_min = {**previous.budget_min, **new.budget_min}
+    for kind, upper in new.budget.items():
+        if kind in previous.budget_min and kind not in new.budget_min and previous.budget_min[kind] > upper:
+            del budget_min[kind]
+    for kind, lower in new.budget_min.items():
+        if kind in previous.budget and kind not in new.budget and previous.budget[kind] < lower:
+            del budget[kind]
     return Interpretation(
         kinds=kinds_all_order(_unique([*previous.kinds, *new.kinds])),
         purposes=_unique([*previous.purposes, *new.purposes]),
         situations=_unique([*previous.situations, *new.situations]),
         stated=stated,
         hand_size=new.hand_size or previous.hand_size,
-        budget={**previous.budget, **new.budget},
+        budget=budget,
+        budget_min=budget_min,
         budget_total=new.budget_total if new.budget_total is not None else previous.budget_total,
         emphasis=_union_per_kind(previous.emphasis, new.emphasis),
         brand_like=_union_per_kind(previous.brand_like, new.brand_like),
         brand_avoid=_union_per_kind(previous.brand_avoid, new.brand_avoid),
         unrecognized=_unique([*previous.unrecognized, *new.unrecognized])[:UNRECOGNIZED_MAX_ITEMS],
+        question=new.question,                         # 질문은 이번 턴 것만 — 앞 턴의 질문을 다시 답하지 않는다
     )
 
 
@@ -254,7 +321,20 @@ def resolve(interp: Interpretation, rules: dict | None = None) -> dict[str, Reso
             else:
                 sources.setdefault(cond_id, []).append("stated")
 
-        def _condition(cond_id: str, src: list[str]) -> ResolvedCondition:
+        dropped: list[dict[str, Any]] = []
+        for a, b in conflicts(kind, rules):
+            present = {c: c in filter_ids or c in sources for c in (a, b)}
+            if not all(present.values()):
+                continue
+            stated = {c: c in filter_ids or "stated" in sources.get(c, []) for c in (a, b)}
+            kept = a if stated[a] and not stated[b] else b if stated[b] and not stated[a] else None
+            for c in (a, b):
+                if c != kept:
+                    sources.pop(c, None)
+                    filter_ids = [f for f in filter_ids if f != c]
+            dropped.append({"conditions": [a, b], "labels": [conds[a]["label"], conds[b]["label"]], "kept": kept})
+
+        def _condition(cond_id: str, src: list[str], conds=conds) -> ResolvedCondition:
             cond = conds[cond_id]
             return ResolvedCondition(condition=cond_id, label=cond["label"], sources=src,
                                      prefs=[dict(p) for p in cond["prefs"]])
@@ -267,6 +347,7 @@ def resolve(interp: Interpretation, rules: dict | None = None) -> dict[str, Reso
             filters=[_condition(cid, ["stated"]) for cid in filter_ids],
             feel=_unique(f for c in applied for f in table[c]["feel"]),
             taste=_unique(t for c in applied for t in table[c]["taste"]),
+            conflicts=dropped,
         )
     return resolved
 
@@ -286,13 +367,95 @@ _KIND_WORDS: dict[str, tuple[str, ...]] = {
 }
 _TOTAL_HINT = re.compile(r"합쳐|합계|전부|전체|총\s*예산|다\s*해서")
 _AMOUNT = re.compile(r"(\d+(?:[.,]\d+)?)\s*(만\s*원|만원|만)")
+# 구간: "5~10만원", "5만원에서 10만원 사이", "5만원부터 10만원까지". 앞 금액이 하한, 뒤 금액이 상한이다.
+_RANGE = re.compile(
+    r"(\d+(?:[.,]\d+)?)\s*(?:만\s*원|만원|만)?\s*(~|∼|-|–|에서|부터)\s*(\d+(?:[.,]\d+)?)\s*(?:만\s*원|만원|만)")
+_RANGE_WORD_TAIL = re.compile(r"\s*(?:사이|까지|이하|이내)")           # "에서"·"부터" 구간은 끝말이 있어야 구간으로 본다
+# 금액 바로 뒤의 하한 표현("6만원 이상", "6만원 넘는", "6만원부터"). 이하·까지·안쪽·이내·미만은 기존대로 상한이다.
+_AFTER_MIN = re.compile(r"\s*(?:원\s*)?(?:[은는도]\s*)?(?:이상|넘|초과|부터)")
 _HAND_SMALL = re.compile(r"손이?\s*작|작은\s*손")
 _HAND_LARGE = re.compile(r"손이?\s*(?:크|큰)|큰\s*손")
 _KIND_PROXIMITY = 15      # 금액 앞쪽 몇 글자 안의 종류 이름을 그 금액의 대상으로 본다
 
 
+def _won_of(number: str) -> int:
+    return int(float(number.replace(",", "")) * 10_000)
+
+
+def _amount_events(lowered: str) -> list[tuple[int, int, str]]:
+    """문장 속 금액을 `(위치, 원, 역할)` 로 — 역할은 "max"(상한·예산) 또는 "min"(하한). 구간이면 앞이 min, 뒤가 max."""
+    events: list[tuple[int, int, str]] = []
+    spans: list[tuple[int, int]] = []
+    for match in _RANGE.finditer(lowered):
+        if match.group(2) in ("에서", "부터") and not _RANGE_WORD_TAIL.match(lowered, match.end()):
+            continue
+        low, high = sorted((_won_of(match.group(1)), _won_of(match.group(3))))
+        events += [(match.start(), low, "min"), (match.start(), high, "max")]
+        spans.append((match.start(), match.end()))
+    for match in _AMOUNT.finditer(lowered):
+        if any(a <= match.start() < b for a, b in spans):
+            continue
+        events.append((match.start(), _won_of(match.group(1)),
+                       "min" if _AFTER_MIN.match(lowered, match.end()) else "max"))
+    return sorted(events)
+
+
 def _contains_any(text: str, words) -> bool:
     return any(w.lower() in text for w in words)
+
+
+def _positions(text: str, words) -> list[tuple[int, int]]:
+    out = []
+    for w in words:
+        start = text.find(w)
+        while start >= 0:
+            out.append((start, start + len(w)))
+            start = text.find(w, start + 1)
+    return out
+
+
+def _near_hit(text: str, rule: dict, kind: str | None) -> bool:
+    """feel 낱말과 target 낱말이 순서와 관계없이 window 글자 안에 함께 있는가. 둘 사이에 다른 종류 이름이 끼면
+    그 종류를 꾸미는 말로 보고 읽지 않는다("묵직한 마우스랑 키보드" 의 "묵직" 은 키보드 키압이 아니다)."""
+    others = [w for k, words in _KIND_WORDS.items() if k != kind for w in words]
+    for fs, fe in _positions(text, rule["feel"]):
+        for ts, te in _positions(text, rule["target"]):
+            if abs(fs - ts) > rule["window"]:
+                continue
+            between = text[min(fe, te):max(fs, ts)]
+            if not _contains_any(between, others):
+                return True
+    return False
+
+
+def kinds_in_text(text: str) -> list[str]:
+    """문장에 이름이 나온 종류(고정 순서)."""
+    lowered = normalize_text(text)
+    return kinds_all_order([kind for kind, words in _KIND_WORDS.items() if _contains_any(lowered, words)])
+
+
+def near_reading(text: str, entry: dict, kind: str | None = None) -> str | None:
+    """이 항목이 낱말(`words`)이 아니라 가까이 나온 두 낱말(`near`)로만 읽혔으면 그 느낌 낱말을 돌려준다. 아니면 None.
+    채팅이 "'묵직한'을 키압이 묵직한 쪽으로 읽었어요"처럼 어떻게 읽었는지 말하는 데 쓴다."""
+    lowered = normalize_text(text)
+    for phrase in entry.get("exclude", ()):
+        lowered = lowered.replace(phrase.lower(), " " * len(phrase))
+    if _contains_any(lowered, entry["words"]):
+        return None
+    for rule in entry.get("near", ()):
+        if _near_hit(lowered, rule, kind):
+            return next((w for w in rule["feel"] if w in lowered), None)
+    return None
+
+
+def _entry_hits(text: str, entry: dict, kind: str | None = None) -> bool:
+    """설정 항목 하나(목적·상황·스펙 조건)가 문장에 걸리는가. `exclude` 낱말은 지우고 본다("텐키리스" 안의 "텐키"),
+    `near` 는 어순이 달라도 두 낱말이 가까이 있으면 걸린다."""
+    for phrase in entry.get("exclude", ()):
+        text = text.replace(phrase.lower(), " " * len(phrase))
+    if _contains_any(text, entry["words"]):
+        return True
+    return any(_near_hit(text, rule, kind) for rule in entry.get("near", ()))
 
 
 _EMPHASIS_AXIS_NAMES = ("가격", "리뷰", "무상AS", "브랜드")
@@ -359,33 +522,34 @@ def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[st
 
     purpose_hits = []
     for code in purpose_vocabulary(rules):
-        words = [w for kind in kinds_all for w in purposes(kind, rules).get(code, {}).get("words", [])]
-        if _contains_any(lowered, words):
+        entries = [(kind, purposes(kind, rules)[code]) for kind in kinds_all if code in purposes(kind, rules)]
+        if any(_entry_hits(lowered, entry, kind) for kind, entry in entries):
             purpose_hits.append(code)
-    situation_hits = [code for code, entry in situations(rules).items() if _contains_any(lowered, entry["words"])]
+    situation_hits = [code for code, entry in situations(rules).items() if _entry_hits(lowered, entry)]
 
     stated: dict[str, list[str]] = {}
     scope = kinds or kinds_all          # 종류를 가리지 않은 말은 모든 종류에 적용한다
     for kind in scope:
-        ids = [cid for cid, cond in spec_conditions(kind, rules).items() if _contains_any(lowered, cond["words"])]
+        ids = [cid for cid, cond in spec_conditions(kind, rules).items() if _entry_hits(lowered, cond, kind)]
         if ids:
             stated[kind] = ids
     if not kinds:
         stated = {}         # 종류를 모르면 직접 말한 조건도 붙일 곳이 없다(카드로 종류를 묻는다)
 
     budget: dict[str, int] = {}
+    budget_min: dict[str, int] = {}
     budget_total: int | None = None
-    for match in _AMOUNT.finditer(lowered):
-        won = int(float(match.group(1).replace(",", "")) * 10_000)
+    for start, won, role in _amount_events(lowered):
         if not 0 < won <= BUDGET_MAX_WON:
             continue
-        before = [(pos, kind) for kind, pos in positions.items() if 0 <= match.start() - pos <= _KIND_PROXIMITY]
+        target = budget_min if role == "min" else budget
+        before = [(pos, kind) for kind, pos in positions.items() if 0 <= start - pos <= _KIND_PROXIMITY]
         if before and not _TOTAL_HINT.search(lowered):
-            budget[max(before)[1]] = won          # 금액에 가장 가까이 앞선 종류 이름
+            target[max(before)[1]] = won          # 금액에 가장 가까이 앞선 종류 이름
         elif len(kinds) == 1 and not _TOTAL_HINT.search(lowered):
-            budget[kinds[0]] = won
-        elif kinds:
-            budget_total = won
+            target[kinds[0]] = won
+        elif kinds and role == "max":
+            budget_total = won                    # 하한은 종류별로만 둔다 — 합계 하한은 두지 않는다
         # 종류를 모르는 금액은 버린다 — 어느 기기의 예산인지 가릴 수 없다
 
     hand = "small" if _HAND_SMALL.search(lowered) else "large" if _HAND_LARGE.search(lowered) else None
@@ -397,6 +561,7 @@ def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[st
         stated=stated,
         hand_size=hand,
         budget=budget,
+        budget_min=budget_min,
         budget_total=budget_total,
         emphasis=emphasis, brand_like=brand_like, brand_avoid=brand_avoid,
     )

@@ -241,6 +241,8 @@ export interface QuoteDraftSource {
   sortOrder: number
   status: 'completed' | 'failed'
   errorCode: string | null
+  qualityWarning: string | null     // 사진이 작거나 흐릴 때의 안내
+  ignoredLines: string[]            // 튜닝·액세서리라 분석에서 뺀 줄
 }
 
 export type QuoteMatchStatus = 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'
@@ -266,6 +268,8 @@ export interface QuoteDraftItem {
   sourceIds: string[]
   selectedForAnalysis: boolean
   userEdited: boolean
+  /** 'model' = 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾아 확정했다(제조사 확인을 권한다) */
+  matchVia?: 'model' | null
   /** 실시간 검색 값이 저장소에 있어 점검에 쓰인다. 제품 확정이 아니다 */
   liveValue?: boolean
 }
@@ -280,6 +284,8 @@ export interface QuoteDraft {
   question: string | null
   partialSuccess: boolean
   groups: { id: string; name: string; sourceIds: string[]; itemIds: string[] }[]
+  /** 올린 사진이 서로 다른 견적처럼 보이면 'separate' — 화면의 기본 선택일 뿐이다 */
+  sourceModeHint: 'single' | 'separate'
   createdAt: string
 }
 
@@ -390,7 +396,24 @@ export interface QuoteSavedComparison {
   rows: { category: string; sameProduct: boolean; received: QuoteComparisonProduct | null; saved: QuoteComparisonProduct | null; priceDiff: number | null }[]
   briefSummary: { changedCount: number; largestPriceDifferenceCategory: string | null; text: string }
   savedName: string
+  /** 'draft_quotes' = 올린 두 견적끼리 비교(저장 견적 비교가 아님) */
+  kind: string | null
+  labels: { received: string; saved: string }
+  /** 서로 다른 두 견적의 기준별 값. 기준마다 따로 보여 주고 종합 우열은 없다 */
+  criteria: QuoteCriterion[]
   computedAt: string
+}
+
+export interface QuoteCriterion {
+  key: string
+  label: string
+  aText: string
+  bText: string
+  /** 어느 쪽 값이 더 좋은가('a'·'b'·같음 'tie'·확인 못 해 비교 안 함 null) — 기준마다 따로다 */
+  better: 'a' | 'b' | 'tie' | null
+  higherIsBetter: boolean
+  /** true 면 우열이 없는 참고 줄(예: 카탈로그로 확정된 부품 수) */
+  info: boolean
 }
 
 /** 서버가 조립한 질문 답변 자료. 알 수 없는 형식은 화면에서 버린다(서버 값만 그대로 그린다). */
@@ -442,13 +465,24 @@ export interface PeripheralInterpretation {
   handSize: 'small' | 'medium' | 'large' | null
   /** 종류별 예산 상한(원) */
   budget: Partial<Record<PeripheralKind, number>>
+  /** 종류별 최소 가격(원) — "6만원 이상"처럼 말했을 때. 서버가 아직 안 주면 비어 있다 */
+  budgetMin: Partial<Record<PeripheralKind, number>>
   /** 여러 종류를 합친 예산(원) */
   budgetTotal: number | null
+  /** 강조한 축(종류 → 가격·리뷰·무상AS·브랜드·스펙 기준 이름). 선호 브랜드를 말하면 "브랜드"가 저절로 붙는다 */
+  emphasis: Partial<Record<PeripheralKind, string[]>>
+  /** 선호 브랜드(종류 → 브랜드 이름) */
+  brandLike: Partial<Record<PeripheralKind, string[]>>
+  /** 빼 달라고 한 브랜드(종류 → 브랜드 이름). 후보에서 빠진다 */
+  brandAvoid: Partial<Record<PeripheralKind, string[]>>
   /** 서버가 목록에서 찾지 못해 반영하지 못한 말 */
   unrecognized: string[]
 }
 
 export interface PeripheralResolvedCondition { condition: string; label: string; sources: string[] }
+
+/** 함께 고를 수 없는 두 조건이 둘 다 말해졌을 때 서버가 어떻게 정리했는지. kept 가 null 이면 둘 다 뺐다(다시 물어야 한다) */
+export interface PeripheralConflict { conditions: string[]; labels: string[]; kept: string | null }
 
 /** 한 종류에 대한 풀이. preferences 는 순위만 바꾸는 선호, filters 는 직접 말해서 거르는 조건이다 */
 export interface PeripheralResolvedKind {
@@ -457,6 +491,7 @@ export interface PeripheralResolvedKind {
   purposes: { code: string; label: string }[]
   preferences: PeripheralResolvedCondition[]
   filters: PeripheralResolvedCondition[]
+  conflicts: PeripheralConflict[]
 }
 
 export interface PeripheralInterpretRequest {
@@ -483,13 +518,49 @@ export interface PeripheralRecommendRequest {
   kinds: PeripheralKind[]
   /** 여러 종류를 합친 예산(interpretation.budgetTotal) */
   budgetMax?: number
-  /** 아래 네 값은 interpretation 의 같은 이름 필드를 그대로 싣는다 */
+  /** 아래 값은 interpretation 의 같은 이름 필드를 그대로 싣는다 */
   purposes?: string[]
   situations?: string[]
   stated?: Partial<Record<PeripheralKind, string[]>>
   kindBudget?: Partial<Record<PeripheralKind, number>>
+  /** 종류별 최소 가격(원). interpretation.budgetMin */
+  kindBudgetMin?: Partial<Record<PeripheralKind, number>>
+  emphasis?: Partial<Record<PeripheralKind, string[]>>
+  brandLike?: Partial<Record<PeripheralKind, string[]>>
+  brandAvoid?: Partial<Record<PeripheralKind, string[]>>
+  handSize?: 'small' | 'medium' | 'large' | null
   /** 주면 그 PC 견적의 해상도로 모니터 교차검사를 켠다(내 것이 아니면 서버가 조용히 무시) */
   pcListId?: string
+}
+
+/** 채팅 한 턴(POST /session/{id}/peripherals/chat)의 서버 답. 화면은 reply 를 그대로 보여 준다 */
+export interface PeripheralTurn {
+  /** 이번 문장에서 새로 반영한 것(앞 턴 것은 없다) */
+  newConditions: { kind: string; label: string }[]
+  /** 반영하지 못한 말과 이유 */
+  notReflected: string[]
+  /** 어떻게 읽었는지·함께 고를 수 없어 정리한 조건 */
+  notes: string[]
+  /** 질문이면 답 */
+  answer: { type: string; topic: string | null; text: string; kinds: PeripheralKind[]; chips: string[] } | null
+  /** 위를 순서대로 이은 채팅 답장 */
+  reply: string
+  /** 이번 답 뒤에 보여 줄 질문 칩 */
+  chips: string[]
+  /** 추천 결과가 나온 뒤에 보여 줄 질문 칩 */
+  resultChips: string[]
+}
+
+export interface PeripheralChatRequest extends PeripheralInterpretRequest {
+  /** 추천을 받은 세션. 없으면 서버에 빈 세션을 만든다 */
+  sessionId?: string | null
+  /** 묶은 PC 견적(내 PC와 맞는지 묻는 질문에 쓴다) */
+  pcListId?: string
+}
+
+export interface PeripheralChatResult extends PeripheralInterpretResult {
+  sessionId: string
+  turn: PeripheralTurn
 }
 
 /** 한 평가 기준(타건감·연결 안정성 등)에 모인 후기 관측 집계 */
@@ -502,6 +573,48 @@ export interface PeripheralReviewAspect {
   mixed: number
   /** 대표 관측 문장(서버가 후기에서 뽑은 것) */
   quote: string | null
+  /** 대표 문장의 방향. 서버가 다수 의견 쪽 문장을 고른다. 서버가 안 주면 null */
+  quoteDirection?: 'positive' | 'negative' | 'mixed' | null
+  /** 적은 쪽 의견도 적지 않다(갈리는 점) */
+  dissent?: boolean
+}
+
+/** 점수 축 하나(서버가 사용자말 이름 label 을 준다). value 는 0~1, weight 는 비중 */
+export interface PeripheralScoreAxis { axis: string; label: string; value: number; weight: number; points: number }
+/** 카드에 한 줄로 보이는 필수 스펙 하나 */
+export interface PeripheralKeySpec { key: string; label: string; value: string }
+/** 사용자가 말한 조건을 스펙 값으로 확인한 결과("무게 76g · 80g 이하") */
+export interface PeripheralSpecCheck { key: string; text: string; ok: boolean }
+/** 사용자가 말한 항목 하나와 그 근거 연결. feelCodes 는 체감 속성 코드, externalAspects 는 외부 리뷰 항목 코드 */
+export interface PeripheralRequested {
+  label: string
+  source: 'stated' | 'situation' | 'purpose'
+  /** spec: 스펙 값으로 판정 · evidence: 사용기·외부 리뷰로 판단 */
+  type: 'spec' | 'evidence'
+  specChecks: PeripheralSpecCheck[]
+  feelCodes: string[]
+  externalAspects: string[]
+}
+/** 통과한 후보 안에서 싼 순서(rank 번째, 총 of 개) */
+export interface PeripheralPricePosition { rank: number; of: number }
+
+export interface PeripheralAlternative {
+  name: string
+  price: number
+  diff: number
+  reviewAspects: PeripheralReviewAspect[]
+  reviewNote: string
+  /** 아래 네 값은 서버가 대안에도 제품 정보를 줄 때만 있다 */
+  variantId?: string | null
+  brand?: string | null
+  imageUrl?: string | null
+  productUrl?: string | null
+  /** 이 대안을 큰 카드로 올렸을 때 1위와 같은 정보량을 보이기 위한 값. 서버가 안 주면 비어 있다 */
+  keySpecs: PeripheralKeySpec[]
+  requested: PeripheralRequested[]
+  pricePosition: PeripheralPricePosition | null
+  scoreAxes: PeripheralScoreAxis[]
+  feel: PeripheralFeel | null
 }
 
 export interface PeripheralItem {
@@ -523,11 +636,18 @@ export interface PeripheralItem {
   reviewAspects: PeripheralReviewAspect[]
   reviewWeight: number
   reviewNote: string
-  /** 다른 선택지. 리뷰 근거는 1위와 같은 형식이고, 서버가 사양 점검·제품 식별자는 주지 않아 담기는 할 수 없다 */
-  alternatives: { name: string; price: number; diff: number; reviewAspects: PeripheralReviewAspect[]; reviewNote: string }[]
+  /** 다른 선택지. 서버가 제품 식별자(variantId)를 주는 경우에만 견적에 담을 수 있다(없으면 선택 버튼은 꺼져 있다) */
+  alternatives: PeripheralAlternative[]
   /** 체감 근거(사용기 분석). null 이면 보여 줄 근거가 없고 feelNote 만 보인다 */
   feel: PeripheralFeel | null
   feelNote: string | null
+  /** 필수 스펙 한 줄(값이 없는 항목은 서버가 뺀다) */
+  keySpecs: PeripheralKeySpec[]
+  /** 사용자가 말한 항목별 근거 연결. 말한 것이 없으면 비어 있다 */
+  requested: PeripheralRequested[]
+  pricePosition: PeripheralPricePosition | null
+  /** 점수 축(사용자말 이름 포함) */
+  scoreAxes: PeripheralScoreAxis[]
 }
 
 /** 체감 근거에 인용한 사용기 문장 하나. postId 로 커뮤니티 글을 연다 */
@@ -549,6 +669,9 @@ export interface PeripheralFeelAttribute {
   split: boolean
   mismatch: boolean
   quotes: PeripheralFeelQuote[]
+  /** 이 항목에 좋게·아쉽게 평가한 사용기 작성자 수(같은 조건 + 그 밖). 서버가 안 주면 없다 */
+  good?: number
+  bad?: number
 }
 
 export interface PeripheralFeel {
@@ -582,6 +705,8 @@ export interface PeripheralsResult {
   /** 목록에 없어 반영하지 않은 이름. 오류가 아니라 안내다 */
   ignoredInputs: string[]
   adjustChips: PeripheralAdjustChip[]
+  /** 채팅으로 알릴 유의사항(예: PC 견적 없이 고른 모니터). 추천은 그대로이고 주의할 점만 말한다 */
+  notices: { kind: string; code: string; text: string }[]
 }
 
 // ---- 제품 리뷰 요약(GET /reviews/summary/{product_key}) ----
@@ -598,6 +723,8 @@ export interface ReviewSummary {
   excludedRatio: number | null
   /** 상품 단위로 관측된 사실 문장들(점수가 아니다) */
   riskEvidence: string[]
+  /** 항목별로 좋다·아쉽다고 말한 리뷰 수("냉각 성능 — 좋다는 리뷰 7건 · 아쉽다는 리뷰 0건"). 리뷰 본문이 아니다 */
+  aspectFacts: string[]
   /** ready 면 분석이 있다, unavailable 이면 서버가 이 제품의 분석을 아직 갖고 있지 않다 */
   status: 'ready' | 'unavailable'
   dataNotice: string
@@ -725,6 +852,8 @@ export interface Api {
     recommend(request: PeripheralRecommendRequest, sessionId?: string | null): Promise<PeripheralsResult>
     /** 문장 한 줄을 정해진 목록의 값으로 읽는다(로그인 불필요, 주소별 분당 20회) */
     interpret(request: PeripheralInterpretRequest): Promise<PeripheralInterpretResult>
+    /** 채팅 한 턴: 문장 해석 + 질문 답변 + 서버가 만든 답장. sessionId 가 없으면 서버에 빈 세션을 만들어 쓴다 */
+    chat(request: PeripheralChatRequest): Promise<PeripheralChatResult>
   }
   quoteDrafts: {
     /** 서버가 받을 수 있는 업로드 한도·이미지 인식 가능 여부. 화면 진입 때 확인한다 */
@@ -735,7 +864,9 @@ export interface Api {
     /** 여러 항목 수정·분석 기준 선택을 한 번에 저장한다. 버전이 다르면 STALE_REVIEW_VERSION */
     patchItems(draftId: string, expectedVersion: number, items: QuoteDraftItemEdit[], selectedItemByCategory?: Record<string, string>): Promise<QuoteDraft>
     /** 분석 기준으로 고른 항목만 분석한다(저장된 점검 결과가 만들어진다) */
-    analyze(draftId: string): Promise<QuoteDraftAnalysis>
+    analyze(draftId: string, sourceIds?: string[]): Promise<QuoteDraftAnalysis>
+    /** 올린 서로 다른 두 견적을 비교한다(저장 견적 비교와 같은 모양) */
+    compareQuotes(draftId: string, aSourceIds: string[], bSourceIds: string[]): Promise<QuoteSavedComparison>
     compareCategory(draftId: string, category: string, baselineItemId?: string): Promise<QuoteDraftComparison>
     previewReplacements(draftId: string, replacements: { category: string; candidateProductId: string }[]): Promise<QuoteReplacementPreview>
     applyReplacements(draftId: string, expectedVersion: number, replacements: { category: string; candidateProductId: string }[]): Promise<QuoteDraft>

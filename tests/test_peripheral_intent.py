@@ -76,6 +76,14 @@ def test_sanitize_drops_everything_outside_the_lists():
     assert got.hand_size is None and got.budget_total is None
 
 
+def test_sanitize_keeps_price_floor_inside_the_lists_and_implies_the_kind():
+    got = pi.sanitize({"budget_min": {"speaker": 60000, "keyboard": -1, "gpu": 50000, "mouse": "x", "monitor": 10**9}})
+    assert got.budget_min == {"speaker": 60000}
+    assert got.kinds == ["speaker"]
+    assert pi.sanitize({"budget_min": "not a dict"}).budget_min == {}
+    assert pi.sanitize({"budget": {"mouse": 30000}, "budget_min": {"mouse": 50000}}).budget_min == {"mouse": 50000}  # 둘 다 말했으면 둘 다 둔다
+
+
 def test_sanitize_adds_kinds_implied_by_stated_conditions_and_budget():
     got = pi.sanitize({"kinds": [], "stated": {"keyboard": ["bluetooth"]}, "budget": {"monitor": 300000}})
     assert got.kinds == ["monitor", "keyboard"]       # 종류는 늘 같은 순서
@@ -110,6 +118,41 @@ def test_merge_adds_to_previous_and_new_scalars_win():
     assert got.purposes == ["office"] and got.situations == ["quiet_place"]
     assert got.stated == {"mouse": ["wireless", "bluetooth"]}
     assert got.budget == {"mouse": 70000} and got.budget_total == 200000 and got.hand_size == "small"
+
+
+def test_merge_price_floor_is_added_and_new_value_wins():
+    prev = pi.Interpretation(kinds=["speaker"], budget_min={"speaker": 40000, "mouse": 10000})
+    got = pi.merge(prev, pi.Interpretation(kinds=["speaker"], budget_min={"speaker": 60000}))
+    assert got.budget_min == {"speaker": 60000, "mouse": 10000}
+
+
+def test_merge_new_ceiling_below_old_floor_drops_the_old_floor():
+    prev = pi.Interpretation(kinds=["speaker"], budget_min={"speaker": 60000})
+    got = pi.merge(prev, pi.Interpretation(kinds=["speaker"], budget={"speaker": 30000}))
+    assert got.budget == {"speaker": 30000} and got.budget_min == {}
+    same = pi.merge(prev, pi.Interpretation(kinds=["speaker"], budget={"speaker": 60000}))
+    assert same.budget_min == {"speaker": 60000}                         # 같은 값은 어긋나지 않는다
+
+
+def test_merge_new_floor_above_old_ceiling_drops_the_old_ceiling():
+    prev = pi.Interpretation(kinds=["speaker"], budget={"speaker": 30000})
+    got = pi.merge(prev, pi.Interpretation(kinds=["speaker"], budget_min={"speaker": 60000}))
+    assert got.budget_min == {"speaker": 60000} and got.budget == {}
+    other_kind = pi.merge(prev, pi.Interpretation(kinds=["mouse"], budget_min={"mouse": 60000}))
+    assert other_kind.budget == {"speaker": 30000}                       # 다른 종류는 건드리지 않는다
+
+
+def test_merge_keeps_both_when_one_sentence_says_both():
+    prev = pi.Interpretation(kinds=["speaker"], budget={"speaker": 30000}, budget_min={"speaker": 10000})
+    new = pi.Interpretation(kinds=["speaker"], budget={"speaker": 90000}, budget_min={"speaker": 50000})
+    got = pi.merge(prev, new)
+    assert got.budget == {"speaker": 90000} and got.budget_min == {"speaker": 50000}
+
+
+def test_interpretation_round_trips_budget_min_through_json():
+    got = pi.interpret_by_words("스피커 6만원 이상")
+    assert got.model_dump(mode="json")["budget_min"] == {"speaker": 60000}
+    assert pi.sanitize(got.model_dump(mode="json")).budget_min == {"speaker": 60000}
 
 
 # ── 목적 풀이 ─────────────────────────────────────────────────────────────
@@ -191,6 +234,48 @@ def test_words_do_not_read_unstated_wireless_from_a_purpose():
     got = pi.interpret_by_words("마우스 들고 다녀요")
     assert got.stated == {}
     assert "portable" in got.situations
+
+
+@pytest.mark.parametrize("text, budget, budget_min", [
+    ("스피커 6만원 이상되는 제품으로 변경해줘", {}, {"speaker": 60000}),
+    ("스피커 6만원 이상인 걸로", {}, {"speaker": 60000}),
+    ("스피커 6만원 이상의 제품", {}, {"speaker": 60000}),
+    ("스피커 6만원 넘는 걸로", {}, {"speaker": 60000}),
+    ("스피커 6만원 넘게", {}, {"speaker": 60000}),
+    ("스피커 6만원 초과", {}, {"speaker": 60000}),
+    ("스피커 6만원부터", {}, {"speaker": 60000}),
+    ("스피커 6만 원 이상", {}, {"speaker": 60000}),
+    ("스피커 6만원 이하", {"speaker": 60000}, {}),
+    ("스피커 6만원까지", {"speaker": 60000}, {}),
+    ("스피커 6만원 안쪽으로", {"speaker": 60000}, {}),
+    ("스피커 6만원 이내", {"speaker": 60000}, {}),
+    ("스피커 6만원 미만", {"speaker": 60000}, {}),
+    ("스피커 6만원 이하로 맞춰줘", {"speaker": 60000}, {}),
+    ("스피커 6만원", {"speaker": 60000}, {}),                                 # 말이 없으면 늘 해 오던 대로 상한
+    ("스피커 5만원 이상 10만원 이하", {"speaker": 100000}, {"speaker": 50000}),
+    ("스피커 5~10만원", {"speaker": 100000}, {"speaker": 50000}),
+    ("스피커 5만원에서 10만원 사이", {"speaker": 100000}, {"speaker": 50000}),
+    ("스피커 5만원부터 10만원까지", {"speaker": 100000}, {"speaker": 50000}),
+    ("스피커 10~5만원", {"speaker": 100000}, {"speaker": 50000}),               # 뒤집어 말해도 작은 쪽이 하한
+    ("스피커 10만원에서 20만원으로", {"speaker": 200000}, {}),                  # 끝말이 없으면 구간이 아니다(예전 동작)
+])
+def test_words_read_price_floor_and_ceiling(text, budget, budget_min):
+    got = pi.interpret_by_words(text)
+    assert got.kinds == ["speaker"]
+    assert got.budget == budget and got.budget_min == budget_min
+    assert got.budget_total is None
+
+
+def test_words_price_floor_follows_the_nearest_kind_and_never_becomes_a_total():
+    got = pi.interpret_by_words("마우스 3만원 이하 키보드 8만원 이상")
+    assert got.budget == {"mouse": 30000} and got.budget_min == {"keyboard": 80000}
+    total = pi.interpret_by_words("키보드랑 마우스 다 합쳐서 20만원 이상")
+    assert total.budget_min == {} and total.budget_total is None          # 합계 하한은 두지 않는다
+
+
+def test_words_price_floor_attaches_to_the_chosen_kind_card():
+    got = pi.interpret_by_words("6만원 이상으로", kinds_hint=["speaker"])
+    assert got.kinds == ["speaker"] and got.budget_min == {"speaker": 60000}
 
 
 def test_words_total_budget_for_several_kinds():
@@ -359,3 +444,164 @@ def test_agent_sanitizes_model_output(monkeypatch):
     })
     got = agent.interpret("마우스")
     assert got.kinds == ["mouse"] and got.purposes == ["office"] and got.unrecognized == ["게이밍 감성"]
+
+
+def test_agent_schema_and_prompt_know_the_price_floor(monkeypatch):
+    from src.agent import peripheral_intent_agent as agent
+
+    schema = agent._output_schema(load_peripheral_rules())
+    assert "budget_min" in schema["properties"] and "budget_min" in schema["required"]
+    assert "budget_min" in agent.build_system_prompt()
+    monkeypatch.setattr(agent, "call_llm", lambda *a, **k: {
+        "kinds": [], "purposes": [], "situations": [], "stated": {}, "hand_size": None,
+        "budget": {}, "budget_min": {"speaker": 60000}, "budget_total": None, "unrecognized": [],
+    })
+    got = agent.interpret("스피커 6만원 이상")
+    assert got.budget_min == {"speaker": 60000} and got.kinds == ["speaker"]       # 종류가 있으면 kinds 에도 들어간다
+
+
+# ── QA 해석 보강(docs/local/주변기기_추천_QA_기획.md, 2026-10-15) ─────────────────────
+@pytest.mark.parametrize("text, kind, cond", [
+    ("4K 모니터 추천", "monitor", "high_resolution"),             # PQA-007
+    ("UHD 모니터", "monitor", "high_resolution"),
+    ("QHD 165Hz 모니터", "monitor", "qhd"),
+    ("유선 마우스 3만원", "mouse", "wired"),                       # PQA-017
+])
+def test_words_read_qa_conditions(text, kind, cond):
+    assert cond in pi.interpret_by_words(text).stated.get(kind, [])
+
+
+def test_words_read_song_as_music():
+    """"노래 듣는 걸 좋아해"도 음악 감상 목적이다(PQA-019)."""
+    assert "music" in pi.interpret_by_words("나는 노래 듣는걸 좋아해", kinds_hint=["speaker"]).purposes
+
+
+@pytest.mark.parametrize("text", ["타건감 묵직한 키보드 찾아요", "타건감이 꽤 묵직한 거 키보드", "묵직한 키보드", "키보드 키압이 단단한 거"])
+def test_words_read_heavy_key_force_in_any_order(text):
+    """느낌 낱말과 대상 낱말이 어순과 관계없이 가까이 있으면 키압 조건으로 읽는다(near, PQA-005)."""
+    assert pi.interpret_by_words(text).stated.get("keyboard") == ["heavy_key_force"]
+
+
+def test_words_read_light_key_force_in_any_order():
+    assert pi.interpret_by_words("키보드 타건감이 가벼운 거").stated.get("keyboard") == ["light_key_force"]
+
+
+@pytest.mark.parametrize("text", ["무거운 키보드", "가벼운 키보드", "묵직한 마우스랑 키보드"])
+def test_words_do_not_read_key_force_from_body_or_other_kind(text):
+    """"무거운·가벼운 키보드"는 본체 무게·휴대일 수 있고, "묵직한 마우스랑 키보드"의 묵직은 마우스를 꾸민다."""
+    assert "heavy_key_force" not in pi.interpret_by_words(text).stated.get("keyboard", [])
+    assert "light_key_force" not in pi.interpret_by_words(text).stated.get("keyboard", [])
+
+
+def test_tenkeyless_is_not_read_as_numpad():
+    """"텐키리스" 안의 "텐키"를 숫자 키 목적으로 읽지 않는다(exclude, PQA-006)."""
+    got = pi.interpret_by_words("책상이 좁아서 텐키리스 키보드")
+    assert "numbers" not in got.purposes
+    assert got.stated == {"keyboard": ["compact"]}
+    assert "numbers" in pi.interpret_by_words("엑셀 하는데 텐키 있는 키보드").purposes
+
+
+def test_keyboard_key_force_words_do_not_leak_into_mouse_weight():
+    got = pi.interpret_by_words("가벼운 키압 키보드랑 마우스")
+    assert got.stated.get("keyboard") == ["light_key_force"]
+    assert "lightweight" not in got.stated.get("mouse", [])
+
+
+def test_conflicting_conditions_keep_the_stated_one():
+    """목적에서 풀린 풀배열과 직접 말한 텐키리스가 함께면 직접 말한 쪽만 남기고 알린다(conflicts, PQA-006)."""
+    kb = pi.resolve(pi.interpret_by_words("엑셀 많이 하는데 텐키리스로 키보드"))["keyboard"]
+    assert [c.condition for c in kb.preferences] == ["compact"]
+    assert kb.conflicts == [{"conditions": ["compact", "full_size"], "labels": ["텐키리스·컴팩트", "풀배열"], "kept": "compact"}]
+
+
+def test_conflicting_conditions_both_stated_are_both_dropped():
+    kb = pi.resolve(pi.interpret_by_words("텐키리스인데 풀배열 키보드"))["keyboard"]
+    assert kb.preferences == []
+    assert kb.conflicts[0]["kept"] is None
+
+
+# ── 상충 조건을 다시 말하면 나중에 말한 쪽이 이긴다(PQA-033) ─────────────────────────────
+def _conflicting_previous():
+    first = pi.interpret_by_words("텐키리스인데 풀배열 키보드")
+    assert set(first.stated["keyboard"]) == {"compact", "full_size"}
+    return first
+
+
+def test_merge_later_side_of_a_conflict_wins():
+    merged = pi.merge(_conflicting_previous(), pi.interpret_by_words("텐키리스로 할게요", kinds_hint=["keyboard"]))
+    assert merged.stated == {"keyboard": ["compact"]}
+    kb = pi.resolve(merged)["keyboard"]
+    assert [c.condition for c in kb.filters] + [c.condition for c in kb.preferences] == ["compact"]
+    assert kb.conflicts == []
+    other = pi.merge(_conflicting_previous(), pi.interpret_by_words("풀배열로 할게요", kinds_hint=["keyboard"]))
+    assert other.stated == {"keyboard": ["full_size"]}
+
+
+def test_merge_keeps_both_when_the_new_sentence_says_both_sides():
+    prev = pi.Interpretation(kinds=["keyboard"], stated={"keyboard": ["wireless"]})
+    new = pi.interpret_by_words("텐키리스인데 풀배열 키보드")
+    merged = pi.merge(prev, new)
+    assert set(merged.stated["keyboard"]) == {"wireless", "compact", "full_size"}
+    assert pi.resolve(merged)["keyboard"].conflicts[0]["kept"] is None        # 여전히 둘 다 빼고 되묻는다
+
+
+def test_merge_still_accumulates_conditions_without_a_conflict():
+    prev = pi.Interpretation(kinds=["keyboard"], stated={"keyboard": ["compact", "wireless"]})
+    merged = pi.merge(prev, pi.Interpretation(kinds=["keyboard"], stated={"keyboard": ["bluetooth"]}))
+    assert merged.stated == {"keyboard": ["compact", "wireless", "bluetooth"]}
+
+
+def test_merge_conflict_is_cleared_only_inside_the_same_kind():
+    prev = pi.Interpretation(kinds=["keyboard", "mouse"], stated={"keyboard": ["full_size"], "mouse": ["wireless"]})
+    new = pi.Interpretation(kinds=["mouse"], stated={"mouse": ["lightweight"]})
+    assert pi.merge(prev, new).stated == {"keyboard": ["full_size"], "mouse": ["wireless", "lightweight"]}
+    # 다른 종류의 조건 이름이 같은 쌍의 한쪽이어도 그 종류의 이전 조건만 정리한다
+    kb_new = pi.Interpretation(kinds=["keyboard"], stated={"keyboard": ["compact"]})
+    assert pi.merge(prev, kb_new).stated == {"keyboard": ["compact"], "mouse": ["wireless"]}
+
+
+def test_merge_does_not_touch_conditions_resolved_from_purposes():
+    """목적·상황은 stated 가 아니다 — 새 문장의 stated 가 상충해도 이전 목적·상황은 그대로다(풀이가 직접 말한 쪽을 남긴다)."""
+    prev = pi.interpret_by_words("엑셀 많이 하는 키보드")
+    assert prev.purposes and "full_size" not in prev.stated.get("keyboard", [])
+    merged = pi.merge(prev, pi.interpret_by_words("텐키리스로 할게요", kinds_hint=["keyboard"]))
+    assert merged.purposes == prev.purposes and merged.stated == {"keyboard": ["compact"]}
+    kb = pi.resolve(merged)["keyboard"]
+    assert kb.conflicts and kb.conflicts[0]["kept"] == "compact"
+
+
+def test_light_and_heavy_key_force_may_both_stay():
+    """키압 범위(45~60g)는 둘 다 충족할 수 있어 상충으로 보지 않는다(test_peripheral_key_force 와 같은 설계)."""
+    kb = pi.resolve(pi.interpret_by_words("가벼운 키압인데 묵직한 키감 키보드"))["keyboard"]
+    assert {c.condition for c in kb.preferences} == {"light_key_force", "heavy_key_force"} and kb.conflicts == []
+
+
+# 설정에서 짧은 낱말이 다른 항목의 긴 낱말 안에 들어가는 경우. 함께 읽히는 것이 맞는 겹침(저소음 스위치 → 조용해야 함도)은
+# 그대로 두고, 틀리게 읽히는 겹침만 exclude 로 막았다. 새 겹침이 생기면 이 시험이 깨진다 — 검토해서 목록에 더하거나 exclude 를 단다.
+_REVIEWED_OVERLAPS = {
+    ("게임", "리듬 게임"), ("밤에", "밤에 작게"), ("저소음", "저소음 스위치"), ("저소음", "저소음축"), ("저소음", "저소음 축"),
+    ("사무", "사무실"), ("음악", "배경 음악"), ("회의", "화상회의"),
+    ("텐키", "텐키리스"),                                                     # numbers.exclude
+    ("가벼운", "가벼운 키압"), ("가벼운", "가벼운 타건"), ("가벼운", "가벼운 키감"),   # mouse lightweight.exclude
+}
+
+
+def test_word_overlaps_are_reviewed():
+    rules = load_peripheral_rules()
+    entries = []
+    for kind in ("monitor", "keyboard", "mouse", "speaker"):
+        for code, e in rules["purposes"][kind].items():
+            entries += [(w, code) for w in e["words"]]
+        for code, e in rules["spec_conditions"][kind].items():
+            entries += [(w, code) for w in e["words"]]
+    entries += [(w, code) for code, e in situations(rules).items() for w in e["words"]]
+    found = {(short, long) for short, a in entries for long, b in entries if len(long) > len(short) and short in long and a != b}
+    assert found == _REVIEWED_OVERLAPS
+
+
+def test_recommend_body_hand_size_reaches_interpretation():
+    """추천 요청의 hand_size 가 해석에 들어가 체감 점수가 같은 손 크기 작성자를 묶을 수 있다(QA PQA-004)."""
+    from src.schemas import PeripheralsRecommendIn
+    from src.services.peripherals_service import _intent_from_body
+    interp, ignored = _intent_from_body(PeripheralsRecommendIn(kinds=["mouse"], hand_size="small"))
+    assert interp.hand_size == "small" and ignored == []

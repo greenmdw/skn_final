@@ -104,8 +104,10 @@ def test_parts_the_catalog_does_not_know_are_not_judged():
     assert row["state"] == "unknown" and "찾지 못해" in row["detail"]
 
 
-def test_a_nearest_but_unconfirmed_product_is_not_judged_either():
-    row = rows({"CPU": "9950X"}, GAME_QHD)[("CPU", "성능 등급")]          # 짧게 적어 '가장 비슷함'으로만 잡힌다
+def test_a_shortened_name_confirmed_by_its_model_number_is_judged_and_an_unknown_model_is_not():
+    row = rows({"CPU": "9950X"}, GAME_QHD)[("CPU", "성능 등급")]          # 모델 번호가 카탈로그에서 유일해 확정된다
+    assert row["state"] != "unknown"
+    row = rows({"CPU": "9950"}, GAME_QHD)[("CPU", "성능 등급")]           # 모델이 불완전해 확정되지 않는다
     assert row["state"] == "unknown"
 
 

@@ -1,0 +1,52 @@
+"""결과 화면 부품의 리뷰 요약 — 10/15 QA #27·#57 ("부품별 리뷰 요약이 전부 '아직 없어요'").
+
+결과 화면은 우리 카탈로그 키(`cooler:thermalright:…`)로 요약을 묻는데, 요약은 아마존 파일 산출물만 읽어 전부 404 였다.
+추천 순위가 읽는 수집 리뷰(evidence.review_document·review_aspect_aggregate)로 리뷰 수와 항목별 관측 수를 낸다.
+일회용 테스트 DB(setup_all 이 리뷰 시드 번들을 넣는다)가 필요하다."""
+from __future__ import annotations
+
+import os
+
+import pytest
+
+DSN = os.getenv("DATABASE_URL")
+pytestmark = [pytest.mark.db, pytest.mark.skipif(not DSN, reason="일회용 DB 필요")]
+
+if DSN:
+    import psycopg
+    from fastapi.testclient import TestClient
+
+    from src.api import app
+    from src.repo.catalog_repo import pc_catalog_key
+
+_KEY = "SELECT p.product_type, p.brand, p.model FROM catalog.product p WHERE "
+
+
+def _key(where: str) -> tuple[str, str]:
+    with psycopg.connect(DSN) as conn:
+        row = conn.execute(_KEY + where + " ORDER BY p.id LIMIT 1").fetchone()
+        assert row is not None, where
+        return pc_catalog_key(*row), row
+
+
+def test_a_catalog_part_with_reviews_gets_its_review_count_and_aspect_counts():
+    key, _ = _key("p.product_type IN ('cpu','gpu','cooler') AND EXISTS (SELECT 1 FROM evidence.review_aspect_aggregate a "
+                  "WHERE a.product_id = p.id AND a.p + a.n + a.mixed > 0)")
+    with psycopg.connect(DSN) as conn:
+        n = conn.execute("SELECT count(*) FROM evidence.review_document d JOIN catalog.product p ON p.id = d.product_id "
+                         "WHERE lower(replace(p.product_type||':'||p.brand||':'||p.model,' ','-')) = %s", (key,)).fetchone()[0]
+    r = TestClient(app).get(f"/reviews/summary/{key}")
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["status"] == "ready" and j["total_count"] == n > 0
+    assert j["aspect_facts"] and all("좋다는 리뷰" in line and "아쉽다는 리뷰" in line for line in j["aspect_facts"])
+    assert not any("_" in line for line in j["aspect_facts"])                 # 속성 코드가 아니라 사용자 말
+    assert j["rating_raw"] is None and j["excluded_count"] is None              # 모으지 않은 값은 비운다
+    assert f"{n:,}건" in j["data_notice"]
+
+
+def test_a_catalog_part_without_reviews_is_still_404():
+    key, _ = _key("p.product_type IN ('cpu','gpu','motherboard','psu','case','cooler','ram','ssd') AND NOT EXISTS "
+                  "(SELECT 1 FROM evidence.review_document d WHERE d.product_id = p.id)")
+    r = TestClient(app).get(f"/reviews/summary/{key}")
+    assert r.status_code == 404, r.text

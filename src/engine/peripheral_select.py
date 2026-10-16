@@ -49,7 +49,7 @@ from src.config import PENDING_SCORE_PENALTY
 from src.dto import Candidate, PeripheralPick, PeripheralRequirement, PeripheralResult
 from src.engine import LogFn, spec_rules
 from src.engine.peripheral_feel import attach_feel
-from src.engine.peripheral_requirement import build_requirements
+from src.engine.peripheral_requirement import build_requirements, monitor_notices
 from src.engine.peripheral_rules import kind_def, load_peripheral_rules, ranking_def, requested_kinds, scoring_cfg
 
 # requirement.hard 의 키 이름은 "판정 기준 이름"이지 후보 specs 키와 항상 같지 않다.
@@ -75,13 +75,20 @@ def _hard_prefs(hard: dict[str, Any]) -> list[dict[str, Any]]:
 
 def filter_candidates(
     kind: str, requirement: PeripheralRequirement, cands: list[Candidate], *, max_price: int | None = None,
+    min_price: int | None = None,
 ) -> tuple[list[Candidate], dict[str, int]]:
     """[3-A]. hard·filters 조건이 없는 종류는 전부 Pass다. `filters`(사용자가 직접 말한 조건)는 hard 와 같이
-    판정한다 — 값이 없으면 Pending 이고 탈락시키지 않는다. `max_price`(종류별 예산)를 넘는 후보는 뺀다."""
+    판정한다 — 값이 없으면 Pending 이고 탈락시키지 않는다. `max_price`(종류별 예산)를 넘는 후보와
+    `min_price`(종류별 최소 가격) 미만인 후보는 뺀다 — 거르기만 하고 점수는 건드리지 않는다."""
     prefs = _hard_prefs(requirement.hard) + list(requirement.filters)
     kept: list[Candidate] = []
     counts = {"pool": len(cands), "pass": 0, "fail": 0, "pending": 0, "over_price": 0}
+    if min_price is not None:
+        counts["under_price"] = 0
     for cand in cands:
+        if min_price is not None and cand.price < min_price:
+            counts["under_price"] += 1
+            continue
         if max_price is not None and cand.price > max_price:
             counts["over_price"] += 1
             continue
@@ -142,9 +149,55 @@ def evidence_penalty(n: int, cfg: dict[str, Any]) -> float:
     return round(cfg["evidence_penalty"] * max(0.0, 1.0 - n / cfg["evidence_min_n"]), 4)
 
 
+def _quantile(values: list[float], q: float) -> float:
+    ordered = sorted(values)
+    pos = q * (len(ordered) - 1)
+    lo = int(pos)
+    hi = min(lo + 1, len(ordered) - 1)
+    return ordered[lo] + (ordered[hi] - ordered[lo]) * (pos - lo)
+
+
+def review_axis_values(kept: list[Candidate], cfg: dict[str, Any]) -> dict[str, float]:
+    """후보별 리뷰 축 값(점수식용). R 자체는 바꾸지 않는다 — 응답의 R 은 그대로이고 여기서는 비교만 다시 한다.
+    ① 근거가 0건인 상품은 근거 있는 후보 값의 하위 분위수 이하로 둔다(풀 평균에서 출발해 낙관적이던 것을 막는다).
+    ② 후보가 review_spread_min_candidates 이상이고 값이 갈리면 후보 안 중간값 기준으로 편다: 0.5 + (값 − 중간) / max(범위, review_spread_min_span).
+    범위가 최소 폭 이상이면 min-max 와 같고, 더 좁으면(0.70~0.82 에 몰린 경우) 최소 폭만큼만 벌려 작은 차이를 과장하지 않는다."""
+    raw = {c.product_key: _feel_axis(c) for c in kept}
+    evidenced = [raw[c.product_key] for c in kept if evidence_count(c) > 0]
+    if evidenced:
+        floor = _quantile(evidenced, cfg["review_unevidenced_quantile"])
+        for c in kept:
+            if evidence_count(c) == 0:
+                raw[c.product_key] = min(raw[c.product_key], floor)
+    values = list(raw.values())
+    lo, hi = min(values), max(values)
+    if len(kept) >= cfg["review_spread_min_candidates"] and hi - lo > 1e-9:
+        span = max(hi - lo, cfg["review_spread_min_span"])
+        mid = (hi + lo) / 2
+        return {k: max(0.0, min(1.0, 0.5 + (v - mid) / span)) for k, v in raw.items()}
+    return raw
+
+
+def _brand_key(name: str) -> str:
+    return name.strip().lower()
+
+
+def _brand_keys(names) -> set[str]:
+    """브랜드 이름 목록을 비교용 열쇠(앞뒤 공백 제거, 소문자) 집합으로. 빈 이름은 뺀다."""
+    return {_brand_key(n) for n in (names or ()) if n and n.strip()}
+
+
+def _drop_avoided_brands(cands: list[Candidate], avoid: set[str]) -> tuple[list[Candidate], int]:
+    """기피 브랜드는 "빼 달라"는 명시 요청이라 후보에서 뺀다(기획 3.7). (남은 후보, 뺀 수)."""
+    if not avoid:
+        return cands, 0
+    kept = [c for c in cands if _brand_key(c.brand) not in avoid]
+    return kept, len(cands) - len(kept)
+
+
 def _brand_axis(cand: Candidate, like: set[str]) -> float:
     """선호 브랜드를 말했으면 그 브랜드 후보는 1, 나머지는 0.5. 말하지 않았으면 모두 0.5(판매량으로 점수를 주지 않는다)."""
-    return 1.0 if like and cand.brand.strip().lower() in like else 0.5
+    return 1.0 if like and _brand_key(cand.brand) in like else 0.5
 
 
 def _warranty_axis(cand: Candidate, months: dict[str, float]) -> float:
@@ -160,11 +213,19 @@ def _warranty_axis(cand: Candidate, months: dict[str, float]) -> float:
 
 def effective_weights(
     base: dict[str, float], criteria: dict[str, list[str]], stated_criteria: set[str], emphasis: set[str], cfg: dict[str, Any],
+    *, has_budget: bool = True, brand_liked: bool = False,
 ) -> tuple[dict[str, float], list[str]]:
-    """① 품목별 기본 가중치 → ② 강조한 축 ×emphasis_boost → ③ 직접 말한 소프트 조건이 있는 스펙 기준 ×stated_criterion_boost →
+    """① 품목별 기본 가중치(예산을 말하지 않았으면 가격 ×price_weight_without_budget, 선호 브랜드를 말했으면 브랜드를
+    brand_like_weight 로) → ② 강조한 축 ×emphasis_boost → ③ 직접 말한 소프트 조건이 있는 스펙 기준 ×stated_criterion_boost →
     ④ 합 1 정규화. 스펙을 강조하면서 그 조건도 말하면 ×(1.5×2)=×3 이 된다. 적용한 배수의 이유를 문장으로 함께 낸다."""
     raw = dict(base)
     reasons: list[str] = []
+    if not has_budget and "가격" in raw and cfg["price_weight_without_budget"] < 1:
+        raw["가격"] *= cfg["price_weight_without_budget"]
+        reasons.append(f"예산을 말하지 않아 '가격' 축 ×{cfg['price_weight_without_budget']:g}")
+    if brand_liked and "브랜드" in raw and cfg["brand_like_weight"] > raw["브랜드"]:
+        raw["브랜드"] = cfg["brand_like_weight"]
+        reasons.append(f"선호 브랜드를 말해 '브랜드' 축 기본 가중 {cfg['brand_like_weight']:g}")
     for axis in sorted(emphasis & set(raw)):
         raw[axis] *= cfg["emphasis_boost"]
         reasons.append(f"강조한 '{axis}' 축 ×{cfg['emphasis_boost']:g}")
@@ -209,14 +270,18 @@ def rank_candidates(
         if name is not None:
             by_criterion[name].append((pref, cfg["stated_pref_weight"] if pref in stated else 1.0))
     stated_criteria = {name for name, items in by_criterion.items() if any(pref in stated for pref, _ in items)}
-    final_weights, reasons = effective_weights(base, criteria, stated_criteria, set(emphasis or ()), cfg)
+    like = _brand_keys(brand_like)
+    final_weights, reasons = effective_weights(
+        base, criteria, stated_criteria, set(emphasis or ()), cfg,
+        has_budget=kind_budget is not None or budget is not None, brand_liked=bool(like),
+    )
+    review_values = review_axis_values(kept, cfg)
 
     median_price = statistics.median(c.price for c in kept)
     hard_keys = (_HARD_KEY_TO_PREF[name][0] for name in requirement.hard)
     judged_keys = sorted({*hard_keys, *(p["key"] for p in preferences), *(p["key"] for p in requirement.filters)})
     available = {k for k in judged_keys if any(c.specs.get(k) is not None for c in kept)}
     warranty = {c.product_key: float(c.specs["warranty_months"]) for c in kept if c.specs.get("warranty_months") is not None}
-    like = {b.strip().lower() for b in (brand_like or ()) if b and b.strip()}
 
     scored: list[Candidate] = []
     for cand in kept:
@@ -228,7 +293,7 @@ def rank_candidates(
             else:
                 wsum = sum(w for _, w in items)
                 values[name] = sum(w * _verdict_value(p, cand.specs) for p, w in items) / wsum
-        values["리뷰"] = _feel_axis(cand)
+        values["리뷰"] = review_values[cand.product_key]
         values["가격"] = (max(0.0, min(1.0, 1 - cand.price / kind_budget)) if kind_budget
                          else _price_axis(cand.price, median_price))
         values["브랜드"] = _brand_axis(cand, like)
@@ -252,7 +317,7 @@ def rank_candidates(
         scored.append(cand.model_copy(update={
             "score": round(raw, 3), "score_detail": detail,
             # 리뷰 값은 체감 적합도 R 그대로(반올림하지 않는다 — 응답의 R 과 같은 값이어야 한다). 나머지 축은 소수 셋째 자리.
-            "breakdown": {a: (v if a == "리뷰" else round(v, 3)) for a, v in values.items()}}))
+            "breakdown": {a: (_feel_axis(cand) if a == "리뷰" else round(v, 3)) for a, v in values.items()}}))
 
     ranked = sorted(scored, key=lambda c: (-c.score, c.price, c.product_key))
     return [c.model_copy(update={"rank": i + 1}) for i, c in enumerate(ranked)]
@@ -335,6 +400,7 @@ def _mark_close_calls(picks: list[PeripheralPick], rules: dict) -> None:
 
 def _empty_reason(
     kind: str, requirement: PeripheralRequirement, rules: dict, stats: dict[str, int], max_price: int | None = None,
+    min_price: int | None = None,
 ) -> str:
     """필터 후 0건일 때 화면에 보일 이유 문장(계획 §3.3 C6). 후보 자체가 없는 것, 예산에 걸린 것,
     하드 조건에 걸려 전부 떨어진 것을 구분한다."""
@@ -342,6 +408,11 @@ def _empty_reason(
     pool = stats["pool"]
     if pool == 0:
         return f"{label} 후보 자체가 카탈로그에 없습니다"
+    priced_out = stats.get("over_price", 0) + stats.get("under_price", 0)
+    if min_price is not None and priced_out == pool:
+        if max_price is not None:
+            return f"예산 {min_price:,}~{max_price:,}원 사이의 {label}가 카탈로그에 없습니다"
+        return f"{min_price:,}원 이상의 {label}가 카탈로그에 없습니다"
     if max_price is not None and stats.get("over_price") == pool:
         return f"예산 {max_price:,}원 안에 드는 {label}가 카탈로그에 없습니다"
     if requirement.filters and not requirement.hard:
@@ -376,6 +447,50 @@ def _feel_blocks(picks: list[PeripheralPick], values: dict, rules: dict) -> dict
     return out
 
 
+def _attach_views(picks: list[PeripheralPick], kinds_ranked: dict[str, list[Candidate]], values: dict, rules: dict) -> None:
+    """1위와 대안마다 결과 화면용 표시 값을 채운다: 요청 항목별 근거 연결·가격 순서, 대안은 체감 블록까지.
+    점수·순위는 바꾸지 않는다(이미 계산된 체감 상세와 규칙 파일의 display 절만 쓴다)."""
+    from src.engine.peripheral_display import price_position, requested_items
+    from src.engine.peripheral_evidence import build_feel_block
+    from src.engine.peripheral_intent import Interpretation
+
+    interp = values.get("peripheral_intent") or Interpretation()
+    for pick in picks:
+        resolved = (values.get("peripheral_resolved") or {}).get(pick.kind)
+        pool = kinds_ranked.get(pick.kind, [])
+        pick.requested = requested_items(pick.kind, pick.candidate.specs, interp, resolved, rules)
+        pick.price_position = price_position(pick.candidate, pool)
+        pick.alternative_views = [
+            {"feel": build_feel_block(alt.feel_detail, interp, resolved, pick.kind, rules),
+             "requested": requested_items(pick.kind, alt.specs, interp, resolved, rules),
+             "price_position": price_position(alt, pool)}
+            for alt in pick.alternatives
+        ]
+
+
+def _monitor_cross_check(
+    values: dict, pc_context: dict | None, picks_by_kind: dict[str, Candidate], requirements: dict[str, PeripheralRequirement],
+    rules: dict, log: LogFn,
+) -> tuple[list[dict], dict[str, list] | None]:
+    """E12 — 모니터를 골랐고 PC 쪽 정보(pc_context)가 있으면 교차 검사를 돌린다. 없으면(기본)
+    (검사 결과, 쟁점) 둘 다 비워 두어 기존 동작과 완전히 같게 만든다."""
+    if pc_context is None or "monitor" not in picks_by_kind:
+        return [], None
+    from src.engine import peripheral_cross
+    from src.engine.stage2_requirement import load_computer_rules
+
+    default_resolution = load_computer_rules()["requirements"]["default_resolution"]
+    pc_resolution = pc_context.get("resolution") or values.get("resolution") or default_resolution
+    target_refresh_hz = requirements["monitor"].hard.get("refresh_min_hz")
+    checks = peripheral_cross.monitor_cross_checks(
+        picks_by_kind["monitor"], pc_resolution=pc_resolution,
+        gpu_specs=pc_context.get("gpu_specs"), target_refresh_hz=target_refresh_hz, rules=rules,
+        integrated_graphics=bool(pc_context.get("integrated_graphics")),
+    )
+    log(f"      [P][E12] 모니터↔PC 교차 검사: {', '.join(c['axis'] + '=' + c['state'] for c in checks)}")
+    return checks, {"monitor": peripheral_cross.cross_issues(checks)}
+
+
 def run_peripherals(
     values: dict, candidates: dict[str, list[Candidate]], log: LogFn, *, pc_context: dict | None = None,
     require_review_details: bool = False,
@@ -408,18 +523,15 @@ def run_peripherals(
         cands = candidates.get(kind, [])
         req = requirements[kind]
         kind_budget = (values.get("peripheral_kind_budget") or {}).get(kind)
-        avoid = {b.strip().lower() for b in ((values.get("peripheral_brand_avoid") or {}).get(kind) or []) if b and b.strip()}
-        avoided = 0
-        if avoid:                                # 기피 브랜드는 "빼 달라"는 명시 요청이라 후보에서 뺀다(기획 3.7)
-            kept_cands = [c for c in cands if c.brand.strip().lower() not in avoid]
-            avoided, cands = len(cands) - len(kept_cands), kept_cands
-        kept, stats = filter_candidates(kind, req, cands, max_price=kind_budget)
+        kind_budget_min = (values.get("peripheral_kind_budget_min") or {}).get(kind)
+        cands, avoided = _drop_avoided_brands(cands, _brand_keys((values.get("peripheral_brand_avoid") or {}).get(kind)))
+        kept, stats = filter_candidates(kind, req, cands, max_price=kind_budget, min_price=kind_budget_min)
         if avoided:
             stats["avoided_brand"] = avoided
         counts[kind] = stats
         label = kind_def(kind, rules)["label"]
         if not kept:
-            reason = _empty_reason(kind, req, rules, stats, kind_budget)
+            reason = _empty_reason(kind, req, rules, stats, kind_budget, kind_budget_min)
             empty.append({"kind": kind, "reason": reason})
             log(f"      [P] {label}: 조건에 맞는 후보 0건 — {reason}")
             continue
@@ -428,7 +540,7 @@ def run_peripherals(
         ranked = rank_candidates(
             kind, req, kept, weights, budget=values.get("peripheral_budget_max"),
             require_review_details=require_review_details, kind_budget=kind_budget,
-            brand_like={b.strip().lower() for b in ((values.get("peripheral_brand_like") or {}).get(kind) or []) if b},
+            brand_like=(values.get("peripheral_brand_like") or {}).get(kind),
             emphasis=set((values.get("peripheral_emphasis") or {}).get(kind) or []), rules=rules,
         )
         interp = values.get("peripheral_intent")
@@ -446,25 +558,7 @@ def run_peripherals(
     picks_by_kind, combo_counts = choose(kinds_ranked, budget_max)
     counts.update(combo_counts)
 
-    # E12 — 모니터를 골랐고 PC 쪽 정보(pc_context)가 있으면 교차 검사를 돌린다. 없으면(기본)
-    # monitor_checks/extra_issues 둘 다 비워 두어 기존 동작과 완전히 같게 만든다.
-    monitor_checks: list[dict] = []
-    extra_issues: dict[str, list] | None = None
-    if pc_context is not None and "monitor" in picks_by_kind:
-        from src.engine import peripheral_cross
-        from src.engine.stage2_requirement import load_computer_rules
-
-        default_resolution = load_computer_rules()["requirements"]["default_resolution"]
-        pc_resolution = pc_context.get("resolution") or values.get("resolution") or default_resolution
-        target_refresh_hz = requirements["monitor"].hard.get("refresh_min_hz")
-        monitor_checks = peripheral_cross.monitor_cross_checks(
-            picks_by_kind["monitor"], pc_resolution=pc_resolution,
-            gpu_specs=pc_context.get("gpu_specs"), target_refresh_hz=target_refresh_hz, rules=rules,
-            integrated_graphics=bool(pc_context.get("integrated_graphics")),
-        )
-        extra_issues = {"monitor": peripheral_cross.cross_issues(monitor_checks)}
-        log(f"      [P][E12] 모니터↔PC 교차 검사: "
-            f"{', '.join(c['axis'] + '=' + c['state'] for c in monitor_checks)}")
+    monitor_checks, extra_issues = _monitor_cross_check(values, pc_context, picks_by_kind, requirements, rules, log)
 
     picks: list[PeripheralPick] = []
     for kind, cand in picks_by_kind.items():
@@ -475,6 +569,7 @@ def run_peripherals(
         picks.append(PeripheralPick(kind=kind, candidate=cand, score=cand.score, verdict=cand.verdict,
                                      checks=checks, alternatives=alternatives, score_gap=gap))
     _mark_close_calls(picks, rules)
+    _attach_views(picks, kinds_ranked, values, rules)
 
     verification = stage3c_verify.verify_per_item(
         {p.kind: p for p in picks}, requirements, log, extra_issues=extra_issues, rules=rules,
@@ -488,6 +583,7 @@ def run_peripherals(
     log(f"[P] 주변기기 결과: {len(picks)}건 선정" + (f", 미충족 {len(empty)}건" if empty else ""))
     picked_requirements = {kind: requirements[kind] for kind in picks_by_kind if kind in requirements}
     feel_blocks = _feel_blocks(picks, values, rules)
+    notices = [n for p in picks if p.kind == "monitor" for n in monitor_notices(p.candidate, requirements["monitor"], values)]
     return PeripheralResult(status="ready", picks=picks, empty=empty, counts=counts,
                              budget=budget_info, verification=verification, requirements=picked_requirements,
-                             feel=feel_blocks)
+                             feel=feel_blocks, notices=notices)

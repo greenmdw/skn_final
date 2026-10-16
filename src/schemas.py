@@ -10,6 +10,8 @@ from uuid import UUID
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+from src.dto import PeripheralKind
+from src.dto import ReviewAspectContribution as ReviewAspectContributionDTO
 from src.dto import ReviewScoreDetail as ReviewScoreDetailDTO
 from src.engine.peripheral_intent import Interpretation as PeripheralInterpretation
 from src.engine.peripheral_intent import ResolvedKind as PeripheralResolvedKind
@@ -380,6 +382,7 @@ class QuoteSavedComparisonOut(BaseModel):
     saved: dict[str, Any] = Field(default_factory=dict)                      # 비교한 저장 견적(list_id·revision_no·name)
     labels: dict[str, str] = Field(default_factory=dict)                     # received/saved 쪽의 이름(견적 이름 — 없으면 받은 견적/저장 견적)
     sides: dict[str, Any] | None = None                                      # 견적끼리 비교할 때 각 견적의 합계·호환 요약
+    criteria: list[dict[str, Any]] | None = None                             # 견적끼리 비교할 때 기준별 값(호환·용도·등급·총액) — 종합 우열은 없다
     kind: str | None = None
     computed_at: str
 
@@ -423,6 +426,9 @@ class QuoteDraftSourceOut(BaseModel):
     sort_order: int
     status: Literal["completed", "failed"]
     error_code: str | None = None
+    quote_total: int | None = None                       # 사진에 적힌 견적 총액(원). 부품별 가격이 없는 견적의 가격 안내에 쓴다
+    quality_warning: str | None = None                   # 사진이 작거나 흐릴 때의 안내 — 이 사진에서 읽은 부품은 자동 확정하지 않는다
+    ignored_lines: list[str] = Field(default_factory=list)   # 튜닝·액세서리처럼 메인 부품이 아니라 분석에서 뺀 줄
 
 
 class QuoteDraftItemOut(BaseModel):
@@ -440,6 +446,8 @@ class QuoteDraftItemOut(BaseModel):
     matched_name: str | None = None
     image_url: str | None = None                         # catalog.product.image_url, 없으면 null
     match_status: Literal["confirmed", "ambiguous", "candidate", "inferred", "unmatched"] = "unmatched"
+    match_via: Literal["model"] | None = None            # "model" = 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾아 확정했다(화면에 근거를 보인다)
+    uncertain: bool = False                              # 사진 글자가 흐려 읽은 이름이 틀렸을 수 있다 — 카탈로그 확정을 하지 않는다
     candidate_count: int | None = None
     source_ids: list[str] = Field(default_factory=list)
     selected_for_analysis: bool = False
@@ -466,6 +474,8 @@ class QuoteDraftOut(BaseModel):
     question: str | None = None
     partial_success: bool = False
     groups: list[QuoteDraftGroupOut] = Field(default_factory=list)
+    # 올린 사진이 서로 다른 견적처럼 보이는지(separate) 한 견적의 여러 장처럼 보이는지(single) — 화면의 기본 선택일 뿐이다
+    source_mode_hint: Literal["single", "separate"] = "single"
     created_at: str
 
 
@@ -506,7 +516,7 @@ class QuotePriceExcludedOut(BaseModel):
     reason: str
 
 
-class QuotePriceRowOut(BaseModel):
+class QuoteDraftPriceRowOut(BaseModel):
     category: str
     item_id: str
     quantity: int
@@ -525,7 +535,7 @@ class QuoteDraftAnalysisOut(QuoteReviewOut):
     question: str | None = None
     draft_version: int
     price_excluded: list[QuotePriceExcludedOut] = Field(default_factory=list)   # 가격이 없어 합계에서 뺀 항목
-    price_rows: list[QuotePriceRowOut] = Field(default_factory=list)            # 항목별 견적·카탈로그 가격(BE-08)
+    price_rows: list[QuoteDraftPriceRowOut] = Field(default_factory=list)            # 항목별 견적·카탈로그 가격(BE-08)
 
 
 # BE-05 분석 전 제품 비교 · BE-06 교체 영향 미리보기
@@ -897,7 +907,7 @@ class PeripheralsRecommendIn(BaseModel):
     로 받고(조용해야 함 = `situations: ["quiet_place"]`), PC 견적 용도는 `pc_list_id` 로 묶은 PC 견적에서 읽는다.
     보내도 오류는 아니지만(알 수 없는 필드는 무시된다) 아무 영향이 없다."""
 
-    kinds: list[Literal["monitor", "keyboard", "mouse", "speaker"]] = Field(min_length=1)
+    kinds: list[PeripheralKind] = Field(min_length=1)
     budget_max: Optional[int] = Field(default=None, ge=0)
     resolution: Optional[str] = None
     # 주면 그 PC 견적의 해상도·용도·GPU 스펙을 pc_context로 묶어 모니터 교차검사를 추가로 켠다
@@ -909,11 +919,14 @@ class PeripheralsRecommendIn(BaseModel):
     situations: list[str] = Field(default_factory=list)
     stated: dict[str, list[str]] = Field(default_factory=dict)       # 종류 → 직접 말한 스펙 조건 이름
     kind_budget: dict[str, int] = Field(default_factory=dict)        # 종류 → 예산 상한(원). 합산 예산은 budget_max
+    kind_budget_min: dict[str, int] = Field(default_factory=dict)    # 종류 → 최소 가격(원). "6만원 이상" — 미만 후보는 거른다
     # 선호·기피 브랜드(종류 → 브랜드 이름). 선호는 브랜드 축에서 1점, 기피는 후보에서 뺀다.
     brand_like: dict[str, list[str]] = Field(default_factory=dict)
     brand_avoid: dict[str, list[str]] = Field(default_factory=dict)
     # 강조하는 축(종류 → 축 이름: 리뷰·가격·브랜드·무상AS 또는 그 종류의 스펙 기준 이름). 강조한 축 가중치 ×1.5.
     emphasis: dict[str, list[str]] = Field(default_factory=dict)
+    # 손 크기(문장 해석의 hand_size 를 그대로 넘긴다). 체감 점수가 같은 손 크기 사용기 작성자를 묶는 데 쓴다(QA PQA-004).
+    hand_size: Optional[Literal["small", "medium", "large"]] = None
 
 
 class PeripheralProductOut(BaseModel):
@@ -937,20 +950,42 @@ class PeripheralCheckOut(BaseModel):
     detail: str
 
 
+class PeripheralReviewContributionOut(ReviewAspectContributionDTO):
+    """주변기기 외부 리뷰 항목 — PC 응답과 공유하는 DTO 에 주변기기 표시 값(대표 문장·갈림)만 더한 것."""
+
+    quote: dict[str, str] | None = None      # 대표 문장 {text, direction}: 다수 방향의 한글 문장, 없으면 None
+    dissent: bool = False                    # 적은 쪽 의견도 적지 않다(화면은 "갈리는 점"을 따로 보일 수 있다)
+
+
+class PeripheralReviewOut(ReviewScoreDetailDTO):
+    contributions: list[PeripheralReviewContributionOut] = Field(default_factory=list)
+
+
 class PeripheralAlternativeOut(BaseModel):
     name: str
     price: int
     diff: int
-    review: ReviewScoreDetailDTO | None = None
+    review: PeripheralReviewOut | None = None
     review_weight: float = 0.0
     review_note: str = "리뷰 점수 미반영"
     evidence_count: int | None = None        # 이 대안의 리뷰 근거(관측) 수
     score: float | None = None
     why_not_first: str | None = None         # 1위가 아닌 이유 한 줄(없으면 숨긴다)
+    # 1위 대신 이 대안을 견적에 담을 때 쓴다(1위의 product 와 같은 값). 카탈로그에 없으면 None.
+    variant_id: str | None = None
+    brand: str | None = None
+    image_url: str | None = None
+    product_url: str | None = None
+    # 결과 화면(재설계): 이 대안을 큰 카드로 올릴 때 1위와 같은 정보량을 보이기 위한 값(1위 항목과 같은 모양)
+    key_specs: list[dict[str, str]] = Field(default_factory=list)
+    requested: list[dict[str, Any]] = Field(default_factory=list)
+    price_position: dict[str, int] | None = None
+    feel: dict[str, Any] | None = None
+    score_detail: dict[str, Any] | None = None
 
 
 class PeripheralItemOut(BaseModel):
-    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    kind: PeripheralKind
     kind_label: str
     product: PeripheralProductOut
     price: int
@@ -961,7 +996,7 @@ class PeripheralItemOut(BaseModel):
     reason: TextStatusOut
     alternatives: list[PeripheralAlternativeOut] = Field(default_factory=list)
     guide: TextStatusOut
-    review: ReviewScoreDetailDTO | None = None
+    review: PeripheralReviewOut | None = None
     review_weight: float = 0.0
     review_note: str
     feel: dict[str, Any] | None = None       # 체감 근거 블록. None 이면 보여 줄 근거가 없다
@@ -970,6 +1005,10 @@ class PeripheralItemOut(BaseModel):
     evidence_count: int | None = None            # 리뷰 근거(관측) 수 — 화면은 "근거 N건"
     evidence_penalty: float | None = None        # 근거 부족 감점(0이면 없음)
     close_call: bool = False                     # 1·2위가 접전이다(한 응답에서 최대 2개 품목)
+    # 결과 화면(재설계): 필수 스펙 한 줄, 사용자가 말한 항목별 근거 연결, 통과한 후보 안에서 싼 순서 {rank, of}
+    key_specs: list[dict[str, str]] = Field(default_factory=list)
+    requested: list[dict[str, Any]] = Field(default_factory=list)
+    price_position: dict[str, int] | None = None
 
 
 class PeripheralEmptyOut(BaseModel):
@@ -986,17 +1025,25 @@ class PeripheralAdjustChipOut(BaseModel):
     """"더 맞추기" 칩 하나. 누르면 `add` 를 추천 입력(purposes·situations·stated)에 더해 다시 부르면 된다.
     눌렀을 때 지금 보이는 순서가 바뀌는 칩만 나온다(`moved` 는 바뀌는 자리 수)."""
 
-    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    kind: PeripheralKind
     id: str
     label: str
     add: dict[str, Any]
     moved: int
 
 
+class PeripheralNoticeOut(BaseModel):
+    """채팅으로 알릴 유의사항(QA PQA-001). 추천은 그대로 하고 주의할 점만 말한다 — 화면은 text 를 채팅에 그대로 보여 준다."""
+    kind: str
+    code: str        # pc_unknown · gpu_4k · gpu_high_res · low_refresh
+    text: str
+
+
 class PeripheralsOut(BaseModel):
     status: Literal["ready", "empty", "skipped"]
     items: list[PeripheralItemOut] = Field(default_factory=list)
     empty: list[PeripheralEmptyOut] = Field(default_factory=list)
+    notices: list[PeripheralNoticeOut] = Field(default_factory=list)
     totals: PeripheralTotalsOut
     ignored_inputs: list[str] = Field(default_factory=list)    # 목록에 없어 반영하지 않은 목적·상황·조건 이름
     adjust_chips: list[PeripheralAdjustChipOut] = Field(default_factory=list)    # "더 맞추기" 칩(최대 3개)
@@ -1006,7 +1053,7 @@ class PeripheralCatalogItemOut(BaseModel):
     """제품 검색(GET /peripherals/catalog/search)의 한 항목. options 는 제안 목록일 뿐이다."""
 
     product_id: str
-    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    kind: PeripheralKind
     brand: str
     model: str
     image_url: str | None = None
@@ -1022,7 +1069,13 @@ class PeripheralInterpretIn(BaseModel):
 
     text: str = Field(min_length=1, max_length=2000)    # 서버가 설정의 글자 수 상한으로 한 번 더 자른다
     previous: dict[str, Any] | None = None             # 직전 응답의 interpretation 을 그대로 돌려보낸다
-    kinds: list[Literal["monitor", "keyboard", "mouse", "speaker"]] | None = None    # 종류 카드로 고른 값
+    kinds: list[PeripheralKind] | None = None    # 종류 카드로 고른 값
+
+
+class PeripheralChatIn(PeripheralInterpretIn):
+    """POST /session/{id}/peripherals/chat — 채팅 한 턴. 해석 입력에 묶을 PC 견적(`pc_list_id`)을 더했다."""
+
+    pc_list_id: Optional[str] = None
 
 
 class PeripheralInterpretOut(BaseModel):
@@ -1031,6 +1084,35 @@ class PeripheralInterpretOut(BaseModel):
     needs_kind: bool                       # True 면 화면이 "어떤 기기를 찾으세요?" 카드를 띄운다
     source: Literal["llm", "rules"]        # 어떻게 읽었는가(규칙은 모델을 쓰지 못했을 때)
     truncated: bool = False                # 문장이 길어 앞부분만 읽었는가
+
+
+class PeripheralNewConditionOut(BaseModel):
+    kind: str          # 종류 이름 또는 "*"(종류와 무관한 항목: 예산 합계·손 크기)
+    label: str
+
+
+class PeripheralAnswerOut(BaseModel):
+    """질문의 답. text 는 설정·추천 결과·스펙·사용기에서만 만든 문장이다 — 화면은 그대로 보여 준다."""
+    type: str          # term · compat · capabilities · conditions · compare · why · spec · review · other
+    topic: str | None = None
+    text: str
+    kinds: list[PeripheralKind] = Field(default_factory=list)
+    chips: list[str] = Field(default_factory=list)       # 이어서 물어볼 만한 문장
+
+
+class PeripheralTurnOut(BaseModel):
+    """채팅 한 턴의 서버 답장(QA PQA-012·013·014). reply 는 아래를 순서대로 이은 문장이다."""
+    new_conditions: list[PeripheralNewConditionOut] = Field(default_factory=list)   # 이번 문장에서 새로 반영한 것
+    not_reflected: list[str] = Field(default_factory=list)       # 반영하지 못한 말과 이유
+    notes: list[str] = Field(default_factory=list)               # 어떻게 읽었는지·함께 고를 수 없어 정리한 조건
+    answer: PeripheralAnswerOut | None = None
+    reply: str
+    chips: list[str] = Field(default_factory=list)               # 이번 답 뒤에 보여 줄 질문 칩
+    result_chips: list[str] = Field(default_factory=list)        # 추천 결과가 나온 뒤에 보여 줄 질문 칩
+
+
+class PeripheralChatOut(PeripheralInterpretOut):
+    turn: PeripheralTurnOut
 
 
 class SwapIn(BaseModel):
@@ -1207,7 +1289,7 @@ class ConfirmPeripheralIn(BaseModel):
     """개발요청 11번 — 확정 시 같이 얼릴 주변기기 1건. 가격은 서버가 variant_id로 다시 조회해
     매긴다(클라이언트가 보낸 가격은 안 믿는다)."""
 
-    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    kind: PeripheralKind
     variant_id: str
     qty: int = Field(default=1, ge=1, le=99)
 
@@ -1242,7 +1324,7 @@ class ReportItemOut(BaseModel):
 class ReportPeripheralOut(BaseModel):
     """개발요청 11번 — 확정 견적서에 같이 얼린 주변기기 한 줄."""
 
-    kind: Literal["monitor", "keyboard", "mouse", "speaker"]
+    kind: PeripheralKind
     product: ReportProductOut
     price: int            # 단가 — 줄 금액은 price × qty, 참고가(reference_snapshot)
     qty: int = 1
@@ -1406,6 +1488,8 @@ class ReviewSummaryOut(BaseModel):
     product_name: Optional[str] = None
     product_manipulation_risk: ProductRiskOut
     synthetic_demo: Optional[SyntheticDemoOut] = None
+    # 우리 카탈로그 부품의 항목별 관측 문장("냉각 성능 — 좋다는 리뷰 7건 · 아쉽다는 리뷰 0건"). 리뷰 본문이 아니라 건수다.
+    aspect_facts: list[str] = []
 
 
 # ── 리뷰 검색 (GET /reviews/search) ──

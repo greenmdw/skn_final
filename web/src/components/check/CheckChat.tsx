@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Linkified } from '../../utils/linkify'
+import ResizeHandle, { usePanelWidth } from '../ResizeHandle'
 import UpgradeCard from './UpgradeCard'
+
+const CHECK_CHAT_WIDTH = { key: 'truefit.check.chat.width', initial: 380, min: 280, max: 520 }
 
 export type ChatEntry =
   | { id: string; kind: 'bot' | 'user'; text: string }
@@ -22,6 +25,7 @@ export default function CheckChat({ entries, busy, analyzed, comparing, hasAnswe
   upgrade?: { initialBudget: number | null; initialQuestion: string; busy: boolean; onSubmit: (budget: number, question: string) => void; onCancel: () => void } | null
 }) {
   const [draft, setDraft] = useState('')
+  const size = usePanelWidth(CHECK_CHAT_WIDTH.key, CHECK_CHAT_WIDTH.initial, CHECK_CHAT_WIDTH.min, CHECK_CHAT_WIDTH.max)
   const logRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -49,7 +53,7 @@ export default function CheckChat({ entries, busy, analyzed, comparing, hasAnswe
     : comparing ? '저장 견적 비교에 대한 질문은 "두 견적 차이 해설"에 쌓여요.' : '분석 결과를 보면서 궁금한 점을 물어보세요.'
 
   return (
-    <aside className="pl-chat ck-chat" aria-label="견적 점검 대화">
+    <aside className="pl-chat pl-resizable ck-chat" aria-label="견적 점검 대화" style={{ width: size.width }}>
       <div className="pl-chat-head"><span className="pl-dot" />견적 점검 대화</div>
       <div className="pl-chat-log ck-chat-log" ref={logRef}>
         {entries.map(entry => {
@@ -89,6 +93,7 @@ export default function CheckChat({ entries, busy, analyzed, comparing, hasAnswe
           <button type="submit" disabled={busy || !draft.trim()}>보내기</button>
         </form>
       </div>
+      <ResizeHandle width={size.width} min={size.min} max={size.max} label="견적 점검 대화창 너비" onChange={size.setWidth} onReset={size.reset} />
     </aside>
   )
 }

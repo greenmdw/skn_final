@@ -15,7 +15,6 @@ MOCK_MODE=1 을 환경변수로 직접 줘야 한다(.env 는 읽지도 출력�
 from __future__ import annotations
 
 import argparse
-import copy
 import json
 import os
 import subprocess

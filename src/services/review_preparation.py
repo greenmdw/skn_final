@@ -6,7 +6,7 @@ import math
 import re
 from collections import Counter
 from pathlib import Path
-from uuid import UUID, NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, uuid5
 
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb

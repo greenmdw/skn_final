@@ -98,7 +98,6 @@ def compare(before_values: dict, after_values: dict, before_result: dict, after_
         {"key": k, "label": after_cond[k][0], "before": before_cond.get(k, ("", "-"))[1], "after": after_cond[k][1]}
         for k in _COMPARED_KEYS if k in after_cond and before_cond.get(k, ("", "-"))[1] != after_cond[k][1]
     ]
-    changed_keys = {c["key"] for c in condition_changes}
     drivers = [c for c in condition_changes if c["key"] in _REQUIREMENT_DRIVERS]
 
     req_before, req_after = _requirements(cat_def, before_values), _requirements(cat_def, after_values)

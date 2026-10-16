@@ -129,8 +129,8 @@ export default function MyPage() {
   }
   function usePc() {
     if (!myPc) return
-    showToast('내 PC 구성을 견적 점검 질문에 넣어 두었어요.')
-    navigate('/check', { state: { question: pcQuestion(myPc) } })
+    showToast('내 PC 구성을 텍스트 견적에 넣어 두었어요.')
+    navigate('/check', { state: { tab: 'text', text: pcQuestion(myPc) } })
   }
 
   if (!user) {

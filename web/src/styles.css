@@ -1,4 +1,7 @@
 :root {
+  --page-content-max: 1600px;
+  /* 1920px 화면에서 한쪽 약 150px. 브라우저 배율과 관계없이 화면 비율로 유지한다. */
+  --page-side-gap: clamp(24px, 7.8125vw, 160px);
   color-scheme: dark;
   --bg: #0b1220; --panel: #121c30; --panel2: #0f1829; --ink: #0a1120; --line: #22314d; --line2: #33466b;
   --text: #eef3ff; --muted: #9db0cf; --mint: #7f9bff; --on-mint: #0a1020; --ok: #3ddc97; --info: #7fb8ff; --warn: #f0b35a; --bad: #ff8f9e; --violet: #a78bfa;

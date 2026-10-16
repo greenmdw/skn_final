@@ -17,6 +17,7 @@ import yaml
 
 from src.categories import load_category
 from src.config import PERIPHERAL_RULES_PATH
+from src.dto import PERIPHERAL_KINDS
 from src.engine.peripheral_parse import PARSED_KEYS_BY_KIND
 
 _PERIPHERAL_RULES_PATH = PERIPHERAL_RULES_PATH
@@ -34,10 +35,10 @@ _REQUIRED_TOP_KEYS = {"schema_version", "rule_set_version", "kinds", "ranking", 
 _KNOWN_TOP_KEYS = _REQUIRED_TOP_KEYS | {
     "requirements", "hard_filters", "preferences", "verify", "parsing",
     "spec_conditions", "purposes", "situations", "pc_purpose_map", "interpretation", "adjust_chips", "feel",
-    "emphasis",
+    "emphasis", "conflicts", "chat", "display",
 }
 
-_KINDS = ("monitor", "keyboard", "mouse", "speaker")
+_KINDS = PERIPHERAL_KINDS
 _KIND_REQUIRED_KEYS = {"label", "product_type", "spec_table", "columns"}
 # 스펙 기준(ranking.<kind>.criteria)과 별개로 모든 종류가 갖는 축. 가중치 축 = 스펙 기준 이름들 ∪ 이것들.
 _FIXED_AXES = {"리뷰", "가격", "브랜드", "무상AS"}
@@ -144,6 +145,7 @@ def _check_criteria(kind: str, criteria: Any, allowed_keys: set[str]) -> None:
 _SCORING_KEYS = {
     "evidence_penalty", "evidence_min_n", "missing_key_penalty", "missing_key_penalty_max",
     "stated_criterion_boost", "emphasis_boost", "stated_pref_weight", "close_call_margin", "close_call_max_items",
+    "price_weight_without_budget", "brand_like_weight", "review_spread_min_candidates", "review_spread_min_span", "review_unevidenced_quantile",
 }
 
 
@@ -206,6 +208,8 @@ def _check_scoring(data: Any) -> None:
         raise PeripheralRuleError("주변기기 scoring.evidence_min_n 은 0보다 커야 함")
     if data["stated_criterion_boost"] < 1 or data["emphasis_boost"] < 1:
         raise PeripheralRuleError("주변기기 scoring 의 배수는 1 이상이어야 함")
+    if data["price_weight_without_budget"] > 1 or data["review_unevidenced_quantile"] > 1:
+        raise PeripheralRuleError("주변기기 scoring.price_weight_without_budget·review_unevidenced_quantile 은 1 이하여야 함")
 
 
 # ── E10 — requirements 절 검증 ────────────────────────────────────────────
@@ -316,6 +320,45 @@ def _check_name_list(where: str, value: Any, *, allow_empty: bool) -> list[str]:
     return value
 
 
+_SPEC_CONDITION_KEYS = {"label", "words", "filter", "prefs", "exclude", "near"}
+_PURPOSE_KEYS = {"label", "words", "prefer", "feel", "taste", "exclude"}
+
+
+def _check_word_extras(where: str, entry: dict) -> None:
+    """낱말 규칙의 선택 항목. exclude — 이 낱말이 문장에 있으면 그 부분을 지우고 words 를 본다("텐키리스" 안의 "텐키").
+    near — feel 낱말과 target 낱말이 순서와 관계없이 window 글자 안에 함께 나오면 이 항목으로 읽는다("타건감이 묵직한")."""
+    if "exclude" in entry:
+        _check_name_list(f"{where}.exclude", entry["exclude"], allow_empty=False)
+    if "near" in entry:
+        rules = entry["near"]
+        if not isinstance(rules, list) or not rules:
+            raise PeripheralRuleError(f"주변기기 {where}.near 는 비지 않은 목록이어야 함")
+        for i, rule in enumerate(rules):
+            if not isinstance(rule, dict) or set(rule) != {"feel", "target", "window"}:
+                raise PeripheralRuleError(f"주변기기 {where}.near[{i}] 키 오류(feel, target, window)")
+            _check_name_list(f"{where}.near[{i}].feel", rule["feel"], allow_empty=False)
+            _check_name_list(f"{where}.near[{i}].target", rule["target"], allow_empty=False)
+            window = rule["window"]
+            if isinstance(window, bool) or not isinstance(window, int) or not 0 < window <= 30:
+                raise PeripheralRuleError(f"주변기기 {where}.near[{i}].window 는 1~30 정수여야 함")
+
+
+def _check_conflicts(data: dict) -> None:
+    """함께 있을 수 없는 스펙 조건 쌍(종류별). 풀이(`peripheral_intent.resolve`)가 둘 다 풀리면 하나만 남기거나 둘 다 뺀다."""
+    section = data.get("conflicts")
+    if section is None:
+        return
+    if not isinstance(section, dict) or not set(section) <= set(_KINDS):
+        raise PeripheralRuleError(f"주변기기 conflicts 는 {_KINDS} 중 종류를 열쇠로 가져야 함")
+    for kind, pairs in section.items():
+        known = set((data.get("spec_conditions") or {}).get(kind, {}))
+        if not isinstance(pairs, list) or not pairs:
+            raise PeripheralRuleError(f"주변기기 conflicts.{kind} 는 비지 않은 목록이어야 함")
+        for pair in pairs:
+            if not isinstance(pair, list) or len(pair) != 2 or len(set(pair)) != 2 or not set(pair) <= known:
+                raise PeripheralRuleError(f"주변기기 conflicts.{kind} 항목은 spec_conditions 이름 두 개여야 함: {pair}")
+
+
 def _check_spec_conditions(data: dict) -> None:
     section = data.get("spec_conditions")
     if section is None:
@@ -328,9 +371,10 @@ def _check_spec_conditions(data: dict) -> None:
         allowed_keys = _allowed_spec_keys(kind, data)
         for cond_id, cond in conditions.items():
             where = f"spec_conditions.{kind}.{cond_id}"
-            if not isinstance(cond, dict) or set(cond) != {"label", "words", "filter", "prefs"}:
-                raise PeripheralRuleError(f"주변기기 {where} 키 오류(label, words, filter, prefs)")
+            if not isinstance(cond, dict) or not ({"label", "words", "filter", "prefs"} <= set(cond) <= _SPEC_CONDITION_KEYS):
+                raise PeripheralRuleError(f"주변기기 {where} 키 오류(label, words, filter, prefs + 선택 exclude, near)")
             _check_name_list(f"{where}.words", cond["words"], allow_empty=False)
+            _check_word_extras(where, cond)
             if not isinstance(cond["label"], str) or not cond["label"].strip():
                 raise PeripheralRuleError(_LABEL_MSG.format(where=where))
             if not isinstance(cond["filter"], bool):
@@ -356,8 +400,9 @@ def _check_purposes(data: dict) -> None:
         known = set(data["spec_conditions"][kind])
         for code, entry in purposes.items():
             where = f"purposes.{kind}.{code}"
-            if not isinstance(entry, dict) or set(entry) != {"label", "words", "prefer", "feel", "taste"}:
-                raise PeripheralRuleError(f"주변기기 {where} 키 오류(label, words, prefer, feel, taste)")
+            if not isinstance(entry, dict) or not ({"label", "words", "prefer", "feel", "taste"} <= set(entry) <= _PURPOSE_KEYS):
+                raise PeripheralRuleError(f"주변기기 {where} 키 오류(label, words, prefer, feel, taste + 선택 exclude)")
+            _check_word_extras(where, entry)
             if not isinstance(entry["label"], str) or not entry["label"].strip():
                 raise PeripheralRuleError(_LABEL_MSG.format(where=where))
             _check_name_list(f"{where}.words", entry["words"], allow_empty=False)
@@ -446,7 +491,7 @@ _FEEL_SCALARS = {
     "k", "kb", "k0_default", "default_m", "purpose_boost", "split_ratio", "neutral_taste",
     "durability_min_months", "hand_small_below_cm", "hand_large_above_cm",
     "same_condition_many", "recent_months", "trending_margin", "quotes_per_attribute", "rrf_k", "search_limit",
-    "post_max_chars", "post_max_items",
+    "post_max_chars", "post_max_items", "quote_similarity_max",
 }
 _FEEL_GROUPS = {"hand", "quiet", "bright", "none", "purpose"}
 _FEEL_TYPES = {"rating", "taste"}
@@ -466,7 +511,7 @@ def _check_feel(data: dict) -> None:
         value = feel[key]
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
             raise PeripheralRuleError(f"주변기기 feel.{key} 는 양수여야 함")
-    for key in ("default_m", "split_ratio", "neutral_taste", "trending_margin"):
+    for key in ("default_m", "split_ratio", "neutral_taste", "trending_margin", "quote_similarity_max"):
         if not 0 < feel[key] < 1:
             raise PeripheralRuleError(f"주변기기 feel.{key} 는 0과 1 사이여야 함")
     if feel["purpose_boost"] < 1:
@@ -532,6 +577,163 @@ def _check_interpretation(data: dict) -> None:
     for key, value in section.items():
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             raise PeripheralRuleError(f"주변기기 interpretation.{key} 는 양의 정수여야 함")
+
+
+_CHAT_KEYS = {"markers", "request_words", "types", "spec_topics", "spec_summary", "review_topics",
+              "glossary", "unsupported", "answers", "examples", "chips"}
+_CHAT_TYPES = ("term", "compat", "capabilities", "conditions", "compare", "why", "spec", "review")
+_CHAT_ANSWERS = {"capabilities", "other", "no_result", "no_kind", "no_pc", "no_cross_check"}
+
+
+def _text(where: str, value: Any) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise PeripheralRuleError(f"주변기기 {where} 는 비지 않은 문자열이어야 함")
+    return value
+
+
+
+_DISPLAY_KEYS = {"key_specs", "axis_labels", "requested_labels", "requested_feel"}
+_KEY_SPEC_SOURCES = {"spec", "parts", "flags"}
+
+
+def _check_display(data: dict) -> None:
+    """display 절(결과 화면 표시 값) 검증: 가중치 축을 모두 덮는지, 속성·조건 이름이 실제 있는 것인지."""
+    section = data.get("display")
+    if section is None:
+        return
+    if not isinstance(section, dict) or set(section) != _DISPLAY_KEYS:
+        raise PeripheralRuleError(f"주변기기 display 절 키 오류: {sorted(_DISPLAY_KEYS)}")
+    key_specs = section["key_specs"]
+    if not isinstance(key_specs, dict) or set(key_specs) != set(_KINDS):
+        raise PeripheralRuleError(f"주변기기 display.key_specs 는 정확히 {_KINDS} 네 종류여야 함")
+    for kind, entries in key_specs.items():
+        if not isinstance(entries, list) or not entries:
+            raise PeripheralRuleError(f"주변기기 display.key_specs.{kind} 는 비지 않은 목록이어야 함")
+        seen: set[str] = set()
+        for entry in entries:
+            if (not isinstance(entry, dict) or not {"key", "label"} <= set(entry)
+                    or len(_KEY_SPEC_SOURCES & set(entry)) != 1
+                    or set(entry) - {"key", "label", "unit", "sep"} - _KEY_SPEC_SOURCES):
+                raise PeripheralRuleError(f"주변기기 display.key_specs.{kind} 항목 모양 오류: {entry}")
+            if entry["key"] in seen:
+                raise PeripheralRuleError(f"주변기기 display.key_specs.{kind} 키 중복: {entry['key']}")
+            seen.add(entry["key"])
+            if "parts" in entry and not (isinstance(entry["parts"], list) and entry["parts"]):
+                raise PeripheralRuleError(f"주변기기 display.key_specs.{kind}.{entry['key']}.parts 는 비지 않은 목록이어야 함")
+            if "flags" in entry and not (isinstance(entry["flags"], dict) and entry["flags"]):
+                raise PeripheralRuleError(f"주변기기 display.key_specs.{kind}.{entry['key']}.flags 는 비지 않은 표여야 함")
+    labels = section["axis_labels"]
+    for kind in _KINDS:
+        axes = set((data.get("ranking") or {}).get(kind, {}).get("weights", {}))
+        missing = axes - set(labels)
+        if missing:
+            raise PeripheralRuleError(f"주변기기 display.axis_labels 에 없는 {kind} 축: {sorted(missing)}")
+    if not isinstance(section["requested_labels"], dict):
+        raise PeripheralRuleError("주변기기 display.requested_labels 는 표여야 함")
+    requested_feel = section["requested_feel"]
+    if not isinstance(requested_feel, dict) or set(requested_feel) - set(_KINDS):
+        raise PeripheralRuleError("주변기기 display.requested_feel 종류 키 오류")
+    for kind, table in requested_feel.items():
+        conds = set((data.get("spec_conditions") or {}).get(kind, {}))
+        codes = set(feel_attributes(kind, data)) if "feel" in data else set()
+        for cond_id, attr_codes in table.items():
+            if cond_id not in conds:
+                raise PeripheralRuleError(f"주변기기 display.requested_feel.{kind} 에 없는 조건: {cond_id}")
+            unknown = [c for c in attr_codes if c not in codes]
+            if "feel" in data and unknown:
+                raise PeripheralRuleError(f"주변기기 display.requested_feel.{kind}.{cond_id} 에 없는 속성: {unknown}")
+
+
+def _check_chat(data: dict) -> None:
+    """chat 절(질문 답변) 검증: 스펙 키·체감 속성 코드·질문 종류가 실제 있는 이름인지, 낱말 목록·문구가 비지 않았는지."""
+    section = data.get("chat")
+    if section is None:
+        return
+    if not isinstance(section, dict) or set(section) != _CHAT_KEYS:
+        raise PeripheralRuleError(f"주변기기 chat 절 키 오류: {sorted(_CHAT_KEYS)}")
+    _check_name_list("chat.markers", section["markers"], allow_empty=False)
+    _check_name_list("chat.request_words", section["request_words"], allow_empty=False)
+
+    types = section["types"]
+    if not isinstance(types, dict) or set(types) != set(_CHAT_TYPES):
+        raise PeripheralRuleError(f"주변기기 chat.types 는 정확히 {_CHAT_TYPES} 여야 함")
+    for name, entry in types.items():
+        if not isinstance(entry, dict) or set(entry) != {"words"}:
+            raise PeripheralRuleError(f"주변기기 chat.types.{name} 키 오류(words)")
+        _check_name_list(f"chat.types.{name}.words", entry["words"], allow_empty=False)
+
+    spec_keys = set().union(*(_allowed_spec_keys(kind, data) for kind in _KINDS))
+    topics = section["spec_topics"]
+    if not isinstance(topics, dict) or not topics:
+        raise PeripheralRuleError("주변기기 chat.spec_topics 는 비지 않은 표여야 함")
+    for name, entry in topics.items():
+        where = f"chat.spec_topics.{name}"
+        if not isinstance(entry, dict) or not {"label", "words", "keys"} <= set(entry) <= {"label", "words", "keys", "unit"}:
+            raise PeripheralRuleError(f"주변기기 {where} 키 오류(label, words, keys + 선택 unit)")
+        _text(f"{where}.label", entry["label"])
+        _check_name_list(f"{where}.words", entry["words"], allow_empty=False)
+        unknown = [k for k in _check_name_list(f"{where}.keys", entry["keys"], allow_empty=False) if k not in spec_keys]
+        if unknown:
+            raise PeripheralRuleError(f"주변기기 {where}.keys 에 알 수 없는 spec 키: {unknown}")
+    summary = section["spec_summary"]
+    if not isinstance(summary, dict) or set(summary) != set(_KINDS):
+        raise PeripheralRuleError(f"주변기기 chat.spec_summary 는 정확히 {_KINDS} 여야 함")
+    for kind, names in summary.items():
+        unknown = [n for n in _check_name_list(f"chat.spec_summary.{kind}", names, allow_empty=False) if n not in topics]
+        if unknown:
+            raise PeripheralRuleError(f"주변기기 chat.spec_summary.{kind} 에 spec_topics 에 없는 이름: {unknown}")
+
+    feel_codes = {code for kind in _KINDS for code in feel_attributes(kind, data) } if "feel" in data else set()
+    reviews = section["review_topics"]
+    if not isinstance(reviews, dict) or not reviews:
+        raise PeripheralRuleError("주변기기 chat.review_topics 는 비지 않은 표여야 함")
+    for name, entry in reviews.items():
+        where = f"chat.review_topics.{name}"
+        if not isinstance(entry, dict) or set(entry) != {"label", "words", "attributes"}:
+            raise PeripheralRuleError(f"주변기기 {where} 키 오류(label, words, attributes)")
+        _text(f"{where}.label", entry["label"])
+        _check_name_list(f"{where}.words", entry["words"], allow_empty=False)
+        unknown = [c for c in _check_name_list(f"{where}.attributes", entry["attributes"], allow_empty=False)
+                   if feel_codes and c not in feel_codes]
+        if unknown:
+            raise PeripheralRuleError(f"주변기기 {where}.attributes 에 feel.attributes 에 없는 코드: {unknown}")
+
+    glossary = section["glossary"]
+    if not isinstance(glossary, dict) or not glossary:
+        raise PeripheralRuleError("주변기기 chat.glossary 는 비지 않은 표여야 함")
+    for term, entry in glossary.items():
+        where = f"chat.glossary.{term}"
+        if not isinstance(entry, dict) or set(entry) != {"words", "text"}:
+            raise PeripheralRuleError(f"주변기기 {where} 키 오류(words, text)")
+        _check_name_list(f"{where}.words", entry["words"], allow_empty=False)
+        _text(f"{where}.text", entry["text"])
+
+    unsupported = section["unsupported"]
+    if not isinstance(unsupported, list) or not unsupported:
+        raise PeripheralRuleError("주변기기 chat.unsupported 는 비지 않은 목록이어야 함")
+    for i, entry in enumerate(unsupported):
+        if not isinstance(entry, dict) or set(entry) != {"words", "text"}:
+            raise PeripheralRuleError(f"주변기기 chat.unsupported[{i}] 키 오류(words, text)")
+        _check_name_list(f"chat.unsupported[{i}].words", entry["words"], allow_empty=False)
+        _text(f"chat.unsupported[{i}].text", entry["text"])
+
+    answers = section["answers"]
+    if not isinstance(answers, dict) or set(answers) != _CHAT_ANSWERS:
+        raise PeripheralRuleError(f"주변기기 chat.answers 키 오류: {sorted(_CHAT_ANSWERS)}")
+    for name, text in answers.items():
+        _text(f"chat.answers.{name}", text)
+
+    examples = section["examples"]
+    if not isinstance(examples, dict) or set(examples) != set(_KINDS):
+        raise PeripheralRuleError(f"주변기기 chat.examples 는 정확히 {_KINDS} 여야 함")
+    for kind, text in examples.items():
+        _text(f"chat.examples.{kind}", text)
+
+    chips = section["chips"]
+    if not isinstance(chips, dict) or set(chips) != {"start", "after_result"}:
+        raise PeripheralRuleError("주변기기 chat.chips 키 오류(start, after_result)")
+    for name, items in chips.items():
+        _check_name_list(f"chat.chips.{name}", items, allow_empty=False)
 
 
 _VERIFY_GPU_KEYS = {"hdmi_version", "hdmi_ports", "dp_version", "dp_ports", "usb_c_video_out"}
@@ -609,12 +811,15 @@ def _load_peripheral_rules(path: Path) -> dict:
     _check_spec_conditions(data)
     _check_criteria_cover_conditions(data)
     _check_purposes(data)
+    _check_conflicts(data)
     _check_situations(data)
     _check_pc_purpose_map(data)
     _check_adjust_chips(data)
     _check_feel(data)
     _check_interpretation(data)
     _check_emphasis(data)
+    _check_chat(data)
+    _check_display(data)
 
     if "verify" in data:
         _check_verify(data["verify"])
@@ -726,6 +931,23 @@ def situations(rules: dict | None = None) -> dict[str, dict]:
     return rules.get("situations") or {}
 
 
+def conflicts(kind: str, rules: dict | None = None) -> list[tuple[str, str]]:
+    """종류의 함께 있을 수 없는 스펙 조건 쌍. 절이 없으면 빈 목록."""
+    rules = rules or load_peripheral_rules()
+    return [tuple(pair) for pair in (rules.get("conflicts") or {}).get(kind, [])]
+
+
+def split_purpose_codes(purposes: list[str], situation_codes: list[str], rules: dict | None = None) -> tuple[list[str], list[str]]:
+    """목적 이름과 상황 이름을 목록 안의 값으로 정리하고 (목적, 상황)으로 나눈다. 목적 칸에 들어온 이름이 공통 상황 이름이면
+    (quiet_place·portable·small_desk 등) 상황으로 옮긴다. 목록에 없는 이름은 버리고, 중복은 처음 나온 순서로 하나만 둔다."""
+    rules = rules or load_peripheral_rules()
+    sit = set(situations(rules))
+    known = set(purpose_codes(rules)) | sit
+    kept_purposes = dict.fromkeys(c for c in purposes if c in known and c not in sit)
+    kept_situations = dict.fromkeys(c for c in [*situation_codes, *(c for c in purposes if c in sit)] if c in sit)
+    return list(kept_purposes), list(kept_situations)
+
+
 def pc_purpose_map(rules: dict | None = None) -> dict[str, list[str]]:
     rules = rules or load_peripheral_rules()
     return rules.get("pc_purpose_map") or {}
@@ -736,10 +958,22 @@ def interpretation_settings(rules: dict | None = None) -> dict[str, int]:
     return rules.get("interpretation") or {"max_chars": 300, "cache_size": 512, "per_minute": 20}
 
 
+def chat_config(rules: dict | None = None) -> dict:
+    """채팅 질문 답변 설정(chat 절). 절이 없으면 빈 표 — 질문을 가르지 않고 설명도 하지 않는다."""
+    rules = rules or load_peripheral_rules()
+    return rules.get("chat") or {}
+
+
 def adjust_chips(kind: str, rules: dict | None = None) -> list[dict]:
     """종류의 "더 맞추기" 칩 후보 [{id, label, add}]. 절이 없으면 빈 목록."""
     rules = rules or load_peripheral_rules()
     return (rules.get("adjust_chips") or {}).get(kind, [])
+
+
+def display_config(rules: dict | None = None) -> dict | None:
+    """결과 화면 표시 설정(없으면 None — 표시 값을 만들지 않는다)."""
+    rules = rules or load_peripheral_rules()
+    return rules.get("display")
 
 
 def feel_config(rules: dict | None = None) -> dict | None:

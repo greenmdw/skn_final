@@ -64,6 +64,17 @@ def test_interpret_adds_to_previous_interpretation(client):
     assert "quiet_place" in second["interpretation"]["situations"]
 
 
+def test_interpret_returns_the_price_floor_and_it_survives_the_round_trip(client):
+    first = _interpret(client, "스피커 6만원 이상되는 제품으로 변경해줘")
+    assert first["interpretation"]["budget_min"] == {"speaker": 60000}
+    assert first["interpretation"]["budget"] == {}                       # 상한으로 읽지 않는다
+    second = _interpret(client, "블루투스 되는 걸로", previous=first["interpretation"])
+    assert second["interpretation"]["budget_min"] == {"speaker": 60000}
+    third = _interpret(client, "스피커 3만원 이하", previous=second["interpretation"])
+    assert third["interpretation"]["budget"] == {"speaker": 30000}
+    assert third["interpretation"]["budget_min"] == {}                   # 나중에 말한 상한이 이전 하한을 이긴다
+
+
 def test_interpret_ignores_values_outside_the_lists_in_previous(client):
     data = _interpret(client, "마우스", previous={"kinds": ["gpu"], "purposes": ["hack"], "stated": {"mouse": ["x"]}})
     assert data["interpretation"]["kinds"] == ["mouse"]
@@ -149,6 +160,18 @@ def test_recommend_kind_budget_filters_by_price_and_explains_when_nothing_fits()
     none = _recommend(c, kinds=["mouse"], kind_budget={"mouse": 1})
     assert none["status"] == "empty"
     assert "예산" in none["empty"][0]["reason"]
+
+
+@needs_db
+def test_recommend_kind_budget_min_filters_cheaper_products_without_touching_the_ceiling():
+    c = _signed_up()
+    floor = _recommend(c, kinds=["mouse"], kind_budget_min={"mouse": 60000})
+    assert floor["status"] == "ready"
+    assert floor["items"][0]["price"] >= 60000
+    assert all(alt["price"] >= 60000 for alt in floor["items"][0]["alternatives"])
+    none = _recommend(c, kinds=["mouse"], kind_budget_min={"mouse": 9_000_000})
+    assert none["status"] == "empty"
+    assert "이상" in none["empty"][0]["reason"]
 
 
 @needs_db

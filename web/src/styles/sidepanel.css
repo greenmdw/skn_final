@@ -14,7 +14,9 @@
 .sp-lbl { overflow: hidden; text-overflow: ellipsis; }
 .sp-row.icon-only { width: 40px; justify-content: center; padding: 0; }
 
-.sp-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 8px; }
+.sp-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 8px; scrollbar-width: none; -ms-overflow-style: none; }
+/* 스크롤은 되지만 막대는 보이지 않게 한다 */
+.sp-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .sp-group { font-size: 11px; font-weight: 600; color: var(--muted); padding: 12px 8px 4px; }
 .sp-group-toggle { display: flex; align-items: center; gap: 6px; width: 100%; margin: 0; border: 0; border-radius: 6px; background: transparent; font-family: inherit; text-align: left; cursor: pointer; }
 .sp-group-toggle:hover { color: var(--text); background: color-mix(in srgb, var(--mint) 6%, transparent); }

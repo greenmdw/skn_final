@@ -119,12 +119,17 @@ export interface WireQuoteDraftItem {
   image_url: string | null
   match_status: 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'
   candidate_count: number | null; source_ids: string[]; selected_for_analysis: boolean; user_edited: boolean
+  uncertain?: boolean
   /** 실시간 검색 값이 임시 저장소에 있다(저장되지 않는 표시) */
   live_value?: boolean
+  /** 'model' = 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾아 확정했다 */
+  match_via?: 'model' | null
 }
 export interface WireQuoteDraft {
   draft_id: string; version: number
-  sources: { id: string; type: 'image' | 'text' | 'replacement' | 'manual'; file_name: string | null; sort_order: number; status: 'completed' | 'failed'; error_code: string | null }[]
+  /** 올린 사진이 서로 다른 견적처럼 보이는지(separate) 한 견적의 여러 장처럼 보이는지(single) — 화면의 기본 선택 */
+  source_mode_hint?: 'single' | 'separate'
+  sources: { id: string; type: 'image' | 'text' | 'replacement' | 'manual'; file_name: string | null; sort_order: number; status: 'completed' | 'failed'; error_code: string | null; quality_warning?: string | null; ignored_lines?: string[] }[]
   items: WireQuoteDraftItem[]
   selected_item_by_category: Record<string, string>
   conditions: Record<string, unknown>
@@ -179,6 +184,9 @@ export interface WireQuoteSavedComparison {
   brief_summary: { changed_count: number; largest_price_difference_category: string | null; text: string }
   saved: Record<string, unknown>
   labels: Record<string, string>
+  kind?: string | null
+  /** 서로 다른 두 견적을 비교할 때 기준별 값 — 종합 우열은 없다 */
+  criteria?: { key: string; label: string; a_text: string; b_text: string; better: 'a' | 'b' | 'tie' | null; higher_is_better: boolean; info?: boolean }[] | null
   computed_at: string
 }
 export interface WireQuoteGuideRef { id: string; slot: string; kind: 'care' | 'install'; text: string; score: number | null }
@@ -307,6 +315,7 @@ export interface WireReviewSummary {
   data_notice: string
   status: 'unavailable' | 'ready' | string
   product_manipulation_risk?: { evidence?: string[]; reliable_range?: boolean | null; control_scope?: string | null } | null
+  aspect_facts?: string[]
   // synthetic_demo 는 일부러 읽지 않는다 — 서버가 "합성 데모값, 실사용자 노출 금지"로 표시한 값이다.
 }
 
@@ -351,7 +360,16 @@ export interface WirePeripheralReviewContribution {
   p: number
   n: number
   mixed: number
-  members: { direction: string; observation_text: string }[]
+  /** observation_text 는 리뷰 분석이 만든 요약(대부분 영어)이고, evidence_sentences 는 리뷰 원문 문장(한글)이다 */
+  members: { direction: string; observation_text: string; evidence_sentences?: string[] }[]
+  /** 서버가 다수 의견 쪽에서 고른 한글 대표 문장. 없으면 null */
+  quote?: { text: string; direction: 'positive' | 'negative' | 'mixed' } | null
+  dissent?: boolean
+}
+export interface WirePeripheralScoreDetail { axes: { axis: string; label?: string; value: number; weight: number; points: number }[] }
+export interface WirePeripheralRequested {
+  label: string; source: 'stated' | 'situation' | 'purpose'; type: 'spec' | 'evidence'
+  spec_checks: { key: string; text: string; ok: boolean }[]; feel_codes: string[]; external_aspects: string[]
 }
 export interface WirePeripheralItem {
   kind: 'monitor' | 'keyboard' | 'mouse' | 'speaker'
@@ -364,7 +382,12 @@ export interface WirePeripheralItem {
   checks: { axis: string; label: string; state: string; detail: string }[]
   reason: { status: string; text: string | null }
   /** 1위 말고 비교해 볼 만한 제품. 서버는 이름·가격 차이와 리뷰 근거(review)만 준다 — 사양 점검·제품 식별자는 없다 */
-  alternatives: { name: string; price: number; diff: number; review?: { contributions: WirePeripheralReviewContribution[] } | null; review_note?: string }[]
+  alternatives: {
+    name: string; price: number; diff: number; review?: { contributions: WirePeripheralReviewContribution[] } | null; review_note?: string
+    variant_id?: string | null; brand?: string | null; image_url?: string | null; product_url?: string | null
+    key_specs?: { key: string; label: string; value: string }[]; requested?: WirePeripheralRequested[]
+    price_position?: { rank: number; of: number } | null; feel?: WirePeripheralFeel | null; score_detail?: WirePeripheralScoreDetail | null
+  }[]
   guide: { status: string; text: string | null }
   review: { contributions: WirePeripheralReviewContribution[] } | null
   review_weight: number
@@ -372,6 +395,10 @@ export interface WirePeripheralItem {
   /** 체감 근거 블록. null 이면 보여 줄 근거가 없다 */
   feel?: WirePeripheralFeel | null
   feel_note?: string | null
+  key_specs?: { key: string; label: string; value: string }[]
+  requested?: WirePeripheralRequested[]
+  price_position?: { rank: number; of: number } | null
+  score_detail?: WirePeripheralScoreDetail | null
 }
 export interface WirePeripheralFeel {
   value: number
@@ -380,6 +407,7 @@ export interface WirePeripheralFeel {
   recent_authors: number | null
   attributes: {
     code: string; label: string; type?: string; state: string; text: string; alpha?: number; split: boolean; mismatch: boolean
+    good?: number; bad?: number
     quotes: { quote_id: string; post_id: string; sentence: string; is_example?: boolean; photo_url: string | null }[]
   }[]
 }
@@ -397,6 +425,7 @@ export interface WirePeripherals {
   totals: { reference_price: number; note: string }
   ignored_inputs?: string[]
   adjust_chips?: WirePeripheralAdjustChip[]
+  notices?: { kind: string; code: string; text: string }[]
 }
 
 // ── 견적 문장 해석(src.schemas.PeripheralInterpretOut) ──
@@ -407,7 +436,11 @@ export interface WirePeripheralInterpretation {
   stated: Record<string, string[]>
   hand_size: 'small' | 'medium' | 'large' | null
   budget: Record<string, number>
+  budget_min?: Record<string, number>
   budget_total: number | null
+  emphasis?: Record<string, string[]>
+  brand_like?: Record<string, string[]>
+  brand_avoid?: Record<string, string[]>
   unrecognized: string[]
 }
 export interface WirePeripheralResolvedCondition { condition: string; label: string; sources?: string[] }
@@ -419,8 +452,20 @@ export interface WirePeripheralInterpret {
     purposes?: { code: string; label: string }[]
     preferences?: WirePeripheralResolvedCondition[]
     filters?: WirePeripheralResolvedCondition[]
+    conflicts?: { conditions: string[]; labels: string[]; kept: string | null }[]
   }>
   needs_kind: boolean
   source: 'llm' | 'rules'
   truncated?: boolean
+}
+export interface WirePeripheralChat extends WirePeripheralInterpret {
+  turn: {
+    new_conditions: { kind: string; label: string }[]
+    not_reflected: string[]
+    notes: string[]
+    answer: { type: string; topic: string | null; text: string; kinds: ('monitor' | 'keyboard' | 'mouse' | 'speaker')[]; chips: string[] } | null
+    reply: string
+    chips: string[]
+    result_chips: string[]
+  }
 }

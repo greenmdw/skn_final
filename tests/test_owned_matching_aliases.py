@@ -90,12 +90,11 @@ def test_when_several_products_fit_a_shorter_name_nothing_is_chosen():
     assert _match_nearest("Micronics Classic II 풀체인지", POOL["파워"]) is None    # 600W / 700W 둘 다 해당 → 고르지 않는다
 
 
-def test_a_nearest_product_is_shown_as_needing_confirmation_not_as_a_confirmed_match():
+def test_a_shortened_name_is_confirmed_by_model_number_with_its_basis_shown():
     owned = resolve_owned_parts({"CPU": "5800X3D"}, POOL, ["CPU"])["CPU"]
-    assert owned["source"] == "candidate" and owned["candidate"] == "AMD Ryzen 7 5800X3D"
-    assert owned["name"] == "5800X3D"                                    # 사용자가 적은 이름 그대로 — 카탈로그 이름으로 바꾸지 않는다
+    assert owned["source"] == "catalog" and owned["name"] == "AMD Ryzen 7 5800X3D" and owned["match_via"] == "model"
     row = preview_current_specs({"CPU": "5800X3D"}, POOL, ["CPU"])[0]
-    assert row["state"] == "warn" and "가장 비슷합니다" in row["matched_note"] and row["matched"] == "5800X3D"
+    assert row["state"] == "ok" and row["match_via"] == "model" and "모델 번호로 찾음" in row["matched_note"]
 
 
 def test_an_exact_match_is_still_a_confirmed_catalog_match():

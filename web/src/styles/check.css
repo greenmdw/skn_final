@@ -7,7 +7,7 @@
   --ck-warn: #795a0b; --ck-bad: #a23d34; --ck-scrim: #f5f8fdd9; --ck-shadow: #45534c33;
 }
 
-.ck-page { width: min(1220px, 100%); margin: 0 auto; padding: 32px 26px 70px; display: flex; flex-direction: column; gap: 18px; }
+.ck-page { width: min(var(--page-content-max), 100%); margin: 0 auto; padding: 32px 26px 70px; display: flex; flex-direction: column; gap: 18px; }
 .ck-page button { font-family: inherit; }
 .ck-page .delta-up, .ck-delta-up { color: var(--ck-bad); }
 .ck-page .delta-down, .ck-delta-down { color: var(--ok); }
@@ -485,3 +485,17 @@
 .ck-chat-upgrade { flex: none; padding: 6px 10px; border: 1px solid var(--line2); border-radius: 8px; background: transparent; color: var(--mint); font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
 .ck-chat-upgrade:hover:not(:disabled) { background: color-mix(in srgb, var(--mint) 9%, transparent); }
 .ck-chat-upgrade:disabled { opacity: .45; cursor: default; }
+
+/* 올린 사진이 한 견적의 여러 장인지, 서로 다른 견적인지 고르는 안내 */
+.ck-source-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 14px 16px; margin-bottom: 14px; }
+.ck-source-mode small { flex-basis: 100%; color: var(--muted); }
+.ck-source-mode label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
+/* 서로 다른 두 견적의 기준별 비교표 */
+.ck-criteria { padding: 14px 18px 4px; }
+.ck-criteria > b span { color: var(--muted); font-weight: 400; }
+.ck-criteria table { width: 100%; border-collapse: collapse; margin: 10px 0 6px; font-size: 14px; }
+.ck-criteria th, .ck-criteria td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line2); }
+.ck-criteria td.win { font-weight: 700; color: var(--ok, #1a7f4b); }
+.ck-criteria tr.info td { color: var(--muted); }
+.ck-criteria > small { display: block; color: var(--muted); padding-bottom: 8px; }

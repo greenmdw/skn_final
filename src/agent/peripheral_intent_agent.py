@@ -57,10 +57,15 @@ def build_system_prompt(rules: dict | None = None, kinds_hint: list[str] | None 
         "- 사용자가 직접 말한 스펙 조건만 stated 에 넣는다. 목적에서 짐작되는 조건(예: 들고 다녀요 → 무선)을 stated 에 넣지 않는다.",
         "- '게임용'이라고만 하면 purposes 에 game 만 넣는다. 장르나 게임 이름이 드러났을 때만 fps 등을 넣는다.",
         "- 금액은 원 단위 정수로 쓴다. 종류가 하나뿐이거나 종류별로 말했으면 budget, 여러 종류를 합친 금액이면 budget_total.",
+        "- 'N원 이상·넘는·부터'처럼 최소 가격을 말했으면 budget_min(종류별), '이하·까지·안쪽'이면 budget 이다.",
         "- 손 크기를 말했을 때만 hand_size(small/medium/large). 쥐는 법은 읽지 않는다.",
         "- 가격·후기·AS 를 특히 중요하게 말했을 때만 emphasis 에 그 축을 넣는다(예: 가성비 → 가격, 평 좋은 → 리뷰).",
         "- 브랜드는 목록의 이름만 쓴다. 고르고 싶다고 말하면 brand_like, 빼 달라거나 싫다고 하면 brand_avoid 다.",
         "- 종류를 알 수 없으면 kinds 를 비운다. 지어내지 않는다.",
+        "- 조건을 말한 것이 아니라 질문(왜·뭐야·어때·차이·몇)을 했으면 question 에 종류를 넣고 조건 필드는 비운다. 답은 쓰지 않는다.",
+        "  question.type: term 용어 뜻 / compat 내 PC와 맞는지 / capabilities 할 수 있는 일 / conditions 말할 수 있는 조건 /"
+        " compare 1위와 다른 선택지 차이 / why 고른 이유 / spec 스펙 값 / review 사용기·리뷰 / other 위에 없는 질문.",
+        "  topic 은 용어나 스펙·사용기 주제를 사용자가 쓴 말 그대로 짧게(없으면 null). 조건 문장이면 question 은 null.",
         *([f"- 사용자가 이미 종류를 골랐다: {', '.join(kinds_hint)}. kinds 에 넣고, 종류를 가리지 않은 조건과 금액은 그 종류에 붙인다."]
           if kinds_hint else []),
         "",
@@ -124,11 +129,25 @@ def _output_schema(rules: dict) -> dict[str, Any]:
                 "additionalProperties": False,
                 "properties": {kind: {"type": "integer"} for kind in kinds},
             },
+            "budget_min": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {kind: {"type": "integer"} for kind in kinds},
+            },
             "budget_total": {"type": ["integer", "null"]},
             "unrecognized": {"type": "array", "items": {"type": "string"}},
+            "question": {
+                "type": ["object", "null"],
+                "additionalProperties": False,
+                "properties": {
+                    "type": {"type": "string", "enum": list(peripheral_intent.QUESTION_TYPES)},
+                    "topic": {"type": ["string", "null"]},
+                },
+                "required": ["type", "topic"],
+            },
         },
         "required": ["kinds", "purposes", "situations", "stated", "emphasis", "brand_like", "brand_avoid", "hand_size",
-                     "budget", "budget_total", "unrecognized"],
+                     "budget", "budget_min", "budget_total", "unrecognized", "question"],
     }
 
 

@@ -18,7 +18,9 @@ from src.engine.stage2_requirement import normalize_pc_slot
 
 # 모델 식별에 도움이 안 되는 말 — 비교에서 뺀다.
 _GENERIC = {"nvidia", "geforce", "amd", "radeon", "intel", "core", "ryzen", "gb", "tb", "mhz", "rgb", "ddr", "x",
-            "그래픽카드", "그래픽", "프로세서", "메모리", "패키지", "정품", "벌크", "멀티팩", "한글"}
+            "그래픽카드", "그래픽", "프로세서", "메모리", "패키지", "정품", "벌크", "멀티팩", "한글",
+            # 견적 한 줄 앞에 붙는 부품군 이름("CPU 라이젠 7800X3D"·"SSD 에센코어 CRAS C910") — 제품 이름이 아니다
+            "cpu", "gpu", "vga", "ssd", "ram", "psu", "메인보드", "쿨러", "케이스", "파워", "저장장치"}
 _SOCKET = re.compile(r"\b(AM[345]|LGA\s*-?\s*\d{3,4})\b", re.IGNORECASE)
 _DDR = re.compile(r"\bDDR\s*([345])\b", re.IGNORECASE)
 _WATT = re.compile(r"(\d{3,4})\s*W\b", re.IGNORECASE)
@@ -53,12 +55,16 @@ _GENERIC |= {"대원씨티에스", "서린", "피씨디렉트", "브이텍", "�
              "병행수입", "벌크", "멀티팩", "정품", "새상품", "파인인포", "쿨러미포함", "단독", "특가", "미들타워", "풀타워", "미니타워"}
 
 
+# 같은 제조사를 두 이름으로 부르는 경우 — 에센코어가 만드는 브랜드가 KLEVV 다. 글·카탈로그 양쪽 낱말에 같이 적용한다.
+_CANON = {"essencore": "klevv"}
+
+
 def _tokens(text: str) -> list[str]:
     t = str(text).lower()
     t = re.sub(r"(rtx|gtx|rx|ryzen)(?=\d)", r"\1 ", t)                        # "RTX3060" -> "rtx 3060"
     t = re.sub(r"([가-힣])(?=[a-z0-9])|([a-z0-9])(?=[가-힣])", lambda m: (m.group(1) or m.group(2)) + " ", t)  # "라이젠5"
     parts = (p for p in re.split(r"[^0-9a-z가-힣]+", t) if p)
-    return [word for p in parts for word in _ALIASES.get(p, (p,))]
+    return [_CANON.get(word, word) for p in parts for word in _ALIASES.get(p, (p,))]
 
 
 def _significant(tokens: Iterable[str]) -> list[str]:
@@ -93,10 +99,12 @@ def _match_catalog(text: str, pool: list[Candidate]) -> list[Candidate]:
         return []
     has_model = any(_is_model_token(t) for t in wanted)
     wanted_set = set(wanted)
+    text_qualifiers = wanted_set & _MODEL_QUALIFIERS
     scored: list[tuple[int, Candidate]] = []
     for cand in pool:
         have = _significant(_tokens(cand.name))
-        if have and all(t in wanted_set for t in have):
+        # 글에 한정어(Ti·Super·XT)가 있는데 후보 이름에 없으면 다른 제품이다 — "RTX 4060 SUPER" 를 "RTX 4060" 으로 연결하면 안 된다.
+        if have and all(t in wanted_set for t in have) and text_qualifiers <= set(have):
             scored.append((len(set(have)), cand))
     if not scored:
         return []
@@ -113,6 +121,45 @@ def _match_catalog(text: str, pool: list[Candidate]) -> list[Candidate]:
         return best_matches if len(best_matches) == 1 else []
     best = max(size for size, _ in scored)
     return _narrow_by_capacity(text, [cand for size, cand in scored if size == best])
+
+
+# 규격·속도·용량 표기는 모델 번호가 아니다("DDR5"·"PCIe4"·"850W"·"6000MHz") — 모델 번호 기준 매칭의 근거로 쓰지 않는다.
+_SPEC_ONLY = re.compile(r"(lp)?ddr\d|pcie\d*|gen\d|m2|nvme|sata\d*|atx\d*|\d{3,5}mhz|cl\d+|\d+hz|\d{3,4}w|\d+(gb|tb)")
+
+# 칩셋·소켓 이름만으로는 어느 제품인지 모른다 — 모델 번호 기준 매칭에서 이것만 있는 글은 시도하지 않는다.
+def _is_chipset_token(token: str) -> bool:
+    return re.sub(r"M$", "", token.upper()) in _CHIPSET_SOCKET
+
+
+def _match_by_model(text: str, pool: list[Candidate], slot: str) -> list[Candidate]:
+    """제조사·시리즈 숫자를 줄여 쓴 글("라이젠 7800X3D"·"B650M K"·"990 EVO Plus")을 모델 번호로 찾는다. 후보가 **하나로 정해질 때만** 돌려준다.
+
+    일반 슬롯: 글의 의미 있는 낱말이 전부 후보 이름 안에 있어야 한다(`_match_catalog` 의 반대 방향 — 글이 후보보다 짧아도 된다).
+    다른 제조사를 적었으면("ASUS B650M K") 그 낱말이 후보에 없어 제외된다. 모델 번호가 없거나, 칩셋 이름 하나뿐이면 시도하지 않는다.
+    GPU: 카탈로그가 칩 단위("RTX 5060 Ti")라 보드 제조사·제품명 수식어("만리 … 폴라 폭스")는 무시하고 모델 번호와 한정어(Ti·Super·XT)만
+    본다. 글에 없는 한정어가 후보 이름에 있으면 제외한다(5060 이 5060 Ti 가 되지 않게)."""
+    if slot == "RAM":      # RAM 은 속도·용량만으로 제품을 특정할 수 없다 — 제조사 이름이 함께 있는 정확한 대응(_match_catalog)만 쓴다
+        return []
+    wanted = set(_significant(_tokens(text)))
+    models = {t for t in wanted if _is_model_token(t) and not _SPEC_ONLY.fullmatch(t)}
+    if not models:
+        return []
+    if slot == "GPU":
+        qualifiers = wanted & _MODEL_QUALIFIERS
+        needed = {t for t in models if len(t) >= 3} | qualifiers
+        if not needed - qualifiers:
+            return []
+        found = []
+        for cand in pool:
+            have = set(_significant(_tokens(cand.name)))
+            if needed <= have and (have & _MODEL_QUALIFIERS) <= qualifiers:
+                found.append(cand)
+    else:
+        if len(wanted) < 2 and all(_is_chipset_token(t) for t in models):
+            return []
+        found = [cand for cand in pool if wanted <= set(_significant(_tokens(cand.name)))]
+    found = _narrow_by_capacity(text, found)
+    return found if len(found) == 1 else []
 
 
 _MODEL_QUALIFIERS = frozenset({"ti", "super", "xt", "xtx", "gre", "x3d"})
@@ -425,6 +472,10 @@ def resolve_owned_parts(current_specs: Any, by_slot: dict[str, list[Candidate]],
         # RAM 은 용량("32GB")만으로는 제품을 특정할 수 없다 — 모델 번호(속도 등)와 제조사 이름이 함께 있어야
         # 대응되므로 "DDR5 32GB" 만 적은 글은 여기서 대응되지 않는다(모델 토큰 조건 + 카탈로그 이름의 제조사 낱말).
         matches = _match_catalog(text, by_slot.get(slot, []))
+        via = None
+        if not matches:
+            matches = _match_by_model(text, by_slot.get(slot, []), slot)
+            via = "model" if matches else None
         if matches:
             # 카탈로그 가격은 후보가 하나로 좁혀졌거나 모두 같을 때만 — 용량 변형이 남아 있으면 어느 가격인지 모른다(가격 비교용).
             prices = {c.price for c in matches if c.price}
@@ -451,6 +502,8 @@ def resolve_owned_parts(current_specs: Any, by_slot: dict[str, list[Candidate]],
                            # common_specs·호환 검사엔 그대로 쓰되(공통값이라 안전), 화면 표시(match_status)는
                            # "확정"과 구분한다. 1개면 그냥 확정 매칭.
                            "candidate_count": len(matches)}
+            if via:
+                owned[slot]["match_via"] = via          # 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾았다(화면에 근거를 보인다)
             continue
         nearest = _match_nearest(text, by_slot.get(slot, []))
         if nearest is not None:
@@ -523,6 +576,8 @@ def _preview_note(info: dict[str, Any]) -> str:
         count = info.get("candidate_count") or 1
         if count > 1:      # 용량·색상 등만 다른 후보가 동점으로 남음 — 어느 제품인지 확정 못 함(공통값만 사용)
             return f"후보 {count}개 · 공통값만 사용" + (f" ({detail})" if bits else "")
+        if info.get("match_via") == "model":
+            return "모델 번호로 찾음(제조사 미기재) · " + detail
         return detail
     if source == "unverified":
         return "확인 가능한 스펙이 없습니다."
@@ -574,6 +629,8 @@ def preview_current_specs(current_specs: Any, by_slot: dict[str, list[Candidate]
                "matched_note": _preview_note(info), "state": _PREVIEW_STATE[info["source"]],
                "match_status": status,
                "candidate_count": info.get("candidate_count") if status == "ambiguous" else None}
+        if info.get("match_via"):
+            row["match_via"] = info["match_via"]
         if info["source"] == "live" or info.get("live_filled"):
             row["value_source"] = "live"          # 실시간 검색 값을 썼을 때만 붙인다 — 다른 행의 모양은 그대로
         rows.append(row)

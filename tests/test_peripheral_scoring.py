@@ -97,7 +97,7 @@ def test_stated_condition_counts_double_inside_the_criterion_value():
 def test_derived_conditions_do_not_double_the_criterion_weight():
     pref = {"key": "weight_g", "op": "max", "value": 80}
     ranked = sel.rank_candidates("mouse", _req([pref]), [_cand("a", specs={"weight_g": 70})], BASE)
-    assert ranked[0].score_detail["weights_reason"] == []
+    assert not [r for r in ranked[0].score_detail["weights_reason"] if "직접 말한" in r]   # 예산 없음 배수는 별개다
     stated = sel.rank_candidates("mouse", _req([pref], stated=[pref]), [_cand("a", specs={"weight_g": 70})], BASE)
     assert any("손맞춤" in r for r in stated[0].score_detail["weights_reason"])
 

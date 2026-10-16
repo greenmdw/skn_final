@@ -28,7 +28,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal
@@ -36,9 +35,9 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from src.engine.peripheral_feel import FeelObservation
-from src.engine.peripheral_intent import Kind, kinds_all_order, looks_like_injected_instruction
+from src.engine.peripheral_intent import Kind, looks_like_injected_instruction, squash_spaces
 from src.engine.peripheral_rules import (
-    feel_attributes, feel_config, load_peripheral_rules, purpose_codes, situations,
+    feel_attributes, feel_config, load_peripheral_rules, split_purpose_codes,
 )
 
 OTHER = "other"        # 맞는 속성이 없는 직접 겪은 문장(사양 4.4)
@@ -165,10 +164,6 @@ class PostAnalysis(BaseModel):
 
 
 # ── 분석 ──────────────────────────────────────────────────────────────────
-def _squash(text: str) -> str:
-    return re.sub(r"\s+", " ", text or "").strip()
-
-
 def hand_size_from_cm(cm: float | None, rules: dict | None = None) -> HandSize | None:
     """손 길이(cm)를 단계로 바꾼다(사양 4.1, 잠정 17.5cm 미만 작은 편 / 19cm 초과 큰 편). cm 가 없으면 None."""
     if cm is None:
@@ -182,14 +177,11 @@ def hand_size_from_cm(cm: float | None, rules: dict | None = None) -> HandSize |
 
 
 def _normalize_author(author: ExtractedAuthor, rules: dict, body: str | None = None) -> ExtractedAuthor:
-    sit = set(situations(rules))
-    codes = set(purpose_codes(rules)) | sit
-    purposes = [c for c in dict.fromkeys(author.purposes) if c in codes and c not in sit]
-    sits = [c for c in dict.fromkeys([*author.situations, *(c for c in author.purposes if c in sit)]) if c in sit]
+    purposes, sits = split_purpose_codes(author.purposes, author.situations, rules)
     if author.statements is not None:
         # 목적·상황은 글쓴이가 직접 밝힌 문장이 본문에 그대로 있을 때만 남긴다(사양 4.1 "밝히지 않은 조건은 모름").
-        squashed = _squash(body or "")
-        grounded = any(_squash(s) and _squash(s) in squashed for s in author.statements)
+        squashed = squash_spaces(body or "")
+        grounded = any(squash_spaces(s) and squash_spaces(s) in squashed for s in author.statements)
         if not grounded:
             purposes, sits = [], []
     return ExtractedAuthor(
@@ -206,7 +198,7 @@ def _value_matches(attr: dict, item: ExtractedItem) -> bool:
 
 def quote_id_for(post_id: str, sentence: str) -> str:
     """문장 식별자. 글 id 와 문장 내용으로 정해져서, 글이 수정돼도 같은 문장은 같은 id 를 갖는다."""
-    return hashlib.sha1(f"{post_id}|{_squash(sentence)}".encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha1(f"{post_id}|{squash_spaces(sentence)}".encode("utf-8")).hexdigest()[:16]
 
 
 def analyze_post(post: PostInput, extraction: PostExtraction, rules: dict | None = None) -> PostAnalysis:
@@ -226,7 +218,7 @@ def analyze_post(post: PostInput, extraction: PostExtraction, rules: dict | None
         return _skip("no_catalog_product")
 
     products = {p.index: p for p in post.products}
-    body = _squash(post.body)
+    body = squash_spaces(post.body)
     injected = looks_like_injected_instruction(post.body)       # 본문 속 지시문은 따르지 않고 글을 보류한다(사양 3장)
     author = _normalize_author(extraction.author, rules, post.body)
 
@@ -238,7 +230,7 @@ def analyze_post(post: PostInput, extraction: PostExtraction, rules: dict | None
         kind = product.kind if product else None
         product_id = product.product_id if product else None
 
-        if _squash(item.sentence) == "" or _squash(item.sentence) not in body:
+        if squash_spaces(item.sentence) == "" or squash_spaces(item.sentence) not in body:
             reasons.append("sentence_not_in_body")
         if product is None:
             reasons.append("unknown_product")
@@ -287,8 +279,3 @@ def summarize(analyses: list[PostAnalysis]) -> CorpusSummary:
         held=sum(1 for i in items if i.status == "held"),
         excluded=sum(1 for i in items if i.status == "excluded"),
     )
-
-
-def supported_kinds(post: PostInput) -> list[str]:
-    """글에 연결된 점수 낼 수 있는 제품의 종류(고정 순서)."""
-    return kinds_all_order([p.kind for p in post.products if p.kind and p.product_id])

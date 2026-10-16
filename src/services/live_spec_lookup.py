@@ -310,7 +310,7 @@ def _call_guarded(fn, *args, **kwargs):
         time.sleep(_RATE_LIMIT_RETRY_WAIT_SECONDS)
         try:
             return fn(*args, **kwargs)
-        except (RateLimitError, APIConnectionError) as exc:
+        except (RateLimitError, APIConnectionError):
             raise _busy() from first
     except APIConnectionError as exc:                # APITimeoutError 포함
         raise _busy() from exc

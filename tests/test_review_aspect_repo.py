@@ -562,7 +562,6 @@ def test_raw_observations_rebuild_to_pc_score_and_stage5_trace(review_db, monkey
 def test_peripheral_db_score_reaches_typed_payload_without_affecting_rank(review_db, monkeypatch):
     from copy import deepcopy
 
-    from src.dto import Candidate
     from src.engine.peripheral_payload import peripheral_payload
     from src.engine.peripheral_select import run_peripherals
     from src.repo.catalog_repo import load_peripheral_candidates

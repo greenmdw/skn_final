@@ -15,8 +15,8 @@ from collections import OrderedDict
 from typing import Any
 
 from src.agent import peripheral_intent_agent
-from src.engine import peripheral_intent
-from src.engine.peripheral_intent import Interpretation
+from src.engine import peripheral_chat, peripheral_intent
+from src.engine.peripheral_intent import Interpretation, Question
 from src.engine.peripheral_rules import interpretation_settings, load_peripheral_rules
 
 log = logging.getLogger(__name__)
@@ -61,18 +61,48 @@ def interpret(text: str, previous: dict[str, Any] | None = None, kinds: list[str
     if new is None:
         new, source = _read(sentence, key, rules, settings["cache_size"], hint)
 
+    new = _with_question(new, sentence, rules)
+
     base = peripheral_intent.sanitize(previous, rules) if previous else None
-    merged = peripheral_intent.merge(base, new)
-    if kinds:      # 종류 카드로 고른 값
-        merged = peripheral_intent.merge(merged, peripheral_intent.sanitize({"kinds": kinds}, rules))
+    merged = peripheral_intent.merge(base, new, rules)
+    if kinds:      # 종류 카드로 고른 값 — 질문은 이번 문장의 것이므로 합치면서 지워지지 않게 되돌려 놓는다
+        merged = peripheral_intent.merge(merged, peripheral_intent.sanitize({"kinds": kinds}, rules), rules)
+        merged = merged.model_copy(update={"question": new.question})
 
     return {
         "interpretation": merged,
         "resolved": peripheral_intent.resolve(merged, rules),
-        "needs_kind": not merged.kinds,
+        "needs_kind": not merged.kinds and not (merged.question and merged.question.type in _KINDLESS_QUESTIONS),
         "source": source,
         "truncated": truncated,
+        # 채팅 한 턴(peripheral_chat_service)이 이번 문장만 따로 보려고 쓴다. 응답 모양에는 나가지 않는다.
+        "turn_state": {"sentence": sentence, "new": new, "previous": base},
     }
+
+
+# 종류를 몰라도 답할 수 있는 질문: 이때는 "어떤 기기를 찾으세요?" 카드를 띄우지 않는다.
+_KINDLESS_QUESTIONS = ("capabilities", "term", "other")
+
+
+def _with_question(new: Interpretation, sentence: str, rules: dict) -> Interpretation:
+    """이번 문장이 질문이면 종류를 붙이고, 조건 말이 없는 질문이면 읽어 온 조건을 지운다(질문은 조건을 바꾸지 않는다).
+
+    질문 여부는 단어 규칙(질문 말투 + 낱말)이 우선이고, 규칙이 못 가른 것만 언어 모델의 `question` 을 받는다. 모델이 질문이라 해도
+    질문 말투가 문장에 없으면 조건 문장으로 둔다. 조건을 하나도 못 읽었고 질문 말투만 있으면 `other`(범위 밖 질문)다."""
+    question = peripheral_chat.classify_question(sentence, rules)
+    marked = peripheral_chat.has_question_marker(sentence, rules)
+    if question is None and new.question is not None and marked:
+        question = new.question
+    if question is None and marked and peripheral_chat.read_nothing(new.model_copy(update={"question": None})):
+        question = Question(type="other")
+    if question is None:
+        return new.model_copy(update={"question": None})
+    if not question.kinds:
+        question = question.model_copy(update={"kinds": peripheral_intent.kinds_in_text(sentence)})
+    new = new.model_copy(update={"question": question})
+    if question.type != "other" and not peripheral_chat.has_request_words(sentence, rules):
+        return peripheral_chat.question_only(new)
+    return new
 
 
 def _read(sentence: str, key: str, rules: dict, cache_size: int, hint: list[str]) -> tuple[Interpretation, str]:

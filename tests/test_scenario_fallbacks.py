@@ -113,6 +113,48 @@ def test_conditions_agent_failure_falls_back_to_rules_for_that_turn(monkeypatch)
     assert r.json()["messages"][-1]["role"] == "assistant"
 
 
+def test_rule_path_reads_a_bare_number_at_the_budget_question_as_manwon(monkeypatch):
+    """10/15 QA #37 — 예산 차례에 "100" 만 치면 규칙 경로도 100만원으로 받는다(에이전트 도구와 같은 규칙).
+    예산 차례가 아니면 "144" 같은 숫자를 예산으로 받지 않는다."""
+    monkeypatch.setattr(conditions_agent, "available", lambda: False)
+    c = _client()
+    lid = c.post("/session").json()["list_id"]
+    c.post(f"/session/{lid}/category", json={"category": "computer", "mode": "build"})
+    budget = lambda s: next(f["value"] for f in s["fields"] if f["key"] == "budget_max")
+    assert budget(c.post(f"/session/{lid}/message", json={"text": "144"}).json()) is None      # 아직 용도 차례
+    c.post(f"/session/{lid}/answer", json={"question_id": "q_purpose", "selected": ["게임"]})
+    r = c.post(f"/session/{lid}/message", json={"text": "100"})
+    assert r.status_code == 200, r.text
+    assert budget(r.json()) == 1_000_000
+
+
+def test_an_amount_only_answer_is_applied_without_the_model(monkeypatch):
+    """10/15 QA #26 — 예산 턴이 모델 호출 두 번에 10초 넘게 걸렸다. 금액만 말하면 모델 없이 바로 반영하고,
+    다른 말이 섞였거나 예산 차례가 아닌 단위 없는 수는 모델에 맡긴다."""
+    asked: list[str] = []
+
+    def agent_turn(category, cat_def, values, history, text, **_):
+        asked.append(text)
+        return conditions_agent.TurnResult(reply="모델 답", patches={}, trace=[], preference_patches=[])
+
+    monkeypatch.setattr(conditions_agent, "available", lambda: True)
+    monkeypatch.setattr(conditions_agent, "run_turn", agent_turn)
+    c = _client()
+    lid = c.post("/session").json()["list_id"]
+    c.post(f"/session/{lid}/category", json={"category": "computer", "mode": "build"})
+    budget = lambda s: next(f["value"] for f in s["fields"] if f["key"] == "budget_max")
+
+    c.post(f"/session/{lid}/message", json={"text": "200"})                      # 아직 용도 차례 — 모델에
+    assert asked == ["200"]
+    r = c.post(f"/session/{lid}/message", json={"text": "예산은 150만원 정도요"}).json()   # 단위가 있으면 어느 차례든
+    assert asked == ["200"] and budget(r) == 1_500_000
+    assert r["messages"][-1]["text"] == "예산 150만 원으로 반영했어요. " + r["next_question"]["text"]
+
+    c.post(f"/session/{lid}/answer", json={"question_id": "q_purpose", "selected": ["게임"]})
+    c.post(f"/session/{lid}/message", json={"text": "300만원인데 조용하게"})           # 다른 말이 섞임 — 모델에
+    assert asked == ["200", "300만원인데 조용하게"]
+
+
 def test_conditions_agent_replying_with_text_only_keeps_conditions_and_does_not_error(monkeypatch):
     """도구를 하나도 안 부르고 글만 돌려주면 조건은 그대로, 에러 없음."""
     monkeypatch.setattr(conditions_agent, "available", lambda: True)

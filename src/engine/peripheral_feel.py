@@ -30,6 +30,7 @@ R      = Σ α·값        α 합 1. 요청자가 취향을 고르지 않은 성
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Iterable
@@ -301,8 +302,15 @@ def compute_feel(
         mine = by_product.get(cand.product_id or "", [])
         details: list[FeelAttributeDetail] = []
         used_community = False
-        shown_posts: set[str] = set()      # 앞선 속성이 이미 인용한 글 — 뒤 속성은 다른 글을 먼저 보여 준다
-        for code, alpha in alphas.items():
+        shown = _ShownQuotes()             # 앞선 속성이 이미 인용한 글·문장 — 뒤 속성은 다른 글을 먼저 보여 준다
+        # 인용은 요청한 속성(중요도를 올린 것·고른 성향·디자인)이 먼저 고른다 — 그렇지 않으면 설정 순서가 앞선 속성이 글을 가져가 요청 속성이 건수만 남는다.
+        # 집계·점수는 순서와 무관하고, 결과 배열은 원래 순서를 지킨다.
+        order = {code: i for i, code in enumerate(alphas)}
+        requested = req.boosted | set(req.sides) | (
+            {code for code, e in attrs.items() if e.get("only_when") == "design"} if req.design else set())
+        priority = sorted(alphas.items(), key=lambda kv: (kv[0] not in requested, -kv[1], order[kv[0]]))
+        built: dict[str, FeelAttributeDetail] = {}
+        for code, alpha in priority:
             entry = attrs[code]
             attr_votes = [v for v in mine if v.attribute == code]
             same, rest = _Tally(), _Tally()
@@ -370,8 +378,9 @@ def compute_feel(
             else:
                 state = "no_evidence"
             used_community = used_community or bool(same.total or rest.total)
-            quotes = _quotes(attr_votes, group, use_groups, req, cfg["quotes_per_attribute"], shown_posts)
-            details.append(FeelAttributeDetail(
+            quotes = _quotes(attr_votes, group, use_groups, req, cfg["quotes_per_attribute"], shown,
+                             cfg["quote_similarity_max"])
+            built[code] = (FeelAttributeDetail(
                 code=code, label=entry["label"], type=entry["type"], alpha=round(alpha, 4), value=round(value, 4),
                 state=state, same_good=same.good, same_bad=same.bad, rest_good=rest.good, rest_bad=rest.bad,
                 external_p=ext_p, external_n=ext_n,
@@ -380,6 +389,7 @@ def compute_feel(
                 situational=situational.get((cand.product_id or "", code), 0), quotes=quotes,
                 side_counts=dict(counts if entry["type"] == "taste" else counts_dir),
             ))
+        details = [built[code] for code in alphas]
         r_value = sum(d.alpha * d.value for d in details)
         out[cand.product_key] = FeelDetail(
             value=round(min(1.0, max(0.0, r_value)), 4), attributes=details,
@@ -389,27 +399,55 @@ def compute_feel(
     return out
 
 
+class _ShownQuotes:
+    """한 제품에서 이미 인용한 글(`posts`)과 문장 조각(`grams`). 속성이 달라도 같은 글·같은 말을 되풀이하지 않게 한다."""
+
+    def __init__(self) -> None:
+        self.posts: set[str] = set()
+        self.grams: list[frozenset[str]] = []
+
+
+_STRIP = re.compile(r"[\s.,!?~…'\"“”‘’()\[\]·ㅋㅎㅠㅜ]+")
+
+
+def _grams(sentence: str) -> frozenset[str]:
+    """문장을 공백·문장부호를 뺀 글자 2-gram 집합으로 바꾼다(비슷한 말 판정용, 형태소 분석 없음)."""
+    text = _STRIP.sub("", sentence)
+    return frozenset(text[i:i + 2] for i in range(len(text) - 1)) if len(text) > 1 else frozenset({text})
+
+
+def _similar(a: frozenset[str], b: frozenset[str], limit: float) -> bool:
+    union = len(a | b)
+    return bool(union) and len(a & b) / union >= limit
+
+
 def _quotes(votes: list[FeelObservation], group: str, use_groups: bool, req: _Requester, limit: int,
-            shown_posts: set[str] | None = None) -> list[FeelQuote]:
+            shown: _ShownQuotes | None = None, similarity_max: float = 1.0) -> list[FeelQuote]:
     """속성의 표 가운데 문장이 있는 것을 같은 조건 먼저, 최근 순으로 `limit` 개.
 
     한 글이 여러 속성에 걸쳐 문장을 갖는 경우가 많아서(예시 글 한 편이 제품의 여러 면을 쓴다) 그대로 두면 같은 글이 속성마다
     되풀이해서 인용되고 "원문 보기"도 같은 글로 여러 번 걸린다. 그래서 **한 제품에서 한 글은 한 번만** 인용한다: 이 제품의 앞선
-    속성이 이미 인용한 글(`shown_posts`)과 이 속성에서 이미 고른 글은 건너뛴다. 다른 글이 없으면 그 속성은 인용 없이 점수·건수 문구만
-    보인다(근거 집계는 그대로다). 고른 글은 `shown_posts` 에 더한다."""
+    속성이 이미 인용한 글(`shown.posts`)과 이 속성에서 이미 고른 글은 건너뛴다. 글이 달라도 **이미 고른 문장과 너무 비슷한
+    문장**(글자 2-gram 자카드 ≥ `similarity_max`)은 같은 말로 보고 건너뛴다. 건너뛴 뒤 후보가 없으면 그 속성은 인용 없이
+    점수·건수 문구만 보인다(근거 집계는 그대로다). 고른 글·문장은 `shown` 에 더한다."""
     usable = [o for o in votes if o.sentence and o.quote_id and o.post_id]
     def _recency(o: FeelObservation) -> float:
         return -o.written_at.replace(tzinfo=None).timestamp() if o.written_at else 0.0
 
     usable.sort(key=lambda o: (not (use_groups and _same_condition(group, o, req)), _recency(o)))
-    seen = shown_posts if shown_posts is not None else set()
+    seen = shown if shown is not None else _ShownQuotes()
     picked: list[FeelObservation] = []
-    for o in usable:                               # 같은 조건 먼저·최근 순 그대로, 이미 인용한 글은 건너뛴다
+    for o in usable:                               # 같은 조건 먼저·최근 순 그대로, 이미 인용한 글·같은 말은 건너뛴다
         if len(picked) >= limit:
             break
-        if o.post_id not in seen:
-            picked.append(o)
-            seen.add(o.post_id)
+        if o.post_id in seen.posts:
+            continue
+        grams = _grams(o.sentence)
+        if any(_similar(grams, g, similarity_max) for g in seen.grams):
+            continue
+        picked.append(o)
+        seen.posts.add(o.post_id)
+        seen.grams.append(grams)
     return [FeelQuote(quote_id=o.quote_id, post_id=o.post_id, sentence=o.sentence, is_example=o.is_example,
                       photo_url=o.photo_url) for o in picked]
 

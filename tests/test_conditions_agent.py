@@ -76,6 +76,22 @@ def test_budget_amount_parses_like_int(raw, expected):
     assert d.patches["budget_max"] == expected
 
 
+@pytest.mark.parametrize("raw, expected", [("100", 1_000_000), ("150", 1_500_000), (" 1500 ", 15_000_000), ("1,000", 10_000_000)])
+def test_bare_small_budget_reads_as_manwon(raw, expected):
+    # 10/15 QA #37 — 예산 차례에 "100" 만 치면 100원(범위 밖 거절)과 100만원 사이를 오갔다
+    d = _draft("computer")
+    out = d.set("budget_max", raw)
+    assert d.patches["budget_max"] == expected
+    assert f"{expected // 10_000}만 원" in out
+
+
+@pytest.mark.parametrize("raw", ["5000", "5"])
+def test_bare_budget_out_of_range_is_refused(raw):
+    d = _draft("computer")
+    assert d.set("budget_max", raw).startswith("오류")
+    assert "budget_max" not in d.patches
+
+
 def test_extra_appends_without_duplicates():
     d = _draft("computer", {"extra": ["흰색 케이스"]})
     d.add_extra("흰색 케이스")
@@ -427,3 +443,92 @@ def test_search_unavailable_part_says_5070_is_in_the_catalog_instead_of_asking_t
     out = d.search_unavailable_part("GPU", "엔비디아 5070")
     assert ca.SEARCH_PERMISSION_MARKER not in out
     assert "카탈로그에 있는 제품" in out and "RTX 5070" in out and "외부 검색을 묻지 마세요" in out
+
+
+# ── 부품 교체 요청은 조건이 아니다 (10/15 QA #36) ─────────────────────────────
+@pytest.mark.parametrize("text, swap", [
+    ("쿨러 바꿔줘", True), ("그래픽카드 더 좋은 걸로 바꿔줘", True), ("CPU 교체하고 싶어요", True), ("램 업그레이드", True),
+    ("예산 바꿔줘 200만원", False), ("용도를 작업용으로 변경", False), ("조용한 게 좋아요", False), ("흰색 케이스로 해주세요", False),
+])
+def test_part_swap_detection(text, swap):
+    assert ca.is_part_swap(text) is swap
+
+
+def test_part_swap_turn_refuses_conditions_but_keeps_brand_preference():
+    d = _draft("computer", {"category": "computer", "mode": "build", "purpose": "game", "budget_max": 1_500_000})
+    d.part_swap = True
+    assert d.set("priority", "performance").startswith("오류")      # "쿨러 바꿔줘"를 우선순위 답으로 읽지 않는다
+    assert not d.set("brand_pref", "intel").startswith("오류")        # "CPU는 인텔로 바꿔줘" 는 브랜드 선호
+    assert "priority" not in d.patches
+
+
+# ── 용도를 말하지 않은 막연한 말 — 용도를 '기타'로 짐작하지 않는다 (10/15 QA #22) ────────────────
+@pytest.mark.parametrize("text, unsaid", [
+    ("컴퓨터 사고 싶어요", True), ("잘 몰라요", True), ("아무거나", True), ("추천해줘", True), ("어떻게 써요?", True),
+    ("안녕", True), ("뭐라고 해야 돼?", True), (".", True),
+    ("기타 용도로 PC를 맞추고 싶어요", False),          # 첫 화면 '기타' 칩 문장
+    ("게임용 PC를 맞추고 싶어요", False), ("엘든링 돌릴 컴퓨터 추천해줘", True),   # 용도 낱말이 있으면 막연하지 않다 — 게임 제목은 모델이
+    ("주식 차트 볼 거", False), ("서버 돌릴 거예요", False), ("유튜브 보고 인강 들을 거", False),
+])
+def test_purpose_unsaid_detection(text, unsaid):
+    assert ca.is_purpose_unsaid(text) is unsaid
+
+
+def test_rule_13_is_in_the_prompt_only_for_a_vague_message_while_purpose_is_empty():
+    d = _draft("computer", {"category": "computer", "mode": "build"})
+    assert ca._purpose_rules(d) == []
+    d.purpose_unsaid = True
+    assert ca._purpose_rules(d) and ca._purpose_rules(d)[0].startswith("13.")
+    d.values["purpose"] = "game"
+    assert ca._purpose_rules(d) == []
+
+
+def test_vague_turn_refuses_purpose_other_but_not_a_named_purpose():
+    d = _draft("computer", {"category": "computer", "mode": "build"})
+    d.purpose_unsaid = True
+    assert d.set("purpose", "other").startswith("오류")             # "잘 몰라요"를 기타로 채우지 않는다
+    assert "purpose" not in d.patches
+    assert not d.set("purpose", "game").startswith("오류")          # "엘든링 돌릴 컴퓨터 추천해줘" 는 게임
+    assert d.patches["purpose"] == "game"
+
+
+@pytest.mark.parametrize("text, info", [
+    ("각 부품별 소음 기준이 어떻게 돼?", True), ("부품별 소음 측정 기준이랑 수치 알려줘", True), ("QHD랑 FHD 차이가 뭐야?", True),
+    ("조용한 게 좋은데 소음 기준이 뭐야?", False), ("성능 기준으로 골라줘", False), ("조용한 게 중요해요", False),
+])
+def test_info_question_detection(text, info):
+    assert ca.is_info_question(text) is info
+
+
+def test_info_question_turn_refuses_conditions():
+    d = _draft("computer", {"category": "computer", "mode": "build", "purpose": "game", "budget_max": 1_500_000})
+    d.info_question = True
+    assert d.set("priority", "quiet").startswith("오류")             # 소음 기준을 물었다고 조용함 우선으로 두지 않는다
+    assert "priority" not in d.patches
+
+
+def test_claim_without_a_change_is_replaced(monkeypatch):
+    import strands
+
+    class _Claims:
+        def __init__(self, *, tools, **_):
+            self.tools = {t.tool_name: t for t in tools}
+
+        def __call__(self, text):
+            self.tools["clear_condition"]("wanted_parts")          # 비어 있던 것을 비움 — 변화 아님
+            return "원하시는 쿨러 조건을 취소했습니다. 주로 어떤 용도로 쓰실 건가요?"
+
+    monkeypatch.setattr(strands, "Agent", _Claims)
+    monkeypatch.setattr(ca, "_model", lambda: None)
+    cat_def = load_category("computer")
+    turn = ca.run_turn("computer", cat_def, {"category": "computer", "mode": "build"}, [], "쿨러 바꿔줘",
+                       missing_fn=lambda v: compute_missing(cat_def, v),
+                       next_question_fn=lambda v: _next_question(cat_def, v))
+    assert turn.reply.startswith("그 말은 조건으로 반영하지 않았어요.")
+    assert "취소했습니다" not in turn.reply
+
+
+def test_extra_tool_result_tells_the_model_it_is_not_applied():
+    d = _draft("computer")
+    out = d.add_extra("흰색 케이스")
+    assert "자동 추천에는 반영되지 않는" in out

@@ -1,4 +1,4 @@
-import { Navigate, Routes, Route } from 'react-router-dom'
+import { Navigate, Routes, Route, useLocation } from 'react-router-dom'
 import { ToastProvider } from './state/ToastProvider'
 import { SetupsProvider } from './state/SetupsProvider'
 import { PlanProvider } from './state/PlanProvider'
@@ -16,6 +16,18 @@ import MyPage from './pages/MyPage'
 import CommunityPage from './pages/community/CommunityPage'
 import './styles/theme.css'
 
+// 같은 모드에서 "새 견적"을 눌러도 주소는 유지되므로, 전달된 키로 화면을 다시 만들어
+// 이전 대화의 입력·첨부·분석 결과가 새 대화에 남지 않게 한다.
+function CheckRoute() {
+  const location = useLocation()
+  return <CheckPage key={location.state?.newConversationKey ?? 'check'} />
+}
+
+function PeripheralsRoute() {
+  const location = useLocation()
+  return <PeripheralsPage key={location.state?.newConversationKey ?? 'peripherals'} />
+}
+
 // 모든 화면은 React로 구성하며, 서버 데이터가 필요한 기능은 실제 백엔드 API만 사용한다.
 export default function App() {
   return (
@@ -31,8 +43,8 @@ export default function App() {
             <Route path="/plan" element={<PlanPage />} />
             <Route path="/cart" element={<CartPage />} />
             <Route path="/report/:id" element={<ReportPage />} />
-            <Route path="/check" element={<CheckPage />} />
-            <Route path="/peripherals" element={<PeripheralsPage />} />
+            <Route path="/check" element={<CheckRoute />} />
+            <Route path="/peripherals" element={<PeripheralsRoute />} />
             <Route path="/mypage" element={<MyPage />} />
             <Route path="/community" element={<CommunityPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />

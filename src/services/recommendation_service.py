@@ -282,7 +282,7 @@ def execute_recommendation(revision_id: UUID, run_id: UUID, *, defer=None) -> No
     돌아온다 — 엔진 작업자가 LLM 응답을 기다리며 묶이지 않게 한다(src/services/recommendation_runner.py)."""
     from src.db import get_background_conn as get_conn
     from src.engine import feasibility as feasibility_engine
-    from src.engine import stage2_requirement, stage3a_hardfilter, stage3c_verify, stage4_optimize, stage5_explain
+    from src.engine import stage2_requirement, stage3a_hardfilter, stage3c_verify, stage5_explain
     from src.engine import research_loop
     from src.engine.stage3a_hardfilter import CandidateShortage
     from src.repo.catalog_repo import load_candidates_by_slot_from_db
@@ -759,11 +759,9 @@ def reverify_set(conn, revision_id: UUID, run: dict) -> None:
     (stage3c.verify_build)를 지금 선택된 부품으로 다시 돌린다. 순위·설명 문장은 다시 만들지 않는다.
     """
     from src.engine import stage3c_verify
-    from src.engine.owned_parts import owned_for_conditions
     from src.engine.stage2_requirement import load_computer_rules
     from src.engine.stage4_optimize import pc_link_check
     from src.dto import BuildResult
-    from src.repo.catalog_repo import load_candidates_by_slot_from_db
     from src.repo.engine_repo import EngineRepo
     from src.repo.plan_repo import PlanRepo
 
@@ -1140,9 +1138,6 @@ def patch_item(conn, revision_id: UUID, item_id: UUID, *, selected: bool | None,
 
     erepo, run = _require_done_run(conn, revision_id)
     current = _find_candidate(erepo.get_candidates(run["id"]), item_id)
-    if selected is True:
-        values = {r["condition_key"]: r["value"].get("value")
-                  for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
     erepo.update_candidate_state(item_id, selected=selected, qty=qty, timing=timing)
     if selected is not None or qty is not None:
         reverify_set(conn, revision_id, run)      # 빼거나 수량을 바꾸면 총액(예산)·점검 대상 부품이 달라진다
@@ -1336,6 +1331,8 @@ def _games_trace_row(spec) -> tuple[str, str] | None:
     return ("게임 요구사양", detail)
 
 
+# 성능 등급이 있는 부품(CPU·GPU)의 대안 수 — 지금 가격보다 싼 쪽·비싼 쪽 각각. 예전엔 양쪽 합쳐 등급이 가까운 3개였는데,
+# 엔진이 같은 등급에서 가장 싼 것을 고르므로 같은 등급 대안은 모두 더 비쌌다(10/15 QA #61 "대안 3개뿐, 더 비싼 쪽만").
 _SIMILAR_TIER_ALTERNATIVES = 3
 
 
@@ -1394,13 +1391,17 @@ def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
     if current_tier is not None:
         # 워크스테이션·전문가용까지 섞인 전체 카탈로그 대신, 지금 고른 성능 등급에 가까운 후보만
         # 추린다(개발요청 2번 — "비슷한 성능 3개"). 같은 등급 차이면 가격이 가까운 쪽을 우선한다.
+        # 싼 쪽·비싼 쪽에서 따로 고른다 — 한데 고르면 비싼 쪽만 남았다(QA #61).
         def _distance(row: dict) -> tuple[float, int]:
             tier = specs_by_variant.get(str(row["variant_id"]), {}).get("perf_tier")
             tier_gap = abs(float(tier) - float(current_tier)) if tier is not None else float("inf")
             price = row["price"] if row.get("price") is not None else 0
             return (tier_gap, abs(price - current_price))
 
-        others = sorted(others, key=_distance)[:_SIMILAR_TIER_ALTERNATIVES]
+        cheaper = [row for row in others if (row["price"] or 0) < current_price]
+        pricier = [row for row in others if (row["price"] or 0) >= current_price]
+        others = (sorted(cheaper, key=_distance)[:_SIMILAR_TIER_ALTERNATIVES]
+                  + sorted(pricier, key=_distance)[:_SIMILAR_TIER_ALTERNATIVES])
 
     current_row = {**_current_candidate_as_variant_row(current), "price": current_price, "qty": current_qty}
     items = [_alternative_out(current_row, current=True, current_price=current_price,
@@ -1449,7 +1450,6 @@ def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID,
     # 있었다) 코드가 아는 사실만으로 한 줄 적는다 — 판단이 아니라 교체 기록이다.
     old_price = (int(current["price"]) if current["price"] is not None else 0) * old_qty
     new_price = (int(target["price"]) if target.get("price") is not None else 0) * new_qty
-    cvals = {r["condition_key"]: r["value"].get("value") for r in PlanRepo(conn).load_full(revision_id)["conditions"]}
     delta = fmt_money(new_price - old_price, signed=True)
     erepo.update_candidate_reason(item_id, (f"사용자 요청으로 교체한 부품입니다 — 자동 추천은 '{current['product_name']}'({fmt_money(old_price)})였고 "
         f"이 후보는 {delta}입니다. 순위는 교체 전 구성 기준이고, 호환 점검은 교체 후 구성으로 다시 했습니다."))

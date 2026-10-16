@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -23,8 +22,9 @@ from uuid import UUID
 from src.agent import spec_extraction_agent
 from src.auth.deps import Principal
 from src.config import QUOTE_DRAFT_MAX_FILES, QUOTE_DRAFT_MAX_FILE_BYTES, QUOTE_DRAFT_MAX_TOTAL_BYTES
+from src.engine import image_prep
 from src.engine.owned_parts import preview_current_specs, resolve_owned_parts
-from src.engine.quote_items import default_selection, is_placeholder_line, merge_same_products, spec_text, split_line
+from src.engine.quote_items import default_selection, is_non_part_line, is_placeholder_line, merge_same_products, spec_text, split_line
 from src.engine.spec_text import parse_spec_lines
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.errors import Conflict, NotFound, ServiceUnavailable, TruefitError, ValidationFailed
@@ -107,6 +107,7 @@ def _data_url(content_type: str, data: bytes) -> str:
 
 
 def _extract_one(content_type: str, data: bytes) -> list[dict[str, str]]:
+    content_type, data = image_prep.prepare_for_reading(content_type, data)       # 작은 사진은 키우고 선명하게(원본은 저장하지 않는다)
     return spec_extraction_agent.extract_items_from_image(_data_url(content_type, data))
 
 
@@ -155,14 +156,20 @@ def _match(category: str, text: str, by_slot: dict) -> dict[str, Any]:
     elif status == "candidate":
         matched_name = info.get("candidate")
     return {"match_status": status, "candidate_count": row.get("candidate_count"),
-            "matched_product_id": product_id, "matched_product_key": product_key, "matched_name": matched_name}
+            "matched_product_id": product_id, "matched_product_key": product_key, "matched_name": matched_name,
+            "match_via": row.get("match_via")}
 
 
-def _make_item(category: str, raw_text: str, source_id: str, by_slot: dict) -> dict[str, Any]:
+def _make_item(category: str, raw_text: str, source_id: str, by_slot: dict, uncertain: bool = False) -> dict[str, Any]:
     parts = split_line(raw_text)
     item = {"id": str(uuid.uuid4()), "category": category, "raw_text": raw_text, **parts,
             "image_url": None, "source_ids": [source_id], "selected_for_analysis": False, "user_edited": False}
     item.update(_match(category, spec_text(item), by_slot))
+    if uncertain:
+        # 글자가 흐려 읽은 이름이 틀렸을 수 있다 — 카탈로그 제품으로 확정하지 않고 "제품 확인 필요"로 둔다(찾은 제품 이름은 힌트로 남긴다).
+        item["uncertain"] = True
+        if item["match_status"] == "confirmed":
+            item.update(match_status="candidate", matched_product_id=None, matched_product_key=None, match_via=None)
     return item
 
 
@@ -174,6 +181,9 @@ def recognize(files: list[tuple[str, str | None, bytes]], text: str | None, by_s
         sources.append({"id": f"source-{order}", "type": "image", "file_name": name, "sort_order": order,
                         "status": "completed", "error_code": None})
         jobs.append((order - 1, content_type or "image/png", data))
+        quality = image_prep.assess_quality(data)
+        if quality["low"]:           # 작거나 흐린 사진 — 분석은 하되 읽은 부품을 자동으로 확정하지 않고, 화면이 다시 올리기를 안내한다
+            sources[-1]["quality_warning"] = image_prep.WARNINGS[quality["reason"]]
     raw_by_source: dict[int, list[dict]] = {}
     if jobs:
         if not spec_extraction_agent.available():
@@ -194,15 +204,30 @@ def recognize(files: list[tuple[str, str | None, bytes]], text: str | None, by_s
                     sources[index].update(status="failed", error_code=error)
     items: list[dict] = []
     for index, found in raw_by_source.items():
+        total = getattr(found, "quote_total", None)         # 사진에 적힌 견적 총액(있을 때만) — 부품별 가격이 없는 견적의 가격 안내에 쓴다
+        if total:
+            sources[index]["quote_total"] = int(total)
+        if image_prep.reading_is_unreliable(bool(sources[index].get("quality_warning")), list(found)):
+            sources[index]["quality_warning"] += image_prep.NOT_CONFIRMED_NOTE
+            low_quality = True
+        else:
+            low_quality = False
         for entry in found:
             if is_placeholder_line(entry["raw_text"]):      # "별도구매"·"기본 쿨러 장착" 같은 선택 안내 줄은 부품이 아니다
                 continue
-            items.append(_make_item(entry["category"], entry["raw_text"], sources[index]["id"], by_slot))
+            if entry["category"] not in _SLOTS or is_non_part_line(entry["raw_text"]):     # 튜닝·액세서리 — 분석에서 빼고 따로 알린다
+                sources[index].setdefault("ignored_lines", []).append(entry["raw_text"])
+                continue
+            items.append(_make_item(entry["category"], entry["raw_text"], sources[index]["id"], by_slot,
+                                    bool(entry.get("uncertain")) or low_quality))
     if text and text.strip():
         sources.append({"id": "source-text", "type": "text", "file_name": None, "sort_order": len(sources) + 1,
                         "status": "completed", "error_code": None})
         for entry in _text_items(text):
             if is_placeholder_line(entry["raw_text"]):
+                continue
+            if is_non_part_line(entry["raw_text"]):
+                sources[-1].setdefault("ignored_lines", []).append(entry["raw_text"])
                 continue
             items.append(_make_item(entry["category"], entry["raw_text"], "source-text", by_slot))
     if jobs and all(s["status"] == "failed" for s in sources if s["type"] == "image") and not items:
@@ -305,8 +330,23 @@ def mark_live_values(conn, draft: dict) -> dict:
     return draft
 
 
+_FULL_BUILD_CATEGORIES = 5          # 사진 한 장에 이만큼의 부품군이 보이면 그 사진은 한 대 분량의 견적이다
+
+
+def source_mode_hint(draft: dict) -> str:
+    """사진이 "서로 다른 견적"인지 "한 견적의 여러 장"인지 추정한다 — 'separate' 는 부품군이 5개 이상 보이는 사진이 둘 이상일 때다.
+    한 견적을 여러 장으로 나눠 찍으면 장마다 일부 부품군만 보인다. 화면은 이 값을 기본 선택으로만 쓰고 사용자가 바꿀 수 있다."""
+    per_source: dict[str, set[str]] = {}
+    for item in draft.get("items") or []:
+        for source_id in item.get("source_ids") or []:
+            per_source.setdefault(source_id, set()).add(item["category"])
+    images = {s["id"] for s in draft.get("sources") or [] if s.get("type") == "image"}
+    full = [sid for sid, categories in per_source.items() if sid in images and len(categories) >= _FULL_BUILD_CATEGORIES]
+    return "separate" if len(full) >= 2 else "single"
+
+
 def draft_out(list_id: str, draft: dict) -> dict:
-    return {"draft_id": list_id, **draft, "groups": groups(draft)}
+    return {"draft_id": list_id, **draft, "groups": groups(draft), "source_mode_hint": source_mode_hint(draft)}
 
 
 def items_for_sources(draft: dict, source_ids: list[str]) -> list[dict]:
@@ -420,7 +460,9 @@ def analyze_selected(conn, list_id: UUID, principal: Principal, source_ids: list
     if not chosen:
         raise NoRecognizedItems("분석할 항목이 없습니다. 부품군마다 기준 제품을 골라 주세요.")
     specs = {item["category"]: spec_text(item) for item in chosen}
-    review = quote_review_service.analyze(specs, draft.get("conditions"), conn=conn)
+    involved = {sid for item in chosen for sid in item["source_ids"]}
+    totals = [s["quote_total"] for s in draft["sources"] if s["id"] in involved and s.get("quote_total")]
+    review = quote_review_service.analyze(specs, draft.get("conditions"), conn=conn, quote_total=totals[0] if totals else None)
     quote_review_service._save(repo, revision["id"], review)
     rows = price_rows(chosen, review, load_pc_catalog(lambda _msg: None))
     excluded = [{"category": i["category"], "item_id": i["id"], "reason": "견적에 가격이 없어 합계에서 제외했습니다."}

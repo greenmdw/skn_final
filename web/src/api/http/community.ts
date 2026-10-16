@@ -1,8 +1,8 @@
 import { request, requestForm } from './client'
 
 // 커뮤니티 백엔드(/community/*, /catalog/products) 호출. 읽기(목록·상세·검색·댓글)는 로그인 없이 되고, 쓰기는 로그인이 필요하다
-// (서버가 401 → ApiError('로그인이 필요합니다.', 'unauthorized') 로 돌려준다). CommunityPage 는 아직 정적 데이터를 쓰고 있다 —
-// 이 모듈의 mapCommunityItem 이 서버 응답을 화면의 CommunityPost 모양으로 바꿔 주므로, 화면은 데이터 출처만 갈아 끼우면 된다.
+// (서버가 401 → ApiError('로그인이 필요합니다.', 'unauthorized') 로 돌려준다).
+// 이 모듈의 mapCommunityItem 이 서버 응답을 화면의 CommunityPost 모양으로 바꿔 준다. 프로모션 탭만 아직 정적 샘플(communityData.ts)이다.
 
 export type CommunityBoardType = 'question' | 'review' | 'tip' | 'free'
 export type CommunitySort = 'latest' | 'popular' | 'views' | 'recommend'
@@ -41,6 +41,7 @@ export interface WireCommunityItem {
   like_count: number
   view_count: number
   liked_by_me: boolean
+  saved_by_me?: boolean
   tags: string[]
   products: WireCommunityProduct[]
   published_at: string | null
@@ -95,6 +96,63 @@ export interface CommunityPostInput {
   products?: CommunityProductInput[]
   publish?: boolean
   image_ids?: string[]
+}
+
+// ── 내 활동(마이페이지 "나의 커뮤니티") · 알림 · 저장 ──
+export interface WireMyActivitySummary {
+  post_count: number
+  comment_count: number
+  received_comment_count: number
+  received_like_count: number
+  liked_post_count: number
+  saved_post_count: number
+  unread_notification_count: number
+}
+
+/** 내가 추천·저장한 글. 숨김·삭제된 글도 항목은 남고 post_status 로 구분한다(제목은 서버가 "삭제된 글입니다"로 바꿔 준다). */
+export interface WireMyPostItem extends WireCommunityItem {
+  post_status: 'published' | 'hidden' | 'deleted'
+  liked_at?: string
+  saved_at?: string
+}
+
+export interface WireMyComment {
+  id: string
+  body: string
+  created_at: string
+  updated_at: string
+  parent_comment_id: string | null
+  reply_count: number
+  post_status: 'published' | 'hidden' | 'deleted'
+  post: { id: string; title: string; board_type: CommunityBoardType; board_label: string; status: string }
+}
+
+export interface WireNotification {
+  id: string
+  type: 'new_comment' | 'new_reply'
+  title: string
+  message: string
+  count: number
+  post_id: string
+  comment_id: string | null
+  read: boolean
+  created_at: string
+}
+
+export interface WirePage<T> {
+  items: T[]
+  page: number
+  page_size: number
+  total: number
+  total_pages: number
+}
+
+export type MyActivitySort = 'latest' | 'popular' | 'comments'
+export interface MyActivityQuery {
+  boardType?: CommunityBoardType
+  sort?: MyActivitySort
+  page?: number
+  pageSize?: number
 }
 
 export interface CommunityListQuery {
@@ -195,6 +253,24 @@ export const communityApi = {
 
   like: (postId: string) => request<{ post_id: string; like_count: number; liked_by_me: boolean }>('POST', `/community/posts/${postId}/likes`),
   unlike: (postId: string) => request<{ post_id: string; like_count: number; liked_by_me: boolean }>('DELETE', `/community/posts/${postId}/likes`),
+
+  save: (postId: string) => request<{ post_id: string; saved_by_me: boolean }>('POST', `/community/posts/${postId}/save`),
+  unsave: (postId: string) => request<{ post_id: string; saved_by_me: boolean }>('DELETE', `/community/posts/${postId}/save`),
+
+  me: {
+    summary: () => request<WireMyActivitySummary>('GET', '/community/me/summary'),
+    comments: (q: MyActivityQuery = {}) =>
+      request<WirePage<WireMyComment>>('GET', '/community/me/comments' + query({ board_type: q.boardType, sort: q.sort, page: q.page, page_size: q.pageSize })),
+    likedPosts: (q: MyActivityQuery = {}) =>
+      request<WirePage<WireMyPostItem>>('GET', '/community/me/liked-posts' + query({ board_type: q.boardType, sort: q.sort, page: q.page, page_size: q.pageSize })),
+    savedPosts: (q: MyActivityQuery = {}) =>
+      request<WirePage<WireMyPostItem>>('GET', '/community/me/saved-posts' + query({ board_type: q.boardType, sort: q.sort, page: q.page, page_size: q.pageSize })),
+    notifications: (opts: { unread?: boolean; page?: number; pageSize?: number } = {}) =>
+      request<WirePage<WireNotification> & { unread_count: number }>('GET', '/community/me/notifications' + query({ unread: opts.unread, page: opts.page, page_size: opts.pageSize })),
+    unreadCount: () => request<{ unread_count: number }>('GET', '/community/me/notifications/unread-count'),
+    markRead: (id: string) => request<{ id: string; read: boolean; unread_count: number }>('PATCH', `/community/me/notifications/${id}/read`),
+    markAllRead: () => request<{ updated: number; unread_count: number }>('PATCH', '/community/me/notifications/read-all'),
+  },
 
   /** 이미지 한 장을 올려 임시로 저장한다(글에 붙이려면 create/update 의 image_ids 에 넣는다). */
   uploadImage: (file: File) => {
