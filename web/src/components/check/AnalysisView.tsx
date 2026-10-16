@@ -1,5 +1,5 @@
 import type { ReactNode, RefObject } from 'react'
-import type { LiveSpecLookupResult, QuoteDraftAnalysis, QuoteDraftItem } from '../../api'
+import type { LiveSpecLookupResult, QuoteDraftAnalysis, QuoteDraftItem, QuoteRecommendedOption } from '../../api'
 import { checkedAgo, conditionTags, searchedAgo, signedWon, wonText } from '../../utils/checkReview'
 
 export type LiveLookupState = { status: 'loading' | 'done'; result?: LiveSpecLookupResult; error?: string }
@@ -9,7 +9,7 @@ const STATE_CLASS = { ok: 'ok', fail: 'miss', unknown: 'warn', skipped: 'warn' }
 
 export default function AnalysisView({
   analysis, conditions, sectionRef, onBack, onOpenSaved, savedOpen, onCart, cartBusy, savedPanel, liveLookup, onLiveLookup,
-  onCompare, staleBasis, replaceCategories, onReanalyze, reanalyzeBusy,
+  onCompare, staleBasis, replacements, onReanalyze, reanalyzeBusy,
 }: {
   analysis: QuoteDraftAnalysis
   conditions: Record<string, unknown>
@@ -26,8 +26,8 @@ export default function AnalysisView({
   onCompare: (category: string) => void
   /** 비교에서 분석 기준을 바꿨지만 아직 다시 분석하지 않은 부품(부품 → 고른 제품 이름) */
   staleBasis: Record<string, string>
-  /** 비교에서 교체 후보로 담아 둔 부품 */
-  replaceCategories: string[]
+  /** 비교에서 교체 후보로 담아 둔 제품(부품 → 후보). 가격 표에서 인식한 가격과 견주어 보인다 */
+  replacements: Record<string, QuoteRecommendedOption>
   onReanalyze: () => void
   reanalyzeBusy: boolean
 }) {
@@ -64,8 +64,21 @@ export default function AnalysisView({
   const analysisTitle = analysis.requirementLabel ? `${analysis.requirementLabel} 견적 종합 평가` : '견적 종합 평가'
 
   const priceRows = analysis.priceRows.length > 0
-    ? analysis.priceRows.map(row => ({ part: row.category, quantity: row.quantity, quoted: row.quoteLineTotal, catalog: row.catalogLineTotal, diff: row.diffLineTotal }))
-    : (analysis.prices?.rows ?? []).map(row => ({ part: row.part, quantity: row.quantity, quoted: row.quoted, catalog: row.catalog, diff: row.diff }))
+    ? analysis.priceRows.map(row => ({ part: row.category, itemId: row.itemId, quantity: row.quantity, quoted: row.quoteLineTotal, catalog: row.catalogLineTotal, diff: row.diffLineTotal }))
+    : (analysis.prices?.rows ?? []).map(row => ({ part: row.part, itemId: null as string | null, quantity: row.quantity, quoted: row.quoted, catalog: row.catalog, diff: row.diff }))
+  // 선택된 제품의 이름: 가격 행이 가리키는 항목, 없으면 그 부품군에서 분석에 쓴 항목(견적에 적힌 이름 그대로)
+  const productName = (row: { part: string; itemId: string | null }) =>
+    (analysis.usedItems.find(item => item.id === row.itemId) ?? analysis.usedItems.find(item => item.category === row.part))?.name ?? '—'
+  // 교체 후보를 적용했을 때 인식한 가격과의 차이(수량 반영). 후보 가격이나 인식한 가격을 모르면 계산하지 않는다.
+  const swapOf = (row: { part: string; quantity: number; quoted: number | null }) => {
+    const option = replacements[row.part]
+    if (!option) return null
+    const line = option.price == null ? null : option.price * row.quantity
+    return { option, line, diff: line != null && row.quoted != null ? line - row.quoted : null }
+  }
+  const swapRows = priceRows.map(row => swapOf(row)).filter((swap): swap is NonNullable<typeof swap> => swap !== null)
+  const swapKnown = swapRows.filter(swap => swap.diff !== null)
+  const swapDiff = swapKnown.reduce((sum, swap) => sum + (swap.diff ?? 0), 0)
   const comparable = priceRows.filter(row => row.quoted != null && row.catalog != null && row.diff != null)
   const totalDiff = comparable.reduce((sum, row) => sum + (row.diff ?? 0), 0)
   const checkedTimes = analysis.priceRows.map(row => row.catalogCheckedAt).filter((value): value is string => Boolean(value)).sort()
@@ -120,7 +133,7 @@ export default function AnalysisView({
             <>
               <div className="ck-table-wrap">
                 <table className="ck-price-table">
-                  <thead><tr><th>슬롯</th><th>수량</th><th>인식한 가격</th><th>카탈로그</th><th>차이</th><th className="ck-compare-col">제품 비교</th></tr></thead>
+                  <thead><tr><th>슬롯</th><th className="ck-name-col">제품명</th><th>수량</th><th>인식한 가격</th><th>카탈로그</th><th>차이</th><th className="ck-compare-col">제품 비교</th></tr></thead>
                   <tbody>
                     {priceRows.map(row => (
                       <tr key={row.part}>
@@ -128,8 +141,26 @@ export default function AnalysisView({
                           <div className="ck-part-cell">
                             <b>{row.part}</b>
                             {staleBasis[row.part] && <span className="ck-row-mark base">분석 기준 변경</span>}
-                            {replaceCategories.includes(row.part) && <span className="ck-row-mark cart">교체 후보 1</span>}
                           </div>
+                        </td>
+                        <td className="ck-name-col">
+                          <div className="ck-product-name">{productName(row)}</div>
+                          {(() => {
+                            const swap = swapOf(row)
+                            if (!swap) return null
+                            return (
+                              <div className="ck-swap-line">
+                                <span className="ck-row-mark cart">교체 후보</span>
+                                <span className="ck-swap-name">{swap.option.name}</span>
+                                <b>{swap.line == null ? '가격 정보 없음' : wonText(swap.line)}</b>
+                                {swap.diff !== null && (
+                                  <em className={swap.diff === 0 ? '' : swap.diff < 0 ? 'delta-down' : 'delta-up'}>
+                                    {swap.diff === 0 ? '인식한 가격과 같아요' : `인식한 가격보다 ${wonText(Math.abs(swap.diff))} ${swap.diff < 0 ? '저렴' : '비쌈'}`}
+                                  </em>
+                                )}
+                              </div>
+                            )
+                          })()}
                         </td>
                         <td>×{row.quantity}</td>
                         <td>{wonText(row.quoted)}</td>
@@ -146,6 +177,13 @@ export default function AnalysisView({
                 {totalDiff === 0 ? <b>같아요</b> : <b className={totalDiff > 0 ? 'delta-up' : 'delta-down'}>{wonText(Math.abs(totalDiff))} {totalDiff > 0 ? '비싸요' : '저렴해요'}</b>}.
                 선택하지 않은 비교 제품은 합계에서 제외했습니다.
               </p>
+              {swapKnown.length > 0 && (
+                <p className="ck-price-summary ck-swap-summary">
+                  교체 후보 {swapRows.length}개를 적용하면 받은 견적보다{' '}
+                  {swapDiff === 0 ? <b>같아요</b> : <b className={swapDiff < 0 ? 'delta-down' : 'delta-up'}>{wonText(Math.abs(swapDiff))} {swapDiff < 0 ? '저렴해져요' : '비싸져요'}</b>}
+                  {swapKnown.length < swapRows.length && ' (가격을 알 수 없는 후보는 뺐어요)'}.
+                </p>
+              )}
               {analysis.priceExcluded.length > 0 && (
                 <div className="ck-price-excluded">
                   <span>가격을 알 수 없어 뺀 항목</span>

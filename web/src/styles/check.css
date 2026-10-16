@@ -209,10 +209,11 @@
 .ck-price-table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 12px; }
 .ck-price-table th, .ck-price-table td { padding: 8px 5px; border-bottom: 1px solid var(--line); vertical-align: middle; }
 .ck-price-table th { color: var(--muted); font-weight: 500; white-space: nowrap; }
-.ck-price-table th:nth-child(1), .ck-price-table td:nth-child(1) { width: 18%; text-align: left; }
-.ck-price-table th:nth-child(2), .ck-price-table td:nth-child(2) { width: 9%; text-align: center; }
-.ck-price-table th:nth-child(3), .ck-price-table td:nth-child(3), .ck-price-table th:nth-child(4), .ck-price-table td:nth-child(4) { width: 20%; text-align: right; }
-.ck-price-table th:nth-child(5), .ck-price-table td:nth-child(5) { width: 17%; text-align: right; }
+.ck-price-table th:nth-child(1), .ck-price-table td:nth-child(1) { width: 11%; text-align: left; }
+.ck-price-table th:nth-child(2), .ck-price-table td:nth-child(2) { width: 28%; text-align: left; }
+.ck-price-table th:nth-child(3), .ck-price-table td:nth-child(3) { width: 7%; text-align: center; }
+.ck-price-table th:nth-child(4), .ck-price-table td:nth-child(4), .ck-price-table th:nth-child(5), .ck-price-table td:nth-child(5) { width: 14%; text-align: right; }
+.ck-price-table th:nth-child(6), .ck-price-table td:nth-child(6) { width: 13%; text-align: right; }
 .ck-price-table td { font-family: ui-monospace, monospace; white-space: nowrap; }
 .ck-price-summary { margin: 13px 0 0; padding-top: 13px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.65; }
 .ck-price-summary b { color: var(--text); }
@@ -518,4 +519,14 @@
 
 
 /* 가격 비교 표 맨 오른쪽의 제품 비교 열 */
-.ck-price-table th.ck-compare-col, .ck-price-table td.ck-compare-col { width: 16%; text-align: right; white-space: nowrap; font-family: inherit; }
+.ck-price-table th.ck-compare-col, .ck-price-table td.ck-compare-col { width: 13%; text-align: right; white-space: nowrap; font-family: inherit; }
+
+/* 가격 비교 표: 선택된 제품명 열과 교체 후보 표시 */
+.ck-price-table td.ck-name-col { font-family: inherit; white-space: normal; overflow-wrap: anywhere; line-height: 1.45; }
+.ck-product-name { font-weight: 650; }
+.ck-swap-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); font-size: 11.5px; color: var(--muted); }
+.ck-swap-line b { color: var(--text); font-family: ui-monospace, monospace; }
+.ck-swap-line em { font-style: normal; font-weight: 700; }
+.ck-swap-line em.delta-down, .ck-swap-summary b.delta-down { color: var(--ok); }
+.ck-swap-line em.delta-up, .ck-swap-summary b.delta-up { color: var(--ck-bad, var(--bad)); }
+.ck-swap-summary { border-top: 0; padding-top: 0; margin-top: 8px; }

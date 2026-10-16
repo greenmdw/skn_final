@@ -735,7 +735,7 @@ export default function CheckPage() {
               onBack={backToResults} onOpenSaved={() => { setPickerError(''); setPickedSetupId(comparison ? pickedSetupId : null); setPickerOpen(true) }}
               savedOpen={Boolean(comparison && savedVisible)} onCart={() => void applyWholeQuote()} cartBusy={busy === 'apply'}
               savedPanel={savedPanel} liveLookup={liveLookup} onLiveLookup={item => void runLiveLookup(item)}
-              onCompare={category => void openCompare(category)} staleBasis={staleBasis} replaceCategories={Object.keys(cart)}
+              onCompare={category => void openCompare(category)} staleBasis={staleBasis} replacements={cart}
               onReanalyze={() => void reanalyzeBasis()} reanalyzeBusy={busy === 'analyze'}
             />
           </div>
