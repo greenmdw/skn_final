@@ -609,3 +609,29 @@ def test_a_single_photo_has_no_relation_to_confirm(client, monkeypatch):
     assert body["source_relation"]["applies"] is False
     assert client.patch(f"/pc/review-drafts/{body['draft_id']}/source-relation", json={"expected_version": body["version"], "mode": "single"}).status_code == 422
     assert client.post(f"/pc/review-drafts/{body['draft_id']}/analysis").status_code == 200
+
+
+def _analysis_of(client, monkeypatch, entries, total=None):
+    class Found(list):
+        quote_total = total
+    monkeypatch.setattr(spec_extraction_agent, "available", lambda: True)
+    monkeypatch.setattr(spec_extraction_agent, "extract_items_from_image", lambda _url: Found(entries))
+    draft = _upload(client, ["x"]).json()
+    return client.post(f"/pc/review-drafts/{draft['draft_id']}/analysis").json()
+
+
+def test_price_view_says_no_price_information_instead_of_zero(client, monkeypatch):
+    view = _analysis_of(client, monkeypatch, [{"category": "CPU", "raw_text": "Intel Core i5-14600K"}])["price_view"]
+    assert view["mode"] == "none" and view["label"] == "가격 정보 없음" and view["line_total"] is None and view["quote_total"] is None
+
+
+def test_price_view_uses_the_photo_total_when_only_the_total_is_written(client, monkeypatch):
+    view = _analysis_of(client, monkeypatch, [{"category": "CPU", "raw_text": "Intel Core i5-14600K"}], total=2_280_000)["price_view"]
+    assert view["mode"] == "total_only" and view["label"] == "사진 총액" and view["quote_total"] == 2_280_000 and view["line_total"] is None
+
+
+def test_price_view_counts_only_the_priced_parts_when_some_have_no_price(client, monkeypatch):
+    entries = [{"category": "CPU", "raw_text": "Intel Core i5-14600K 331,500원"}, {"category": "GPU", "raw_text": "NVIDIA GeForce RTX 4060"}]
+    view = _analysis_of(client, monkeypatch, entries)["price_view"]
+    assert view["mode"] == "line" and view["priced_count"] == 1 and view["total_count"] == 2 and view["line_total"] == 331_500
+    assert "1개의 합계" in view["label"] and "가격 정보가 없어" in view["note"]

@@ -543,6 +543,19 @@ class QuoteDraftPatchIn(BaseModel):
     selected_item_by_category: dict[str, str] | None = None
 
 
+class PriceViewOut(BaseModel):
+    """가격을 화면에 어떻게 보일지(서버가 정한다): line=부품별 가격이 있다, total_only=사진 총액만, none=가격 정보 없음."""
+    mode: Literal["line", "total_only", "none"]
+    quote_total: int | None = None            # 사진에 적힌 총액
+    line_total: int | None = None             # 부품별 가격이 있는 항목의 합계
+    priced_count: int = 0
+    total_count: int = 0
+    catalog_total: int | None = None          # 카탈로그로 확정된 부품만의 합계(참고)
+    catalog_parts: int | None = None
+    label: str                                # 화면에 그대로 쓸 이름("사진 총액", "가격 정보 없음" 등)
+    note: str | None = None
+
+
 class QuotePriceExcludedOut(BaseModel):
     category: str
     item_id: str
@@ -569,6 +582,7 @@ class QuoteDraftAnalysisOut(QuoteReviewOut):
     draft_version: int
     price_excluded: list[QuotePriceExcludedOut] = Field(default_factory=list)   # 가격이 없어 합계에서 뺀 항목
     price_rows: list[QuoteDraftPriceRowOut] = Field(default_factory=list)            # 항목별 견적·카탈로그 가격(BE-08)
+    price_view: PriceViewOut | None = None                                           # 가격을 어떻게 보일지(0원 대신 "가격 정보 없음")
 
 
 # BE-05 분석 전 제품 비교 · BE-06 교체 영향 미리보기

@@ -519,11 +519,34 @@ def analyze_selected(conn, list_id: UUID, principal: Principal, source_ids: list
     quote_review_service._save(repo, revision["id"], review)
     draft["analyzed_conditions"] = dict(review["input"]["conditions"])        # 이 분석에 쓴 조건 — 이후 조건이 바뀌면 analysis_stale
     _save(repo, revision["id"], draft)
+    view = price_view(chosen, review, totals[0] if totals else None)
     rows = price_rows(chosen, review, load_pc_catalog(lambda _msg: None))
     excluded = [{"category": i["category"], "item_id": i["id"], "reason": "견적에 가격이 없어 합계에서 제외했습니다."}
                 for i in chosen if i["quote_price_type"] == "unknown"]
     return {**review, "list_id": str(list_id), "used_items": chosen, "question": draft.get("question"),
-            "draft_version": draft["version"], "price_excluded": excluded, "price_rows": rows}
+            "draft_version": draft["version"], "price_excluded": excluded, "price_rows": rows, "price_view": view}
+
+
+def price_view(chosen: list[dict], review: dict, quote_total: int | None) -> dict:
+    """화면이 가격을 어떻게 보일지 — 서버가 정해서 내려준다(클라이언트가 모르는 값을 0원으로 만들지 않게).
+    line: 부품별 가격이 적혀 있다 · total_only: 사진 총액만 있다 · none: 가격 정보가 없다. 가격은 보조 정보라 모르면 모른다고 한다."""
+    prices = review.get("prices") or {}
+    line = [i["quote_line_total"] for i in chosen if i.get("quote_line_total") is not None]
+    total_info = prices.get("quote_total") or {}
+    if line:
+        summary = prices.get("summary") or {}
+        complete = len(line) == len(chosen)
+        return {"mode": "line", "quote_total": quote_total, "line_total": sum(line), "priced_count": len(line), "total_count": len(chosen),
+                "catalog_total": summary.get("catalog_total"), "catalog_parts": summary.get("compared"),
+                "label": "견적 합계" if complete else f"가격이 확인된 부품 {len(line)}개의 합계",
+                "note": None if complete else f"나머지 {len(chosen) - len(line)}개는 가격 정보가 없어 합계에 넣지 않았어요."}
+    if quote_total:
+        return {"mode": "total_only", "quote_total": quote_total, "line_total": None, "priced_count": 0, "total_count": len(chosen),
+                "catalog_total": total_info.get("catalog_total"), "catalog_parts": total_info.get("catalog_parts"),
+                "label": "사진 총액", "note": "부품별 가격은 적혀 있지 않아요. 카탈로그 합계는 확정된 부품만의 참고 값이에요."}
+    return {"mode": "none", "quote_total": None, "line_total": None, "priced_count": 0, "total_count": len(chosen),
+            "catalog_total": None, "catalog_parts": None, "label": "가격 정보 없음",
+            "note": "가격 정보가 없어 가격은 평가하지 않았어요. 호환과 용도 점검은 그대로 볼 수 있어요."}
 
 
 # ── BE-08: 가격 필드(항목별) ─────────────────────────────────────────────────
