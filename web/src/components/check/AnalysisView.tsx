@@ -9,6 +9,7 @@ const STATE_CLASS = { ok: 'ok', fail: 'miss', unknown: 'warn', skipped: 'warn' }
 
 export default function AnalysisView({
   analysis, conditions, sectionRef, onBack, onOpenSaved, savedOpen, onCart, cartBusy, savedPanel, liveLookup, onLiveLookup,
+  onCompare, staleBasis, replaceCategories, onReanalyze, reanalyzeBusy,
 }: {
   analysis: QuoteDraftAnalysis
   conditions: Record<string, unknown>
@@ -21,6 +22,14 @@ export default function AnalysisView({
   savedPanel: ReactNode
   liveLookup: Record<string, LiveLookupState>
   onLiveLookup: (item: QuoteDraftItem) => void
+  /** 부품별 제품 비교 창을 연다(인식 결과 화면에서 옮겨 온 버튼) */
+  onCompare: (category: string) => void
+  /** 비교에서 분석 기준을 바꿨지만 아직 다시 분석하지 않은 부품(부품 → 고른 제품 이름) */
+  staleBasis: Record<string, string>
+  /** 비교에서 교체 후보로 담아 둔 부품 */
+  replaceCategories: string[]
+  onReanalyze: () => void
+  reanalyzeBusy: boolean
 }) {
   const checks = analysis.compat.checks
   const failed = checks.filter(check => check.state === 'fail')
@@ -62,8 +71,21 @@ export default function AnalysisView({
   const checkedTimes = analysis.priceRows.map(row => row.catalogCheckedAt).filter((value): value is string => Boolean(value)).sort()
   const lookupItems = analysis.usedItems.filter(item => ['unmatched', 'inferred', 'candidate'].includes(item.matchStatus))
 
+  const staleEntries = Object.entries(staleBasis)
+
   return (
     <section className="ck-analysis-view" ref={sectionRef}>
+      {staleEntries.length > 0 && (
+        <div className="ck-reanalyze-band" role="status">
+          <div>
+            <b>{staleEntries.map(([category, name]) => `${category} 비교에서 “${name}”`).join(' · ')}을(를) 분석 기준으로 골랐어요.</b>
+            <span>지금 평가는 이전 구성 기준이에요. 다시 분석하면 호환 검사와 가격 비교가 고른 제품으로 바뀝니다.</span>
+          </div>
+          <button type="button" className="ck-primary" disabled={reanalyzeBusy} onClick={onReanalyze}>
+            {reanalyzeBusy ? <span className="ck-busy-label" role="status">분석 중<i /><i /><i /></span> : '다시 분석하기'}
+          </button>
+        </div>
+      )}
       <header className="ck-analysis-head">
         <div>
           <small>받은 견적 점검 · 비교 분석</small>
@@ -133,7 +155,14 @@ export default function AnalysisView({
                   <tbody>
                     {priceRows.map(row => (
                       <tr key={row.part}>
-                        <td><b>{row.part}</b></td>
+                        <td>
+                          <div className="ck-part-cell">
+                            <b>{row.part}</b>
+                            <button type="button" className="ck-row-compare" onClick={() => onCompare(row.part)}>제품 비교</button>
+                            {staleBasis[row.part] && <span className="ck-row-mark base">분석 기준 변경</span>}
+                            {replaceCategories.includes(row.part) && <span className="ck-row-mark cart">교체 후보 1</span>}
+                          </div>
+                        </td>
                         <td>×{row.quantity}</td>
                         <td>{wonText(row.quoted)}</td>
                         <td>{row.catalog == null ? '—' : wonText(row.catalog)}</td>
@@ -147,11 +176,33 @@ export default function AnalysisView({
                 선택한 구성 중 가격을 비교할 수 있는 <b>{comparable.length}개 품목</b> 기준, 받은 견적이 카탈로그보다{' '}
                 {totalDiff === 0 ? <b>같아요</b> : <b className={totalDiff > 0 ? 'delta-up' : 'delta-down'}>{wonText(Math.abs(totalDiff))} {totalDiff > 0 ? '비싸요' : '저렴해요'}</b>}.
                 선택하지 않은 비교 제품은 합계에서 제외했습니다.
-                {analysis.priceExcluded.length > 0 && ` 가격을 알 수 없어 뺀 항목 · ${analysis.priceExcluded.map(row => `${row.category}(${row.reason})`).join(', ')}.`}
               </p>
+              {analysis.priceExcluded.length > 0 && (
+                <div className="ck-price-excluded">
+                  <span>가격을 알 수 없어 뺀 항목</span>
+                  {analysis.priceExcluded.map(row => (
+                    <span className="ck-excluded-item" key={row.category}>
+                      <b>{row.category}</b>({row.reason})
+                      <button type="button" className="ck-row-compare" onClick={() => onCompare(row.category)}>제품 비교</button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <p className="ck-price-disclaimer">ⓘ 카탈로그와 판매처 가격은 시점·재고·배송비에 따라 달라질 수 있습니다.{checkedTimes.length > 0 && ` 카탈로그 가격 ${checkedAgo(checkedTimes[checkedTimes.length - 1])}.`}</p>
             </>
-          ) : <div className="pl-empty">{analysis.prices?.reason ?? '가격 비교 결과가 없습니다.'}</div>}
+          ) : (
+            <>
+              <div className="pl-empty">{analysis.prices?.reason ?? '가격 비교 결과가 없습니다.'}</div>
+              {analysis.parts.length > 0 && (
+                <div className="ck-price-excluded">
+                  <span>부품별 제품 비교</span>
+                  {analysis.parts.map(part => (
+                    <button type="button" className="ck-row-compare" key={part.part} onClick={() => onCompare(part.part)}>{part.part}</button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </article>
       </div>
 

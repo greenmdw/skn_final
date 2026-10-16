@@ -493,3 +493,18 @@
 .ck-busy-label i:nth-child(3) { animation-delay: .32s; }
 @keyframes ck-busy-bounce { 0%, 60%, 100% { transform: translateY(0); opacity: .4; } 30% { transform: translateY(-4px); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .ck-busy-label i { animation: none; opacity: .8; } }
+
+/* 종합 평가: 부품별 제품 비교 버튼(인식 결과 화면에서 옮겨 옴)과 "다시 분석하기" 띠 */
+.ck-part-cell { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; }
+.ck-row-compare { padding: 3px 9px; border: 1px solid color-mix(in srgb, var(--mint) 45%, var(--line)); border-radius: 8px; background: color-mix(in srgb, var(--mint) 9%, transparent); color: var(--mint); font-size: 12px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+.ck-row-compare:hover { background: var(--mint); color: var(--on-mint, #fff); }
+.ck-row-mark { padding: 2px 7px; border-radius: 6px; font-size: 11.5px; font-weight: 800; white-space: nowrap; }
+.ck-row-mark.base { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
+.ck-row-mark.cart { background: color-mix(in srgb, var(--ok) 14%, transparent); color: var(--ok); }
+.ck-price-excluded { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 12px; padding: 10px 12px; border: 1px dashed var(--line2); border-radius: 10px; color: var(--muted); font-size: 13px; }
+.ck-excluded-item { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.ck-excluded-item b { color: var(--text); }
+.ck-reanalyze-band { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px; margin-bottom: 14px; padding: 12px 16px; border: 1.5px solid color-mix(in srgb, var(--warn) 45%, var(--line)); border-radius: 14px; background: color-mix(in srgb, var(--warn) 10%, var(--panel)); }
+.ck-reanalyze-band > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 260px; }
+.ck-reanalyze-band b { color: var(--warn); font-size: 14px; }
+.ck-reanalyze-band > div > span { color: var(--muted); font-size: 12.5px; }

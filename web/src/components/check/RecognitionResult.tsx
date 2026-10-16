@@ -7,7 +7,7 @@ import {
 export type ResultFilter = 'all' | 'review' | 'checked'
 
 export default function RecognitionResult({
-  draft, selection, pending, filter, onFilter, onSelect, onEdit, onQuantity, onCompare, cart, cartPreview, cartPreviewBusy, onClearCart, onApplyCart,
+  draft, selection, pending, filter, onFilter, onSelect, onEdit, onQuantity, cart, cartPreview, cartPreviewBusy, onClearCart, onApplyCart,
   onCancelEdits, onReanalyze, onAnalyze, onReviewOnly, busy,
 }: {
   draft: QuoteDraft
@@ -18,7 +18,6 @@ export default function RecognitionResult({
   onSelect: (category: string, itemId: string) => void
   onEdit: (itemId: string) => void
   onQuantity: (itemId: string, quantity: number) => void
-  onCompare: (category: string) => void
   cart: Record<string, QuoteRecommendedOption>
   cartPreview: QuoteReplacementPreview | null
   cartPreviewBusy: boolean
@@ -93,7 +92,7 @@ export default function RecognitionResult({
           <tbody>
             {shownGroups.map(group => (
               <GroupRows key={group.category} group={group} all={groups.find(entry => entry.category === group.category)?.items ?? []}
-                draft={draft} selection={selection} pending={pending} statuses={statuses} busy={busy} onSelect={onSelect} onEdit={onEdit} onQuantity={onQuantity} onCompare={onCompare} />
+                draft={draft} selection={selection} pending={pending} statuses={statuses} busy={busy} onSelect={onSelect} onEdit={onEdit} onQuantity={onQuantity} />
             ))}
             {shownGroups.length === 0 && <tr><td colSpan={4} className="ck-table-empty">해당하는 부품이 없어요.</td></tr>}
           </tbody>
@@ -147,7 +146,7 @@ export default function RecognitionResult({
   )
 }
 
-function GroupRows({ group, all, draft, selection, pending, statuses, busy, onSelect, onEdit, onQuantity, onCompare }: {
+function GroupRows({ group, all, draft, selection, pending, statuses, busy, onSelect, onEdit, onQuantity }: {
   group: { category: string; shown: QuoteDraft['items'] }
   all: QuoteDraft['items']
   draft: QuoteDraft
@@ -158,7 +157,6 @@ function GroupRows({ group, all, draft, selection, pending, statuses, busy, onSe
   busy: boolean
   onEdit: (itemId: string) => void
   onQuantity: (itemId: string, quantity: number) => void
-  onCompare: (category: string) => void
 }) {
   return (
     <>
@@ -166,7 +164,6 @@ function GroupRows({ group, all, draft, selection, pending, statuses, busy, onSe
         <td colSpan={4}>
           <div className="ck-group-head">
             <div className="ck-group-label"><strong>{group.category}</strong><span>인식 {all.length}개</span></div>
-            <button type="button" className="ck-group-compare" onClick={() => onCompare(group.category)}>{group.category} 제품 비교</button>
           </div>
         </td>
       </tr>
