@@ -42,7 +42,7 @@ from src.engine.spec_text import parse_spec_text
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.errors import RateLimited, ServiceUnavailable, ValidationFailed
 from src.services import (
-    quote_apply, quote_chat_service, quote_comparison_service, quote_draft_service, quote_review_service, recommendation_runner,
+    quote_apply, quote_chat_service, quote_comparison_service, quote_confirm_service, quote_draft_service, quote_review_service, recommendation_runner,
 )
 
 
@@ -237,6 +237,15 @@ def delete_replacement(draft_id: UUID, slot: str, body: schemas.ReplacementDelet
     """교체 목록에서 부품을 뺀다(되돌리기)."""
     with get_conn() as conn:
         return schemas.ReplacementStateOut(**quote_draft_service.remove_replacement(conn, draft_id, principal, body.expected_version, slot))
+
+
+@router.post("/review-drafts/{draft_id}/confirm", response_model=schemas.ReportOut)
+def confirm_review_draft(draft_id: UUID, body: schemas.QuoteConfirmIn, principal: Principal = Depends(optional_principal)) -> schemas.ReportOut:
+    """분석한 견적을 서버에 담긴 교체 목록대로 확정한다 — 교체한 부품은 판매 정보와 함께, 유지한 부품은 견적에 적힌 그대로 얼린다. 로그인 필요."""
+    with get_conn() as conn:
+        return schemas.ReportOut(**quote_confirm_service.confirm(
+            conn, draft_id, principal, expected_version=body.expected_version, name=body.name,
+            planned_purchase_at=body.planned_purchase_at, target_amount=body.target_amount, memo=body.memo))
 
 
 @router.post("/review-drafts/{draft_id}/items", response_model=schemas.QuoteDraftOut, status_code=201)

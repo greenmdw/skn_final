@@ -1366,6 +1366,16 @@ class ConfirmPeripheralIn(BaseModel):
     qty: int = Field(default=1, ge=1, le=99)
 
 
+class QuoteConfirmIn(BaseModel):
+    """받은 견적 점검 확정 — 교체 목록은 서버가 들고 있으므로 부품은 보내지 않는다."""
+
+    expected_version: int
+    name: str = Field(min_length=1, max_length=60)
+    planned_purchase_at: Optional[str] = None
+    target_amount: Optional[int] = Field(default=None, ge=0)
+    memo: str = Field(default="", max_length=1000)
+
+
 class ConfirmIn(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     planned_purchase_at: Optional[str] = None
@@ -1412,7 +1422,23 @@ class PriceWatchOut(BaseModel):
     observed_at: str | None = None
 
 
+class KeptPartOut(BaseModel):
+    """받은 견적에서 바꾸지 않고 유지한 부품 — 견적에 적힌 그대로다. 가격을 몰랐으면 line_amount 는 null."""
+
+    slot: str
+    slot_label: str
+    source_text: str
+    name: str
+    match_status: str | None = None
+    image_url: str | None = None
+    qty: int = 1
+    line_amount: int | None = None
+
+
 class ReportOut(BaseModel):
+    source: Literal["recommendation", "quote_check"] = "recommendation"
+    kept_parts: list[KeptPartOut] = Field(default_factory=list)
+    quote_check: dict | None = None     # 받은 견적 점검에서 만든 견적서일 때만: 교체 전/후 점검 요약
     list_id: str
     revision_no: int = 1
     name: str

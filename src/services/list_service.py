@@ -15,7 +15,7 @@ from src.engine.lang import fmt_money
 from src.errors import Conflict, NotFound, ValidationFailed
 from src.repo.engine_repo import EngineRepo
 from src.repo.notification_repo import NotificationRepo
-from src.repo.plan_repo import PlanRepo
+from src.repo.plan_repo import QUOTE_CONFIRM_KEY, PlanRepo
 from src.repo.user_repo import UserRepo
 from src.services import auth_service, feedback_service, recommendation_service
 from src.services.session_service import _owned, _token_hash
@@ -128,6 +128,9 @@ def new_revision(conn, list_id: UUID, principal: Principal, *, from_revision_no:
 
     if from_revision_no is not None:
         source = _owned_confirmed_report(prepo, list_id, principal, from_revision_no, user_id)
+        if prepo.active_condition(source["id"], QUOTE_CONFIRM_KEY):
+            raise ValidationFailed("받은 견적으로 만든 견적서는 새 견적서의 바탕으로 쓸 수 없어요. 받은 견적 점검에서 다시 시작해 주세요.",
+                                   code="quote_report_not_editable")
         new_id = prepo.clone_revision(list_id, source["id"])
         prepo.set_current_revision(list_id, new_id)
         ConversationRepo(conn).add_message(
@@ -408,8 +411,23 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
             "variant_id": str(line["variant_id"]),
             "price": int(line["line_amount"]) // max(int(line["pack_count"]), 1), "qty": int(line["pack_count"]),
         })
+    kept_parts = []
+    for line in prepo.list_kept_part_lines(revision["id"]):
+        snapshot = line["snapshot"] or {}
+        kept_parts.append({
+            "slot": line["slot"], "slot_label": snapshot.get("slot_label") or line["slot"],
+            "source_text": line["source_text"], "name": snapshot.get("matched_name") or line["source_text"],
+            "match_status": snapshot.get("match_status"), "image_url": snapshot.get("image_url"),
+            "qty": int(line["pack_count"]),
+            # 견적에 가격이 없던 부품은 None — 0원으로 보이지 않게 한다.
+            "line_amount": int(line["line_amount"]) if line["line_amount"] is not None else None,
+        })
+    quote_row = prepo.active_condition(revision["id"], QUOTE_CONFIRM_KEY)
     watch = NotificationRepo(conn).get_for_revision(revision["id"])
     return {
+        "source": "quote_check" if quote_row else "recommendation",
+        "kept_parts": kept_parts,
+        "quote_check": quote_row["value"]["value"] if quote_row else None,
         "list_id": str(list_id),
         "revision_no": revision["revision_no"],
         # A confirmed report is a snapshot; later sidebar renames must not rewrite
