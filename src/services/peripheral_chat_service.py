@@ -87,7 +87,11 @@ def turn(
     if merged.question is not None:
         answer = _question_answer(merged.question, merged, pc_list_id, pc_context, open_conn, rules)
     example = chat_config(rules)["examples"].get(merged.kinds[0]) if merged.kinds else None
-    reply = peripheral_chat.compose_reply(new_items, reading, conflicts, answer, not_reflected, example=example)
+    answers = chat_config(rules)["answers"]
+    nothing_hint = (answers["nothing_no_kind"] if not merged.kinds
+                    else None if peripheral_commands.reads_conditions(merged) else answers["nothing_with_kind"])
+    reply = peripheral_chat.compose_reply(new_items, reading, conflicts, answer, not_reflected, example=example,
+                                          nothing_hint=nothing_hint)
 
     out["turn"] = {
         "new_conditions": new_items,

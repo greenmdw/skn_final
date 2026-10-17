@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field
 from src.dto import PERIPHERAL_KINDS, PeripheralKind
 from src.engine import spec_rules
 from src.engine.peripheral_rules import (
-    conflicts, emphasis_cfg, kind_def, load_peripheral_rules, pc_purpose_map, peripheral_kinds, purpose_codes, purposes, ranking_def,
+    chat_config, conflicts, emphasis_cfg, kind_def, load_peripheral_rules, pc_purpose_map, peripheral_kinds, purpose_codes, purposes, ranking_def,
     situations, spec_conditions, split_purpose_codes,
 )
 
@@ -443,7 +443,7 @@ def _near_hit(text: str, rule: dict, kind: str | None) -> bool:
 
 def kinds_in_text(text: str) -> list[str]:
     """문장에 이름이 나온 종류(고정 순서)."""
-    lowered = normalize_text(text)
+    lowered = _mask_device_words(normalize_text(text), load_peripheral_rules())
     return kinds_all_order([kind for kind, words in _KIND_WORDS.items() if _contains_any(lowered, words)])
 
 
@@ -516,6 +516,31 @@ def _read_emphasis_and_brands(lowered: str, scope: list[str], rules: dict) -> tu
             {k: _unique(avoid) for k in scope} if avoid else {})
 
 
+def _mask_device_words(lowered: str, rules: dict) -> str:
+    """종류 이름을 품은 취급하지 않는 기기 이름("마우스패드"·"모니터암")을 지운다 — 그 안의 '마우스'를 종류로 읽지 않게."""
+    kind_words = [w for words in _KIND_WORDS.values() for w in words]
+    for entry in chat_config(rules).get("unsupported", ()):
+        for word in entry["words"]:
+            if _contains_any(word.lower(), kind_words):
+                lowered = lowered.replace(word.lower(), " " * len(word))
+    return lowered
+
+
+def _mask_negated(lowered: str, rules: dict) -> str:
+    """"무선 말고 유선"의 '무선'처럼 뒤에 기피 말(브랜드 기피와 같은 낱말)이 붙은 조건 낱말을 지운다. 지우지 않으면 무선과 유선을
+    둘 다 조건으로 읽었다(10/17 실측). 목적·상황·스펙 조건 낱말에만 쓴다 — 종류 이름과 금액은 그대로 읽는다."""
+    avoid = emphasis_cfg(rules)["brand_avoid_words"]
+    words = {w.lower() for kind in peripheral_kinds(rules)
+             for table in (purposes(kind, rules), spec_conditions(kind, rules)) for entry in table.values() for w in entry["words"]}
+    words |= {w.lower() for entry in situations(rules).values() for w in entry["words"]}
+    masked = lowered
+    for word in sorted(words, key=len, reverse=True):
+        for start, end in _positions(lowered, [word]):
+            if _contains_any(lowered[end:end + _BRAND_AVOID_WINDOW], avoid):
+                masked = masked[:start] + " " * (end - start) + masked[end:]
+    return masked
+
+
 def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[str] | None = None) -> Interpretation:
     """낱말 일치로만 읽는다. 언어 모델의 한도·실패·부재 때 물러나는 경로라 정확도보다 안전을 택한다:
     확신할 수 있는 말(종류 이름, 목록의 낱말, 금액)만 읽고, 못 읽은 말을 `unrecognized` 로 지어내지 않는다.
@@ -526,24 +551,26 @@ def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[st
     lowered = normalize_text(text)
     kinds_all = peripheral_kinds(rules)
 
+    named = _mask_device_words(lowered, rules)
     positions: dict[str, int] = {}
     for kind, words in _KIND_WORDS.items():
-        found = [lowered.find(w) for w in words if w in lowered]
+        found = [named.find(w) for w in words if w in named]
         if found:
             positions[kind] = min(found)
     kinds = kinds_all_order([*positions, *(k for k in (kinds_hint or []) if k in kinds_all)])
 
+    reading = _mask_negated(lowered, rules)   # 목적·상황·스펙 조건만 이 문장으로 읽는다(종류·금액·브랜드는 원문)
     purpose_hits = []
     for code in purpose_vocabulary(rules):
         entries = [(kind, purposes(kind, rules)[code]) for kind in kinds_all if code in purposes(kind, rules)]
-        if any(_entry_hits(lowered, entry, kind) for kind, entry in entries):
+        if any(_entry_hits(reading, entry, kind) for kind, entry in entries):
             purpose_hits.append(code)
-    situation_hits = [code for code, entry in situations(rules).items() if _entry_hits(lowered, entry)]
+    situation_hits = [code for code, entry in situations(rules).items() if _entry_hits(reading, entry)]
 
     stated: dict[str, list[str]] = {}
     scope = kinds or kinds_all          # 종류를 가리지 않은 말은 모든 종류에 적용한다
     for kind in scope:
-        ids = [cid for cid, cond in spec_conditions(kind, rules).items() if _entry_hits(lowered, cond, kind)]
+        ids = [cid for cid, cond in spec_conditions(kind, rules).items() if _entry_hits(reading, cond, kind)]
         if ids:
             stated[kind] = ids
     if not kinds:

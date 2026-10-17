@@ -12,6 +12,7 @@ DB·언어 모델을 모르는 순수 함수만 둔다. 언어 모델은 질문 
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from src.dto import PeripheralResult
@@ -55,6 +56,11 @@ def _glossary_hit(lowered: str, chat: dict) -> str | None:
 
 
 # ── 질문 분류 ──────────────────────────────────────────────────────────────
+# 지금 보이는 결과를 가리키는 말 — "이 모니터 4K 게임 돼?"는 조건이 아니라 그 제품에 대한 질문이다(10/17 실측: 게임·높은
+# 해상도 조건으로 읽혀 추천이 바뀌었다). "4K 모니터 있어?"처럼 가리키는 말이 없는 질문은 그대로 조건 문장이다.
+_POINTING = re.compile(r"(?:^|\s)(?:이거|이건|이게|얘|요거|그거|이\s*(?:모니터|키보드|마우스|스피커|제품))")
+
+
 def classify_question(text: str, rules: dict | None = None) -> Question | None:
     """문장이 질문이면 그 종류를, 아니면 None. 질문 말투(`chat.markers`)가 있어야 질문으로 본다 — "무게 가벼운 마우스 추천"처럼
     질문이 아닌 문장이 스펙 낱말 때문에 질문으로 읽히지 않게 한다. 위 말투만 있고 종류를 못 가른 문장은 None 이다
@@ -83,6 +89,8 @@ def classify_question(text: str, rules: dict | None = None) -> Question | None:
                 return Question(type="review", topic=review_topic, kinds=kinds)
         elif by_words:
             return Question(type=qtype, kinds=kinds)
+    if _POINTING.search(lowered):
+        return Question(type="spec", topic=spec_topic, kinds=kinds)   # 주제가 없으면 그 종류의 주요 스펙으로 답한다
     return None
 
 
@@ -173,9 +181,10 @@ def unsupported_notes(text: str, rules: dict | None = None) -> list[dict[str, st
     lowered = pi.normalize_text(text)
     out = []
     for entry in chat_config(rules).get("unsupported", ()):
-        hit = next((w for w in entry["words"] if w.lower() in lowered), None)
-        if hit:
-            out.append({"words": hit, "text": entry["text"]})
+        hits = [w for w in entry["words"] if w.lower() in lowered]
+        hits = [w for w in hits if not any(w != o and w.lower() in o.lower() for o in hits)]   # "마우스 패드"·"패드" 중복
+        if hits:
+            out.append({"words": hits[0], "text": entry["text"].replace("{words}", "·".join(hits))})
     return out
 
 
@@ -435,7 +444,7 @@ def result_answer(
 # ── 답장 한 덩어리 ─────────────────────────────────────────────────────────
 def compose_reply(
     new_items: list[dict[str, str]], reading: list[str], conflicts: list[str], answer: dict[str, Any] | None,
-    not_reflected: list[str], *, example: str | None = None,
+    not_reflected: list[str], *, example: str | None = None, nothing_hint: str | None = None,
 ) -> str:
     """이번 턴의 답장: ① 이번에 새로 반영한 것(어떻게 읽었는지·정리한 상충 포함) ② 질문의 답 ③ 반영하지 못한 말.
     아무것도 없으면 읽어 낸 조건이 없다고 말하고 말하는 예를 든다 — 지난 턴까지 쌓인 조건을 되풀이하지 않는다."""
@@ -450,4 +459,6 @@ def compose_reply(
     if not parts:
         tail = f" 예: “{example}”" if example else ""
         parts.append("이번 문장에서는 새로 읽어 낸 조건이 없어요." + tail)
+        if nothing_hint:
+            parts.append(nothing_hint)
     return "\n".join(parts)

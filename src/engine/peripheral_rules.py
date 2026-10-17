@@ -583,7 +583,7 @@ _CHAT_KEYS = {"markers", "request_words", "types", "spec_topics", "spec_summary"
               "glossary", "unsupported", "answers", "examples", "chips", "commands"}
 _CHAT_COMMANDS = {"reset", "remove", "swap", "cheaper", "budget_words"}
 _CHAT_TYPES = ("term", "compat", "capabilities", "conditions", "compare", "why", "spec", "review")
-_CHAT_ANSWERS = {"capabilities", "other", "no_result", "no_kind", "no_pc", "no_cross_check"}
+_CHAT_ANSWERS = {"capabilities", "other", "no_result", "no_kind", "no_pc", "no_cross_check", "nothing_no_kind", "nothing_with_kind"}
 
 
 def _text(where: str, value: Any) -> str:
