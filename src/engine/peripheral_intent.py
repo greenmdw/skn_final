@@ -552,12 +552,17 @@ def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[st
     budget: dict[str, int] = {}
     budget_min: dict[str, int] = {}
     budget_total: int | None = None
-    for start, won, role in _amount_events(lowered):
+    events = _amount_events(lowered)
+    for start, won, role in events:
         if not 0 < won <= BUDGET_MAX_WON:
             continue
         target = budget_min if role == "min" else budget
         before = [(pos, kind) for kind, pos in positions.items() if 0 <= start - pos <= _KIND_PROXIMITY]
-        if before and not _TOTAL_HINT.search(lowered):
+        # "모니터랑 스피커 30만원": 앞선 종류 이름이 둘 이상이고 그 사이에 다른 금액이 없으면 가장 가까운 하나가 아니라 합계다.
+        listed = len(before) >= 2 and not any(min(before)[0] < other < start for other, _w, _r in events)
+        if role == "max" and listed and not _TOTAL_HINT.search(lowered):
+            budget_total = won
+        elif before and not _TOTAL_HINT.search(lowered):
             target[max(before)[1]] = won          # 금액에 가장 가까이 앞선 종류 이름
         elif len(kinds) == 1 and not _TOTAL_HINT.search(lowered):
             target[kinds[0]] = won
@@ -581,9 +586,9 @@ def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[st
 
 
 def reconcile_budget(new: Interpretation, sentence: str, context_kinds: list[str], rules: dict | None = None) -> Interpretation:
-    """이번 문장의 금액을 단어 규칙과 맞춘다 — 언어 모델이 읽은 해석에 쓴다(규칙 해석에는 바뀌는 것이 없다).
+    """이번 문장의 금액을 단어 규칙과 맞춘다 — 언어 모델과 단어 규칙 해석 모두에 쓴다.
 
-    - 모델이 금액을 하나도 못 읽었는데 단어 규칙이 예산을 읽었으면 그 값을 쓴다. 모델이 "예산 20만원으로"를 2판 중
+    - 이번 해석이 금액을 하나도 못 읽었는데 대화의 종류를 문맥으로 준 단어 규칙이 예산을 읽었으면 그 값을 쓴다. 모델이 "예산 20만원으로"를 2판 중
       1판 빈 해석으로 냈다(10/16 실측). 금액은 낱말 규칙이 정확히 읽는다.
     - 대화의 종류가 하나뿐이면 합계 예산을 그 종류의 예산으로 옮긴다. 모델은 종류 이름이 없는 "아니 25만원"을 합계로
       읽는데, 합계로 두면 이전에 말한 종류 예산(30만 원)이 그대로 남아 계속 거른다.

@@ -605,3 +605,22 @@ def test_recommend_body_hand_size_reaches_interpretation():
     from src.services.peripherals_service import _intent_from_body
     interp, ignored = _intent_from_body(PeripheralsRecommendIn(kinds=["mouse"], hand_size="small"))
     assert interp.hand_size == "small" and ignored == []
+
+
+def test_words_amount_after_several_listed_kinds_is_a_total():
+    """'모니터랑 스피커 30만원'의 금액은 가장 가까운 스피커 하나가 아니라 합계다. 사이에 다른 금액이 있으면 종류별 그대로다."""
+    got = pi.interpret_by_words("모니터랑 스피커 30만원")
+    assert got.budget == {} and got.budget_total == 300000
+    assert pi.interpret_by_words("마우스 5만원 키보드 10만원").budget_total is None
+
+
+@pytest.mark.parametrize("context, total, budget", [
+    (["monitor", "speaker"], 300000, {}),
+    (["monitor"], None, {"monitor": 300000}),
+])
+def test_reconcile_reads_a_bare_amount_with_the_conversation_kinds(context, total, budget):
+    """종류 이름 없이 이어 말한 '30만원'을 규칙 해석도 대화의 종류로 읽는다(10/17 — 전에는 버렸다)."""
+    new = pi.interpret_by_words("30만원")
+    assert new.budget == {} and new.budget_total is None
+    got = pi.reconcile_budget(new, "30만원", context)
+    assert got.budget_total == total and got.budget == budget
