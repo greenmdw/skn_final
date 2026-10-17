@@ -208,6 +208,37 @@ def patch_quote_draft_source_relation(
     return _draft_response(draft_id, draft)
 
 
+@router.get("/review-drafts/{draft_id}/replacement-targets", response_model=schemas.ReplacementTargetsOut)
+def get_replacement_targets(draft_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.ReplacementTargetsOut:
+    """부품별로 먼저 바꿀 순서·이유·후보(재기획 교체 추천). 분석한 결과를 바탕으로 하므로 분석 전이면 409 analysis_required. 조회만 한다."""
+    with get_conn() as conn:
+        return schemas.ReplacementTargetsOut(**quote_draft_service.replacement_targets(conn, draft_id, principal))
+
+
+@router.get("/review-drafts/{draft_id}/replacements", response_model=schemas.ReplacementStateOut)
+def get_replacements(draft_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.ReplacementStateOut:
+    """저장된 교체 목록과 적용했을 때의 점검 변화(호환·균형·게임)·가격 차이·교체 예산 사용량."""
+    with get_conn() as conn:
+        return schemas.ReplacementStateOut(**quote_draft_service.replacement_state(conn, draft_id, principal))
+
+
+@router.put("/review-drafts/{draft_id}/replacements/{slot}", response_model=schemas.ReplacementStateOut)
+def put_replacement(draft_id: UUID, slot: str, body: schemas.ReplacementPutIn,
+                    principal: Principal = Depends(optional_principal)) -> schemas.ReplacementStateOut:
+    """교체 목록에 부품을 담는다(부품군마다 하나, 다시 담으면 바뀜). 성능이 낮거나 새 비호환이 생기면 막지 않고 warnings 로 알린다."""
+    with get_conn() as conn:
+        return schemas.ReplacementStateOut(**quote_draft_service.set_replacement(
+            conn, draft_id, principal, body.expected_version, slot, body.candidate_product_id))
+
+
+@router.delete("/review-drafts/{draft_id}/replacements/{slot}", response_model=schemas.ReplacementStateOut)
+def delete_replacement(draft_id: UUID, slot: str, body: schemas.ReplacementDeleteIn,
+                       principal: Principal = Depends(optional_principal)) -> schemas.ReplacementStateOut:
+    """교체 목록에서 부품을 뺀다(되돌리기)."""
+    with get_conn() as conn:
+        return schemas.ReplacementStateOut(**quote_draft_service.remove_replacement(conn, draft_id, principal, body.expected_version, slot))
+
+
 @router.post("/review-drafts/{draft_id}/items", response_model=schemas.QuoteDraftOut, status_code=201)
 def add_quote_draft_item(
     draft_id: UUID, body: schemas.QuoteDraftItemAddIn, principal: Principal = Depends(optional_principal),

@@ -799,3 +799,77 @@ def live_lookup_item(conn, list_id: UUID, principal: Principal, item_id: str) ->
     if item["match_status"] not in quote_review_service.LIVE_LOOKUP_STATUSES:
         raise ValidationFailed("카탈로그에 이미 대응된 부품은 실시간 검색 대상이 아닙니다.", field="item_id", code="already_matched")
     return {"item_id": item_id, **quote_review_service.live_lookup_text(conn, item["normalized_name"], item["category"])}
+
+
+# ── 재기획 2단계: 교체 대상 추천과 교체 목록(서버 저장) ─────────────────────────────────
+def _stored_review(conn, list_id: UUID, principal: Principal) -> dict:
+    """교체 추천은 분석한 결과를 입력으로 쓴다 — 분석한 적이 없으면 먼저 분석하라고 알린다."""
+    try:
+        return quote_review_service.get_review(conn, list_id, principal)
+    except NotFound:
+        raise Conflict("분석을 먼저 해 주세요. 교체 추천은 분석 결과를 바탕으로 해요.", code="analysis_required") from None
+
+
+def replacement_targets(conn, list_id: UUID, principal: Principal) -> dict:
+    """부품별 교체 필요도와 후보(재기획 5절). 조회만 한다 — 초안을 바꾸지 않는다."""
+    from src.services import quote_replacement_plan
+
+    draft = get_draft(conn, list_id, principal)
+    review = _stored_review(conn, list_id, principal)
+    by_slot = load_pc_catalog(lambda _msg: None)
+    out = quote_replacement_plan.build_targets(review, by_slot, conn=conn)
+    return {**out, "draft_version": draft["version"], "analysis_stale": analysis_stale(draft)}
+
+
+def _replacement_map(draft: dict, by_slot: dict) -> dict[str, Any]:
+    out = {}
+    for slot, entry in (draft.get("replacements") or {}).items():
+        cand = _pool_by_product(by_slot, slot).get(entry["candidate_product_id"])
+        if cand is not None:                          # 카탈로그에서 사라진 제품은 조용히 뺀다
+            out[slot] = cand
+    return out
+
+
+def replacement_state(conn, list_id: UUID, principal: Principal) -> dict:
+    """저장된 교체 목록과 그것을 적용했을 때의 점검 변화·경고·교체 예산 사용량."""
+    draft = get_draft(conn, list_id, principal)
+    return _replacement_state(conn, list_id, principal, draft)
+
+
+def _replacement_state(conn, list_id: UUID, principal: Principal, draft: dict) -> dict:
+    from src.services import quote_replacement_plan
+
+    review = _stored_review(conn, list_id, principal)
+    by_slot = load_pc_catalog(lambda _msg: None)
+    state = quote_replacement_plan.build_state(review, _replacement_map(draft, by_slot), by_slot)
+    return {**state, "draft_version": draft["version"], "analysis_stale": analysis_stale(draft)}
+
+
+def set_replacement(conn, list_id: UUID, principal: Principal, expected_version: int, slot: str, product_id: str) -> dict:
+    """교체 목록에 부품 하나를 담는다(같은 부품군은 하나만, 다시 담으면 바뀐다). 카탈로그 제품만 되고, 성능이 낮거나 새 비호환이 생기면
+    막지 않고 경고로 알린다(사용자가 일부러 고를 수 있다 — 추천 후보는 따로 엄격하게 거른다)."""
+    repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
+    if draft["version"] != expected_version:
+        raise StaleReviewVersion("초안이 다른 곳에서 바뀌었습니다. 새로 불러온 뒤 다시 시도해 주세요.", field="expected_version")
+    if slot not in _SLOTS:
+        raise ValidationFailed(f"부품군이 아닙니다: {slot}", field="slot")
+    by_slot = load_pc_catalog(lambda _msg: None)
+    cand = _pool_by_product(by_slot, slot).get(product_id)
+    if cand is None:
+        raise ValidationFailed(f"카탈로그에 없는 제품입니다: {product_id}", field="candidate_product_id")
+    _stored_review(conn, list_id, principal)           # 분석한 뒤에만 교체를 담을 수 있다
+    draft.setdefault("replacements", {})[slot] = {"candidate_product_id": product_id, "candidate_name": cand.name, "added_at": _now()}
+    draft["version"] += 1
+    _save(repo, revision["id"], draft)
+    return _replacement_state(conn, list_id, principal, draft)
+
+
+def remove_replacement(conn, list_id: UUID, principal: Principal, expected_version: int, slot: str) -> dict:
+    """교체 목록에서 부품 하나를 뺀다(되돌리기). 담지 않은 부품군이어도 오류가 아니다."""
+    repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
+    if draft["version"] != expected_version:
+        raise StaleReviewVersion("초안이 다른 곳에서 바뀌었습니다. 새로 불러온 뒤 다시 시도해 주세요.", field="expected_version")
+    if (draft.get("replacements") or {}).pop(slot, None) is not None:
+        draft["version"] += 1
+        _save(repo, revision["id"], draft)
+    return _replacement_state(conn, list_id, principal, draft)

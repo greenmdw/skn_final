@@ -1593,3 +1593,63 @@ class ReviewSearchOut(BaseModel):
     query: str                                 # 정규화한 질문(NFKC·공백 정리)
     min_similarity: float                      # 이번 검색에 적용한 관련도 하한
     products: list[ReviewSearchProductOut]
+
+
+# ── 재기획 2단계: 교체 대상 추천과 교체 목록 ─────────────────────────────────────────
+class ReplacementReasonOut(BaseModel):
+    code: Literal["incompatible", "game_unmet", "balance_short", "unknown_info", "excess"]
+    text: str
+
+
+class ReplacementCandidateOut(BaseModel):
+    product_id: str | None = None
+    product_key: str | None = None
+    name: str
+    price: int | None = None
+    price_delta: int | None = None                       # 현재 부품과의 가격 차이(현재 가격을 모르면 null)
+    perf_tier: float | int | None = None
+    grade_label: str | None = None                       # 성능 척도 이름("성능 등급"·"용량"·"정격 용량") — 척도가 없는 부품군은 null
+    grade_change: float | None = None                    # 그 척도의 변화(현재 대비)
+    specs: list[dict[str, Any]] = Field(default_factory=list)
+    resolves: list[str] = Field(default_factory=list)    # 이 후보가 풀어 주는 이유 문장
+    resolves_all: bool = True                            # false 면 일부만 풀어 준다
+
+
+class ReplacementTargetOut(BaseModel):
+    slot: str
+    current_name: str | None = None
+    current_confirmed: bool
+    kind: Literal["replace", "verify", "keep"]           # 바꾸기 / 먼저 확인 / 유지
+    rank: int | None = None                              # replace 의 순서(1부터)
+    priority: int | None = None                          # 1 비호환 · 2 게임 미달 · 3 용도 부족
+    reasons: list[ReplacementReasonOut] = Field(default_factory=list)
+    candidates: list[ReplacementCandidateOut] = Field(default_factory=list)
+    note: str | None = None
+
+
+class ReplacementTargetsOut(BaseModel):
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    replace_budget: int | None = None
+    counts: dict[str, int] = Field(default_factory=dict)
+    targets: list[ReplacementTargetOut] = Field(default_factory=list)
+    draft_version: int
+    analysis_stale: bool = False
+
+
+class ReplacementPutIn(BaseModel):
+    expected_version: int
+    candidate_product_id: str
+
+
+class ReplacementDeleteIn(BaseModel):
+    expected_version: int
+
+
+class ReplacementStateOut(BaseModel):
+    replacements: list[dict[str, Any]] = Field(default_factory=list)      # {slot, candidate, from, price_delta, warnings[]}
+    compat: dict[str, Any] = Field(default_factory=dict)                  # before/after 개수, new_issues, resolved_issues
+    balance: dict[str, Any] = Field(default_factory=dict)
+    games: list[dict[str, Any]] = Field(default_factory=list)
+    price: dict[str, Any] = Field(default_factory=dict)                   # delta_total, unpriced_slots, replace_budget, over_budget
+    draft_version: int
+    analysis_stale: bool = False

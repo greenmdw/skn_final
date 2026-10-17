@@ -59,3 +59,23 @@ def check_games(game: str, have: Mapping[str, Any], *, subject: str = "지금", 
         lines.append(f"표에 없는 게임: {', '.join(unknown)}")
     lines.append("표의 기준은 권장 사양 수준이며 실제 프레임(fps)은 계산하지 않습니다.")
     return "\n".join(lines)
+
+
+_SLOT_OF = {"gpu": "GPU", "cpu": "CPU", "ram_gb": "RAM", "vram_gb": "GPU"}
+
+
+def requirement_status(game: str, have: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """게임마다 요구 기준 항목의 충족 여부 — 교체 추천이 어느 부품을 바꿔야 하는지 읽는 구조화된 결과.
+    [{game, key, slot, need, have, state('met'|'unmet'|'unknown')}]. 표에 없는 게임은 빈 목록이다. 판정 기준은 `check_games` 와 같다."""
+    rules = load_computer_rules()
+    keys, tiers, _unknown = match_games(game, rules)
+    out: list[dict[str, Any]] = []
+    for key, need in zip(keys, tiers):
+        label = game_title_label(key, rules)
+        for k in ("gpu", "cpu", "ram_gb", "vram_gb"):
+            if need.get(k) is None:
+                continue
+            h = have.get(k)
+            state = "unknown" if h is None else "met" if float(h) >= float(need[k]) else "unmet"
+            out.append({"game": label, "key": k, "slot": _SLOT_OF[k], "label": _LABEL[k], "need": need[k], "have": h, "state": state})
+    return out
