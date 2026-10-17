@@ -13,9 +13,13 @@
 1. 현재 부품보다 성능이 같거나 높아야 한다(CPU·GPU 성능 등급, RAM·저장장치 용량, 파워 용량). 현재 값을 모르면 후보를 보이지 않는다.
 2. 견적의 나머지 부품과 새로 확정 비호환이 생기면 안 된다.
 3. 짚은 이유를 모두 해소해야 한다(해소하지 못하면 일부만 해소하는 후보를 따로 표시해 보인다).
-4. 교체 예산이 있으면 그 안(바꾼 부품의 가격 차이)이어야 한다."""
+4. 교체 예산이 있으면 그 안(바꾼 부품의 가격 차이)이어야 한다.
+
+위 규칙으로 거른 뒤의 **순서**는 새 컴퓨터 본체 추천과 같은 점수(가격·성능·리뷰 세 축, 우선순위별 가중치)로 정한다."""
 from __future__ import annotations
 
+import logging
+import statistics
 from typing import Any
 
 from src.categories import load_category
@@ -26,6 +30,7 @@ from src.engine.stage3c_verify import AXIS_SLOTS
 from src.services import quote_balance
 from src.services import quote_review_service as qrs
 
+log = logging.getLogger(__name__)
 DEFAULT_LIMIT = 3
 _PRIORITY = {"incompatible": 1, "game_unmet": 2, "balance_short": 3}
 _REPLACE_REASONS = frozenset(_PRIORITY)
@@ -125,8 +130,32 @@ def _cost(cand: Candidate, current_price: int | None) -> int | None:
     return cand.price - current_price if current_price is not None else cand.price
 
 
+def _recommend_scores(conn, slot: str, rows: list[dict], conditions: dict, ref_budget: float) -> dict[str, float] | None:
+    """새 컴퓨터 본체 추천과 같은 점수(가격·성능·리뷰 세 축, 우선순위별 가중치)를 후보에 매긴다. product_id → 점수.
+    점수를 못 매기면(성능 등급 없음, 리뷰 자료 조회 실패 등) None — 호출자가 가격순으로 되돌린다."""
+    from src.dto import HardFilterResult, RequirementSpec, Slots
+    from src.engine.score_policy import ScoreInputError
+    from src.services.review_ranking import ReviewRankingError, rank_with_review_aspects
+
+    if not rows or ref_budget <= 0:
+        return None
+    values = {k: v for k, v in conditions.items() if v is not None and k not in ("replace_budget",)}
+    try:
+        pool = [row["_cand"].model_copy() for row in rows]               # 카탈로그 객체에 리뷰 점수를 붙이지 않게 복사본으로
+        hf = HardFilterResult(slots={slot: pool})
+        spec = RequirementSpec(list_id="quote-replacement", category="computer", mode="upgrade",
+                               budget={"total": ref_budget, "alloc": {slot: 1.0}})
+        slot_values = Slots(category="computer", mode="upgrade", objective_text="받은 견적 교체 추천", values=values)
+        rank, _profiles = rank_with_review_aspects(hf, spec, slot_values, lambda _msg: None, conn=conn)
+    except (ReviewRankingError, ScoreInputError, ValueError) as exc:
+        log.warning("replacement ranking fell back to price order for %s: %s", slot, exc)
+        return None
+    return {str(c["product_id"]): float(c["score"]) for c in rank.slots[slot]["pool"] if c.get("product_id")}
+
+
 def _candidates(slot: str, owned: dict[str, dict], reasons: list[dict], review: dict, by_slot: dict[str, list[Candidate]],
-                slots: list[str], base_incompat: set[str], replace_budget: int | None, limit: int) -> tuple[list[dict], str | None]:
+                slots: list[str], base_incompat: set[str], replace_budget: int | None, limit: int,
+                conn=None) -> tuple[list[dict], str | None]:
     from src.services.quote_alternatives import _spec_rows
 
     info = owned[slot]
@@ -161,12 +190,22 @@ def _candidates(slot: str, owned: dict[str, dict], reasons: list[dict], review: 
                "grade_label": name or None,
                "grade_change": (round(cand_value - base_value, 2) if cand_value is not None and base_value is not None else None),
                "specs": _spec_rows(slot, base_specs, cand_specs), "resolves": [r["text"] for r in resolved],
-               "resolves_all": len(resolved) == len(needed), "_cost": cost if cost is not None else 10**12}
+               "resolves_all": len(resolved) == len(needed), "_cost": cost if cost is not None else 10**12, "_cand": cand}
         (full if row["resolves_all"] else partial if resolved else []).append(row)
     pool = full or partial
-    pool.sort(key=lambda r: (r["_cost"], r["name"]))
+    # 순서는 새 컴퓨터 본체 추천과 같은 점수(우선순위·리뷰 반영)로 정한다. 참고 가격은 현재 부품 가격, 모르면 후보 가격의 중앙값이다.
+    prices = [row["price"] for row in pool if row["price"]]
+    ref_budget = float(current_price or (statistics.median(prices) if prices else 0))
+    scores = _recommend_scores(conn, slot, pool, conditions, ref_budget)
+    for row in pool:
+        row["recommend_score"] = round(scores[str(row["product_id"])], 4) if scores and str(row["product_id"]) in scores else None
+    if scores:
+        pool.sort(key=lambda r: (-(r["recommend_score"] if r["recommend_score"] is not None else -1.0), r["_cost"], r["name"]))
+    else:
+        pool.sort(key=lambda r: (r["_cost"], r["name"]))
     for row in pool:
         row.pop("_cost", None)
+        row.pop("_cand", None)
     note = None
     if not pool:
         note = "조건에 맞는 대안이 카탈로그에 없어요." + (" (교체 예산 안에서는 없어요.)" if replace_budget is not None else "")
@@ -197,7 +236,7 @@ def build_targets(review: dict, by_slot: dict[str, list[Candidate]], *, conn=Non
         kind = "replace" if replace else "verify" if any(r["code"] == "unknown_info" for r in why) else "keep"
         candidates, note = ([], None)
         if kind == "replace":
-            candidates, note = _candidates(slot, owned, why, review, by_slot, slots, base_incompat, replace_budget, limit)
+            candidates, note = _candidates(slot, owned, why, review, by_slot, slots, base_incompat, replace_budget, limit, conn=conn)
         targets.append({
             "slot": slot, "current_name": info.get("name"), "current_confirmed": info.get("source") == "catalog", "kind": kind,
             "reasons": [{k: v for k, v in r.items() if k in ("code", "text")} for r in why if r["code"] != "excess" or kind == "keep"],

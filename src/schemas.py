@@ -1659,6 +1659,7 @@ class ReplacementCandidateOut(BaseModel):
     specs: list[dict[str, Any]] = Field(default_factory=list)
     resolves: list[str] = Field(default_factory=list)    # 이 후보가 풀어 주는 이유 문장
     resolves_all: bool = True                            # false 면 일부만 풀어 준다
+    recommend_score: float | None = None                 # 새 컴퓨터 본체 추천과 같은 점수(0~1). 점수를 못 매겼으면 null(가격순)
 
 
 class ReplacementTargetOut(BaseModel):

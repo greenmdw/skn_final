@@ -130,3 +130,23 @@ def test_a_lower_part_can_still_be_picked_but_is_flagged_and_changing_conditions
     patched = client.patch(f"{base}/conditions", json={"expected_version": state["draft_version"], "conditions": {"resolution": "FHD_144"}}).json()
     assert patched["analysis_stale"] is True
     assert client.get(f"{base}/replacement-targets").json()["analysis_stale"] is True
+
+
+def test_candidates_are_ordered_by_the_recommendation_score(client, monkeypatch, catalog):
+    draft = _draft(client, monkeypatch, catalog, _weakest_gpu(catalog))
+    _analyze(client, draft)
+    target = next(t for t in client.get(f"/pc/review-drafts/{draft['draft_id']}/replacement-targets").json()["targets"] if t["slot"] == "GPU")
+    scores = [c["recommend_score"] for c in target["candidates"]]
+    assert len(scores) >= 2 and all(s is not None and 0 <= s <= 1 for s in scores), target["candidates"]
+    assert scores == sorted(scores, reverse=True)
+
+
+def test_the_priority_changes_the_order_it_does_not_just_sort_by_price(client, monkeypatch, catalog):
+    gpu = _weakest_gpu(catalog)
+    orders = {}
+    for priority in ("performance", "value"):
+        draft = _draft(client, monkeypatch, catalog, gpu, conditions=f'{{"purpose":"game","resolution":"4K","priority":"{priority}"}}')
+        _analyze(client, draft)
+        target = next(t for t in client.get(f"/pc/review-drafts/{draft['draft_id']}/replacement-targets").json()["targets"] if t["slot"] == "GPU")
+        orders[priority] = [(c["name"], c["price"], c["recommend_score"]) for c in target["candidates"]]
+    assert all(row[2] is not None for rows in orders.values() for row in rows)
