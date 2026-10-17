@@ -62,8 +62,9 @@ def interpret(text: str, previous: dict[str, Any] | None = None, kinds: list[str
         new, source = _read(sentence, key, rules, settings["cache_size"], hint)
 
     base = peripheral_intent.sanitize(previous, rules) if previous else None
-    if source == "llm":
-        new = peripheral_intent.reconcile_budget(new, sentence, [*(base.kinds if base else []), *hint], rules)
+    # 금액은 대화의 종류로 맞춘다. 규칙 해석도 이번 문장만 보므로 "30만원"처럼 종류 이름 없이 이어 말한 금액을 버렸다
+    # (10/17 확인) — 모델 해석과 같이 이전 해석의 종류를 문맥으로 준다.
+    new = peripheral_intent.reconcile_budget(new, sentence, [*(base.kinds if base else []), *hint], rules)
     new = _with_question(new, sentence, rules)
 
     merged = peripheral_intent.merge(base, new, rules)
