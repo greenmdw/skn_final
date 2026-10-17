@@ -4,7 +4,7 @@ import type {
 } from '../types'
 import { request } from './client'
 import type {
-  WirePeripheralChat, WirePeripheralFeel, WirePeripheralInterpret, WirePeripheralInterpretation, WirePeripheralItem,
+  WirePeripheralChat, WirePeripheralFeel, WirePeripheralHistory, WirePeripheralInterpret, WirePeripheralInterpretation, WirePeripheralItem,
   WirePeripheralRequested, WirePeripheralReviewContribution, WirePeripheralScoreDetail, WirePeripherals,
 } from './wire'
 
@@ -103,8 +103,15 @@ const interpretationToWire = (value: PeripheralInterpretation): WirePeripheralIn
 
 /** 해석 응답(interpret 과 chat 이 같다)을 화면 모양으로 */
 function interpretResultFromWire(result: WirePeripheralInterpret): PeripheralInterpretResult {
+  return {
+    interpretation: interpretationFromWire(result.interpretation), resolved: resolvedFromWire(result.resolved),
+    needsKind: result.needs_kind, source: result.source, truncated: Boolean(result.truncated),
+  }
+}
+
+function resolvedFromWire(wire: WirePeripheralInterpret['resolved']): Partial<Record<PeripheralKind, PeripheralResolvedKind>> {
   const resolved: Partial<Record<PeripheralKind, PeripheralResolvedKind>> = {}
-  for (const [kind, entry] of Object.entries(result.resolved ?? {})) {
+  for (const [kind, entry] of Object.entries(wire ?? {})) {
     resolved[kind as PeripheralKind] = {
       kind: entry.kind, label: entry.label, purposes: entry.purposes ?? [],
       preferences: (entry.preferences ?? []).map(item => ({ condition: item.condition, label: item.label, sources: item.sources ?? [] })),
@@ -112,10 +119,7 @@ function interpretResultFromWire(result: WirePeripheralInterpret): PeripheralInt
       conflicts: entry.conflicts ?? [],
     }
   }
-  return {
-    interpretation: interpretationFromWire(result.interpretation), resolved,
-    needsKind: result.needs_kind, source: result.source, truncated: Boolean(result.truncated),
-  }
+  return resolved
 }
 
 // 추천·채팅은 "목록(세션)"에 묶어 호출한다. PC 견적 대화 없이도 쓸 수 있어, 처음이면 빈 세션을 하나 만든다.
@@ -172,6 +176,14 @@ export const peripherals: Api['peripherals'] = {
         answer: turn.answer, command: turn.command ?? null, removedConditions: turn.removed_conditions ?? [], reset: Boolean(turn.reset),
         reply: turn.reply, chips: turn.chips ?? [], resultChips: turn.result_chips ?? [],
       },
+    }
+  },
+
+  async history(sessionId) {
+    const result = await request<WirePeripheralHistory>('GET', `/session/${encodeURIComponent(sessionId)}/peripherals/messages`)
+    return {
+      messages: result.messages, interpretation: interpretationFromWire(result.interpretation), resolved: resolvedFromWire(result.resolved),
+      showingResults: result.showing_results, notices: result.notices ?? [],
     }
   },
 }

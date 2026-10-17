@@ -104,6 +104,8 @@ export interface ConversationSummary {
   lastActiveAt: string | null
   /** 첫 사용자 말(제목 대신) */
   firstMessage: string | null
+  /** 어느 화면의 대화인가 — 주변기기 대화는 주변기기 화면으로 연다 */
+  chat: 'computer' | 'peripheral'
   reports: ReportSummary[]
 }
 /** 서버에 저장된 대화 하나를 화면으로 되살릴 때 쓰는 값 */
@@ -572,6 +574,17 @@ export interface PeripheralChatResult extends PeripheralInterpretResult {
   turn: PeripheralTurn
 }
 
+/** 저장된 주변기기 채팅(GET /session/{id}/peripherals/messages) — 돌아왔을 때 채팅과 마지막 조건을 되살린다 */
+export interface PeripheralHistory {
+  messages: { role: 'user' | 'assistant'; text: string; at: string }[]
+  interpretation: PeripheralInterpretation
+  resolved: Partial<Record<PeripheralKind, PeripheralResolvedKind>>
+  /** 마지막으로 추천을 받은 상태였다 — 같은 조건으로 추천을 다시 받는다(추천 결과는 저장하지 않는다) */
+  showingResults: boolean
+  /** 마지막 추천 때 채팅에 말한 유의사항 */
+  notices: string[]
+}
+
 /** 한 평가 기준(타건감·연결 안정성 등)에 모인 후기 관측 집계 */
 export interface PeripheralReviewAspect {
   aspectCode: string
@@ -863,6 +876,8 @@ export interface Api {
     interpret(request: PeripheralInterpretRequest): Promise<PeripheralInterpretResult>
     /** 채팅 한 턴: 문장 해석 + 질문 답변 + 서버가 만든 답장. sessionId 가 없으면 서버에 빈 세션을 만들어 쓴다 */
     chat(request: PeripheralChatRequest): Promise<PeripheralChatResult>
+    /** 이 세션(목록)에 저장된 주변기기 채팅. 내 것이 아니거나 없는 세션이면 NOT_FOUND */
+    history(sessionId: string): Promise<PeripheralHistory>
   }
   quoteDrafts: {
     /** 서버가 받을 수 있는 업로드 한도·이미지 인식 가능 여부. 화면 진입 때 확인한다 */

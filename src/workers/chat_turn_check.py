@@ -198,6 +198,7 @@ def condition_rows(conn, days: int) -> list[dict]:
             FROM identity.message m
             LEFT JOIN first_run fr USING (conversation_id)
             WHERE NOT m.metadata ? 'turn' AND (fr.at IS NULL OR m.created_at < fr.at)
+              AND NOT m.metadata @> '{"channel": "peripheral"}'      -- 주변기기 채팅은 조건 대화가 아니다
               AND m.conversation_id IN (SELECT conversation_id FROM identity.message
                                         WHERE created_at >= now() - (%s || ' days')::interval))
         SELECT conversation_id, reached,
