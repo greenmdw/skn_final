@@ -46,7 +46,6 @@
 .pf-chat .pl-input input::placeholder { color: color-mix(in srgb, var(--muted) 90%, white 10%); opacity: 1; }
 .pf-chat .pl-send:disabled { opacity: .6; }
 .pf-quick { margin-bottom: 0; }
-.pf-reflected { padding: 8px 10px; border-radius: 6px; background: rgba(61,220,151,.16); color: var(--ok); font-size: 11px; line-height: 1.5; }
 
 .pf-results-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .pf-results-heading > div:first-child { display: flex; flex-direction: column; gap: 8px; }
