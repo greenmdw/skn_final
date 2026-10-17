@@ -422,13 +422,16 @@ def _check_situations(data: dict) -> None:
         raise PeripheralRuleError("주변기기 situations 는 비지 않은 표여야 함")
     for code, entry in section.items():
         where = f"situations.{code}"
-        if not isinstance(entry, dict) or set(entry) != {"label", "words", "same_condition_group"}:
-            raise PeripheralRuleError(f"주변기기 {where} 키 오류(label, words, same_condition_group)")
+        keys = set(entry) if isinstance(entry, dict) else set()
+        if not {"label", "words", "same_condition_group"} <= keys <= {"label", "words", "same_condition_group", "exclude"}:
+            raise PeripheralRuleError(f"주변기기 {where} 키 오류(label, words, same_condition_group + 선택 exclude)")
         if not isinstance(entry["label"], str) or not entry["label"].strip():
             raise PeripheralRuleError(_LABEL_MSG.format(where=where))
         _check_name_list(f"{where}.words", entry["words"], allow_empty=False)
         if not isinstance(entry["same_condition_group"], bool):
             raise PeripheralRuleError(f"주변기기 {where}.same_condition_group 은 true/false 여야 함")
+        if "exclude" in entry:
+            _check_name_list(f"{where}.exclude", entry["exclude"], allow_empty=False)
 
 
 def _all_purpose_codes(data: dict) -> set[str]:
