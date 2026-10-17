@@ -316,7 +316,7 @@ export function setupFromReport(report: WireReport, extras: SetupExtras | undefi
     desk: extras?.desk ?? { ...DEFAULT_DESK },
     checkDraft: extras?.checkDraft ?? { question: '', budget: '', rows: [] },
     peripherals: (report.peripherals ?? []).map(item => ({
-      kind: item.kind, name: item.product.name, price: item.price, qty: item.qty,
+      kind: item.kind, name: item.product.name, price: item.price, qty: item.qty, variantId: item.variant_id ?? null,
       imageUrl: item.product.image_url, productUrl: item.product.purchase_url,
     })),
   }

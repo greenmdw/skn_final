@@ -54,6 +54,8 @@ def test_confirm_with_peripherals_freezes_them_and_adds_to_total():
     assert set(kinds) == {"keyboard", "monitor"}
     assert kinds["keyboard"]["product"]["name"] == keyboard["product"]["name"]
     assert kinds["keyboard"]["price"] == keyboard["price"]
+    # 불러온 견적을 주변기기 화면에서 다시 담으려면 variant_id 가 있어야 한다(QA 10/16 #4)
+    assert kinds["keyboard"]["variant_id"] == keyboard["product"]["variant_id"]
 
     item = _list_item(c, lid)
     assert item["reports"][0]["peripheral_count"] == 2

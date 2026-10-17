@@ -341,7 +341,7 @@ class PlanRepo(Repo):
 
     def list_peripheral_lines(self, revision_id: UUID) -> list[dict]:
         return self._all(
-            "SELECT kind, pack_count, line_amount, snapshot FROM planning.peripheral_line "
+            "SELECT kind, variant_id, pack_count, line_amount, snapshot FROM planning.peripheral_line "
             "WHERE revision_id=%s ORDER BY created_at",
             (revision_id,),
         )
