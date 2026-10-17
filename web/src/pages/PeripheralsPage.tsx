@@ -50,13 +50,10 @@ function restoredResult(items: SetupPeripheral[], sessionId: string): Peripheral
 
 interface SendOutcome { reply: string; needsKind: boolean }
 
-function PeripheralChat({ messages, onSay, selectedKinds, selectedLabels, conditionCount, showingResults, questionChips, onSend }: {
+function PeripheralChat({ messages, onSay, selectedKinds, questionChips, onSend }: {
   messages: ChatMessage[]
   onSay: (role: ChatMessage['role'], text: string) => void
   selectedKinds: PeripheralKind[]
-  selectedLabels: string[]
-  conditionCount: number
-  showingResults: boolean
   /** 서버가 이번 답 뒤에 권한 질문 문장(결과가 나온 뒤에는 결과에 대한 질문) */
   questionChips: string[]
   /** hintKind: 빠른 조건 칩을 눌렀을 때 그 칩의 품목. 선택한 품목과 함께 서버에 보낸다 */
@@ -132,8 +129,6 @@ function PeripheralChat({ messages, onSay, selectedKinds, selectedLabels, condit
           <button type="button" className="pf-kind-card-go" disabled={busy || pendingKinds.size === 0} onClick={chooseKinds}>이 종류로 찾기</button>
         </div>}
         {busy && <div className="pf-typing" role="status" aria-label="문장을 읽는 중"><i /><i /><i /></div>}
-        {selectedLabels.length > 0 && <div className="pf-reflected">✓ 선택 품목: {selectedLabels.join(' · ')}{conditionCount ? ` · 조건 ${conditionCount}개` : ''}</div>}
-        {showingResults && <div className="pl-msg-bot">품목마다 하나씩 골랐어요. 스펙 조건과 리뷰 근거를 함께 확인해 주세요.</div>}
       </div>
       <div className="pl-chat-foot">
         {quick.length > 0 && <div className="pl-choices pf-quick" aria-label="빠른 조건">
@@ -217,6 +212,12 @@ function chosenProduct(item: PeripheralItem, selection: Record<string, string>) 
   return { name: item.name, brand: item.brand, price: item.price, variantId: item.variantId, imageUrl: item.imageUrl, productUrl: item.productUrl, fromAlternative: false }
 }
 
+const conditionTotal = (state: UnderstoodState) =>
+  Object.values(state.resolved).reduce((sum, entry) => sum + (entry ? entry.preferences.length + entry.filters.length : 0), 0)
+
+const resultMessage = (kinds: PeripheralKind[], conditions: number) =>
+  `✓ ${kinds.map(kindLabel).join(' · ')}${conditions ? ` · 조건 ${conditions}개` : ''}로 품목마다 하나씩 골랐어요. 스펙 조건과 리뷰 근거를 함께 확인해 주세요.`
+
 export default function PeripheralsPage() {
   const { state, setPeripherals } = usePlan()
   const { showToast } = useToast()
@@ -255,7 +256,6 @@ export default function PeripheralsPage() {
   // 결과 화면은 품목이 둘 이상이면 탭으로 나눠 한 번에 한 품목만 보인다.
   const [activeKind, setActiveKind] = useState<PeripheralKind | null>(null)
   const activeItem = result?.items.find(item => item.kind === activeKind) ?? result?.items[0] ?? null
-  const conditionCount = useMemo(() => Object.values(understood.resolved).reduce((sum, entry) => sum + (entry ? entry.preferences.length + entry.filters.length : 0), 0), [understood])
 
   const say = (role: ChatMessage['role'], text: string) => {
     if (role === 'user') spokeHere.current = true
@@ -367,6 +367,8 @@ export default function PeripheralsPage() {
       setResult(out)
       setSelection({})
       setPickedKinds(new Set(out.items.map(item => item.kind)))
+      // 추천을 받은 그 자리에 한 번 말한다(QA 10/16 #9) — 채팅 끝에 고정해 두면 뒤에 묻고 답해도 최신 답처럼 남는다.
+      say('assistant', resultMessage(out.items.map(item => item.kind), conditionTotal(next)))
       // 서버가 알리는 유의사항(예: PC 견적 없이 고른 모니터)은 채팅으로도 말한다. 같은 내용을 다시 받아도 되풀이하지 않는다.
       const spoken = out.notices.map(item => item.text).join('\n')
       if (spoken && spoken !== spokenNotices.current) out.notices.forEach(item => say('assistant', item.text))
@@ -465,8 +467,8 @@ export default function PeripheralsPage() {
   const understoodPanel = <UnderstoodChips understood={understood} kinds={selectedKinds} hasPlan={Boolean(plan)} onRemove={removal => changeUnderstood(removeUnderstood(understood, removal))} />
 
   return (
-    <PlannerShell sidebar={<PeripheralChat messages={messages} onSay={say} selectedKinds={selectedKinds} selectedLabels={selectedLabels} conditionCount={conditionCount}
-      showingResults={showResults} questionChips={questionChips} onSend={sendTurn} />}>
+    <PlannerShell sidebar={<PeripheralChat messages={messages} onSay={say} selectedKinds={selectedKinds}
+      questionChips={questionChips} onSend={sendTurn} />}>
       <div className={'pf-page' + (showResults ? ' results' : '')}>
         {showResults ? <>
           <div className="pf-results-heading">
