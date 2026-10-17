@@ -49,7 +49,7 @@ def _names_brand(lowered: str, rules: dict) -> bool:
     return any(alias in lowered for aliases in emphasis_cfg(rules)["brands"].values() for alias in aliases)
 
 
-def _reads_conditions(reading: Interpretation) -> bool:
+def reads_conditions(reading: Interpretation) -> bool:
     return bool(reading.purposes or reading.situations or reading.stated or reading.emphasis or reading.brand_like
                 or reading.brand_avoid or reading.hand_size or reading.budget or reading.budget_min or reading.budget_total)
 
@@ -74,7 +74,7 @@ def detect(text: str, context_kinds: list[str], rules: dict | None = None) -> Co
     reading = pi.interpret_by_words(text, rules, context_kinds)
     if _near_end(lowered, words.get("remove", ()), _REMOVE_TAIL):
         return Command("remove", named)
-    if _reads_conditions(reading):
+    if reads_conditions(reading):
         return None
     if _near_end(lowered, words.get("cheaper", ()), _SWAP_TAIL):
         return Command("cheaper", target)

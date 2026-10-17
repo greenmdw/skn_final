@@ -273,3 +273,38 @@ def test_raising_the_budget_of_the_only_kind_drops_the_old_total():
     previous = Interpretation(kinds=["monitor"], budget_total=200000).model_dump()
     out = _turn("모니터 25만원", previous)
     assert out["interpretation"].budget == {"monitor": 250000} and out["interpretation"].budget_total is None
+
+
+# ── 10/17 실측 ────────────────────────────────────────────────────────────
+def test_question_about_the_shown_product_does_not_change_conditions(monkeypatch):
+    """"이 모니터 4K 게임 돼?"는 보이는 제품에 대한 질문이다 — 게임·높은 해상도 조건으로 읽혀 추천이 바뀌었다."""
+    _fake_recommend(monkeypatch, ["monitor"])
+    first = _turn("QHD 모니터")
+    out = _turn("이 모니터 4K 게임 돼?", _prev(first), open_conn=_stub_recommend)
+    assert out["interpretation"].question.type == "spec"
+    assert out["interpretation"].purposes == [] and out["interpretation"].stated == {"monitor": ["qhd"]}
+
+
+def test_question_without_a_pointing_word_still_reads_conditions():
+    out = _turn("4K 모니터 있어?")
+    assert out["interpretation"].question is None and out["interpretation"].stated
+
+
+def test_negated_condition_is_not_read():
+    out = _turn("무선 말고 유선 마우스")
+    assert out["interpretation"].stated == {"mouse": ["wired"]}
+
+
+def test_unsupported_devices_are_named_and_not_read_as_kinds():
+    out = _turn("마우스패드랑 웹캠")
+    assert out["interpretation"].kinds == []
+    assert "웹캠·마우스패드 같은 기기는" in out["turn"]["reply"] and "헤드셋" not in out["turn"]["reply"]
+
+
+@pytest.mark.parametrize("text, kinds, hint", [
+    ("그냥 아무거나 괜찮은 걸로", None, "nothing_no_kind"),
+    ("잘 몰라요 추천해주세요", ["mouse"], "nothing_with_kind"),
+])
+def test_nothing_read_tells_how_to_go_on(text, kinds, hint):
+    out = _turn(text, None, kinds)
+    assert out["turn"]["reply"].endswith(chat_config(RULES)["answers"][hint])
