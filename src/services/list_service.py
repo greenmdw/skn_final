@@ -160,7 +160,7 @@ def _owned_confirmed_report(prepo: PlanRepo, list_id: UUID, principal: Principal
     return target
 
 
-def delete_report(conn, list_id: UUID, principal: Principal, revision_no: int) -> dict:
+def delete_report(conn, list_id: UUID, principal: Principal, revision_no: int, *, permanent: bool = False) -> dict:
     """견적서(확정된 revision) 하나만 지운다(개발요청 10번) — 대화·다른 견적서는 그대로 둔다.
 
     지금 작업 중인(current) revision이 바로 지우는 그 견적서면(확정 직후 "새 견적서 시작"을
@@ -183,6 +183,9 @@ def delete_report(conn, list_id: UUID, principal: Principal, revision_no: int) -
             prepo.set_current_revision(list_id, new_id)
 
     prepo.soft_delete_revision(target["id"])
+    if permanent:                       # 현재 작업 견적서는 위에서 다른 곳으로 옮겼으므로 바로 지워도 외래 키가 걸리지 않는다
+        from src.services import purge_service
+        purge_service.purge_revision(conn, target["id"])
     return session_service._state(conn, list_id, principal)
 
 
@@ -262,9 +265,17 @@ def rename(conn, list_id: UUID, principal: Principal, *, name: str) -> dict:
     }
 
 
-def delete(conn, list_id: UUID, principal: Principal) -> None:
+def delete(conn, list_id: UUID, principal: Principal, *, permanent: bool = False) -> None:
+    """대화를 지운다. 기본은 삭제 표시(보관 기간 뒤 정리 작업이 영구 삭제), permanent=True 면 바로 영구 삭제 — 로그인한 소유자만."""
     prepo = PlanRepo(conn)
-    _owned(prepo, list_id, principal)
+    revision = _owned(prepo, list_id, principal)
+    if permanent:
+        from src.services import purge_service
+        user_id = _require_login(conn, principal)
+        if revision["owner_user_id"] != user_id:
+            raise NotFound("목록을 찾을 수 없습니다.")
+        purge_service.purge_plan(conn, list_id)
+        return
     prepo.soft_delete(list_id)
 
 

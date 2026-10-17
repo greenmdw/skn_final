@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { quoteReportExtra, type QuoteReportExtra } from '../../api/checkV2'
 import { wonText } from '../../utils/checkReview'
 
@@ -16,7 +17,7 @@ export function useQuoteReportExtra(listId: string | undefined, revisionNo: numb
 }
 
 /** 받은 견적 점검으로 만든 리포트의 "유지한 부품" — 견적에 적힌 그대로. 다른 리포트에서는 아무것도 그리지 않는다. */
-export default function QuoteReportSection({ extra }: { extra: QuoteReportExtra | null }) {
+export default function QuoteReportSection({ extra, listId }: { extra: QuoteReportExtra | null; listId: string }) {
   if (!extra || extra.source !== 'quote_check') return null
   return (
     <section>
@@ -33,6 +34,7 @@ export default function QuoteReportSection({ extra }: { extra: QuoteReportExtra 
           <span />
         </div>
       ))}
+      <div style={{ paddingTop: 8 }}><Link to={`/check2/${listId}/review`}>다른 견적과 비교</Link></div>
       {extra.quote_check?.total_partial && <div className="pl-note">가격을 모르는 부품은 합계에 넣지 않았어요.</div>}
     </section>
   )

@@ -66,9 +66,9 @@ export function SetupsProvider({ children }: { children: ReactNode }) {
       return false
     }
   }, [reload, refreshConversations])
-  const removeSetup = useCallback(async (id: string) => {
+  const removeSetup = useCallback(async (id: string, permanent?: boolean) => {
     try {
-      await api.setups.remove(id)
+      await api.setups.remove(id, permanent)
       setSavedSetups(prev => prev.filter(s => s.id !== id))
       setStorageError('')
       return true

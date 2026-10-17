@@ -10,7 +10,7 @@ export interface SetupsContextValue {
   /** 마지막 저장이 로그인 부재로 거절됐으면 true — 확정 화면이 로그인 버튼을 보인다 */
   authRequired: boolean
   addSetup: (setup: SavedSetup) => Promise<boolean>
-  removeSetup: (id: string) => Promise<boolean>
+  removeSetup: (id: string, permanent?: boolean) => Promise<boolean>
   /** 서버에서 저장 목록을 다시 읽는다(확정 뒤 같은 목록의 견적서 번호·개수가 바뀐다). 대화 목록도 함께 새로 읽는다 */
   reload: () => void
   /** 이 사용자의 대화 목록(견적서 포함) — 좌측 패널이 쓴다. 처음 읽는 중이면 null */

@@ -79,6 +79,9 @@ LIVE_LOOKUP_GLOBAL_LIMIT_PER_MIN: int = int(os.getenv("LIVE_LOOKUP_GLOBAL_LIMIT_
 LIVE_LOOKUP_MAX_CONCURRENCY: int = int(os.getenv("LIVE_LOOKUP_MAX_CONCURRENCY", "2"))
 # 일괄 검색 한 번에 찾을 수 있는 항목 수(재기획 6.8, 가정). 요청 1번이 사용자 한도 1회이므로 항목 수가 곧 비용 상한이다.
 LIVE_LOOKUP_BATCH_MAX: int = int(os.getenv("LIVE_LOOKUP_BATCH_MAX", "6"))
+# 삭제 표시한 대화·견적서를 영구 삭제하기까지의 보관 일수(재기획 6.7, 가정)와 정리 작업의 반복 주기.
+PURGE_DELETED_AFTER_DAYS: int = int(os.getenv("PURGE_DELETED_AFTER_DAYS", "30"))
+PURGE_INTERVAL_SECONDS: int = int(os.getenv("PURGE_INTERVAL_SECONDS", "86400"))
 # 받은 견적 점검 — 여러 장 업로드(초안). 이미지 한 장이 비전 호출 한 번(분당 토큰 한도를 같이 쓴다)이라 3장까지만 받는다.
 QUOTE_DRAFT_MAX_FILES: int = int(os.getenv("QUOTE_DRAFT_MAX_FILES", "3"))
 QUOTE_DRAFT_MAX_FILE_BYTES: int = int(os.getenv("QUOTE_DRAFT_MAX_FILE_BYTES", str(10 * 1024 * 1024)))

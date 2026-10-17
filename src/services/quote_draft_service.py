@@ -275,6 +275,8 @@ def _revision_and_draft(conn, list_id: UUID, principal: Principal, *, lock: bool
     revision = session_service._owned(repo, list_id, principal)
     if lock:
         repo.lock_revision(revision["id"])
+        if revision["state"] == "confirmed":           # 확정한 견적의 초안·교체 목록은 리포트의 근거라 더는 바꾸지 못한다
+            raise Conflict("이미 확정한 견적이에요. 고치려면 새로 점검을 시작해 주세요.", code="quote_already_confirmed")
     row = repo.active_condition(revision["id"], QUOTE_DRAFT_KEY)
     if row is None:
         raise NotFound("이 목록에는 견적 초안이 없습니다.")

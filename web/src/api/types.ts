@@ -914,7 +914,7 @@ export interface Api {
     /** 견적서(확정본) 하나의 이름 바꾸기 — 대화 이름과 별개 */
     renameReport(listId: string, revisionNo: number, name: string): Promise<void>
     /** 견적서 하나만 삭제 — 대화와 다른 견적서는 그대로 */
-    removeReport(listId: string, revisionNo: number): Promise<void>
+    removeReport(listId: string, revisionNo: number, permanent?: boolean): Promise<void>
   }
   setups: {
     /** 확정한 견적서가 있는 목록과 그 리포트. 이미 읽은 대화 목록(computer 만)을 주면 GET /lists 를 다시 부르지 않는다 */
@@ -927,7 +927,8 @@ export interface Api {
     newRevision(id: string, fromRevisionNo?: number): Promise<LoadedConversation>
     /** 같은 id가 있으면 갱신합니다. 저장된 구성을 돌려줍니다. */
     save(setup: SavedSetup): Promise<SavedSetup>
-    remove(id: string): Promise<void>
+    /** permanent 이면 보관 기간 없이 바로 영구 삭제(로그인한 소유자만) */
+    remove(id: string, permanent?: boolean): Promise<void>
     /** 확정한 견적(가장 최근 견적서)의 목표가 알림 상태. 로그인한 소유자만 */
     priceWatch(id: string): Promise<PriceWatch>
     /** 목표가 알림을 켜거나 끄고 목표 금액을 바꾼다. 켤 때 금액을 안 주면 서버가 지난 값·확정 목표 금액을 쓴다 */

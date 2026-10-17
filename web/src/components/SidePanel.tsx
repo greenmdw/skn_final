@@ -6,7 +6,7 @@ import { useSetups } from '../state/SetupsContext'
 import { useToast } from '../state/ToastContext'
 import { isCheckSession } from '../utils/checkSessions'
 import { peripheralConversationPath, peripheralConversationState } from '../utils/peripheralSession'
-import { useRemoveSheet } from '../state/useRemoveSheet'
+import { askPermanent, useRemoveSheet } from '../state/useRemoveSheet'
 import { logout, useAuthUser } from '../state/authStore'
 import { compactWon, dateGroup, fullDate, shortDate } from '../utils/format'
 import ResizeHandle, { usePanelWidth } from './ResizeHandle'
@@ -300,9 +300,10 @@ export default function SidePanel() {
     setCtx(null)
     const title = conversationTitle(item) ?? '이 대화'
     const sheets = item.reports.length > 0 ? ` 저장한 견적서 ${item.reports.length}개도 함께 지워져요.` : ''
-    if (!window.confirm(`“${title}” 대화를 삭제할까요?${sheets} 되돌릴 수 없어요.`)) return
+    if (!window.confirm(`“${title}” 대화를 삭제할까요?${sheets}`)) return
+    const permanent = askPermanent()
     // 저장한 견적 목록도 함께 갱신되게 setups 쪽 삭제를 쓴다(DELETE /lists/{id}, 이미 없으면 지운 것으로 본다).
-    if (!await removeSetup(item.listId)) { showToast('삭제하지 못했습니다. 잠시 후 다시 시도해주세요.'); return }
+    if (!await removeSetup(item.listId, permanent)) { showToast('삭제하지 못했습니다. 잠시 후 다시 시도해주세요.'); return }
     await refreshConversations()
     // 지금 열어 둔 대화나 리포트를 지웠으면 빈 새 견적으로 돌아간다.
     if (state.sessionId === item.listId || viewingId === item.listId) { resetPlan(); navigate('/start') }

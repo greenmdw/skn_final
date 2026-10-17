@@ -139,7 +139,7 @@ export default function ReportPage() {
             ))}
           </section>}
 
-          <QuoteReportSection extra={quoteExtra} />
+          <QuoteReportSection extra={quoteExtra} listId={setup.id} />
 
           {(setup.peripherals?.length ?? 0) > 0 && (
             <section>

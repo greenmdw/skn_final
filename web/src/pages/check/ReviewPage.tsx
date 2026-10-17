@@ -1,7 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { errorMessage } from '../../api'
+import { api, errorMessage, type QuoteSavedComparison } from '../../api'
 import { checkV2, type Analysis } from '../../api/checkV2'
+import SavedComparisonPanel from '../../components/check/SavedComparisonPanel'
+import SavedQuotePicker from '../../components/check/SavedQuotePicker'
+import { useSetups } from '../../state/SetupsContext'
+import { rememberCheckComparison } from '../../utils/checkSessions'
 import { PRIORITY_LABEL, PURPOSE_LABEL, RESOLUTION_LABEL, wonText } from '../../utils/checkReview'
 import CheckLayout, { CHECK2 } from './CheckLayout'
 import { useDraft } from './useDraft'
@@ -41,6 +45,14 @@ export default function ReviewPage() {
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
   const [form, setForm] = useState<Record<string, unknown>>({})
+  // 저장한 견적과 비교(재기획 6.9) — 사진 2장 "견적 비교"와는 다른 기능이다
+  const { savedSetups, loading: setupsLoading, storageError } = useSetups()
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickedId, setPickedId] = useState<string | null>(null)
+  const [comparison, setComparison] = useState<QuoteSavedComparison | null>(null)
+  const [differenceOnly, setDifferenceOnly] = useState(false)
+  const [compareBusy, setCompareBusy] = useState(false)
+  const [compareError, setCompareError] = useState('')
 
   async function analyze() {
     if (!id) return
@@ -52,9 +64,23 @@ export default function ReviewPage() {
     if (!id || analysis) return
     void (async () => {
       setBusy(true)
-      try { setAnalysis(await checkV2.analyze(id)) } catch (caught) { setError(errorMessage(caught, '분석 결과를 불러오지 못했습니다.')) } finally { setBusy(false) }
+      try { setAnalysis(await checkV2.analyze(id)) } catch (caught) {
+        // 이미 확정한 견적(리포트에서 들어온 경우)은 다시 분석하지 못한다 — 저장된 결과를 그대로 보여 준다.
+        try { setAnalysis(await checkV2.getReview(id)) } catch { setError(errorMessage(caught, '분석 결과를 불러오지 못했습니다.')) }
+      } finally { setBusy(false) }
     })()
   }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function compareSaved() {
+    const setup = savedSetups.find(item => item.id === pickedId)
+    if (!id || !setup) return
+    setCompareBusy(true); setCompareError('')
+    try {
+      const result = await api.quoteDrafts.compareSaved(id, setup.id, setup.revisionNo ?? undefined)
+      rememberCheckComparison(id, result.comparisonId)
+      setComparison(result); setPickerOpen(false)
+    } catch (caught) { setCompareError(errorMessage(caught, '저장한 견적과 비교하지 못했습니다.')) } finally { setCompareBusy(false) }
+  }
 
   async function saveConditions() {
     if (!id || !draft) return
@@ -110,7 +136,7 @@ export default function ReviewPage() {
           <div className="c2-summary">
             <div className="c2-card"><small>호환</small><strong>통과 {compat.ok ?? 0} · 문제 {compat.fail ?? 0}</strong><span className="c2-sub">확인 못 함 {compat.unknown ?? 0}</span></div>
             <div className="c2-card"><small>용도 대비 균형</small>{balance?.available ? <strong>부족 {short}개</strong> : <strong>판단하지 않음</strong>}<span className="c2-sub">{balance?.available ? `기준보다 높은 부품 ${balance.rows.filter(r => r.state === 'excess').length}개` : (balance?.reason ?? '용도를 정하면 볼 수 있어요')}</span></div>
-            <div className="c2-card"><small>{view?.label ?? '가격'}</small><strong>{view?.mode === 'none' || !view ? '가격 정보 없음' : wonText(view.quote_total ?? view.line_total)}</strong>{view?.note && <span className="c2-sub">{view.note}</span>}</div>
+            <div className="c2-card"><small>{view?.label ?? '가격'}</small><strong>{!view ? '다시 분석하면 보여요' : view.mode === 'none' ? '가격 정보 없음' : wonText(view.quote_total ?? view.line_total)}</strong>{view?.note && <span className="c2-sub">{view.note}</span>}</div>
           </div>
 
           <section className="c2-card">
@@ -134,11 +160,21 @@ export default function ReviewPage() {
             </details>
           </section>
 
+          {comparison && (
+            <SavedComparisonPanel comparison={comparison} differenceOnly={differenceOnly} onDifferenceOnly={setDifferenceOnly} onClose={() => setComparison(null)}
+              answers={[]} openIds={new Set()} onToggle={() => undefined} onCollapseAll={() => undefined} pulse={0} />
+          )}
+
           <div className="c2-actions end">
+            <button type="button" className="c2-btn" onClick={() => { setCompareError(''); setPickerOpen(true) }}>저장한 견적과 비교</button>
             <button type="button" className="c2-btn" disabled={busy} onClick={() => void analyze()}>다시 분석하기</button>
             <button type="button" className="c2-btn primary" onClick={() => navigate(`${CHECK2}/${id}/replace`)}>교체 구성으로{replaceCount ? `(추천 ${replaceCount}개)` : ''}</button>
           </div>
         </>
+      )}
+      {pickerOpen && (
+        <SavedQuotePicker setups={savedSetups} loading={setupsLoading} error={compareError || storageError || ''} selectedId={pickedId} busy={compareBusy}
+          onSelect={setup => setPickedId(setup.id)} onConfirm={() => void compareSaved()} onClose={() => setPickerOpen(false)} />
       )}
     </CheckLayout>
   )

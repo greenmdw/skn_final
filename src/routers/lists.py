@@ -84,9 +84,10 @@ def rename(
 
 
 @router.delete("/{list_id}", status_code=204)
-def delete(list_id: UUID, principal: Principal = Depends(optional_principal)) -> None:
+def delete(list_id: UUID, permanent: bool = Query(default=False), principal: Principal = Depends(optional_principal)) -> None:
+    """대화 삭제. permanent=true 면 보관 기간 없이 바로 영구 삭제한다(로그인한 소유자만)."""
     with get_conn() as conn:
-        list_service.delete(conn, list_id, principal)
+        list_service.delete(conn, list_id, principal, permanent=permanent)
 
 
 @router.post("/{list_id}/confirm", response_model=schemas.ReportOut)
@@ -132,11 +133,11 @@ def new_revision(
 
 @router.delete("/{list_id}/reports/{revision_no}", response_model=schemas.ConditionState)
 def delete_report(
-    list_id: UUID, revision_no: int, principal: Principal = Depends(optional_principal)
+    list_id: UUID, revision_no: int, permanent: bool = Query(default=False), principal: Principal = Depends(optional_principal)
 ) -> schemas.ConditionState:
     """견적서(확정된 revision) 하나만 삭제한다(개발요청 10번). 대화·다른 견적서는 그대로 둔다."""
     with get_conn() as conn:
-        state = list_service.delete_report(conn, list_id, principal, revision_no)
+        state = list_service.delete_report(conn, list_id, principal, revision_no, permanent=permanent)
     return schemas.ConditionState(**state)
 
 

@@ -128,3 +128,17 @@ def test_a_kept_part_name_drops_the_category_prefix_of_text_quotes():
     assert _display_name({"category": "CPU", "normalized_name": "CPU: AMD Ryzen 5 7500F", "raw_text": "x"}) == "AMD Ryzen 5 7500F"
     assert _display_name({"category": "GPU", "normalized_name": "RTX 5060 Ti", "raw_text": "x"}) == "RTX 5060 Ti"
     assert _display_name({"category": "CPU", "normalized_name": "", "raw_text": "i5-14400F"}) == "i5-14400F"
+
+
+def test_a_confirmed_quote_can_no_longer_be_changed(client, monkeypatch, catalog):
+    base, version = _analyzed(client, monkeypatch, catalog)
+    assert client.post(f"{base}/confirm", json=_body(version)).status_code == 200
+    draft = client.get(base).json()
+    for method, path, body in (
+        ("POST", f"{base}/analysis", {}),
+        ("PATCH", f"{base}/conditions", {"expected_version": draft["version"], "conditions": {"purpose": "office"}}),
+        ("PATCH", f"{base}/items", {"expected_version": draft["version"], "items": [{"id": draft["items"][0]["id"], "quantity": 2}]}),
+    ):
+        r = client.request(method, path, json=body)
+        assert r.status_code == 409 and r.json()["error"]["code"] == "quote_already_confirmed", (path, r.text)
+    assert client.get(base).status_code == 200                                   # 읽기는 그대로

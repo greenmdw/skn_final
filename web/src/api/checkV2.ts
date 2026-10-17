@@ -46,7 +46,8 @@ export interface Analysis {
   compat: { checks: CompatCheck[]; summary: Record<string, number>; incompatible: string[] }
   balance: { available: boolean; reason: string | null; rows: BalanceRow[]; summary: Record<string, number>; notes: string[] } | null
   input: { current_specs: Record<string, string>; conditions: Record<string, unknown> }
-  price_view: PriceView
+  /** 분석 직후 응답에만 있다 — 저장된 결과를 다시 읽으면(getReview) 없다 */
+  price_view?: PriceView
   parts: unknown[]
 }
 
