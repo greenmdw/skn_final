@@ -149,10 +149,12 @@ function PeripheralChat({ messages, onSay, selectedKinds, questionChips, onSend 
 }
 
 // "이해한 내용": 서버가 읽은 목적·선호·직접 말한 조건·예산을 칩으로 보여 준다. 칩의 ×를 누르면 그 값을 입력에서 빼고 추천만 다시 부른다.
-function UnderstoodChips({ understood, kinds, hasPlan, onRemove }: {
+function UnderstoodChips({ understood, kinds, hasPlan, pcPurposes, onRemove }: {
   understood: UnderstoodState
   kinds: PeripheralKind[]
   hasPlan: boolean
+  /** 말하지 않았고 PC 견적 용도에서 붙은 목적(추천 결과의 요청 항목에서). 지울 수 없다 — PC 견적의 용도를 따른다 */
+  pcPurposes: Partial<Record<PeripheralKind, string[]>>
   onRemove: (removal: UnderstoodRemoval) => void
 }) {
   const { interpretation, resolved, adjusted } = understood
@@ -163,6 +165,7 @@ function UnderstoodChips({ understood, kinds, hasPlan, onRemove }: {
     const entry = resolved[kind]
     const chips = [
       ...(entry?.purposes ?? []).map(purpose => chip(`${kind}:p:${purpose.code}`, '목적', purpose.label, { type: 'purpose', code: purpose.code })),
+      ...(pcPurposes[kind] ?? []).map(label => chip(`${kind}:pc:${label}`, 'PC 용도', label)),
       ...(entry?.filters ?? []).map(item => chip(`${kind}:f:${item.condition}`, '조건', item.label, { type: 'filter', kind, condition: item.condition })),
       ...(entry?.preferences ?? []).map(item => chip(`${kind}:s:${item.condition}`, '선호', item.label, { type: 'preference', kind, condition: item.condition, sources: item.sources })),
       ...(interpretation.budget[kind] ? [chip(`${kind}:b`, '예산', wonFmt(interpretation.budget[kind] as number), { type: 'budget', kind })] : []),
@@ -444,8 +447,13 @@ export default function PeripheralsPage() {
       onChoose={name => (name === null ? chooseFirst(item) : chooseAlternative(item, name))} />
   }
 
+  // PC 견적 용도에서 붙은 목적(QA 10/16 #16 후속) — 채팅·결과 카드에는 보이는데 "이해한 내용"만 비어 있었다.
+  const pcPurposes: Partial<Record<PeripheralKind, string[]>> = Object.fromEntries((result?.items ?? []).map(item =>
+    [item.kind, item.requested.filter(requested => requested.source === 'pc_purpose').map(requested => requested.label)]))
+
   // 접힌 "이해한 내용" 줄: 읽은 조건 이름을 앞에서부터 몇 개만 보인다.
   const understoodLabels = [
+    ...selectedKinds.flatMap(kind => pcPurposes[kind] ?? []),
     ...selectedKinds.flatMap(kind => {
       const entry = understood.resolved[kind]
       return [...(entry?.purposes ?? []).map(purpose => purpose.label), ...(entry?.filters ?? []).map(condition => condition.label), ...(entry?.preferences ?? []).map(condition => condition.label)]
@@ -464,7 +472,7 @@ export default function PeripheralsPage() {
     ? `${understoodUnique.slice(0, 4).join(' · ')} 외 ${understoodUnique.length - 4}개`
     : understoodUnique.join(' · ')
 
-  const understoodPanel = <UnderstoodChips understood={understood} kinds={selectedKinds} hasPlan={Boolean(plan)} onRemove={removal => changeUnderstood(removeUnderstood(understood, removal))} />
+  const understoodPanel = <UnderstoodChips understood={understood} kinds={selectedKinds} hasPlan={Boolean(plan)} pcPurposes={pcPurposes} onRemove={removal => changeUnderstood(removeUnderstood(understood, removal))} />
 
   return (
     <PlannerShell sidebar={<PeripheralChat messages={messages} onSay={say} selectedKinds={selectedKinds}
