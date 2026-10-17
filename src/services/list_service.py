@@ -402,6 +402,7 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
         peripherals.append({
             "kind": snapshot.get("kind") or line["kind"],
             "product": snapshot.get("product") or {},
+            "variant_id": str(line["variant_id"]),
             "price": int(line["line_amount"]) // max(int(line["pack_count"]), 1), "qty": int(line["pack_count"]),
         })
     watch = NotificationRepo(conn).get_for_revision(revision["id"])

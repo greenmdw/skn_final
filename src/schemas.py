@@ -1306,6 +1306,8 @@ class ReportPeripheralOut(BaseModel):
 
     kind: PeripheralKind
     product: ReportProductOut
+    # 불러온 견적을 주변기기 화면에서 다시 담을 때 쓴다 — 없으면 화면이 담을 품목이 없다고 거른다(QA 10/16 #4).
+    variant_id: str
     price: int            # 단가 — 줄 금액은 price × qty, 참고가(reference_snapshot)
     qty: int = 1
 
