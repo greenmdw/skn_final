@@ -459,7 +459,8 @@ purposes:
     immersive:
       {label: 몰입 게임·영화, words: [영화, rpg, 몰입], prefer: [large_screen, oled], feel: [검은색 표현, 빛샘], taste: [색감 선명한 쪽]}
     creative:
-      {label: 사진·영상 작업, words: [편집, 디자인, 사진, 영상 작업], prefer: [ips, high_resolution], feel: [색 정확도, 균일도], taste: [색감 자연스러운 쪽]}
+      {label: 사진·영상 작업, words: [편집, 디자인, 사진, 영상 작업], prefer: [ips, high_resolution], feel: [색 정확도, 균일도], taste: [색감 자연스러운 쪽],
+       exclude: [디자인 예쁜, 디자인이 예쁜, 디자인 이쁜, 디자인이 이쁜, 예쁜 디자인, 이쁜 디자인, 디자인 좋은, 디자인이 좋은, 디자인 깔끔, 디자인이 깔끔, 디자인이 중요, 디자인 중요]}   # 외관을 말한 "디자인"은 작업이 아니다(10/17 실측)
     laptop:
       {label: 노트북 연결, words: [맥북, 노트북에, 노트북과], prefer: [usb_c], feel: [연결 안정성], taste: []}
     bright_room:
@@ -496,7 +497,8 @@ situations:
   small_desk:   {label: 좁은 책상, words: [책상이 작, 좁은 책상], same_condition_group: true}
   portable:     {label: 들고 다님, words: [들고, 카페, 출장, 휴대], same_condition_group: true}
   trending:     {label: 요즘 많이 쓰는 것, words: [요즘, 인기], same_condition_group: false}
-  design:       {label: 디자인이 중요, words: [예쁜, 디자인, 어울리는], same_condition_group: false}
+  design:       {label: 디자인이 중요, words: [예쁜, 디자인, 어울리는], same_condition_group: false,
+                 exclude: [디자인 작업, 디자인용, 디자인 일, 그래픽 디자인, 디자인 툴]}   # 작업을 말한 "디자인"은 외관이 아니다(10/17)
 
 # PC 견적의 용도(computer.yaml purpose)를 주변기기 목적으로 옮기는 표. PC 견적에서 넘어온 경우 용도를 미리
 # 채우는 데 쓴다(견적 입력 설계 2장). 목록에 없는 값(other)은 아무 목적도 만들지 않는다.

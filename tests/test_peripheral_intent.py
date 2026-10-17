@@ -642,3 +642,13 @@ def test_history_restores_purpose_kinds_from_a_recommend_record():
 
     interp = _from_body({"kinds": ["keyboard", "mouse"], "purposes": ["fps"], "purpose_kinds": {"fps": ["mouse"]}}, [])
     assert interp.purpose_kinds == {"fps": ["mouse"]}
+
+
+@pytest.mark.parametrize("text, purposes, situations", [
+    ("디자인 예쁜 모니터", [], ["design"]),                      # 외관 — 사진·영상 작업(IPS·고해상도)이 아니다
+    ("디자인 작업용 모니터", ["creative"], []),                  # 작업 — 외관이 아니다
+    ("사진 편집용 모니터, 디자인도 예뻤으면", ["creative"], ["design"]),
+])
+def test_design_as_looks_and_design_as_work_are_told_apart(text, purposes, situations):
+    got = pi.interpret_by_words(text)
+    assert got.purposes == purposes and got.situations == situations
