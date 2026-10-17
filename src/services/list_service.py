@@ -416,7 +416,7 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
         snapshot = line["snapshot"] or {}
         kept_parts.append({
             "slot": line["slot"], "slot_label": snapshot.get("slot_label") or line["slot"],
-            "source_text": line["source_text"], "name": snapshot.get("matched_name") or line["source_text"],
+            "source_text": line["source_text"], "name": snapshot.get("matched_name") or snapshot.get("display_name") or line["source_text"],
             "match_status": snapshot.get("match_status"), "image_url": snapshot.get("image_url"),
             "qty": int(line["pack_count"]),
             # 견적에 가격이 없던 부품은 None — 0원으로 보이지 않게 한다.

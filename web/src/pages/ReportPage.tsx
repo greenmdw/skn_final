@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import QuoteReportSection, { useQuoteReportExtra } from '../components/check/QuoteReportSection'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import ListHistory from '../components/ListHistory'
@@ -39,6 +40,7 @@ export default function ReportPage() {
   }, [id, wanted, needsOlder])
 
   const setup = needsOlder ? older : latest
+  const quoteExtra = useQuoteReportExtra(id, setup?.revisionNo)
   const reports = latest?.reports ?? []
   async function revise() {
     // 작성 중인 견적이 있으면 서버가 버리고 이 견적서에서 새로 시작한다 — 먼저 물어본다.
@@ -76,7 +78,9 @@ export default function ReportPage() {
     )
   }
 
-  const total = planTotal(setup.plan) + peripheralsTotal(setup.peripherals)
+  // 받은 견적으로 만든 리포트는 유지한 부품도 합계에 들어가므로 서버가 계산한 합계를 쓴다(가격을 모르는 부품은 서버가 뺀다).
+  const quoteReport = quoteExtra?.source === 'quote_check'
+  const total = quoteReport ? quoteExtra.total : planTotal(setup.plan) + peripheralsTotal(setup.peripherals)
   const confirmed = setup.savedAt ? confirmedAtText(setup.savedAt) : ''
   return (
     <PlannerShell>
@@ -135,6 +139,8 @@ export default function ReportPage() {
             ))}
           </section>}
 
+          <QuoteReportSection extra={quoteExtra} />
+
           {(setup.peripherals?.length ?? 0) > 0 && (
             <section>
               <div style={{ fontSize: 13, fontWeight: 700, padding: '14px 0 8px' }}>주변기기</div>
@@ -158,7 +164,7 @@ export default function ReportPage() {
             </section>
           )}
 
-          <ListHistory listId={setup.id} revisionNo={setup.revisionNo} />
+          {!quoteReport && <ListHistory listId={setup.id} revisionNo={setup.revisionNo} />}
         </article>
         {/* 목표가 알림은 서버가 가장 최근 확정 견적서에만 건다 — 예전 견적서를 볼 때는 보이지 않는다. */}
         {!needsOlder && setup.revisionNo != null && <PriceWatchPanel listId={setup.id} confirmedTarget={setup.target} />}

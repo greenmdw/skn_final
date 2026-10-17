@@ -121,3 +121,10 @@ def test_a_quote_report_cannot_seed_a_new_revision(client, monkeypatch, catalog)
     report = client.post(f"{base}/confirm", json=_body(version)).json()
     r = client.post(f"/lists/{report['list_id']}/revisions", json={"from_revision_no": report["revision_no"]})
     assert r.status_code == 422 and r.json()["error"]["code"] == "quote_report_not_editable"
+
+
+def test_a_kept_part_name_drops_the_category_prefix_of_text_quotes():
+    from src.services.quote_confirm_service import _display_name
+    assert _display_name({"category": "CPU", "normalized_name": "CPU: AMD Ryzen 5 7500F", "raw_text": "x"}) == "AMD Ryzen 5 7500F"
+    assert _display_name({"category": "GPU", "normalized_name": "RTX 5060 Ti", "raw_text": "x"}) == "RTX 5060 Ti"
+    assert _display_name({"category": "CPU", "normalized_name": "", "raw_text": "i5-14400F"}) == "i5-14400F"

@@ -16,6 +16,16 @@ from src.services import list_service, quote_draft_service as qds, quote_replace
 from src.services.session_service import _owned
 
 
+def _display_name(item: dict) -> str:
+    """견적 한 줄의 이름 — 텍스트 견적의 "CPU: " 같은 부품군 머리말과 가격은 뺀다."""
+    name = (item.get("normalized_name") or item.get("raw_text") or "").strip()
+    category = str(item.get("category") or "")
+    for sep in (":", "："):
+        if name.startswith(category + sep):
+            return name[len(category) + 1:].strip() or name
+    return name
+
+
 def _freeze_summary(state: dict, kept_unpriced: list[str], total_partial: bool) -> dict:
     """리포트에 보여 줄 점검 요약 — 교체 목록을 적용하기 전/후 비교와 가격 변화."""
     return {
@@ -104,7 +114,7 @@ def confirm(conn, list_id: UUID, principal: Principal, *, expected_version: int,
         amount = int(item["quote_line_total"]) if item.get("quote_line_total") is not None else None
         snapshot = {
             "slot": item["category"], "slot_label": item["category"], "raw_text": item["raw_text"], "quantity": quantity,
-            "match_status": item.get("match_status"), "matched_name": item.get("matched_name") if pid else None,
+            "display_name": _display_name(item), "match_status": item.get("match_status"), "matched_name": item.get("matched_name") if pid else None,
             "quote_unit_price": item.get("quote_unit_price"), "quote_price_type": item.get("quote_price_type"),
             "image_url": item.get("image_url"),
         }

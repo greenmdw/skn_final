@@ -1,0 +1,48 @@
+/* 받은 견적 점검 새 화면(/check2/…) — 재기획. 기존 check.css 와 클래스가 겹치지 않게 c2- 접두를 쓴다. */
+.c2-page { max-width: 880px; margin: 0 auto; padding: 16px 16px 48px; display: flex; flex-direction: column; gap: 14px; }
+.c2-steps { display: flex; flex-wrap: wrap; gap: 6px; }
+.c2-step { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line, #d8dde6); font-size: 13px; color: var(--muted, #6b7280); text-decoration: none; }
+.c2-step.on { background: var(--accent, #2563eb); border-color: var(--accent, #2563eb); color: #fff; font-weight: 600; }
+.c2-step.off { opacity: .45; }
+.c2-head h1 { margin: 0 0 4px; font-size: 22px; }
+.c2-head p { margin: 0; color: var(--muted, #6b7280); font-size: 14px; }
+.c2-card { border: 1px solid var(--line, #d8dde6); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; background: var(--card, transparent); min-width: 0; }
+.c2-card.warn { border-color: #d97706; }
+.c2-card h2 { margin: 0; font-size: 16px; }
+.c2-sub { font-size: 12.5px; color: var(--muted, #6b7280); overflow-wrap: anywhere; }
+.c2-note { font-size: 13.5px; color: var(--muted, #6b7280); margin: 0; }
+.c2-error { color: #b91c1c; font-size: 13.5px; margin: 0; }
+.c2-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.c2-actions.end { justify-content: flex-end; }
+.c2-btn { padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line, #d8dde6); background: transparent; color: inherit; font-size: 13.5px; cursor: pointer; text-decoration: none; display: inline-block; }
+.c2-btn.primary { background: var(--accent, #2563eb); border-color: var(--accent, #2563eb); color: #fff; }
+.c2-btn:disabled { opacity: .5; cursor: not-allowed; }
+.c2-link { background: none; border: 0; padding: 0; color: var(--accent, #2563eb); cursor: pointer; font-size: 13px; text-decoration: underline; }
+.c2-link.danger { color: #b91c1c; }
+.c2-badge { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.c2-badge.ok { color: #15803d; } .c2-badge.warn { color: #b45309; }
+.c2-chip { font-size: 12px; padding: 2px 8px; border-radius: 6px; background: rgba(217, 119, 6, .14); color: #b45309; }
+.c2-items { display: flex; flex-direction: column; gap: 4px; }
+.c2-items ul, .c2-cands, .c2-findings { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.c2-cat { display: block; font-size: 12px; font-weight: 700; color: var(--muted, #6b7280); margin-top: 8px; }
+.c2-item { border: 1px solid var(--line, #d8dde6); border-radius: 10px; padding: 10px 12px; }
+.c2-item.warn { border-color: #d97706; }
+.c2-item-main { display: flex; gap: 10px; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; }
+.c2-item-main > div:first-child { min-width: 0; flex: 1 1 260px; }
+.c2-item-side { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.c2-detail { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--line, #d8dde6); display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.c2-cand { display: flex; gap: 10px; justify-content: space-between; align-items: center; flex-wrap: wrap; border: 1px solid var(--line, #d8dde6); border-radius: 10px; padding: 8px 12px; }
+.c2-cands li { display: flex; gap: 10px; justify-content: space-between; align-items: center; flex-wrap: wrap; }
+.c2-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.c2-summary small { color: var(--muted, #6b7280); }
+.c2-finding { display: flex; gap: 10px; justify-content: space-between; align-items: center; flex-wrap: wrap; border-left: 3px solid #9ca3af; padding: 6px 10px; }
+.c2-finding.fail { border-left-color: #dc2626; } .c2-finding.warn { border-left-color: #d97706; } .c2-finding.info { border-left-color: #16a34a; }
+.c2-target-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.c2-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.c2-form label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.c2-form textarea { min-height: 70px; }
+.c2-field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.c2-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.c2-table th, .c2-table td { border-bottom: 1px solid var(--line, #d8dde6); padding: 6px 8px; text-align: left; overflow-wrap: anywhere; }
+.c2-table td.better { font-weight: 700; color: #15803d; }
+@media (max-width: 720px) { .c2-page { padding: 12px 12px 40px; } }

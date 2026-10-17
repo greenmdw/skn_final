@@ -11,6 +11,12 @@ import PlanPage from './pages/PlanPage'
 import CartPage from './pages/CartPage'
 import ReportPage from './pages/ReportPage'
 import CheckPage from './pages/CheckPage'
+import ComparePage from './pages/check/ComparePage'
+import ConfirmPage from './pages/check/ConfirmPage'
+import PartsPage from './pages/check/PartsPage'
+import ReplacePage from './pages/check/ReplacePage'
+import ReviewPage from './pages/check/ReviewPage'
+import UploadPage from './pages/check/UploadPage'
 import PeripheralsPage from './pages/PeripheralsPage'
 import MyPage from './pages/MyPage'
 import CommunityPage from './pages/community/CommunityPage'
@@ -44,6 +50,13 @@ export default function App() {
             <Route path="/cart" element={<CartPage />} />
             <Route path="/report/:id" element={<ReportPage />} />
             <Route path="/check" element={<CheckRoute />} />
+            {/* 재기획 새 화면 — 안정되면 /check 로 교체한다(재기획 8단계) */}
+            <Route path="/check2" element={<UploadPage />} />
+            <Route path="/check2/:id/parts" element={<PartsPage />} />
+            <Route path="/check2/:id/review" element={<ReviewPage />} />
+            <Route path="/check2/:id/replace" element={<ReplacePage />} />
+            <Route path="/check2/:id/confirm" element={<ConfirmPage />} />
+            <Route path="/check2/:id/compare" element={<ComparePage />} />
             <Route path="/peripherals" element={<PeripheralsRoute />} />
             <Route path="/mypage" element={<MyPage />} />
             <Route path="/community" element={<CommunityPage />} />

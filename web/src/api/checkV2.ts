@@ -1,0 +1,104 @@
+// 받은 견적 점검 새 화면(/check2/…)이 쓰는 API. 서버 응답을 거의 그대로(snake_case) 쓰고, 새 화면이 아는 필드만 타입으로 적는다.
+// 기존 `api` 객체(types.ts)와 분리한 이유: 새 화면이 안정되어 기존 CheckPage 를 걷어낼 때 이 파일만 남기고 합치기 위해서다(재기획 8단계).
+import { request, requestForm } from './http/client'
+
+export interface MatchReason {
+  code: 'not_in_catalog' | 'variant_mismatch' | 'ambiguous' | 'insufficient_info' | 'uncertain_reading' | 'low_quality_photo'
+  message: string
+  nearest?: { name?: string; why_not?: string; key_specs?: string[] } | null
+  candidates: { name: string; product_key?: string; key_specs?: string[] }[]
+}
+
+export interface DraftItem {
+  id: string; category: string; raw_text: string; normalized_name: string; quantity: number
+  quote_unit_price: number | null; quote_line_total: number | null
+  matched_product_id: string | null; matched_name: string | null; image_url: string | null
+  match_status: 'confirmed' | 'ambiguous' | 'candidate' | 'inferred' | 'unmatched'
+  match_reason: MatchReason | null; source_ids: string[]; selected_for_analysis: boolean; live_value: boolean
+}
+
+export interface SourceRelation {
+  applies: boolean; mode: 'single' | 'separate'; confidence: 'high' | 'low'; confirmed: boolean; reasons: string[]; doubts: string[]
+}
+
+export interface Draft {
+  draft_id: string; version: number
+  sources: { id: string; type: string; file_name: string | null; status: 'completed' | 'failed'; quality_warning?: string | null; ignored_lines?: string[] }[]
+  items: DraftItem[]
+  selected_item_by_category: Record<string, string>
+  conditions: Record<string, unknown>
+  question: string | null
+  groups: { id: string; name: string; source_ids: string[]; item_ids: string[] }[]
+  source_relation: SourceRelation | null
+  analysis_stale: boolean
+}
+
+export interface PriceView {
+  mode: 'line' | 'total_only' | 'none'; quote_total: number | null; line_total: number | null
+  priced_count: number; total_count: number; catalog_total: number | null; label: string; note: string | null
+}
+
+export interface CompatCheck { axis: string; label: string; state: 'ok' | 'fail' | 'unknown' | 'skipped'; detail: string }
+export interface BalanceRow { part: string; aspect: string; state: 'short' | 'excess' | 'ok' | 'unknown'; detail: string }
+
+export interface Analysis {
+  list_id: string; draft_version: number
+  compat: { checks: CompatCheck[]; summary: Record<string, number>; incompatible: string[] }
+  balance: { available: boolean; reason: string | null; rows: BalanceRow[]; summary: Record<string, number>; notes: string[] } | null
+  input: { current_specs: Record<string, string>; conditions: Record<string, unknown> }
+  price_view: PriceView
+  parts: unknown[]
+}
+
+export interface TargetReason { code: string; text: string }
+export interface Candidate {
+  product_id: string | null; name: string; price: number | null; price_delta: number | null; grade_label: string | null
+  grade_change: number | null; resolves: string[]; resolves_all: boolean
+}
+export interface Target {
+  slot: string; current_name: string | null; current_confirmed: boolean; kind: 'replace' | 'verify' | 'keep'
+  rank: number | null; reasons: TargetReason[]; candidates: Candidate[]; note: string | null
+}
+export interface Targets { replace_budget: number | null; counts: Record<string, number>; targets: Target[]; draft_version: number; analysis_stale: boolean }
+
+export interface ReplacementState {
+  replacements: { slot: string; candidate: { product_id: string | null; name: string; price: number | null }; from: { name: string | null; price: number | null }; price_delta: number | null; warnings: string[] }[]
+  compat: { before: Record<string, number>; after: Record<string, number>; new_issues: string[]; resolved_issues: string[] }
+  games: { game: string; before: unknown; after: unknown }[]
+  price: { delta_total: number; unpriced_slots: string[]; replace_budget: number | null; over_budget: boolean }
+  draft_version: number; analysis_stale: boolean
+}
+
+export interface Report { list_id: string; revision_no: number; name: string; total: number; source: string }
+
+const base = (id: string) => `/pc/review-drafts/${encodeURIComponent(id)}`
+
+export const checkV2 = {
+  getDraft: (id: string) => request<Draft>('GET', base(id)),
+  createDraft: (form: FormData) => requestForm<Draft>('/pc/review-drafts', form),
+  patchConditions: (id: string, version: number, conditions: Record<string, unknown>) =>
+    request<Draft>('PATCH', `${base(id)}/conditions`, { expected_version: version, conditions }),
+  setSourceRelation: (id: string, version: number, mode: 'single' | 'separate') =>
+    request<Draft>('PATCH', `${base(id)}/source-relation`, { expected_version: version, mode }),
+  patchItems: (id: string, version: number, items: { id: string; delete?: boolean; normalized_name?: string; quantity?: number }[], selected?: Record<string, string>) =>
+    request<Draft>('PATCH', `${base(id)}/items`, { expected_version: version, items, ...(selected ? { selected_item_by_category: selected } : {}) }),
+  analyze: (id: string) => request<Analysis>('POST', `${base(id)}/analysis`, {}),
+  getReview: (id: string) => request<Analysis>('GET', `/pc/reviews/${encodeURIComponent(id)}`),
+  liveLookup: (id: string, itemId: string) => request<{ relevant: boolean; supported_fields: Record<string, unknown>; source_url: string | null; reference_price: number | null }>(
+    'POST', `${base(id)}/items/${encodeURIComponent(itemId)}/live-lookup`),
+  targets: (id: string) => request<Targets>('GET', `${base(id)}/replacement-targets`),
+  replacements: (id: string) => request<ReplacementState>('GET', `${base(id)}/replacements`),
+  putReplacement: (id: string, version: number, slot: string, productId: string) =>
+    request<ReplacementState>('PUT', `${base(id)}/replacements/${encodeURIComponent(slot)}`, { expected_version: version, candidate_product_id: productId }),
+  removeReplacement: (id: string, version: number, slot: string) =>
+    request<ReplacementState>('DELETE', `${base(id)}/replacements/${encodeURIComponent(slot)}`, { expected_version: version }),
+  confirm: (id: string, body: { expected_version: number; name: string; planned_purchase_at?: string | null; target_amount?: number | null; memo?: string }) =>
+    request<Report>('POST', `${base(id)}/confirm`, body),
+}
+
+export interface KeptPart { slot: string; slot_label: string; source_text: string; name: string; match_status: string | null; qty: number; line_amount: number | null }
+export interface QuoteReportExtra { total: number; source: 'recommendation' | 'quote_check'; kept_parts: KeptPart[]; quote_check: { total_partial?: boolean; kept_unpriced_slots?: string[] } | null }
+
+/** 리포트에서 받은 견적용 섹션(유지한 부품)만 따로 읽는다. 기존 리포트 매핑(SavedSetup)은 건드리지 않는다. */
+export const quoteReportExtra = (listId: string, revisionNo?: number | null) =>
+  request<QuoteReportExtra>('GET', `/lists/${encodeURIComponent(listId)}/report${revisionNo ? `?revision=${revisionNo}` : ''}`)
