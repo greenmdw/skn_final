@@ -173,11 +173,17 @@ def test_cheaper_when_the_first_is_already_the_cheapest_says_so():
     assert out["interpretation"].budget == {} and out["turn"]["reply"] == f"지금 마우스 1위 {before.name}({before.price:,}원)보다 싼 후보는 조건에 맞는 게 없어요."
 
 
-def test_relative_budget_moves_the_stated_budget():
-    first = _turn("마우스 15만원", None, ["mouse"])
-    out = _turn("5만원 더 싸게", _prev(first), ["mouse"])
-    assert out["interpretation"].budget == {"mouse": 100000}
-    assert out["turn"]["new_conditions"] == [{"kind": "mouse", "label": "마우스 예산 100,000원"}]
+def test_lowering_counts_from_the_current_first_not_the_higher_budget():
+    """예산 상한이 1위보다 훨씬 높으면, "3만원 더 싸게"는 상한이 아니라 지금 1위 가격에서 뺀다(10/17 — 상한에서 빼면
+    결과가 그대로였다). 픽스처: fps 1위가 가장 비싼 188,200원이고 그 아래 후보가 있다."""
+    first = _turn("fps용 마우스", None, ["mouse"])
+    first = _turn("마우스 예산 50만원", _prev(first), ["mouse"])
+    before = _pick(first["interpretation"], "mouse")
+    assert first["interpretation"].budget == {"mouse": 500000} and before.price < 500000 - 30000
+    out = _turn("3만원 더 싸게", _prev(first), ["mouse"])
+    target = before.price - 30000
+    assert out["interpretation"].budget == {"mouse": target}
+    assert _pick(out["interpretation"], "mouse").price <= target
 
 
 def test_raising_the_budget_looks_above_the_current_first():
@@ -190,15 +196,24 @@ def test_raising_the_budget_looks_above_the_current_first():
     assert _pick(interp, "mouse").price > before.price
 
 
-def test_relative_budget_without_a_kind_moves_the_total_in_a_multi_kind_chat():
+def test_relative_budget_without_a_kind_lowers_the_current_total_in_a_multi_kind_chat():
     first = _turn("모니터랑 마우스 다 합쳐서 60만원", None, ["monitor", "mouse"])
     assert first["interpretation"].budget_total == 600000
+    spent = sum(_pick(first["interpretation"], kind).price for kind in ("monitor", "mouse"))
     out = _turn("3만원 더 싸게", _prev(first), ["monitor", "mouse"])
-    assert out["interpretation"].budget_total == 570000 and out["turn"]["reply"] == "예산 합계를 570,000원으로 바꿨어요."
+    target = min(600000, spent) - 30000
+    assert out["interpretation"].budget_total == target and out["turn"]["reply"] == f"예산 합계를 {target:,}원으로 바꿨어요."
+
+
+def test_raising_still_counts_from_the_stated_total():
+    first = _turn("모니터랑 마우스 다 합쳐서 60만원", None, ["monitor", "mouse"])
+    out = _turn("5만원 올려줘", _prev(first), ["monitor", "mouse"])
+    assert out["interpretation"].budget_total == 650000
 
 
 def test_lowering_below_every_candidate_is_refused():
     first = _turn("마우스 4만원", None, ["mouse"])
-    out = _turn("3만원 더 싸게", _prev(first), ["mouse"])       # 1만 원 이하 마우스는 픽스처에 없다
+    before = _pick(first["interpretation"], "mouse")
+    out = _turn("3만원 더 싸게", _prev(first), ["mouse"])       # 1위 가격 - 3만 원 이하 마우스는 픽스처에 없다
     assert out["interpretation"].budget == {"mouse": 40000}
-    assert out["turn"]["reply"] == "마우스 예산 10,000원에는 조건에 맞는 후보가 없어 바꾸지 않았어요."
+    assert out["turn"]["reply"] == f"마우스 예산 {before.price - 30000:,}원에는 조건에 맞는 후보가 없어 바꾸지 않았어요."
