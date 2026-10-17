@@ -198,6 +198,41 @@ def reading_notes(text: str, interp: Interpretation, rules: dict | None = None) 
     return notes
 
 
+_PC_PURPOSE_LABEL = {"game": "게임", "creation": "창작", "office": "사무", "study": "학습", "other": "기타"}
+
+
+def pc_purpose_notes(pc_purpose: str | None, previous: Interpretation | None, current: Interpretation,
+                     rules: dict | None = None) -> list[str]:
+    """묶은 PC 견적의 용도가 이번에 새로 고른 품목에 어떤 목적으로 붙는지 말한다(QA 10/16 #16).
+
+    추천은 PC 견적 용도를 목적으로 옮겨 더한다(`peripherals_service._intent_from_body`). 말하지 않은 목적이 결과에만 나타나면
+    "읽은 조건이 없다"는 답과 어긋나므로, 품목이 처음 들어온 턴에 한 번 알린다. 그 용도에 맞는 목적이 없는 품목도 말한다."""
+    if not pc_purpose:
+        return []
+    rules = rules or load_peripheral_rules()
+    codes = pi.from_pc_purpose(pc_purpose, rules)
+    if not codes:
+        return []
+    seen = set(previous.kinds) if previous is not None else set()
+    applied: dict[str, list[str]] = {}       # 목적 이름들 → 품목 이름들
+    missing: list[str] = []
+    for kind in current.kinds:
+        if kind in seen:
+            continue
+        table = purposes(kind, rules)
+        labels = [table[c]["label"] for c in codes if c in table]
+        name = kind_def(kind, rules)["label"]
+        if labels:
+            applied.setdefault(" · ".join(labels), []).append(name)
+        else:
+            missing.append(name)
+    usage = _PC_PURPOSE_LABEL.get(pc_purpose, pc_purpose)
+    notes = [f"PC 견적 용도({usage})에 맞춰 {'·'.join(names)}는 ‘{labels}’ 기준으로 골라요." for labels, names in applied.items()]
+    if missing:
+        notes.append(f"{'·'.join(missing)}는 PC 견적 용도({usage})에 맞는 기준이 없어 리뷰·가격으로 골라요.")
+    return notes
+
+
 def conflict_notes(resolved: dict[str, Any], previous_resolved: dict[str, Any] | None = None) -> list[str]:
     """함께 고를 수 없는 조건을 서버가 어떻게 정리했는지(이전 턴에 이미 알린 것은 다시 말하지 않는다)."""
     seen = {tuple(c["conditions"]) for r in (previous_resolved or {}).values() for c in r.conflicts}

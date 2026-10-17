@@ -369,7 +369,7 @@ export interface WirePeripheralReviewContribution {
 }
 export interface WirePeripheralScoreDetail { axes: { axis: string; label?: string; value: number; weight: number; points: number }[] }
 export interface WirePeripheralRequested {
-  label: string; source: 'stated' | 'situation' | 'purpose'; type: 'spec' | 'evidence'
+  label: string; source: 'stated' | 'situation' | 'purpose' | 'pc_purpose'; type: 'spec' | 'evidence'
   spec_checks: { key: string; text: string; ok: boolean }[]; feel_codes: string[]; external_aspects: string[]
 }
 export interface WirePeripheralItem {

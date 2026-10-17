@@ -337,3 +337,20 @@ def test_reply_does_not_repeat_old_conditions_when_nothing_is_new():
     reply = chat.compose_reply([], [], [], None, [], example="발로란트 할 가벼운 무선 마우스 5만원 이하")
     assert reply.startswith("이번 문장에서는 새로 읽어 낸 조건이 없어요.") and "무선 마우스" in reply
     assert "이번에 반영했어요" not in reply
+
+
+# ── PC 견적 용도 안내(QA 10/16 #16) ──────────────────────────────────────────
+def test_pc_purpose_note_names_the_applied_purpose_and_the_kinds_without_one():
+    """품목 이름만 말해도 PC 견적 용도가 목적으로 붙는다 — 붙는 품목과 붙을 기준이 없는 품목(스피커)을 함께 말한다."""
+    current = Interpretation(kinds=["monitor", "speaker"])
+    notes = chat.pc_purpose_notes("game", None, current, RULES)
+    assert notes == ["PC 견적 용도(게임)에 맞춰 모니터는 ‘게임(일반)’ 기준으로 골라요.",
+                     "스피커는 PC 견적 용도(게임)에 맞는 기준이 없어 리뷰·가격으로 골라요."]
+
+
+def test_pc_purpose_note_is_said_once_per_kind_and_not_without_a_pc_quote():
+    previous = Interpretation(kinds=["monitor"])
+    assert chat.pc_purpose_notes("game", previous, Interpretation(kinds=["monitor"]), RULES) == []
+    assert chat.pc_purpose_notes("game", previous, Interpretation(kinds=["monitor", "mouse"]), RULES) == [
+        "PC 견적 용도(게임)에 맞춰 마우스는 ‘게임(일반)’ 기준으로 골라요."]
+    assert chat.pc_purpose_notes(None, None, Interpretation(kinds=["mouse"]), RULES) == []

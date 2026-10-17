@@ -489,14 +489,15 @@ def _attach_views(picks: list[PeripheralPick], kinds_ranked: dict[str, list[Cand
     from src.engine.peripheral_intent import Interpretation
 
     interp = values.get("peripheral_intent") or Interpretation()
+    pc_purposes = frozenset(values.get("peripheral_pc_purposes") or ())
     for pick in picks:
         resolved = (values.get("peripheral_resolved") or {}).get(pick.kind)
         pool = kinds_ranked.get(pick.kind, [])
-        pick.requested = requested_items(pick.kind, pick.candidate.specs, interp, resolved, rules)
+        pick.requested = requested_items(pick.kind, pick.candidate.specs, interp, resolved, rules, pc_purposes)
         pick.price_position = price_position(pick.candidate, pool)
         pick.alternative_views = [
             {"feel": build_feel_block(alt.feel_detail, interp, resolved, pick.kind, rules),
-             "requested": requested_items(pick.kind, alt.specs, interp, resolved, rules),
+             "requested": requested_items(pick.kind, alt.specs, interp, resolved, rules, pc_purposes),
              "price_position": price_position(alt, pool)}
             for alt in pick.alternatives
         ]

@@ -55,6 +55,8 @@ export const topAxes = (axes: PeripheralScoreAxis[], limit = 3) => [...axes].sor
 
 export interface RequestedEvidence {
   label: string
+  /** 사용자가 말하지 않고 PC 견적 용도에서 온 항목 — "요청하신"이라고 하지 않는다 */
+  fromPc: boolean
   specChecks: PeripheralRequested['specChecks']
   quotes: PeripheralFeelQuote[]
   /** 사용기 집계 문구(서버 문구 그대로). few 는 같은 조건의 글이 적어 참고용일 때 */
@@ -92,5 +94,5 @@ export function requestedEvidence(view: CandidateView, requested: PeripheralRequ
     }
   }
   if (!requested.specChecks.length && !quotes.length && !note && !external) return null
-  return { label: requested.label, specChecks: requested.specChecks, quotes, note, external }
+  return { label: requested.label, fromPc: requested.source === 'pc_purpose', specChecks: requested.specChecks, quotes, note, external }
 }

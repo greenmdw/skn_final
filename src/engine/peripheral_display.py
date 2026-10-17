@@ -146,7 +146,8 @@ def _external(kind: str, codes: list[str], rules: dict) -> list[str]:
     return _unique(a for c in codes if (a := attrs.get(c, {}).get("external")))
 
 
-def requested_items(kind: str, specs: dict[str, Any], interp, resolved, rules: dict) -> list[dict[str, Any]]:
+def requested_items(kind: str, specs: dict[str, Any], interp, resolved, rules: dict,
+                    pc_purposes: frozenset[str] = frozenset()) -> list[dict[str, Any]]:
     """사용자가 말한 것(직접 말한 조건·상황·목적)마다 `{label, source, type, spec_checks, feel_codes, external_aspects}`.
 
     - 직접 말한 조건 먼저, 그다음 상황·목적을 말한 순서로.
@@ -156,6 +157,8 @@ def requested_items(kind: str, specs: dict[str, Any], interp, resolved, rules: d
       디자인의 외관·마감 속성, 직접 말한 조건의 `display.requested_feel`.
     - 스펙 조건도 연결 속성도 없는 항목은 만들지 않는다(보일 근거가 없다).
     - `type`: 스펙 조건만 있으면 "spec", 연결된 사용기·외부 리뷰 속성이 있으면 "evidence".
+    - `pc_purposes`: 사용자가 말하지 않고 묶은 PC 견적의 용도에서만 온 목적 코드 — `source` 를 "pc_purpose" 로 둬서
+      화면이 "요청하신"이라고 하지 않게 한다(QA 10/16 #16).
     """
     if resolved is None:
         return []
@@ -202,7 +205,8 @@ def requested_items(kind: str, specs: dict[str, Any], interp, resolved, rules: d
             feel_codes += [c for c, e in attrs.items() if e.get("only_when") == "design"]
             feel_codes += [c for c in ("build",) if c in attrs]
         label = labels.get(code) or (table[code]["label"] if in_table else sit.get(code, {}).get("label", code))
-        item = _item(label, "situation" if code in interp.situations else "purpose", cond_ids, feel_codes)
+        source = "situation" if code in interp.situations else "pc_purpose" if code in pc_purposes else "purpose"
+        item = _item(label, source, cond_ids, feel_codes)
         if item:
             items.append(item)
     return items
