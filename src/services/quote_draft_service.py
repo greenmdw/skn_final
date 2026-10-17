@@ -801,6 +801,55 @@ def live_lookup_item(conn, list_id: UUID, principal: Principal, item_id: str) ->
     return {"item_id": item_id, **quote_review_service.live_lookup_text(conn, item["normalized_name"], item["category"])}
 
 
+def _batch_state(result: dict) -> str:
+    fields = result.get("supported_fields") or {}
+    return "found" if result.get("relevant") and any(v is not None for v in fields.values()) else "not_found"
+
+
+def prepare_live_batch(conn, list_id: UUID, principal: Principal, item_ids: list[str]) -> tuple[list[dict], list[dict]]:
+    """일괄 검색 대상 확인(재기획 6.8). (검색할 항목, 건너뛴 항목). 개수가 상한을 넘으면 거절한다 — 요청 1번이 사용자 한도 1회라 상한이 비용 상한이다."""
+    from src.config import LIVE_LOOKUP_BATCH_MAX
+    from src.services import live_spec_lookup
+
+    if not live_spec_lookup.available():
+        raise ServiceUnavailable("지금은 실시간 검색을 쓸 수 없습니다.", code="live_part_lookup_unavailable")
+    ids = list(dict.fromkeys(item_ids))
+    if len(ids) > LIVE_LOOKUP_BATCH_MAX:
+        raise ValidationFailed(f"한 번에 {LIVE_LOOKUP_BATCH_MAX}개까지 찾을 수 있어요.", field="item_ids", code="batch_too_large")
+    draft = get_draft(conn, list_id, principal)
+    by_id = {i["id"]: i for i in draft["items"]}
+    targets, skipped = [], []
+    for item_id in ids:
+        item = by_id.get(item_id)
+        if item is None or item["match_status"] not in quote_review_service.LIVE_LOOKUP_STATUSES:
+            skipped.append({"item_id": item_id, "state": "skipped", "message": "이미 카탈로그 제품으로 확인됐거나 없는 항목이에요.", "result": None})
+        else:
+            targets.append({"item_id": item_id, "name": item["normalized_name"], "category": item["category"]})
+    return targets, skipped
+
+
+def run_live_batch(targets: list[dict]) -> list[dict]:
+    """대상을 동시에 최대 LIVE_LOOKUP_MAX_CONCURRENCY 개씩 검색한다(항목마다 자기 연결). 한 항목이 실패해도 나머지는 계속한다."""
+    from src.config import LIVE_LOOKUP_MAX_CONCURRENCY
+    from src.db import get_conn
+
+    def one(target: dict) -> dict:
+        try:
+            with get_conn() as conn:
+                result = quote_review_service.live_lookup_text(conn, target["name"], target["category"])
+            return {"item_id": target["item_id"], "state": _batch_state(result), "message": None, "result": result}
+        except TruefitError as exc:
+            return {"item_id": target["item_id"], "state": "failed", "message": str(exc), "result": None}
+        except Exception:                                    # noqa: BLE001 — 한 항목의 예상 못 한 오류가 일괄 전체를 깨지 않게 한다
+            log.exception("live batch item failed")
+            return {"item_id": target["item_id"], "state": "failed", "message": "검색하지 못했어요. 잠시 후 다시 시도해 주세요.", "result": None}
+
+    if not targets:
+        return []
+    with ThreadPoolExecutor(max_workers=max(1, min(LIVE_LOOKUP_MAX_CONCURRENCY, len(targets)))) as pool:
+        return list(pool.map(one, targets))
+
+
 # ── 재기획 2단계: 교체 대상 추천과 교체 목록(서버 저장) ─────────────────────────────────
 def _stored_review(conn, list_id: UUID, principal: Principal) -> dict:
     """교체 추천은 분석한 결과를 입력으로 쓴다 — 분석한 적이 없으면 먼저 분석하라고 알린다."""

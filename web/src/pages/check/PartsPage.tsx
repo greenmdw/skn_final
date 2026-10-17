@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError, errorMessage } from '../../api'
-import { checkV2, type Draft, type DraftItem, type MatchReason } from '../../api/checkV2'
+import { checkV2, LIVE_BATCH_MAX, liveLookupBatch, type Draft, type DraftItem, type MatchReason } from '../../api/checkV2'
 import { CATEGORY_ORDER, wonText } from '../../utils/checkReview'
 import CheckLayout, { CHECK2 } from './CheckLayout'
 import { useDraft } from './useDraft'
@@ -30,6 +30,7 @@ function ItemRow({ item, draft, busy, onPick, onDelete, onLookup, lookup }: {
             수량 {item.quantity}{item.quote_line_total != null ? ` · ${wonText(item.quote_line_total)}` : ' · 가격 정보 없음'}
             {siblings > 1 && item.selected_for_analysis && ' · 분석 기준'}
           </div>
+          {lookup && <div className="c2-sub" role="status">검색: {lookup}</div>}
         </div>
         <div className="c2-item-side">
           <span className={`c2-badge ${confirmed ? 'ok' : 'warn'}`}>{confirmed ? '대응됨' : '제품 확인 필요'}</span>
@@ -57,7 +58,6 @@ function ItemRow({ item, draft, busy, onPick, onDelete, onLookup, lookup }: {
           {(reason.code === 'not_in_catalog' || reason.code === 'insufficient_info') && (
             <div>
               <button type="button" className="c2-btn" disabled={busy} onClick={() => onLookup(item)}>정보 찾아보기</button>
-              {lookup && <span className="c2-sub"> {lookup}</span>}
             </div>
           )}
         </div>
@@ -95,6 +95,24 @@ export default function PartsPage() {
     } catch (caught) { setLookups(prev => ({ ...prev, [item.id]: errorMessage(caught, '검색하지 못했어요.') })) }
   }
 
+  /** 확인하지 못한 제품을 한꺼번에 찾는다(요청 1번). 서버가 동시에 2개씩 처리하고 끝나면 항목별 결과를 한 번에 준다. */
+  async function lookupAll() {
+    if (!id || !draft) return
+    const targets = draft.items.filter(item => ['unmatched', 'inferred', 'candidate'].includes(item.match_status)).slice(0, LIVE_BATCH_MAX)
+    if (targets.length === 0) return
+    setBusy(true); setError('')
+    setLookups(prev => ({ ...prev, ...Object.fromEntries(targets.map(item => [item.id, '검색 중…'])) }))
+    try {
+      const result = await liveLookupBatch(id, targets.map(item => item.id))
+      const label = { found: '사양을 찾았어요(참고용). 점검에 반영돼요.', not_found: '정보를 찾지 못했어요.', skipped: '검색 대상이 아니에요.' } as const
+      setLookups(prev => ({ ...prev, ...Object.fromEntries(result.items.map(row => [row.item_id, row.state === 'failed' ? (row.message ?? '검색하지 못했어요.') : label[row.state]])) }))
+      await reload()
+    } catch (caught) {
+      setLookups(prev => ({ ...prev, ...Object.fromEntries(targets.map(item => [item.id, ''])) }))
+      setError(errorMessage(caught, '한꺼번에 찾지 못했어요.'))
+    } finally { setBusy(false) }
+  }
+
   async function setRelation(mode: 'single' | 'separate') {
     if (!draft || !id) return
     setBusy(true); setError('')
@@ -124,6 +142,7 @@ export default function PartsPage() {
 
   const relation = draft.source_relation
   const unconfirmed = draft.items.filter(item => item.match_status !== 'confirmed')
+  const lookupTargets = draft.items.filter(item => ['unmatched', 'inferred', 'candidate'].includes(item.match_status))
   const blocked = Boolean(relation?.applies && relation.confidence === 'low' && !relation.confirmed)
   const rank = (category: string) => { const index = CATEGORY_ORDER.indexOf(category); return index === -1 ? 99 : index }
   const sorted = [...draft.items].sort((a, b) => rank(a.category) - rank(b.category))
@@ -163,6 +182,14 @@ export default function PartsPage() {
 
       <section className="c2-card">
         <h2>부품 {draft.items.length}개 · 제품 확인 필요 {unconfirmed.length}개</h2>
+        {lookupTargets.length > 0 && (
+          <div className="c2-actions">
+            <button type="button" className="c2-btn" disabled={busy} onClick={() => void lookupAll()}>
+              확인하지 못한 제품 {Math.min(lookupTargets.length, LIVE_BATCH_MAX)}개 한꺼번에 찾기
+            </button>
+            {lookupTargets.length > LIVE_BATCH_MAX && <span className="c2-sub">한 번에 {LIVE_BATCH_MAX}개까지 찾을 수 있어요.</span>}
+          </div>
+        )}
         <div className="c2-items">
           {sorted.map(item => (
             <div key={item.id}>

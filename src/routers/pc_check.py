@@ -327,6 +327,22 @@ def live_lookup_draft_item(
     return schemas.LiveSpecLookupOut(**result)
 
 
+@router.post("/review-drafts/{draft_id}/live-lookup-batch", response_model=schemas.LiveLookupBatchOut)
+def live_lookup_draft_batch(
+    draft_id: UUID, body: schemas.LiveLookupBatchIn, request: Request, principal: Principal = Depends(optional_principal),
+    _slot: None = Depends(llm_request_slot),
+) -> schemas.LiveLookupBatchOut:
+    """확인하지 못한 제품을 한꺼번에 실시간 검색한다(최대 LIVE_LOOKUP_BATCH_MAX개). 요청 1번이 사용자 한도 1회이고,
+    항목별 결과(찾음·못 찾음·실패·건너뜀)를 한 번에 돌려준다. 저장소에 있는 값은 검색 없이 쓴다."""
+    _check_live_lookup_limit(request)
+    with get_conn() as conn:
+        targets, skipped = quote_draft_service.prepare_live_batch(conn, draft_id, principal, body.item_ids)
+    results = quote_draft_service.run_live_batch(targets) + skipped          # 검색은 DB 연결을 잡지 않은 채 한다
+    count = lambda state: sum(1 for r in results if r["state"] == state)      # noqa: E731
+    return schemas.LiveLookupBatchOut(items=results, found=count("found"), not_found=count("not_found"),
+                                      failed=count("failed"), skipped=count("skipped"))
+
+
 @router.post("/reviews", response_model=schemas.QuoteReviewOut, status_code=201)
 def create_quote_review(
     body: schemas.QuoteReviewIn, request: Request, response: Response,

@@ -75,8 +75,10 @@ LIVE_SPEC_LOOKUP_NOTFOUND_TTL_DAYS: int = int(os.getenv(
 # 약 1만 7천 토큰이고(2026-10-05 실측, search_context_size 를 낮춰도 줄지 않음) 대화·검증 호출도 같은 한도를 쓴다.
 # 한도에 닿아 429 가 나기 전에 우리가 먼저 "검색이 몰려 있어요"로 안내한다. 저장소 적중은 이 한도에 들지 않는다.
 # 인메모리라 서버 프로세스마다 따로 센다(여러 프로세스면 합이 이 값의 배수가 된다).
-LIVE_LOOKUP_GLOBAL_LIMIT_PER_MIN: int = int(os.getenv("LIVE_LOOKUP_GLOBAL_LIMIT_PER_MIN", "6"))
+LIVE_LOOKUP_GLOBAL_LIMIT_PER_MIN: int = int(os.getenv("LIVE_LOOKUP_GLOBAL_LIMIT_PER_MIN", "12"))   # 일괄 검색(재기획 6.8)을 받으려 6 → 12 (가정, 비용 측정 뒤 조정)
 LIVE_LOOKUP_MAX_CONCURRENCY: int = int(os.getenv("LIVE_LOOKUP_MAX_CONCURRENCY", "2"))
+# 일괄 검색 한 번에 찾을 수 있는 항목 수(재기획 6.8, 가정). 요청 1번이 사용자 한도 1회이므로 항목 수가 곧 비용 상한이다.
+LIVE_LOOKUP_BATCH_MAX: int = int(os.getenv("LIVE_LOOKUP_BATCH_MAX", "6"))
 # 받은 견적 점검 — 여러 장 업로드(초안). 이미지 한 장이 비전 호출 한 번(분당 토큰 한도를 같이 쓴다)이라 3장까지만 받는다.
 QUOTE_DRAFT_MAX_FILES: int = int(os.getenv("QUOTE_DRAFT_MAX_FILES", "3"))
 QUOTE_DRAFT_MAX_FILE_BYTES: int = int(os.getenv("QUOTE_DRAFT_MAX_FILE_BYTES", str(10 * 1024 * 1024)))

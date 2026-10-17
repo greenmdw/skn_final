@@ -229,3 +229,65 @@ def test_item_live_lookup_is_503_when_the_feature_is_off(client, monkeypatch, ca
     monkeypatch.setattr(live_spec_lookup, "available", lambda: False)
     item = draft["items"][0]
     assert client.post(f"/pc/review-drafts/{draft['draft_id']}/items/{item['id']}/live-lookup").status_code == 503
+
+
+# ── 일괄 실시간 검색(재기획 6.8) ──────────────────────────────────────────────────
+def _batch_draft(client, monkeypatch, catalog, unknowns=3):
+    gpu, _ = _cheapest_two(catalog, "GPU")
+    items = [{"category": "GPU", "raw_text": f"{gpu.name} {gpu.price:,}원"}]
+    items += [{"category": "CPU", "raw_text": f"정체불명 프로세서 ZX-{n}"} for n in range(unknowns)]
+    return _make_draft(client, monkeypatch, items)
+
+
+def test_batch_lookup_returns_one_state_per_item_and_skips_confirmed_ones(client, monkeypatch, catalog):
+    draft = _batch_draft(client, monkeypatch, catalog)
+    _fake_lookup(monkeypatch)
+    confirmed = _by_cat(draft, "GPU")[0]
+    unknown = _by_cat(draft, "CPU")
+    ids = [confirmed["id"], "no-such-item"] + [u["id"] for u in unknown]
+    r = client.post(f"/pc/review-drafts/{draft['draft_id']}/live-lookup-batch", json={"item_ids": ids})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    states = {row["item_id"]: row["state"] for row in body["items"]}
+    assert states[confirmed["id"]] == "skipped" and states["no-such-item"] == "skipped"
+    assert all(states[u["id"]] == "found" for u in unknown)
+    assert (body["found"], body["skipped"], body["not_found"], body["failed"]) == (3, 2, 0, 0)
+    assert body["items"][0]["result"]["supported_fields"]["socket"] == "AM5" or any(row["result"] for row in body["items"])
+
+
+def test_batch_lookup_isolates_a_failing_item_and_reports_not_found(client, monkeypatch, catalog):
+    from src.errors import ServiceUnavailable
+    from src.services.live_spec_lookup import LiveSpecLookupResult, LookupOutcome
+
+    draft = _batch_draft(client, monkeypatch, catalog)
+    monkeypatch.setattr(live_spec_lookup, "available", lambda: True)
+
+    def fake(conn, text, *, slot=None, **kw):
+        if "ZX-0" in text:
+            raise ServiceUnavailable("지금 검색 요청이 몰려 있어요.", code="live_part_lookup_busy")
+        found = "ZX-1" in text
+        result = LiveSpecLookupResult.model_validate({"relevant": found, "supported_fields": {"socket": "AM5"} if found else {}})
+        return LookupOutcome(result=result, fetched_at=datetime(2026, 10, 5, tzinfo=timezone.utc), status="unreviewed", cached=False)
+
+    monkeypatch.setattr(live_spec_lookup, "lookup_with_meta", fake)
+    unknown = {u["normalized_name"][-4:]: u["id"] for u in _by_cat(draft, "CPU")}
+    r = client.post(f"/pc/review-drafts/{draft['draft_id']}/live-lookup-batch", json={"item_ids": list(unknown.values())})
+    assert r.status_code == 200, r.text
+    states = {row["item_id"]: row for row in r.json()["items"]}
+    assert states[unknown["ZX-0"]]["state"] == "failed" and states[unknown["ZX-0"]]["message"]
+    assert states[unknown["ZX-1"]]["state"] == "found" and states[unknown["ZX-2"]]["state"] == "not_found"
+
+
+def test_batch_lookup_enforces_the_item_cap_the_switch_and_ownership(client, monkeypatch, catalog):
+    from src.config import LIVE_LOOKUP_BATCH_MAX
+
+    draft = _batch_draft(client, monkeypatch, catalog, unknowns=1)
+    _fake_lookup(monkeypatch)
+    url = f"/pc/review-drafts/{draft['draft_id']}/live-lookup-batch"
+    too_many = client.post(url, json={"item_ids": [f"x{n}" for n in range(LIVE_LOOKUP_BATCH_MAX + 1)]})
+    assert too_many.status_code == 422 and too_many.json()["error"]["code"] == "batch_too_large"
+    assert client.post(url, json={"item_ids": []}).status_code == 422
+    with TestClient(app) as stranger:
+        assert stranger.post(url, json={"item_ids": ["x"]}).status_code == 404
+    monkeypatch.setattr(live_spec_lookup, "available", lambda: False)
+    assert client.post(url, json={"item_ids": ["x"]}).status_code == 503

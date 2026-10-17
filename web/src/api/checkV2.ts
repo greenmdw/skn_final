@@ -102,3 +102,12 @@ export interface QuoteReportExtra { total: number; source: 'recommendation' | 'q
 /** 리포트에서 받은 견적용 섹션(유지한 부품)만 따로 읽는다. 기존 리포트 매핑(SavedSetup)은 건드리지 않는다. */
 export const quoteReportExtra = (listId: string, revisionNo?: number | null) =>
   request<QuoteReportExtra>('GET', `/lists/${encodeURIComponent(listId)}/report${revisionNo ? `?revision=${revisionNo}` : ''}`)
+
+export interface LiveBatchItem {
+  item_id: string; state: 'found' | 'not_found' | 'failed' | 'skipped'; message: string | null
+}
+export interface LiveBatchResult { items: LiveBatchItem[]; found: number; not_found: number; failed: number; skipped: number }
+/** 한 번에 찾을 수 있는 개수의 서버 기본값(LIVE_LOOKUP_BATCH_MAX) — 넘으면 서버가 거절하므로 화면이 미리 자른다. */
+export const LIVE_BATCH_MAX = 6
+export const liveLookupBatch = (draftId: string, itemIds: string[]) =>
+  request<LiveBatchResult>('POST', `/pc/review-drafts/${encodeURIComponent(draftId)}/live-lookup-batch`, { item_ids: itemIds })

@@ -516,6 +516,26 @@ class QuoteDraftAnalysisIn(BaseModel):
     source_ids: list[str] | None = Field(default=None, max_length=10)   # 주면 그 견적(이미지)의 항목만 분석
 
 
+class LiveLookupBatchIn(BaseModel):
+    item_ids: list[str] = Field(min_length=1, max_length=20)      # 개수 상한은 서버 설정(LIVE_LOOKUP_BATCH_MAX)이 따로 검사한다
+
+
+class LiveLookupBatchItemOut(BaseModel):
+    item_id: str
+    # found 찾음 · not_found 못 찾음 · failed 검색을 못 했다(message) · skipped 이미 카탈로그에 대응됐거나 항목이 없다
+    state: Literal["found", "not_found", "failed", "skipped"]
+    message: str | None = None
+    result: LiveSpecLookupOut | None = None
+
+
+class LiveLookupBatchOut(BaseModel):
+    items: list[LiveLookupBatchItemOut]
+    found: int = 0
+    not_found: int = 0
+    failed: int = 0
+    skipped: int = 0
+
+
 class QuoteQuoteComparisonIn(BaseModel):
     a_source_ids: list[str] = Field(min_length=1, max_length=10)
     b_source_ids: list[str] = Field(min_length=1, max_length=10)
