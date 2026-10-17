@@ -134,6 +134,9 @@ def _apply_per_kind(
             interp = interp.model_copy(update={"exclude": exclude})
             continue
         base = interp.budget.get(kind) if command.type == "relative_budget" else None
+        if base is not None and command.delta < 0 and pick is not None:
+            # "3만원 더 싸게"는 지금 1위보다 싸게다 — 예산 상한이 1위보다 훨씬 높으면 상한에서 빼도 결과가 그대로다(10/17).
+            base = min(base, pick.price)
         if base is None:
             if pick is None:
                 problems.append(f"지금 {label} 추천 결과가 없어 기준 금액을 알 수 없어요. 예산을 금액으로 말씀해 주세요.")
@@ -170,7 +173,10 @@ def _command_turn(
             after = removed
     elif not command.kinds and command.type == "relative_budget" and len(current.kinds) > 1:
         picks = _picks(current, pc_list_id, pc_context, open_conn)
-        base = current.budget_total or sum(c.price for c in picks.values())
+        spent = sum(c.price for c in picks.values()) if picks else None
+        base = current.budget_total or spent
+        if command.delta < 0 and spent is not None:
+            base = min(base, spent)        # 낮출 때는 지금 합계에서 — 품목별과 같은 이유
         if not picks and not current.budget_total:
             problems.append("지금 추천 결과가 없어 기준 금액을 알 수 없어요. 예산을 금액으로 말씀해 주세요.")
         elif base + command.delta <= 0:
