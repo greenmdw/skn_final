@@ -75,6 +75,9 @@ class Interpretation(BaseModel):
 
     kinds: list[Kind] = Field(default_factory=list)
     purposes: list[str] = Field(default_factory=list)
+    # 목적 → 그 목적을 말할 때의 종류. 없는 목적은 모든 종류에 적용한다(종류를 모를 때 말한 목적, PC 견적 용도).
+    # "fps용 마우스" 뒤에 고른 키보드에 fps(래피드 트리거)가 붙지 않게 한다(10/17 실측).
+    purpose_kinds: dict[str, list[Kind]] = Field(default_factory=dict)
     situations: list[str] = Field(default_factory=list)
     stated: dict[Kind, list[str]] = Field(default_factory=dict)      # 직접 말한 스펙 조건(종류 → 조건 이름)
     hand_size: HandSize | None = None
@@ -87,6 +90,23 @@ class Interpretation(BaseModel):
     exclude: dict[Kind, list[str]] = Field(default_factory=dict)      # 뺄 제품 이름("다른 걸로 바꿔줘"로 뺀 1위) — 후보에서 뺀다
     unrecognized: list[str] = Field(default_factory=list)
     question: Question | None = None                                  # 이번 문장이 질문이면 그 종류(누적하지 않는다)
+
+
+def purpose_applies(interp: Interpretation, code: str, kind: str) -> bool:
+    """이 목적이 이 종류에 걸리는가 — 말할 때의 종류가 정해져 있으면 그 종류에만."""
+    scope = interp.purpose_kinds.get(code)
+    return scope is None or kind in scope
+
+
+def purposes_for(interp: Interpretation, kind: str) -> list[str]:
+    return [code for code in interp.purposes if purpose_applies(interp, code, kind)]
+
+
+def scope_purposes(new: Interpretation, kinds: list[str]) -> Interpretation:
+    """이번 문장의 목적을 `kinds`(문장에 나온 종류, 없으면 대화의 종류)에 묶는다. 종류를 모르면 묶지 않는다."""
+    if not new.purposes or not kinds:
+        return new
+    return new.model_copy(update={"purpose_kinds": {code: list(kinds) for code in new.purposes}})
 
 
 class ResolvedCondition(BaseModel):
@@ -235,9 +255,13 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
             exclude[kind] = kept
 
     purpose_hits, situation_hits = split_purpose_codes(_strings(data.get("purposes")), _strings(data.get("situations")), rules)
+    raw_scope = data.get("purpose_kinds") if isinstance(data.get("purpose_kinds"), dict) else {}
+    purpose_kinds = {code: scoped for code in purpose_hits
+                     if (scoped := kinds_all_order([k for k in _strings(raw_scope.get(code)) if k in kinds_all]))}
     return Interpretation(
         kinds=kinds,
         purposes=purpose_hits,
+        purpose_kinds=purpose_kinds,
         situations=situation_hits,
         stated=stated,
         hand_size=data.get("hand_size") if data.get("hand_size") in ("small", "medium", "large") else None,
@@ -252,6 +276,16 @@ def sanitize(raw: Any, rules: dict | None = None) -> Interpretation:
 
 def _union_per_kind(a: dict[str, list[str]], b: dict[str, list[str]]) -> dict[str, list[str]]:
     return {kind: _unique([*a.get(kind, []), *b.get(kind, [])]) for kind in {*a, *b}}
+
+
+def _merge_purpose_kinds(previous: Interpretation, new: Interpretation) -> dict[str, list[str]]:
+    """같은 목적을 다시 말하면 종류를 더한다. 어느 쪽이든 종류 없이 말했으면 모든 종류다(묶지 않는다)."""
+    out: dict[str, list[str]] = {}
+    for code in _unique([*previous.purposes, *new.purposes]):
+        sides = [side.purpose_kinds.get(code) for side in (previous, new) if code in side.purposes]
+        if all(s is not None for s in sides):
+            out[code] = kinds_all_order(_unique([k for s in sides for k in s]))
+    return out
 
 
 def merge(previous: Interpretation | None, new: Interpretation, rules: dict | None = None) -> Interpretation:
@@ -289,6 +323,7 @@ def merge(previous: Interpretation | None, new: Interpretation, rules: dict | No
     return Interpretation(
         kinds=kinds,
         purposes=_unique([*previous.purposes, *new.purposes]),
+        purpose_kinds=_merge_purpose_kinds(previous, new),
         situations=_unique([*previous.situations, *new.situations]),
         stated=stated,
         hand_size=new.hand_size or previous.hand_size,
@@ -318,7 +353,7 @@ def resolve(interp: Interpretation, rules: dict | None = None) -> dict[str, Reso
     for kind in kinds_all_order(interp.kinds):
         table = purposes(kind, rules)
         conds = spec_conditions(kind, rules)
-        applied = [c for c in _unique([*interp.purposes, *interp.situations]) if c in table]
+        applied = [c for c in _unique([*purposes_for(interp, kind), *interp.situations]) if c in table]
 
         sources: dict[str, list[str]] = {}
         for code in applied:
@@ -541,12 +576,15 @@ def _mask_negated(lowered: str, rules: dict) -> str:
     return masked
 
 
-def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[str] | None = None) -> Interpretation:
+def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[str] | None = None, *,
+                       mask_negated: bool = True) -> Interpretation:
     """낱말 일치로만 읽는다. 언어 모델의 한도·실패·부재 때 물러나는 경로라 정확도보다 안전을 택한다:
     확신할 수 있는 말(종류 이름, 목록의 낱말, 금액)만 읽고, 못 읽은 말을 `unrecognized` 로 지어내지 않는다.
 
     `kinds_hint` 는 종류 카드로 이미 고른 종류다. 문장에 종류 이름이 없어도 그 종류에 직접 말한 조건과 금액을
-    붙인다(카드를 고른 뒤 같은 문장을 다시 읽을 때 조건이 사라지지 않게 한다)."""
+    붙인다(카드를 고른 뒤 같은 문장을 다시 읽을 때 조건이 사라지지 않게 한다).
+
+    `mask_negated=False` 는 "무선은 빼고"처럼 뺄 조건을 찾는 명령이 쓴다 — 기피 말이 붙은 낱말이 바로 찾을 대상이다."""
     rules = rules or load_peripheral_rules()
     lowered = normalize_text(text)
     kinds_all = peripheral_kinds(rules)
@@ -559,7 +597,7 @@ def interpret_by_words(text: str, rules: dict | None = None, kinds_hint: list[st
             positions[kind] = min(found)
     kinds = kinds_all_order([*positions, *(k for k in (kinds_hint or []) if k in kinds_all)])
 
-    reading = _mask_negated(lowered, rules)   # 목적·상황·스펙 조건만 이 문장으로 읽는다(종류·금액·브랜드는 원문)
+    reading = _mask_negated(lowered, rules) if mask_negated else lowered   # 목적·상황·스펙 조건만 이 문장으로 읽는다(종류·금액·브랜드는 원문)
     purpose_hits = []
     for code in purpose_vocabulary(rules):
         entries = [(kind, purposes(kind, rules)[code]) for kind in kinds_all if code in purposes(kind, rules)]

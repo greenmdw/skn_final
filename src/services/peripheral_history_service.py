@@ -51,7 +51,8 @@ def record_recommend(conn, conversation_id: UUID, body, payload: dict[str, Any])
 
 def _from_body(body: dict[str, Any], unrecognized: list[str]) -> Interpretation:
     interp = peripheral_intent.sanitize({
-        "kinds": body.get("kinds") or [], "purposes": body.get("purposes") or [], "situations": body.get("situations") or [],
+        "kinds": body.get("kinds") or [], "purposes": body.get("purposes") or [],
+        "purpose_kinds": body.get("purpose_kinds") or {}, "situations": body.get("situations") or [],
         "stated": body.get("stated") or {}, "budget": body.get("kind_budget") or {}, "budget_min": body.get("kind_budget_min") or {},
         "budget_total": body.get("budget_max"), "emphasis": body.get("emphasis") or {}, "brand_like": body.get("brand_like") or {},
         "brand_avoid": body.get("brand_avoid") or {}, "exclude": body.get("exclude") or {}, "hand_size": body.get("hand_size"),

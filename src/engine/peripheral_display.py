@@ -17,6 +17,7 @@ from typing import Any
 
 from src.dto import Candidate
 from src.engine import spec_rules
+from src.engine.peripheral_intent import purposes_for
 from src.engine.peripheral_rules import display_config, feel_attributes, purposes, situations, spec_conditions
 
 # requirement[].label — hard(resolution_class/refresh_min_hz)와 config/peripherals.yaml
@@ -190,7 +191,7 @@ def requested_items(kind: str, specs: dict[str, Any], interp, resolved, rules: d
             if item:
                 items.append(item)
 
-    for code in _unique([*interp.purposes, *interp.situations]):
+    for code in _unique([*purposes_for(interp, kind), *interp.situations]):
         if code in _NO_ITEM_SITUATIONS:
             continue
         in_table = code in table

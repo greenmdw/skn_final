@@ -460,6 +460,8 @@ export interface PeripheralInterpretation {
   kinds: PeripheralKind[]
   /** 목적 코드(예: 게임용). 이름은 resolved[종류].purposes 의 label 로 보인다 */
   purposes: string[]
+  /** 목적 → 그 목적을 말할 때의 종류. 없는 목적은 모든 종류에 적용된다(서버가 정하고 화면은 그대로 돌려보낸다) */
+  purposeKinds: Partial<Record<string, PeripheralKind[]>>
   /** 상황 코드(예: trending) */
   situations: string[]
   /** 직접 말해서 거르는 스펙 조건(종류 → 조건 이름) */
@@ -524,6 +526,7 @@ export interface PeripheralRecommendRequest {
   budgetMax?: number
   /** 아래 값은 interpretation 의 같은 이름 필드를 그대로 싣는다 */
   purposes?: string[]
+  purposeKinds?: Partial<Record<string, PeripheralKind[]>>
   situations?: string[]
   stated?: Partial<Record<PeripheralKind, string[]>>
   kindBudget?: Partial<Record<PeripheralKind, number>>

@@ -66,6 +66,9 @@ def interpret(text: str, previous: dict[str, Any] | None = None, kinds: list[str
     # (10/17 확인) — 모델 해석과 같이 이전 해석의 종류를 문맥으로 준다.
     new = peripheral_intent.reconcile_budget(new, sentence, [*(base.kinds if base else []), *hint], rules)
     new = _with_question(new, sentence, rules)
+    # 이번 문장의 목적은 문장에 나온 종류, 없으면 지금 대화의 종류에 묶는다 — 나중에 고른 종류로 번지지 않게(10/17).
+    context = peripheral_intent.kinds_in_text(sentence) or peripheral_intent.kinds_all_order([*(base.kinds if base else []), *hint])
+    new = peripheral_intent.scope_purposes(new, context)
 
     merged = peripheral_intent.merge(base, new, rules)
     if kinds:      # 종류 카드로 고른 값 — 질문은 이번 문장의 것이므로 합치면서 지워지지 않게 되돌려 놓는다

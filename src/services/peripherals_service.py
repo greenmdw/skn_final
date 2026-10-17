@@ -69,9 +69,12 @@ def _intent_from_body(body, pc_purpose: str | None = None):
     """
     from src.engine import peripheral_intent
 
+    pc_codes = peripheral_intent.from_pc_purpose(pc_purpose)
     raw = {
         "kinds": list(body.kinds),
-        "purposes": [*body.purposes, *peripheral_intent.from_pc_purpose(pc_purpose)],
+        "purposes": [*body.purposes, *pc_codes],
+        # PC 견적 용도에서 온 목적은 모든 종류에 적용한다 — 사용자가 같은 목적을 한 종류에만 말했어도 묶지 않는다.
+        "purpose_kinds": {c: ks for c, ks in body.purpose_kinds.items() if c not in pc_codes},
         "situations": list(body.situations),
         "stated": body.stated,
         "budget": body.kind_budget,

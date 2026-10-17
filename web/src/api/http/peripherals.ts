@@ -85,7 +85,7 @@ function itemFromWire(item: WirePeripheralItem): PeripheralItem {
 }
 
 const interpretationFromWire = (wire: WirePeripheralInterpretation): PeripheralInterpretation => ({
-  kinds: wire.kinds ?? [], purposes: wire.purposes ?? [], situations: wire.situations ?? [], stated: wire.stated ?? {},
+  kinds: wire.kinds ?? [], purposes: wire.purposes ?? [], purposeKinds: wire.purpose_kinds ?? {}, situations: wire.situations ?? [], stated: wire.stated ?? {},
   handSize: wire.hand_size ?? null, budget: wire.budget ?? {}, budgetMin: wire.budget_min ?? {}, budgetTotal: wire.budget_total ?? null,
   emphasis: wire.emphasis ?? {}, brandLike: wire.brand_like ?? {}, brandAvoid: wire.brand_avoid ?? {}, exclude: wire.exclude ?? {},
   unrecognized: wire.unrecognized ?? [],
@@ -93,7 +93,8 @@ const interpretationFromWire = (wire: WirePeripheralInterpretation): PeripheralI
 
 // previous 로 돌려보낼 때는 서버가 준 모양(snake_case) 그대로여야 한다. 질문(question)은 이번 턴 것이라 돌려보내지 않는다.
 const interpretationToWire = (value: PeripheralInterpretation): WirePeripheralInterpretation => ({
-  kinds: value.kinds, purposes: value.purposes, situations: value.situations, stated: value.stated as Record<string, string[]>,
+  kinds: value.kinds, purposes: value.purposes, purpose_kinds: value.purposeKinds as Record<string, PeripheralKind[]>,
+  situations: value.situations, stated: value.stated as Record<string, string[]>,
   hand_size: value.handSize, budget: value.budget as Record<string, number>, budget_min: value.budgetMin as Record<string, number>,
   budget_total: value.budgetTotal,
   emphasis: value.emphasis as Record<string, string[]>, brand_like: value.brandLike as Record<string, string[]>,
@@ -133,6 +134,7 @@ export const peripherals: Api['peripherals'] = {
       kinds: input.kinds,
       budget_max: input.budgetMax,
       purposes: input.purposes ?? [],
+      purpose_kinds: input.purposeKinds ?? {},
       situations: input.situations ?? [],
       stated: input.stated ?? {},
       kind_budget: input.kindBudget ?? {},

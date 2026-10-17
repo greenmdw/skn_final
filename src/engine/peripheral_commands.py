@@ -94,7 +94,7 @@ def remove(interp: Interpretation, text: str, named: list[str], rules: dict | No
     조건은 이름이 나온 품목에서만 뺀다(없으면 모든 품목에서). "예산"이라고만 하면 그 품목(없으면 전부)의 예산을 지운다."""
     rules = rules or load_peripheral_rules()
     scope = named or interp.kinds
-    reading = pi.interpret_by_words(text, rules, scope)
+    reading = pi.interpret_by_words(text, rules, scope, mask_negated=False)
     lowered = pi.normalize_text(text)
     budget_word = any(w in lowered for w in _commands(rules).get("budget_words", ()))
     changes: dict = {}
@@ -102,6 +102,7 @@ def remove(interp: Interpretation, text: str, named: list[str], rules: dict | No
         changes["stated"] = _without(interp.stated, reading.stated, scope)
     if reading.purposes:
         changes["purposes"] = [p for p in interp.purposes if p not in reading.purposes]
+        changes["purpose_kinds"] = {c: ks for c, ks in interp.purpose_kinds.items() if c not in reading.purposes}
     if reading.situations:
         changes["situations"] = [s for s in interp.situations if s not in reading.situations]
     if reading.emphasis:
