@@ -59,7 +59,7 @@ export function reviewEvidence(aspects: PeripheralReviewAspect[], limit = 3): Re
 // ---- 문장 해석(서버 /peripherals/interpret) 결과를 화면 상태로 다루는 도구 ----
 
 export const EMPTY_INTERPRETATION: PeripheralInterpretation = {
-  kinds: [], purposes: [], situations: [], stated: {}, handSize: null, budget: {}, budgetMin: {}, budgetTotal: null,
+  kinds: [], purposes: [], purposeKinds: {}, situations: [], stated: {}, handSize: null, budget: {}, budgetMin: {}, budgetTotal: null,
   emphasis: {}, brandLike: {}, brandAvoid: {}, exclude: {}, unrecognized: [],
 }
 
@@ -130,7 +130,8 @@ export function removeUnderstood(state: UnderstoodState, removal: UnderstoodRemo
   const interp = state.interpretation
   let next: UnderstoodState = state
   if (removal.type === 'purpose') {
-    next = { ...state, interpretation: { ...interp, purposes: without(interp.purposes, [removal.code]) } }
+    const { [removal.code]: _removed, ...purposeKinds } = interp.purposeKinds
+    next = { ...state, interpretation: { ...interp, purposes: without(interp.purposes, [removal.code]), purposeKinds } }
   } else if (removal.type === 'situation') {
     next = { ...state, interpretation: { ...interp, situations: without(interp.situations, [removal.code]) } }
   } else if (removal.type === 'filter') {
@@ -199,7 +200,7 @@ export function applyAdjustChip(state: UnderstoodState, chip: PeripheralAdjustCh
 export function recommendInputs(interp: PeripheralInterpretation) {
   return {
     budgetMax: interp.budgetTotal ?? undefined,
-    purposes: interp.purposes, situations: interp.situations, stated: interp.stated, kindBudget: interp.budget,
+    purposes: interp.purposes, purposeKinds: interp.purposeKinds, situations: interp.situations, stated: interp.stated, kindBudget: interp.budget,
     kindBudgetMin: interp.budgetMin,
     emphasis: interp.emphasis, brandLike: interp.brandLike, brandAvoid: interp.brandAvoid, exclude: interp.exclude, handSize: interp.handSize,
   }

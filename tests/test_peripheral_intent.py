@@ -624,3 +624,21 @@ def test_reconcile_reads_a_bare_amount_with_the_conversation_kinds(context, tota
     assert new.budget == {} and new.budget_total is None
     got = pi.reconcile_budget(new, "30만원", context)
     assert got.budget_total == total and got.budget == budget
+
+
+def test_purpose_kinds_survive_sanitize_and_merge():
+    scoped = pi.sanitize({"kinds": ["mouse"], "purposes": ["fps"], "purpose_kinds": {"fps": ["mouse", "toaster"]}})
+    assert scoped.purpose_kinds == {"fps": ["mouse"]}
+    assert pi.resolve(scoped.model_copy(update={"kinds": ["keyboard", "mouse"]}))["keyboard"].purposes == []
+    unscoped = pi.Interpretation(kinds=["keyboard"], purposes=["fps"])
+    assert pi.merge(scoped, unscoped).purpose_kinds == {}            # 종류 없이 다시 말하면 모든 종류
+    again = pi.Interpretation(kinds=["keyboard"], purposes=["fps"], purpose_kinds={"fps": ["keyboard"]})
+    assert pi.merge(scoped, again).purpose_kinds == {"fps": ["keyboard", "mouse"]}
+
+
+def test_history_restores_purpose_kinds_from_a_recommend_record():
+    """저장된 대화를 되살릴 때 추천 기록의 입력에서 목적의 종류도 되살린다(빠뜨리면 새로고침 뒤 fps 가 키보드로 번졌다)."""
+    from src.services.peripheral_history_service import _from_body
+
+    interp = _from_body({"kinds": ["keyboard", "mouse"], "purposes": ["fps"], "purpose_kinds": {"fps": ["mouse"]}}, [])
+    assert interp.purpose_kinds == {"fps": ["mouse"]}

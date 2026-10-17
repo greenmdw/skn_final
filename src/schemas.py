@@ -916,6 +916,8 @@ class PeripheralsRecommendIn(BaseModel):
     # 견적 입력(POST /peripherals/interpret 의 결과를 그대로 넘긴다). 목록에 없는 값은 오류 없이 무시하고
     # 응답의 ignored_inputs 로 알린다. 목적·상황에서 풀린 조건은 선호로만 쓰고, 거르는 것은 stated 뿐이다.
     purposes: list[str] = Field(default_factory=list)
+    # 목적 → 그 목적을 말할 때의 종류(해석의 purpose_kinds 를 그대로). 없는 목적은 모든 종류에 적용한다.
+    purpose_kinds: dict[str, list[str]] = Field(default_factory=dict)
     situations: list[str] = Field(default_factory=list)
     stated: dict[str, list[str]] = Field(default_factory=dict)       # 종류 → 직접 말한 스펙 조건 이름
     kind_budget: dict[str, int] = Field(default_factory=dict)        # 종류 → 예산 상한(원). 합산 예산은 budget_max

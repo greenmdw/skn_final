@@ -433,6 +433,7 @@ export interface WirePeripherals {
 export interface WirePeripheralInterpretation {
   kinds: ('monitor' | 'keyboard' | 'mouse' | 'speaker')[]
   purposes: string[]
+  purpose_kinds?: Record<string, ('monitor' | 'keyboard' | 'mouse' | 'speaker')[]>
   situations: string[]
   stated: Record<string, string[]>
   hand_size: 'small' | 'medium' | 'large' | null

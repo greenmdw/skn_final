@@ -308,3 +308,34 @@ def test_unsupported_devices_are_named_and_not_read_as_kinds():
 def test_nothing_read_tells_how_to_go_on(text, kinds, hint):
     out = _turn(text, None, kinds)
     assert out["turn"]["reply"].endswith(chat_config(RULES)["answers"][hint])
+
+
+# ── 목적은 말할 때의 종류에 묶는다(10/17) ─────────────────────────────────────
+def _purposes_by_kind(out):
+    return {k: [p["code"] for p in v.purposes] for k, v in out["resolved"].items() if v}
+
+
+def test_purpose_said_for_one_kind_does_not_spread_to_a_kind_added_later():
+    """"fps용 무선 마우스" 뒤 "기계식 키보드"에 래피드 트리거·마그네틱·가벼운 키압이 붙었다."""
+    first = _turn("fps용 무선 마우스")
+    out = _turn("기계식 키보드 10만", _prev(first))
+    assert _purposes_by_kind(out) == {"keyboard": [], "mouse": ["fps"]}
+
+
+def test_purpose_said_with_several_kinds_or_before_any_kind_applies_to_all():
+    assert _purposes_by_kind(_turn("fps 게임용 마우스랑 키보드"))["keyboard"] == ["game", "fps"]
+    first = _turn("게임용으로")
+    assert _purposes_by_kind(_turn("마우스랑 키보드", _prev(first))) == {"keyboard": ["game"], "mouse": ["game"]}
+
+
+def test_purpose_without_a_kind_word_binds_to_the_conversation_kinds():
+    first = _turn("게임용 마우스")
+    out = _turn("fps용으로", _prev(first))
+    out = _turn("키보드도", _prev(out))
+    assert _purposes_by_kind(out) == {"keyboard": [], "mouse": ["game", "fps"]}
+
+
+def test_removing_a_negated_condition_still_works():
+    first = _turn("무선 마우스")
+    out = _turn("무선은 빼고", _prev(first))
+    assert out["interpretation"].stated == {} and out["turn"]["reply"] == "뺐어요: 무선"

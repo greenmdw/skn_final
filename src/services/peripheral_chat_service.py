@@ -24,7 +24,7 @@ def _recommend_body(interp: Interpretation, pc_list_id: str | None) -> Periphera
     """해석(합쳐진 조건)을 추천 요청으로. 화면이 해석 결과를 추천 요청으로 옮기는 것과 같다."""
     return PeripheralsRecommendIn(
         kinds=interp.kinds, budget_max=interp.budget_total, pc_list_id=pc_list_id,
-        purposes=interp.purposes, situations=interp.situations, stated=interp.stated, kind_budget=interp.budget,
+        purposes=interp.purposes, purpose_kinds=interp.purpose_kinds, situations=interp.situations, stated=interp.stated, kind_budget=interp.budget,
         kind_budget_min=interp.budget_min,
         brand_like=interp.brand_like, brand_avoid=interp.brand_avoid, exclude=interp.exclude, emphasis=interp.emphasis,
         hand_size=interp.hand_size,
