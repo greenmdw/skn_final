@@ -610,7 +610,8 @@ export interface PeripheralSpecCheck { key: string; text: string; ok: boolean }
 /** 사용자가 말한 항목 하나와 그 근거 연결. feelCodes 는 체감 속성 코드, externalAspects 는 외부 리뷰 항목 코드 */
 export interface PeripheralRequested {
   label: string
-  source: 'stated' | 'situation' | 'purpose'
+  /** pc_purpose: 말하지 않았고 묶은 PC 견적의 용도에서만 온 목적 */
+  source: 'stated' | 'situation' | 'purpose' | 'pc_purpose'
   /** spec: 스펙 값으로 판정 · evidence: 사용기·외부 리뷰로 판단 */
   type: 'spec' | 'evidence'
   specChecks: PeripheralSpecCheck[]

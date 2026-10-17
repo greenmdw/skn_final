@@ -36,7 +36,7 @@ function QuoteLine({ quote }: { quote: PeripheralFeelQuote }) {
 function RequestedBox({ evidence }: { evidence: RequestedEvidence }) {
   return <div className="pr-req">
     <div className="pr-req-head">
-      <b>요청하신 “{evidence.label}”</b>
+      <b>{evidence.fromPc ? 'PC 견적 용도에 맞춘' : '요청하신'} “{evidence.label}”</b>
       {evidence.note && <span className={'pr-tag ' + (evidence.note.few ? 'warn' : 'ok')}>{evidence.note.text}</span>}
       {evidence.external && <span className="pr-tag warn">
         외부 리뷰 기준 · {evidence.external.label} {evidence.external.total}건 중 긍정 {evidence.external.positive}건
@@ -58,10 +58,12 @@ function RequestedBoxes({ view, maxQuotes }: { view: CandidateView; maxQuotes: n
 
 /** 근거 전체 보기: 사용기 항목 타일(요청한 항목 먼저)과 외부 리뷰 누적 막대 */
 function EvidencePanel({ view }: { view: CandidateView }) {
-  const requestedCodes = new Set(view.requested.flatMap(requested => requested.feelCodes))
+  const requestedCodes = new Set(view.requested.filter(requested => requested.source !== 'pc_purpose').flatMap(requested => requested.feelCodes))
+  const pcCodes = new Set(view.requested.filter(requested => requested.source === 'pc_purpose').flatMap(requested => requested.feelCodes))
+  const highlighted = (code: string) => requestedCodes.has(code) || pcCodes.has(code)
   const attributes = (view.feel?.attributes ?? [])
     .filter(attribute => attribute.state !== 'external_only')
-    .sort((a, b) => Number(requestedCodes.has(b.code)) - Number(requestedCodes.has(a.code)))
+    .sort((a, b) => Number(highlighted(b.code)) - Number(highlighted(a.code)))
   const few = attributes.some(attribute => attribute.state === 'few_same_condition')
   const external = reviewEvidence(view.reviewAspects, 8)
   return <div className="pr-evidence">
@@ -76,8 +78,9 @@ function EvidencePanel({ view }: { view: CandidateView }) {
         {few && <span className="pr-tag warn">아직 글이 적어 참고용이에요</span>}
       </div>
       <div className="pr-tiles">
-        {attributes.map(attribute => <div className={'pr-tile' + (requestedCodes.has(attribute.code) ? ' req' : '')} key={attribute.code}>
-          <div className="pr-tile-head"><b>{attribute.label}</b>{requestedCodes.has(attribute.code) && <span className="pr-tag req">요청</span>}</div>
+        {attributes.map(attribute => <div className={'pr-tile' + (highlighted(attribute.code) ? ' req' : '')} key={attribute.code}>
+          <div className="pr-tile-head"><b>{attribute.label}</b>{requestedCodes.has(attribute.code)
+            ? <span className="pr-tag req">요청</span> : pcCodes.has(attribute.code) && <span className="pr-tag req">PC 용도</span>}</div>
           {(attribute.good ?? 0) + (attribute.bad ?? 0) > 0 && <span className="pr-meter" role="img"
             aria-label={`좋게 평가 ${attribute.good ?? 0}명, 아쉽게 평가 ${attribute.bad ?? 0}명`}>
             <i className="g" style={{ flexGrow: attribute.good ?? 0 }} /><i className="b" style={{ flexGrow: attribute.bad ?? 0 }} />

@@ -179,3 +179,11 @@ def test_display_values_do_not_change_order_or_score():
     b = _payload(["mouse", "monitor"], purpose="game", resolution="QHD_165")
     assert [(i["product"]["name"], i["score_detail"]["score"]) for i in a["items"]] == \
            [(i["product"]["name"], i["score_detail"]["score"]) for i in b["items"]]
+
+
+def test_purpose_only_from_the_pc_quote_is_not_marked_as_requested():
+    """QA 10/16 #16 — 말하지 않았는데 PC 견적 용도(game)에서 온 목적은 source 가 pc_purpose 다(화면이 "요청하신"이라 하지 않는다)."""
+    interp, resolved = _resolved("mouse", purposes=["game"])
+    assert [i["source"] for i in pd.requested_items("mouse", {}, interp, resolved, RULES)] == ["purpose"]
+    items = pd.requested_items("mouse", {}, interp, resolved, RULES, frozenset({"game"}))
+    assert [(i["label"], i["source"]) for i in items] == [("게임(일반)", "pc_purpose")]

@@ -77,6 +77,7 @@ def turn(
 
     new_items = peripheral_chat.new_conditions(before, merged, rules)
     reading = peripheral_chat.reading_notes(sentence, new, rules)
+    reading += peripheral_chat.pc_purpose_notes((pc_context or {}).get("purpose"), before, merged, rules)
     previous_resolved = peripheral_intent.resolve(before, rules) if before is not None else None
     conflicts = peripheral_chat.conflict_notes(out["resolved"], previous_resolved)
     not_reflected = [n["text"] for n in peripheral_chat.unsupported_notes(sentence, rules)]

@@ -133,6 +133,8 @@ def recommend_detailed(conn, body, pc_context: dict | None) -> tuple[dict, "Peri
         "peripheral_kind_budget_min": interp.budget_min,
         "peripheral_intent": interp,
         "peripheral_resolved": peripheral_intent.resolve(interp),
+        # 사용자가 말하지 않았는데 PC 견적 용도에서만 온 목적 — 결과 카드가 "요청하신"이 아니라 PC 용도라고 보이게 한다.
+        "peripheral_pc_purposes": set(peripheral_intent.from_pc_purpose(pc_purpose)) - set(body.purposes),
         # 선호·기피 브랜드와 강조 축은 목록 안의 값으로 정리한 해석에서 온다(예전 입력과 같은 경로).
         "peripheral_brand_like": {k: list(v) for k, v in interp.brand_like.items() if k in body.kinds},
         "peripheral_brand_avoid": {k: list(v) for k, v in interp.brand_avoid.items() if k in body.kinds},
