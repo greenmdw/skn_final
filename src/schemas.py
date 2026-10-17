@@ -329,6 +329,7 @@ class QuoteChatOut(BaseModel):
     visuals: list[dict[str, Any]] = Field(default_factory=list)     # 서버가 조립한 표·제품 카드·호환 자료
     display_target: Literal["saved_comparison_explanation", "chat"] = "chat"
     duplicate_of: str | None = None                                  # 같은 질문이면 재사용한 원래 답의 answer_id
+    action: dict[str, Any] | None = None                             # 채팅으로 한 동작 {kind, label, undo} — 동작이 아니면 null
     created_at: str | None = None
 
 
@@ -346,6 +347,7 @@ class QuoteChatMessageOut(BaseModel):
     via: Literal["agent", "rules"] | None = None
     display_target: Literal["saved_comparison_explanation", "chat"] | None = None
     duplicate_of: str | None = None
+    action: dict[str, Any] | None = None
 
 
 # BE-09 저장 견적 비교

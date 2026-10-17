@@ -150,7 +150,7 @@ export default function PartsPage() {
   const ignored = draft.sources.flatMap(source => source.ignored_lines ?? [])
 
   return (
-    <CheckLayout current="parts" draftId={id} reachable={['parts']} chat>
+    <CheckLayout current="parts" draftId={id} reachable={['parts']} chat onChatAction={() => void reload()}>
       <header className="c2-head"><h1>읽은 부품을 확인해 주세요</h1><p>제품 확인이 필요한 부품은 이유와 후보를 볼 수 있어요. 확인하지 않아도 분석할 수 있어요.</p></header>
       {error && <p className="c2-error" role="alert">{error}</p>}
 

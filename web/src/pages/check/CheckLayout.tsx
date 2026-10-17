@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import PlannerShell from '../../components/PlannerShell'
 import CheckChat from '../../components/check/CheckChat'
 import '../../styles/check2.css'
-import { useCheckChat } from './useCheckChat'
+import type { ChatAction } from '../../api/checkV2'
+import { CHAT_HINT, useCheckChat } from './useCheckChat'
 
 export const CHECK2 = '/check2'
 const STEPS = [
@@ -30,13 +31,15 @@ function StepBar({ current, draftId, reachable }: { current: StepKey; draftId?: 
 }
 
 /** 단계 화면의 공통 틀. 채팅은 ② 이후(chat=true)에만 왼쪽에 나온다 — ① 은 채팅 없이 폼만 둔다. */
-export default function CheckLayout({ current, draftId, analyzed = false, reachable, chat, onChatReply, children }: {
-  current: StepKey; draftId?: string; analyzed?: boolean; reachable: StepKey[]; chat: boolean; onChatReply?: () => void; children: ReactNode
+export default function CheckLayout({ current, draftId, analyzed = false, reachable, chat, onChatAction, children }: {
+  current: StepKey; draftId?: string; analyzed?: boolean; reachable: StepKey[]; chat: boolean
+  /** 채팅이 동작을 했거나(action) 되돌렸을 때(null) — 화면이 서버 상태를 다시 읽는다 */
+  onChatAction?: (action: ChatAction | null) => void; children: ReactNode
 }) {
-  const chatState = useCheckChat(chat ? draftId : undefined, analyzed, onChatReply)
+  const chatState = useCheckChat(chat ? draftId : undefined, onChatAction)
   const sidebar = chat ? (
     <CheckChat entries={chatState.entries} busy={chatState.busy} analyzed={analyzed} comparing={false} hasAnswer={() => false}
-      onSend={text => void chatState.send(text)} onShowAnswer={() => undefined} />
+      onSend={text => void chatState.send(text)} onShowAnswer={() => undefined} hintText={CHAT_HINT} />
   ) : undefined
   return (
     <PlannerShell sidebar={sidebar}>

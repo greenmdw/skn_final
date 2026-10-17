@@ -10,8 +10,12 @@ export type ChatEntry =
   | { id: string; kind: 'request'; question: string; tags: string[] }
   | { id: string; kind: 'notice'; text: string }
   | { id: string; kind: 'reply'; answerId: string; summary: string; reused: boolean }
+  /** 채팅으로 한 동작(교체 담기 등) — label 은 "동작 · …" 표시, onUndo 가 있으면 되돌리기 버튼을 보인다 */
+  | { id: string; kind: 'action'; text: string; label: string; onUndo?: () => void; undone?: boolean }
 
-export default function CheckChat({ entries, busy, analyzed, comparing, hasAnswer, onSend, onShowAnswer, upgrade, onOpenUpgrade }: {
+export default function CheckChat({ entries, busy, analyzed, comparing, hasAnswer, onSend, onShowAnswer, upgrade, onOpenUpgrade, hintText }: {
+  /** 입력칸 위 안내 문구를 바꾼다(새 점검 화면은 동작 예시를 보인다) */
+  hintText?: string
   entries: ChatEntry[]
   busy: boolean
   analyzed: boolean
@@ -48,9 +52,9 @@ export default function CheckChat({ entries, busy, analyzed, comparing, hasAnswe
     }
   }
 
-  const hint = !analyzed
+  const hint = hintText ?? (!analyzed
     ? '추가 질문을 남기면 분석 기준에 함께 반영돼요.'
-    : comparing ? '저장 견적 비교에 대한 질문은 "두 견적 차이 해설"에 쌓여요.' : '분석 결과를 보면서 궁금한 점을 물어보세요.'
+    : comparing ? '저장 견적 비교에 대한 질문은 "두 견적 차이 해설"에 쌓여요.' : '분석 결과를 보면서 궁금한 점을 물어보세요.')
 
   return (
     <aside className="pl-chat pl-resizable ck-chat" aria-label="견적 점검 대화" style={{ width: size.width }}>
@@ -63,6 +67,16 @@ export default function CheckChat({ entries, busy, analyzed, comparing, hasAnswe
                 <span className="ck-chat-context-label">내 평가 요청</span>
                 <b className="ck-chat-context-question">{entry.question}</b>
                 <span className="ck-chat-context-tags">{entry.tags.map(tag => <span key={tag}>{tag}</span>)}</span>
+              </div>
+            )
+          }
+          if (entry.kind === 'action') {
+            return (
+              <div className="ck-bubble" key={entry.id}>
+                <span className="ck-chat-context-label">동작 · {entry.label}</span><br />
+                <Linkified text={entry.text} />
+                {entry.onUndo && !entry.undone && <><br /><button type="button" className="ck-chat-answer-link" onClick={entry.onUndo}>되돌리기</button></>}
+                {entry.undone && <><br /><span className="ck-chat-context-label">되돌렸어요</span></>}
               </div>
             )
           }

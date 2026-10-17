@@ -65,7 +65,7 @@ export default function ReplacePage() {
   const stale = targets?.analysis_stale || state?.analysis_stale
 
   return (
-    <CheckLayout current="replace" draftId={id} analyzed reachable={['parts', 'review', 'replace', 'confirm']} chat onChatReply={() => void load()}>
+    <CheckLayout current="replace" draftId={id} analyzed reachable={['parts', 'review', 'replace', 'confirm']} chat onChatAction={() => void load()}>
       <header className="c2-head">
         <h1>먼저 바꿀 부품</h1>
         <p>종합 평가의 근거로 순서를 정했어요. 담지 않은 부품은 견적 그대로 확정돼요. <Link to={`${CHECK2}/${id}/review`}>종합 평가 보기</Link></p>

@@ -111,3 +111,29 @@ export interface LiveBatchResult { items: LiveBatchItem[]; found: number; not_fo
 export const LIVE_BATCH_MAX = 6
 export const liveLookupBatch = (draftId: string, itemIds: string[]) =>
   request<LiveBatchResult>('POST', `/pc/review-drafts/${encodeURIComponent(draftId)}/live-lookup-batch`, { item_ids: itemIds })
+
+// ── 채팅 동작(재기획 6단계) ──────────────────────────────────────────────────────
+export type ChatUndo =
+  | { kind: 'remove_replacement'; slot: string }
+  | { kind: 'put_replacement'; slot: string; product_id: string }
+  | { kind: 'restore_replacements'; items: { slot: string; product_id: string }[] }
+  | { kind: 'set_conditions'; values: Record<string, unknown> }
+  | { kind: 'edit_item'; item_id: string; name: string }
+export interface ChatAction { kind: string; label: string; undo: ChatUndo | null }
+export interface ChatReply { reply: string; action: ChatAction | null }
+
+export const sendChat = (draftId: string, text: string, clientMessageId: string) =>
+  request<ChatReply>('POST', `/pc/reviews/${encodeURIComponent(draftId)}/messages`, { text, client_message_id: clientMessageId })
+
+/** 채팅 동작 되돌리기 — 최신 버전을 읽어 와서 같은 REST 함수로 되돌린다(서버 규칙·소유권 검사가 그대로 적용된다). */
+export async function undoChatAction(draftId: string, undo: ChatUndo): Promise<void> {
+  const version = async () => (await checkV2.getDraft(draftId)).version
+  if (undo.kind === 'remove_replacement') { await checkV2.removeReplacement(draftId, await version(), undo.slot); return }
+  if (undo.kind === 'put_replacement') { await checkV2.putReplacement(draftId, await version(), undo.slot, undo.product_id); return }
+  if (undo.kind === 'restore_replacements') {
+    for (const row of undo.items) await checkV2.putReplacement(draftId, await version(), row.slot, row.product_id)
+    return
+  }
+  if (undo.kind === 'set_conditions') { await checkV2.patchConditions(draftId, await version(), undo.values); return }
+  await checkV2.patchItems(draftId, await version(), [{ id: undo.item_id, normalized_name: undo.name }])
+}

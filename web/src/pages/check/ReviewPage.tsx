@@ -75,7 +75,7 @@ export default function ReviewPage() {
   const view = analysis?.price_view
 
   return (
-    <CheckLayout current="review" draftId={id} analyzed={Boolean(analysis)} reachable={['parts', 'review', 'replace', 'confirm']} chat>
+    <CheckLayout current="review" draftId={id} analyzed={Boolean(analysis)} reachable={['parts', 'review', 'replace', 'confirm']} chat onChatAction={action => void (action === null || action.kind === 'reanalyze' ? analyze() : reload())}>
       <header className="c2-head">
         <h1>지금 견적은 이래요</h1>
         <p>
