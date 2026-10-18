@@ -4,7 +4,7 @@ import type {
 } from '../types'
 import { request } from './client'
 import type {
-  WirePeripheralChat, WirePeripheralFeel, WirePeripheralInterpret, WirePeripheralInterpretation, WirePeripheralItem,
+  WirePeripheralChat, WirePeripheralFeel, WirePeripheralHistory, WirePeripheralInterpret, WirePeripheralInterpretation, WirePeripheralItem,
   WirePeripheralRequested, WirePeripheralReviewContribution, WirePeripheralScoreDetail, WirePeripherals,
 } from './wire'
 
@@ -85,25 +85,34 @@ function itemFromWire(item: WirePeripheralItem): PeripheralItem {
 }
 
 const interpretationFromWire = (wire: WirePeripheralInterpretation): PeripheralInterpretation => ({
-  kinds: wire.kinds ?? [], purposes: wire.purposes ?? [], situations: wire.situations ?? [], stated: wire.stated ?? {},
+  kinds: wire.kinds ?? [], purposes: wire.purposes ?? [], purposeKinds: wire.purpose_kinds ?? {}, situations: wire.situations ?? [], stated: wire.stated ?? {},
   handSize: wire.hand_size ?? null, budget: wire.budget ?? {}, budgetMin: wire.budget_min ?? {}, budgetTotal: wire.budget_total ?? null,
-  emphasis: wire.emphasis ?? {}, brandLike: wire.brand_like ?? {}, brandAvoid: wire.brand_avoid ?? {},
+  emphasis: wire.emphasis ?? {}, brandLike: wire.brand_like ?? {}, brandAvoid: wire.brand_avoid ?? {}, exclude: wire.exclude ?? {},
   unrecognized: wire.unrecognized ?? [],
 })
 
 // previous 로 돌려보낼 때는 서버가 준 모양(snake_case) 그대로여야 한다. 질문(question)은 이번 턴 것이라 돌려보내지 않는다.
 const interpretationToWire = (value: PeripheralInterpretation): WirePeripheralInterpretation => ({
-  kinds: value.kinds, purposes: value.purposes, situations: value.situations, stated: value.stated as Record<string, string[]>,
+  kinds: value.kinds, purposes: value.purposes, purpose_kinds: value.purposeKinds as Record<string, PeripheralKind[]>,
+  situations: value.situations, stated: value.stated as Record<string, string[]>,
   hand_size: value.handSize, budget: value.budget as Record<string, number>, budget_min: value.budgetMin as Record<string, number>,
   budget_total: value.budgetTotal,
   emphasis: value.emphasis as Record<string, string[]>, brand_like: value.brandLike as Record<string, string[]>,
-  brand_avoid: value.brandAvoid as Record<string, string[]>, unrecognized: value.unrecognized,
+  brand_avoid: value.brandAvoid as Record<string, string[]>, exclude: value.exclude as Record<string, string[]>,
+  unrecognized: value.unrecognized,
 })
 
 /** 해석 응답(interpret 과 chat 이 같다)을 화면 모양으로 */
 function interpretResultFromWire(result: WirePeripheralInterpret): PeripheralInterpretResult {
+  return {
+    interpretation: interpretationFromWire(result.interpretation), resolved: resolvedFromWire(result.resolved),
+    needsKind: result.needs_kind, source: result.source, truncated: Boolean(result.truncated),
+  }
+}
+
+function resolvedFromWire(wire: WirePeripheralInterpret['resolved']): Partial<Record<PeripheralKind, PeripheralResolvedKind>> {
   const resolved: Partial<Record<PeripheralKind, PeripheralResolvedKind>> = {}
-  for (const [kind, entry] of Object.entries(result.resolved ?? {})) {
+  for (const [kind, entry] of Object.entries(wire ?? {})) {
     resolved[kind as PeripheralKind] = {
       kind: entry.kind, label: entry.label, purposes: entry.purposes ?? [],
       preferences: (entry.preferences ?? []).map(item => ({ condition: item.condition, label: item.label, sources: item.sources ?? [] })),
@@ -111,10 +120,7 @@ function interpretResultFromWire(result: WirePeripheralInterpret): PeripheralInt
       conflicts: entry.conflicts ?? [],
     }
   }
-  return {
-    interpretation: interpretationFromWire(result.interpretation), resolved,
-    needsKind: result.needs_kind, source: result.source, truncated: Boolean(result.truncated),
-  }
+  return resolved
 }
 
 // 추천·채팅은 "목록(세션)"에 묶어 호출한다. PC 견적 대화 없이도 쓸 수 있어, 처음이면 빈 세션을 하나 만든다.
@@ -128,6 +134,7 @@ export const peripherals: Api['peripherals'] = {
       kinds: input.kinds,
       budget_max: input.budgetMax,
       purposes: input.purposes ?? [],
+      purpose_kinds: input.purposeKinds ?? {},
       situations: input.situations ?? [],
       stated: input.stated ?? {},
       kind_budget: input.kindBudget ?? {},
@@ -135,6 +142,7 @@ export const peripherals: Api['peripherals'] = {
       emphasis: input.emphasis ?? {},
       brand_like: input.brandLike ?? {},
       brand_avoid: input.brandAvoid ?? {},
+      exclude: input.exclude ?? {},
       hand_size: input.handSize ?? null,
       pc_list_id: input.pcListId,
     }
@@ -167,8 +175,17 @@ export const peripherals: Api['peripherals'] = {
       sessionId: id,
       turn: {
         newConditions: turn.new_conditions ?? [], notReflected: turn.not_reflected ?? [], notes: turn.notes ?? [],
-        answer: turn.answer, reply: turn.reply, chips: turn.chips ?? [], resultChips: turn.result_chips ?? [],
+        answer: turn.answer, command: turn.command ?? null, removedConditions: turn.removed_conditions ?? [], reset: Boolean(turn.reset),
+        reply: turn.reply, chips: turn.chips ?? [], resultChips: turn.result_chips ?? [],
       },
+    }
+  },
+
+  async history(sessionId) {
+    const result = await request<WirePeripheralHistory>('GET', `/session/${encodeURIComponent(sessionId)}/peripherals/messages`)
+    return {
+      messages: result.messages, interpretation: interpretationFromWire(result.interpretation), resolved: resolvedFromWire(result.resolved),
+      showingResults: result.showing_results, notices: result.notices ?? [],
     }
   },
 }

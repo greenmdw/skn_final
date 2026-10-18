@@ -1,7 +1,7 @@
 # PC requirement, ranking, and set-compatibility policy. Change schema_version when
 # the structure changes; change rule_set_version when policy values change.
 schema_version: 1
-rule_set_version: computer-rules-v12
+rule_set_version: computer-rules-v14
 
 requirements:
   default_resolution: FHD_144
@@ -43,8 +43,9 @@ requirements:
   # 용도별 요구 프로필 — 2026-09-21 사용자 확인 반영(숫자는 카탈로그 공급 여건 기준이며 바뀔 수 있다).
   # 여기 없는 용도(game, 미지정)는 위 game_tiers 를 해상도로 골라 쓴다. 프로필에 적은
   # 키만 이 문서의 같은 이름 값을 덮어쓰고 tier 는 game_tiers 를 대신한다. 사무·학습은 게임용
-  # 하한(DDR5·최신 소켓·1TB·Gold·750W)을 걷어 낸다. 외장 GPU 없는 구성(내장 그래픽)은 슬롯 구조상
-  # 아직 표현하지 못해 GPU 는 최저 등급으로 남긴다.
+  # 하한(DDR5·최신 소켓·1TB·Gold·750W)을 걷어 낸다. 배분이 0 인 GPU·쿨러 슬롯은 신규 조립에서 견적에 넣지 않는다
+  # (computer-rules-v14, 아래 budget_allocation 주석). 그 슬롯의 tier·estimated_power_w 는 외장 GPU 를 다시 넣는 경우
+  # (원하는 부품·결과 대화·업그레이드)를 위해 남겨 둔다.
   purpose_profiles:
     office:
       tier: {gpu: 3, cpu: 4, ram_gb: 16, vram_gb: 4}
@@ -56,7 +57,13 @@ requirements:
         intel: [LGA1700, LGA1851]
         amd: [AM4, AM5]
         none: [LGA1700, LGA1851, AM4, AM5]
-      budget_allocation: {GPU: 0.10, CPU: 0.25, 메인보드: 0.15, RAM: 0.12, 저장장치: 0.12, 파워: 0.10, 케이스: 0.09, 쿨러: 0.07}
+      # 사무·학습·기타는 이 한 벌의 배분을 함께 쓴다(&office_alloc, 2026-10-15 통일). 근거는 사무 견적 시장 조사뿐이다.
+      # computer-rules-v14: 시장 값 그대로 GPU 0%·쿨러 0%. 배분 0 은 "그 슬롯을 사지 않는다"는 뜻이다 — 신규 조립(mode=build)에서
+      # 이 슬롯은 견적에서 빠지고 대신 CPU 가 내장 그래픽(GPU)·정품 박스 기본 쿨러(쿨러, verification.box_cooler_max_tdp_w 이하 TDP)를 갖춰야 한다.
+      # 예외: 원하는 부품(wanted_parts)·결과 대화로 GPU 를 정하면 GPU, 저소음·소음 민감이면 쿨러, 업그레이드에서 고른 슬롯은 산다 —
+      # 이때는 아래 기본 배분(requirements.budget_allocation)의 그 슬롯 비율을 빌려 합 1 로 다시 맞춘다.
+      # GPU·쿨러 외 슬롯의 0 은 설정 오류다(대신할 부품이 없다).
+      budget_allocation: &office_alloc {GPU: 0, CPU: 0.29, 메인보드: 0.12, RAM: 0.25, 저장장치: 0.24, 파워: 0.07, 케이스: 0.03, 쿨러: 0}
     study:
       tier: {gpu: 3, cpu: 6, ram_gb: 16, vram_gb: 4}
       ram_type: null
@@ -67,7 +74,7 @@ requirements:
         intel: [LGA1700, LGA1851]
         amd: [AM4, AM5]
         none: [LGA1700, LGA1851, AM4, AM5]
-      budget_allocation: {GPU: 0.10, CPU: 0.25, 메인보드: 0.15, RAM: 0.12, 저장장치: 0.12, 파워: 0.10, 케이스: 0.09, 쿨러: 0.07}
+      budget_allocation: *office_alloc
     other:                               # 기타: 용도를 특정하지 못한 범용 — 학습과 같은 수준(2026-09-21 결정)
       tier: {gpu: 3, cpu: 6, ram_gb: 16, vram_gb: 4}
       ram_type: null
@@ -78,11 +85,11 @@ requirements:
         intel: [LGA1700, LGA1851]
         amd: [AM4, AM5]
         none: [LGA1700, LGA1851, AM4, AM5]
-      budget_allocation: {GPU: 0.10, CPU: 0.25, 메인보드: 0.15, RAM: 0.12, 저장장치: 0.12, 파워: 0.10, 케이스: 0.09, 쿨러: 0.07}
+      budget_allocation: *office_alloc
     creation:                            # 창작: CPU·RAM 우선, GPU 는 중간 등급
       tier: {gpu: 6, cpu: 8, ram_gb: 32, vram_gb: 8}
       estimated_power_w: {cpu: 150, gpu: 200, other: 75}
-      budget_allocation: {GPU: 0.28, CPU: 0.28, 메인보드: 0.10, RAM: 0.10, 저장장치: 0.10, 파워: 0.06, 케이스: 0.04, 쿨러: 0.04}
+      budget_allocation: {GPU: 0.34, CPU: 0.13, 메인보드: 0.08, RAM: 0.25, 저장장치: 0.13, 파워: 0.03, 케이스: 0.02, 쿨러: 0.02}   # 디자인 견적 시장 조사
   sockets_by_brand:
     intel: [LGA1851]
     amd: [AM5]
@@ -96,15 +103,21 @@ requirements:
   storage_capacity_gb_min: 1000
   psu_efficiency_min: Gold
   case_form: ATX_mid
+  # 슬롯별 예산 배분 — 가격 축의 참고 예산 B(총예산 × 비율)이며 지출 상한이 아니다. 게임·미지정은 이 값을,
+  # 사무·학습·기타·창작은 purpose_profiles 의 값을 쓴다. 이 기본 배분의 GPU·쿨러는 0 보다 커야 한다 — 다른 배분에서 0 인
+  # 슬롯을 다시 넣을 때(wanted_parts·결과 대화·저소음·업그레이드) 이 비율을 빌려 쓴다.
+  # 2026-10-15: 국내 견적 시장 조사(퀘이사존 PC조립/견적 게시판, 2026-06~10, 용도별 10건, 견적왕 현금가)의
+  # 용도별 부품 비중 중앙값을 합 100%로 비례 조정해 1% 단위로 반올림했다. 근거와 이전 값은
+  # docs/validation/market_budget_share_20261015.md. RAM 비중은 2026년 DDR5 가격 급등이 반영된 값이다.
   budget_allocation:
-    GPU: 0.40
-    CPU: 0.18
-    메인보드: 0.10
-    RAM: 0.08
-    저장장치: 0.07
-    파워: 0.08
-    케이스: 0.05
-    쿨러: 0.04
+    GPU: 0.37
+    CPU: 0.14
+    메인보드: 0.07
+    RAM: 0.21
+    저장장치: 0.14
+    파워: 0.04
+    케이스: 0.02
+    쿨러: 0.01
 
 verification:
   efficiency_order: [Standard, Bronze, Silver, Gold, Platinum, Titanium]
@@ -149,6 +162,9 @@ verification:
   gpu_length: {gpu_spec: length_mm, case_spec: max_gpu_len_mm}
   cooler_height: {cooler_spec: height_mm, case_spec: max_cooler_height_mm}
   cooler_socket: {cooler_spec: supported_socket, cpu_spec: socket}
+  # CPU 정품 박스의 기본 쿨러로 식힐 수 있다고 보는 CPU TDP 상한(W). 쿨러를 뺀 견적(용도 배분 쿨러 0%)의 CPU 사전 필터가 쓴다.
+  # 카탈로그의 기본 쿨러 포함 CPU 9개는 모두 TDP 58~65W 이고 사무 프로필의 CPU 전력 추정도 65W 다(2026-10-15 결정 D5).
+  box_cooler_max_tdp_w: 65
   power:
     cpu_spec: tdp_w
     # 최대 패키지 전력(Intel MTP/PL2, AMD PPT). 있으면 TDP 대신 쓴다(K 모델 등은 TDP 의 두 배 가까이 쓴다).
@@ -236,7 +252,10 @@ ranking:
     creation: {default: {GPU: 6.0, CPU: 8.0}}
     other: {default: {GPU: 3.0, CPU: 6.0}}
   # 점수 산식 버전(저장 시 score_method_version). 축은 가격·성능·리뷰 세 개, 가중치는 0.01 단위·합 1.
-  score_method: pc-fit-v2
+  # pc-fit-v3(2026-10-14): 가격 축을 1/(1+(P/B)^alpha)로 바꿨다. alpha 는 config/recommendation_engine.yaml.
+  # pc-fit-v4(2026-10-18): CPU·GPU 성능 축을 perf_tier/10 에서 벤치마크 목표식 1/(1+(T/Q)^beta)로 바꿨다. 목표 T 는 위
+  # ideal_tiers 의 등급을 벤치마크 눈금으로 옮긴 값이다. beta·지표는 config/recommendation_engine.yaml 의 scoring.performance_axis.
+  score_method: pc-fit-v4
   weights: {가격: 0.45, 성능: 0.30, 리뷰: 0.25}
   # 우선순위(priority)별 가중치 세트. 표에 없는 값/미지정은 위 weights 를 쓴다.
   # noise_sensitive 는 바깥 가중치를 바꾸지 않는다(리뷰 프로필의 정숙성 중요도가 따로 반영한다).

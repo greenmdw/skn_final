@@ -104,6 +104,8 @@ export interface ConversationSummary {
   lastActiveAt: string | null
   /** 첫 사용자 말(제목 대신) */
   firstMessage: string | null
+  /** 어느 화면의 대화인가 — 주변기기 대화는 주변기기 화면으로 연다 */
+  chat: 'computer' | 'peripheral'
   reports: ReportSummary[]
 }
 /** 서버에 저장된 대화 하나를 화면으로 되살릴 때 쓰는 값 */
@@ -458,6 +460,8 @@ export interface PeripheralInterpretation {
   kinds: PeripheralKind[]
   /** 목적 코드(예: 게임용). 이름은 resolved[종류].purposes 의 label 로 보인다 */
   purposes: string[]
+  /** 목적 → 그 목적을 말할 때의 종류. 없는 목적은 모든 종류에 적용된다(서버가 정하고 화면은 그대로 돌려보낸다) */
+  purposeKinds: Partial<Record<string, PeripheralKind[]>>
   /** 상황 코드(예: trending) */
   situations: string[]
   /** 직접 말해서 거르는 스펙 조건(종류 → 조건 이름) */
@@ -475,6 +479,8 @@ export interface PeripheralInterpretation {
   brandLike: Partial<Record<PeripheralKind, string[]>>
   /** 빼 달라고 한 브랜드(종류 → 브랜드 이름). 후보에서 빠진다 */
   brandAvoid: Partial<Record<PeripheralKind, string[]>>
+  /** 뺄 제품(종류 → 제품 이름). 채팅의 "다른 걸로"가 그때의 1위를 넣는다 */
+  exclude: Partial<Record<PeripheralKind, string[]>>
   /** 서버가 목록에서 찾지 못해 반영하지 못한 말 */
   unrecognized: string[]
 }
@@ -520,6 +526,7 @@ export interface PeripheralRecommendRequest {
   budgetMax?: number
   /** 아래 값은 interpretation 의 같은 이름 필드를 그대로 싣는다 */
   purposes?: string[]
+  purposeKinds?: Partial<Record<string, PeripheralKind[]>>
   situations?: string[]
   stated?: Partial<Record<PeripheralKind, string[]>>
   kindBudget?: Partial<Record<PeripheralKind, number>>
@@ -528,6 +535,7 @@ export interface PeripheralRecommendRequest {
   emphasis?: Partial<Record<PeripheralKind, string[]>>
   brandLike?: Partial<Record<PeripheralKind, string[]>>
   brandAvoid?: Partial<Record<PeripheralKind, string[]>>
+  exclude?: Partial<Record<PeripheralKind, string[]>>
   handSize?: 'small' | 'medium' | 'large' | null
   /** 주면 그 PC 견적의 해상도로 모니터 교차검사를 켠다(내 것이 아니면 서버가 조용히 무시) */
   pcListId?: string
@@ -543,6 +551,12 @@ export interface PeripheralTurn {
   notes: string[]
   /** 질문이면 답 */
   answer: { type: string; topic: string | null; text: string; kinds: PeripheralKind[]; chips: string[] } | null
+  /** 결과 화면 명령(reset · remove · swap · cheaper · relative_budget). 명령이 아니면 null */
+  command: string | null
+  /** 이번 문장으로 뺀 것. 있으면 받은 interpretation 으로 추천을 다시 받는다 */
+  removedConditions: { kind: string; label: string }[]
+  /** true 면 조건을 모두 지웠다 — 결과를 지우고 첫 화면으로 돌아간다 */
+  reset: boolean
   /** 위를 순서대로 이은 채팅 답장 */
   reply: string
   /** 이번 답 뒤에 보여 줄 질문 칩 */
@@ -561,6 +575,17 @@ export interface PeripheralChatRequest extends PeripheralInterpretRequest {
 export interface PeripheralChatResult extends PeripheralInterpretResult {
   sessionId: string
   turn: PeripheralTurn
+}
+
+/** 저장된 주변기기 채팅(GET /session/{id}/peripherals/messages) — 돌아왔을 때 채팅과 마지막 조건을 되살린다 */
+export interface PeripheralHistory {
+  messages: { role: 'user' | 'assistant'; text: string; at: string }[]
+  interpretation: PeripheralInterpretation
+  resolved: Partial<Record<PeripheralKind, PeripheralResolvedKind>>
+  /** 마지막으로 추천을 받은 상태였다 — 같은 조건으로 추천을 다시 받는다(추천 결과는 저장하지 않는다) */
+  showingResults: boolean
+  /** 마지막 추천 때 채팅에 말한 유의사항 */
+  notices: string[]
 }
 
 /** 한 평가 기준(타건감·연결 안정성 등)에 모인 후기 관측 집계 */
@@ -588,7 +613,8 @@ export interface PeripheralSpecCheck { key: string; text: string; ok: boolean }
 /** 사용자가 말한 항목 하나와 그 근거 연결. feelCodes 는 체감 속성 코드, externalAspects 는 외부 리뷰 항목 코드 */
 export interface PeripheralRequested {
   label: string
-  source: 'stated' | 'situation' | 'purpose'
+  /** pc_purpose: 말하지 않았고 묶은 PC 견적의 용도에서만 온 목적 */
+  source: 'stated' | 'situation' | 'purpose' | 'pc_purpose'
   /** spec: 스펙 값으로 판정 · evidence: 사용기·외부 리뷰로 판단 */
   type: 'spec' | 'evidence'
   specChecks: PeripheralSpecCheck[]
@@ -854,6 +880,8 @@ export interface Api {
     interpret(request: PeripheralInterpretRequest): Promise<PeripheralInterpretResult>
     /** 채팅 한 턴: 문장 해석 + 질문 답변 + 서버가 만든 답장. sessionId 가 없으면 서버에 빈 세션을 만들어 쓴다 */
     chat(request: PeripheralChatRequest): Promise<PeripheralChatResult>
+    /** 이 세션(목록)에 저장된 주변기기 채팅. 내 것이 아니거나 없는 세션이면 NOT_FOUND */
+    history(sessionId: string): Promise<PeripheralHistory>
   }
   quoteDrafts: {
     /** 서버가 받을 수 있는 업로드 한도·이미지 인식 가능 여부. 화면 진입 때 확인한다 */

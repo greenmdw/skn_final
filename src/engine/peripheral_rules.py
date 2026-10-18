@@ -422,13 +422,16 @@ def _check_situations(data: dict) -> None:
         raise PeripheralRuleError("주변기기 situations 는 비지 않은 표여야 함")
     for code, entry in section.items():
         where = f"situations.{code}"
-        if not isinstance(entry, dict) or set(entry) != {"label", "words", "same_condition_group"}:
-            raise PeripheralRuleError(f"주변기기 {where} 키 오류(label, words, same_condition_group)")
+        keys = set(entry) if isinstance(entry, dict) else set()
+        if not {"label", "words", "same_condition_group"} <= keys <= {"label", "words", "same_condition_group", "exclude"}:
+            raise PeripheralRuleError(f"주변기기 {where} 키 오류(label, words, same_condition_group + 선택 exclude)")
         if not isinstance(entry["label"], str) or not entry["label"].strip():
             raise PeripheralRuleError(_LABEL_MSG.format(where=where))
         _check_name_list(f"{where}.words", entry["words"], allow_empty=False)
         if not isinstance(entry["same_condition_group"], bool):
             raise PeripheralRuleError(f"주변기기 {where}.same_condition_group 은 true/false 여야 함")
+        if "exclude" in entry:
+            _check_name_list(f"{where}.exclude", entry["exclude"], allow_empty=False)
 
 
 def _all_purpose_codes(data: dict) -> set[str]:
@@ -580,9 +583,10 @@ def _check_interpretation(data: dict) -> None:
 
 
 _CHAT_KEYS = {"markers", "request_words", "types", "spec_topics", "spec_summary", "review_topics",
-              "glossary", "unsupported", "answers", "examples", "chips"}
+              "glossary", "unsupported", "answers", "examples", "chips", "commands"}
+_CHAT_COMMANDS = {"reset", "remove", "swap", "cheaper", "budget_words"}
 _CHAT_TYPES = ("term", "compat", "capabilities", "conditions", "compare", "why", "spec", "review")
-_CHAT_ANSWERS = {"capabilities", "other", "no_result", "no_kind", "no_pc", "no_cross_check"}
+_CHAT_ANSWERS = {"capabilities", "other", "no_result", "no_kind", "no_pc", "no_cross_check", "nothing_no_kind", "nothing_with_kind"}
 
 
 def _text(where: str, value: Any) -> str:
@@ -652,6 +656,11 @@ def _check_chat(data: dict) -> None:
     if not isinstance(section, dict) or set(section) != _CHAT_KEYS:
         raise PeripheralRuleError(f"주변기기 chat 절 키 오류: {sorted(_CHAT_KEYS)}")
     _check_name_list("chat.markers", section["markers"], allow_empty=False)
+    commands = section["commands"]
+    if not isinstance(commands, dict) or set(commands) != _CHAT_COMMANDS:
+        raise PeripheralRuleError(f"주변기기 chat.commands 키 오류: {sorted(_CHAT_COMMANDS)}")
+    for name, words in commands.items():
+        _check_name_list(f"chat.commands.{name}", words, allow_empty=False)
     _check_name_list("chat.request_words", section["request_words"], allow_empty=False)
 
     types = section["types"]

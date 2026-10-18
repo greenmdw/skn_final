@@ -59,8 +59,8 @@ export function reviewEvidence(aspects: PeripheralReviewAspect[], limit = 3): Re
 // ---- 문장 해석(서버 /peripherals/interpret) 결과를 화면 상태로 다루는 도구 ----
 
 export const EMPTY_INTERPRETATION: PeripheralInterpretation = {
-  kinds: [], purposes: [], situations: [], stated: {}, handSize: null, budget: {}, budgetMin: {}, budgetTotal: null,
-  emphasis: {}, brandLike: {}, brandAvoid: {}, unrecognized: [],
+  kinds: [], purposes: [], purposeKinds: {}, situations: [], stated: {}, handSize: null, budget: {}, budgetMin: {}, budgetTotal: null,
+  emphasis: {}, brandLike: {}, brandAvoid: {}, exclude: {}, unrecognized: [],
 }
 
 export const HAND_SIZE_LABEL = { small: '작은 편', medium: '보통', large: '큰 편' } as const
@@ -122,6 +122,7 @@ export type UnderstoodRemoval =
   | { type: 'emphasis'; kind: PeripheralKind; axis: string }
   | { type: 'brand_like'; kind: PeripheralKind; brand: string }
   | { type: 'brand_avoid'; kind: PeripheralKind; brand: string }
+  | { type: 'exclude'; kind: PeripheralKind; name: string }
   | { type: 'handSize' }
 
 /** 칩 하나를 입력에서 뺀다. 서버를 다시 부르지 않고(문장 해석 비용 없음) 화면이 가진 값만 고친다. */
@@ -129,7 +130,8 @@ export function removeUnderstood(state: UnderstoodState, removal: UnderstoodRemo
   const interp = state.interpretation
   let next: UnderstoodState = state
   if (removal.type === 'purpose') {
-    next = { ...state, interpretation: { ...interp, purposes: without(interp.purposes, [removal.code]) } }
+    const { [removal.code]: _removed, ...purposeKinds } = interp.purposeKinds
+    next = { ...state, interpretation: { ...interp, purposes: without(interp.purposes, [removal.code]), purposeKinds } }
   } else if (removal.type === 'situation') {
     next = { ...state, interpretation: { ...interp, situations: without(interp.situations, [removal.code]) } }
   } else if (removal.type === 'filter') {
@@ -159,6 +161,8 @@ export function removeUnderstood(state: UnderstoodState, removal: UnderstoodRemo
     next = { ...state, interpretation: { ...interp, brandLike: { ...interp.brandLike, [removal.kind]: liked }, emphasis } }
   } else if (removal.type === 'brand_avoid') {
     next = { ...state, interpretation: { ...interp, brandAvoid: { ...interp.brandAvoid, [removal.kind]: without(interp.brandAvoid[removal.kind] ?? [], [removal.brand]) } } }
+  } else if (removal.type === 'exclude') {
+    next = { ...state, interpretation: { ...interp, exclude: { ...interp.exclude, [removal.kind]: without(interp.exclude[removal.kind] ?? [], [removal.name]) } } }
   } else if (removal.type === 'handSize') {
     next = { ...state, interpretation: { ...interp, handSize: null } }
   } else {
@@ -196,9 +200,9 @@ export function applyAdjustChip(state: UnderstoodState, chip: PeripheralAdjustCh
 export function recommendInputs(interp: PeripheralInterpretation) {
   return {
     budgetMax: interp.budgetTotal ?? undefined,
-    purposes: interp.purposes, situations: interp.situations, stated: interp.stated, kindBudget: interp.budget,
+    purposes: interp.purposes, purposeKinds: interp.purposeKinds, situations: interp.situations, stated: interp.stated, kindBudget: interp.budget,
     kindBudgetMin: interp.budgetMin,
-    emphasis: interp.emphasis, brandLike: interp.brandLike, brandAvoid: interp.brandAvoid, handSize: interp.handSize,
+    emphasis: interp.emphasis, brandLike: interp.brandLike, brandAvoid: interp.brandAvoid, exclude: interp.exclude, handSize: interp.handSize,
   }
 }
 
@@ -219,7 +223,7 @@ export function withKinds(state: UnderstoodState, kinds: PeripheralKind[]): Unde
     ...state,
     interpretation: {
       ...interp, kinds, stated: keep(interp.stated), budget: keep(interp.budget), budgetMin: keep(interp.budgetMin),
-      emphasis: keep(interp.emphasis), brandLike: keep(interp.brandLike), brandAvoid: keep(interp.brandAvoid),
+      emphasis: keep(interp.emphasis), brandLike: keep(interp.brandLike), brandAvoid: keep(interp.brandAvoid), exclude: keep(interp.exclude),
     },
   }
 }

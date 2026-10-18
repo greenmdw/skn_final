@@ -55,6 +55,27 @@ def test_list_splits_on_comma_only():
     assert d.patches["games"] == ["발로란트·롤", "배그"]   # '·' 는 구분자가 아니다
 
 
+def test_work_programs_in_games_move_to_extra():
+    """QA #66 — 모델이 작업 프로그램을 games 에 넣으면 '하는 게임'으로 보였다. 게임만 남기고 프로그램은 extra 로."""
+    d = _draft("computer")
+    msg = d.set("games", "배그, 블렌더, OBS")
+    assert d.patches["games"] == ["배그"]
+    assert d.patches["extra"] == ["사용 프로그램: 블렌더, OBS"]
+    assert "games 에서 뺐다" in msg and "자동 추천에는 반영되지 않는" in msg
+    d = _draft("computer")
+    msg = d.set("games", "프리미어 프로, 애프터이펙트")
+    assert msg.startswith("오류") and "games" not in d.patches
+    assert d.patches["extra"] == ["사용 프로그램: 프리미어 프로, 애프터이펙트"]
+
+
+def test_no_game_title_is_taken_for_a_work_program():
+    from src.engine.stage2_requirement import load_computer_rules
+    titles = load_computer_rules()["requirements"]["game_titles"]
+    names = [n for key, v in titles.items() for n in (key, *(v.get("aliases") or []))]
+    assert names and not [n for n in names if ca.is_work_program(n)]
+    assert not ca.is_work_program("오버워치") and ca.is_work_program("CAD") and not ca.is_work_program("카드게임")
+
+
 def test_nullable_int_clears_and_bool_parses():
     d = _draft("computer")
     d.set("budget_max", "null")

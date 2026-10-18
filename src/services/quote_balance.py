@@ -47,7 +47,7 @@ def requirement_spec(conditions: dict):
     if conditions.get("games"):
         values["games"] = list(conditions["games"])
     slots = Slots(category="computer", mode="build", objective_text="견적 점검", values=values, assumed_keys=assumed)
-    spec = stage2_requirement.run(slots, load_category("computer"), lambda _msg: None)
+    spec = stage2_requirement.run(slots, load_category("computer"), lambda _msg: None, full_slots=True)   # 추천 견적이 아니라 용도별 기준 8개가 필요하다
     rules = load_computer_rules()["requirements"]
     profile = (rules.get("purpose_profiles") or {}).get(purpose)
     resolution = conditions.get("resolution") or rules["default_resolution"]
@@ -116,6 +116,11 @@ def _budget_rows(spec, prices: dict, budget_max: int | None) -> list[dict]:
         spent = sum(quoted[s] for s in priced)
         for slot in priced:
             share, target = quoted[slot] / spent, alloc[slot] / base
+            if target == 0:      # 이 용도의 배분이 0%인 GPU·쿨러(내장 그래픽·기본 쿨러를 쓰는 용도) — 비율을 나눌 수 없어 따로 쓴다
+                rows.append(_row(slot, "예산 비중", "excess",
+                                 f"{slot}에 견적 가격의 {share:.0%}가 쓰였습니다 — 이 용도의 권장 배분은 0%(보통 사지 않는 부품)입니다.",
+                                 round(share, 3), 0))
+                continue
             ratio = share / target
             if ratio < SHARE_LOW or ratio > SHARE_HIGH:
                 state = "short" if ratio < SHARE_LOW else "excess"

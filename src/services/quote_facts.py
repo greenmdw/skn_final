@@ -140,6 +140,25 @@ def _spec_value(v, unit: str) -> str:
     return f"{v}{unit}"
 
 
+def _between_candidates(candidates: list[dict]) -> list[str]:
+    """비교하는 후보 둘 사이의 차이를 코드가 계산해 근거에 싣는다 — 모델이 직접 뺀 숫자는 근거에 없다고 거부돼 답이 버려지던 문제."""
+    if len(candidates) != 2:
+        return []
+    a, b = candidates
+    lines = []
+    if a.get("price") is not None and b.get("price") is not None and a["price"] != b["price"]:
+        cheaper, other = (a, b) if a["price"] < b["price"] else (b, a)
+        lines.append(f"후보끼리 가격: {cheaper['name']}이(가) {other['name']}보다 {other['price'] - cheaper['price']:,}원 저렴")
+    rows_b = {r["label"]: r for r in b["specs"]}
+    for r in a["specs"]:
+        other = rows_b.get(r["label"])
+        if other is None or not isinstance(r["candidate"], (int, float)) or not isinstance(other["candidate"], (int, float))                 or isinstance(r["candidate"], bool) or r["candidate"] == other["candidate"]:
+            continue
+        gap = other["candidate"] - r["candidate"]
+        lines.append(f"후보끼리 {r['label']}: {a['name']} {_spec_value(r['candidate'], r['unit'])} / {b['name']} {_spec_value(other['candidate'], r['unit'])} ({gap:+g})")
+    return lines
+
+
 def compare_parts(result: dict) -> str:
     """`quote_alternatives.compare_parts` 결과를 문장으로 — 스펙 표는 값 차이가 있는 줄 위주로."""
     if result.get("error"):
@@ -163,6 +182,7 @@ def compare_parts(result: dict) -> str:
             lines.append(f"   · {ch['label']}: {_STATE_TEXT[ch['from']]} → {_STATE_TEXT[ch['to']]}")
         rev = c.get("review") or {}
         lines.append("   리뷰: " + (rev.get("headline") or "정보 없음") + (f" (관측된 리뷰 {rev['total_count']}건)" if rev.get("total_count") else ""))
+    lines += _between_candidates(result["candidates"])
     b_rev = (base.get("review") or {})
     if b_rev.get("headline"):
         lines.append("견적 부품 리뷰: " + b_rev["headline"])

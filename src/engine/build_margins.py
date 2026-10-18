@@ -28,6 +28,7 @@ OTHER_LOAD_BASIS_MISSING = "other_load_basis_missing"
 NO_COMPARABLE_THERMAL_TEST = "no_comparable_thermal_test"
 LIQUID_COOLER, AIR_COOLER = "liquid_cooler", "air_cooler"
 POWER_NOT_IN_SCOPE = "power_not_in_scope"
+OMITTED_SLOT = "omitted_slot"          # 신규 조립에서 용도 배분 0 이라 일부러 뺀 GPU·쿨러(내장 그래픽·기본 쿨러)
 REQUIREMENT_NOT_RECORDED = "requirement_not_recorded"
 
 _CASE_RADIATOR_KEYS = (("front", "radiator_front_mm"), ("top", "radiator_top_mm"), ("rear", "radiator_rear_mm"))
@@ -73,6 +74,15 @@ def _not_applicable(unit: str | None, formula: str, reason: str, note: str) -> d
     return _item(NOT_APPLICABLE, unit, formula, reason=reason, note=note)
 
 
+_OMITTED_NOTE = {"GPU": "내장 그래픽을 쓰는 견적(GPU 없음)이라 평가하지 않았습니다.",
+                 "쿨러": "CPU 기본 쿨러를 쓰는 견적(별도 쿨러 없음)이라 평가하지 않았습니다."}
+
+
+def _omitted(chosen, spec, *slots: str) -> str | None:
+    """이 축에 걸린 슬롯 중 일부러 뺀(견적에 없고 omitted_slots 에 있는) 첫 슬롯 — 없으면 None."""
+    return next((s for s in slots if s in spec.omitted_slots and s not in chosen), None)
+
+
 def _no_purchase(chosen, *slots: str) -> bool:
     """이번 견적에서 바뀌는 부품이 이 축에 하나도 없다(4a pc_compat_details 의 skipped 와 같은 기준)."""
     return not any(s in chosen for s in slots)
@@ -88,6 +98,8 @@ def _size_margin(chosen, spec, rules: dict, *, rule: str, formula: str, allowed:
     r = rules[rule]
     allowed_slot, allowed_key = allowed[0], r[allowed[1]]
     actual_slot, actual_key = actual[0], r[actual[1]]
+    if (left := _omitted(chosen, spec, allowed_slot, actual_slot)) is not None:
+        return _not_applicable("mm", formula, OMITTED_SLOT, _OMITTED_NOTE[left])
     if _no_purchase(chosen, allowed_slot, actual_slot):
         return _not_applicable("mm", formula, NO_PURCHASED_PART, _NO_PURCHASE_NOTE)
     limit, used = _read(chosen, spec, allowed_slot, allowed_key), _read(chosen, spec, actual_slot, actual_key)
@@ -113,6 +125,8 @@ def _cooling_kind(chosen, spec) -> tuple[str, dict | None]:
 
 def _cooler_height(chosen, spec, rules: dict) -> dict:
     formula = "케이스 허용 쿨러 높이 − 쿨러 높이"
+    if _omitted(chosen, spec, "쿨러") is not None:
+        return _not_applicable("mm", formula, OMITTED_SLOT, _OMITTED_NOTE["쿨러"])
     if _no_purchase(chosen, "쿨러", "케이스"):
         return _not_applicable("mm", formula, NO_PURCHASED_PART, _NO_PURCHASE_NOTE)
     kind, gap = _cooling_kind(chosen, spec)
@@ -128,6 +142,8 @@ def _cooler_height(chosen, spec, rules: dict) -> dict:
 def _gpu_slots(chosen, spec, rules: dict) -> dict:
     r = rules["gpu_slots"]
     formula = "케이스 확장 슬롯 − 올림(GPU 두께)"
+    if _omitted(chosen, spec, "GPU") is not None:
+        return _not_applicable("slot", formula, OMITTED_SLOT, _OMITTED_NOTE["GPU"])
     if _no_purchase(chosen, "GPU", "케이스"):
         return _not_applicable("slot", formula, NO_PURCHASED_PART, _NO_PURCHASE_NOTE)
     thick, expansion = _read(chosen, spec, "GPU", r["gpu_spec"]), _read(chosen, spec, "케이스", r["case_spec"])
@@ -151,6 +167,8 @@ def _gpu_slots(chosen, spec, rules: dict) -> dict:
 def _radiator(chosen, spec, rules: dict) -> dict:
     r = rules["radiator"]
     formula = "라디에이터 크기가 케이스 전면·상단·후면 지원 크기에 있는 위치"
+    if _omitted(chosen, spec, "쿨러") is not None:
+        return _not_applicable("position", formula, OMITTED_SLOT, _OMITTED_NOTE["쿨러"])
     if _no_purchase(chosen, "쿨러", "케이스"):
         return _not_applicable("position", formula, NO_PURCHASED_PART, _NO_PURCHASE_NOTE)
     kind, gap = _cooling_kind(chosen, spec)
@@ -195,12 +213,17 @@ def _power_inputs(chosen, spec, r: dict) -> dict:
     else:
         cpu, cpu_key, basis = None, None, None
     gpu, psu = _read(chosen, spec, "GPU", r["gpu_spec"]), _read(chosen, spec, "파워", r["psu_spec"])
+    gpu_left_out = _omitted(chosen, spec, "GPU") is not None
+    if gpu is None and gpu_left_out:
+        gpu = 0                                   # 내장 그래픽 — 사지 않는 GPU 의 전력은 0W (입력 목록에는 넣지 않는다: 부품 스펙이 아니다)
     inputs, missing = [], []
     if cpu is not None:
         inputs.append(_input(chosen, spec, "CPU", cpu_key, cpu, "W"))
     else:
         missing += [_missing(chosen, "CPU", peak_key, any_of="cpu_power"), _missing(chosen, "CPU", tdp_key, any_of="cpu_power")]
     for slot, key, value in (("GPU", r["gpu_spec"], gpu), ("파워", r["psu_spec"], psu)):
+        if slot == "GPU" and gpu_left_out:
+            continue
         if _is_number(value):
             inputs.append(_input(chosen, spec, slot, key, value, "W"))
         else:
@@ -220,7 +243,7 @@ def _compat_check(chosen, spec, r: dict, p: dict) -> dict:
             extra["limits"] = ["TDP는 최대 패키지 전력보다 낮을 수 있음"]
         return _item(AVAILABLE, "W", formula, value=p["psu"] * factor - (p["cpu"] + p["gpu"]), inputs=p["inputs"], **common, **extra)
     recommended = _read(chosen, spec, "GPU", "recommended_psu_w")
-    one_side = ("GPU" in chosen) != ("파워" in chosen)
+    one_side = ("GPU" in chosen) != ("파워" in chosen) and _omitted(chosen, spec, "GPU") is None
     if r.get("use_gpu_recommended_psu", True) and one_side and _is_number(recommended) and p["psu"] is not None:
         # 기존 검사가 CPU 전력을 모를 때 쓰는 경로 — 같은 입력(GPU 제조사 권장 파워 · 파워 정격)을 적는다.
         inputs = [i for i in p["inputs"] if i["slot"] == "파워"] + [_input(chosen, spec, "GPU", "recommended_psu_w", recommended, "W")]
@@ -283,6 +306,9 @@ def _power(chosen, spec, rules: dict) -> dict:
 
 def _cooling(chosen, spec, rules: dict) -> dict:
     """입력만 기록한다. 카탈로그에 비교 가능한 냉각 시험 자료가 없고 TDP 차이로 여유를 확정하지 않으므로 항상 unavailable."""
+    if _omitted(chosen, spec, "쿨러") is not None:
+        return _not_applicable("W", "—", OMITTED_SLOT, "CPU 기본 쿨러를 쓰는 견적(별도 쿨러 없음)이라 냉각 여유를 평가하지 않았습니다. "
+                               "기본 쿨러의 허용 TDP(설정값)는 CPU 사전 필터에서 확인했습니다.")
     r = rules["power"]
     pairs = (("CPU", r["cpu_spec"], "W"), ("CPU", r.get("cpu_peak_spec", ""), "W"),
              ("쿨러", "cooling_type", None), ("쿨러", "radiator_mm", "mm"), ("쿨러", "height_mm", "mm"))

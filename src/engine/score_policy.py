@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import math
 
+from src.engine.engine_config import perf_beta, price_alpha
+
 AXES = ("가격", "성능", "리뷰")
 _WEIGHT_TOLERANCE = 1e-9
 
@@ -28,13 +30,41 @@ def clip01(x) -> float:
     return min(1.0, max(0.0, _finite_real(x, "점수 축 값")))
 
 
-def price_axis(price, ref_budget) -> float:
-    """가격 축 = B / (B + P). 싸고 예산이 클수록 1에 가깝다. 범위가 (0, 1)이라 clip하지 않는다."""
+def price_axis(price, ref_budget, alpha=None) -> float:
+    """가격 축 = 1 / (1 + (P/B)^alpha) — 로그 가격 Sigmoid. P = B이면 0.5, 쌀수록 1, 비쌀수록 0에 가깝다.
+
+    alpha를 주지 않으면 config/recommendation_engine.yaml 값을 쓴다. alpha=1은 이전 식 B / (B + P)와 같다.
+    범위가 [0, 1]이라 clip하지 않는다."""
     p = _finite_real(price, "가격")
     b = _finite_real(ref_budget, "참고 예산")
     if p <= 0 or b <= 0:
         raise ScoreInputError(f"가격과 참고 예산은 양수여야 합니다: 가격={price!r}, 참고 예산={ref_budget!r}")
-    return b / (b + p)
+    a = price_alpha() if alpha is None else _finite_real(alpha, "가격 축 alpha")
+    if a <= 0:
+        raise ScoreInputError(f"가격 축 alpha는 양수여야 합니다: {alpha!r}")
+    try:
+        ratio_pow = (p / b) ** a
+    except OverflowError:       # P/B가 매우 크면 점수는 0에 수렴한다
+        return 0.0
+    return 1.0 / (1.0 + ratio_pow)
+
+
+def performance_axis(value, target, beta=None) -> float:
+    """성능 축 = 1 / (1 + (T/Q)^beta) — 가격 축과 같은 모양. Q = T이면 0.5, 목표보다 빠를수록 1, 느릴수록 0에 가깝다.
+
+    Q는 후보의 벤치마크 값, T는 목표 값(같은 지표). beta를 주지 않으면 config/recommendation_engine.yaml 값을 쓴다."""
+    q = _finite_real(value, "성능 값")
+    t = _finite_real(target, "성능 목표 값")
+    if q <= 0 or t <= 0:
+        raise ScoreInputError(f"성능 값과 목표 값은 양수여야 합니다: 값={value!r}, 목표={target!r}")
+    b = perf_beta() if beta is None else _finite_real(beta, "성능 축 beta")
+    if b <= 0:
+        raise ScoreInputError(f"성능 축 beta는 양수여야 합니다: {beta!r}")
+    try:
+        ratio_pow = (t / q) ** b
+    except OverflowError:       # 목표보다 아주 느리면 점수는 0에 수렴한다
+        return 0.0
+    return 1.0 / (1.0 + ratio_pow)
 
 
 def validate_axis_weights(weights, where: str) -> None:

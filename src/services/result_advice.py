@@ -22,6 +22,7 @@ from uuid import UUID
 
 from src.engine import ram_config
 from src.engine.brands import PC_SLOTS, SLOT_SYNONYMS
+from src.engine.compat_parse import parse_ox
 from src.engine.lang import fmt_money
 
 # "더 좋다"를 코드가 정할 수 있는 슬롯과 그 값. 순서는 용도 기준 등급과의 차이로 다시 정한다(_upgrade_order).
@@ -92,6 +93,8 @@ def _context(conn, revision_id: UUID) -> _Ctx:
         mode="upgrade" if cvals.get("mode") == "upgrade" else "build",
         owned=owned,
     )
+    from src.services.recommendation_service import restore_omitted_slots
+    restore_omitted_slots(conn, spec, stored)       # 신규 조립에서 일부러 뺀 GPU·쿨러 — 호환·전력 판정이 빠진 슬롯을 "정보 없음"으로 세지 않게
     return _Ctx(conn=conn, revision_id=revision_id, stored=stored, cvals=cvals, targets=targets, pool=pool,
                 by_variant=by_variant, spec=spec, rules=load_computer_rules()["verification"])
 
@@ -160,6 +163,9 @@ _REQ_REASON_TEXT = {
     "FAIL_MEM_TYPE": "메모리 규격 다름",
     "FAIL_FORM_NOT_IN": "요구 규격 아님",
     "FAIL_PROTOCOL": "요구 인터페이스 아님",
+    "FAIL_NO_INTEGRATED_GRAPHICS": "내장 그래픽 없음(이 견적은 그래픽카드를 넣지 않음)",
+    "FAIL_NO_BOX_COOLER": "정품 박스 기본 쿨러 없음(이 견적은 별도 쿨러를 넣지 않음)",
+    "FAIL_BOX_COOLER_TDP": "기본 쿨러 허용 TDP 초과(이 견적은 별도 쿨러를 넣지 않음)",
 }
 
 
@@ -245,7 +251,7 @@ def _ideal_tiers(ctx: _Ctx) -> dict[str, float]:
 # ── 기본 쿨러 ───────────────────────────────────────────────────────────────
 def box_cooler(conn, cpu_variant_id) -> str | None:
     """CPU 정품 박스에 기본 쿨러가 드는지 — 카탈로그 원문 값("O (정품 박스 기준)", "X / SKU 확인"). 없으면 None.
-    추천 엔진은 이 값을 읽지 않는다(엔진 담당 영역) — 채팅 답의 근거로만 쓴다."""
+    엔진의 CPU 사전 필터(GPU·쿨러를 뺀 견적)도 같은 값을 읽는다 — 여기서는 채팅 답의 근거로 쓴다."""
     row = conn.execute(
         "SELECT s.cooler_included FROM catalog.cpu_spec s JOIN catalog.product_variant v ON v.product_id = s.product_id "
         "WHERE v.id = %s", (str(cpu_variant_id),)).fetchone()
@@ -255,9 +261,7 @@ def box_cooler(conn, cpu_variant_id) -> str | None:
 
 
 def _has_box_cooler(value: str | None) -> bool | None:
-    if not value:
-        return None
-    return True if value.upper().startswith("O") else False if value.upper().startswith("X") else None
+    return parse_ox(value)     # 엔진의 CPU 사전 필터와 같은 파서(compat_parse.parse_ox)
 
 
 def cooler_lines(conn, stored_or_ctx, cpu_variant_id=None) -> list[str]:
@@ -973,8 +977,10 @@ def game_check(conn, revision_id: UUID, game: str, swap_slot: str | None = None,
             ram_specs, ram_qty, ram_row = cand.specs, ram_config.pair_qty(cand.specs) or 1, True
         # candidate_id 는 다음 턴("확인해줘")이 같은 후보로 이어 묻게 도구 결과에 남긴다 — 화면에 낼 때는 for_user 가 뺀다.
         note = f"가정: {slot} 를 {cand.name} 로 바꾼 구성 기준입니다(구성표는 그대로) · candidate_id={candidate_id}\n"
+    # 신규 조립에서 일부러 뺀 GPU(내장 그래픽 구성)는 GPU·VRAM 기준을 "정보 없음"이 아니라 비교 제외로 낸다 — GPU 를 바꿔 본 가정이면 비교한다.
+    gpu_left_out = "GPU" in ctx.spec.omitted_slots and ctx.row("GPU") is None and not (note and slot == "GPU")
     have = have_from_specs(gpu, cpu, ram_specs if ram_row else None, ram_qty)
-    return note + check_games(game, have, subject="바꾼 뒤" if note else "지금")
+    return note + check_games(game, have, subject="바꾼 뒤" if note else "지금", integrated_graphics=gpu_left_out)
 
 
 # ── 화면에 낼 때 ─────────────────────────────────────────────────────────────

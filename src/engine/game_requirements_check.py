@@ -21,8 +21,9 @@ def have_from_specs(gpu: Mapping[str, Any] | None, cpu: Mapping[str, Any] | None
     return {"gpu": gpu.get("perf_tier"), "cpu": cpu.get("perf_tier"), "ram_gb": ram_gb or None, "vram_gb": gpu.get("vram_gb")}
 
 
-def check_games(game: str, have: Mapping[str, Any], *, subject: str = "지금") -> str:
-    """`game`(게임 이름이 든 글)의 요구 사양과 `have` 를 비교한 문장들. `subject` 는 값 앞의 말("지금"·"바꾼 뒤")."""
+def check_games(game: str, have: Mapping[str, Any], *, subject: str = "지금", integrated_graphics: bool = False) -> str:
+    """`game`(게임 이름이 든 글)의 요구 사양과 `have` 를 비교한 문장들. `subject` 는 값 앞의 말("지금"·"바꾼 뒤").
+    `integrated_graphics` — 그래픽카드를 일부러 넣지 않은 내장 그래픽 구성이라 GPU·VRAM 기준은 비교하지 않는다."""
     rules = load_computer_rules()
     keys, tiers, unknown = match_games(game, rules)
     if not keys:
@@ -31,9 +32,13 @@ def check_games(game: str, have: Mapping[str, Any], *, subject: str = "지금") 
     lines = []
     for key, need in zip(keys, tiers):
         status = game_title_status(key, rules)["status"]
-        parts, short = [], []
+        parts, short, skipped = [], [], []
         for k in ("gpu", "cpu", "ram_gb", "vram_gb"):
             if need.get(k) is None:
+                continue
+            if k in ("gpu", "vram_gb") and integrated_graphics:
+                parts.append(f"{_LABEL[k]} 요구 {need[k]:g} / 그래픽카드를 넣지 않은 내장 그래픽 구성이라 비교하지 않음")
+                skipped.append(_LABEL[k])
                 continue
             h = have.get(k)
             if h is None:
@@ -43,7 +48,9 @@ def check_games(game: str, have: Mapping[str, Any], *, subject: str = "지금") 
             parts.append(f"{_LABEL[k]} 요구 {need[k]:g} / {subject} {float(h):g}" + ("" if ok else " ⚠ 미달"))
             if not ok:
                 short.append(_LABEL[k])
-        verdict = (f"요구 기준 미달: {', '.join(short)}" if short else "표의 요구 기준을 모두 채움")
+        verdict = (f"요구 기준 미달: {', '.join(short)}" if short else
+                   "비교한 요구 기준을 모두 채움(그래픽카드가 없는 내장 그래픽 구성이라 GPU·VRAM 기준은 비교하지 않음)" if skipped else
+                   "표의 요구 기준을 모두 채움")
         src = "배급사 권장 사양 확인값" if status == "approved" else "권장 사양을 대략 옮긴 잠정값이라 공식 권장 사양 확인 필요"
         aliases = (rules["requirements"]["game_titles"].get(key) or {}).get("aliases") or []
         names = "/".join(dict.fromkeys(a for a in aliases if re.search(r"[가-힣]", a))) or game_title_label(key, rules)

@@ -261,7 +261,7 @@ export interface WireReport {
   confirmed_at: string
   items: WireReportItem[]
   /** 확정할 때 같이 얼린 주변기기(없으면 빈 배열) */
-  peripherals?: { kind: 'monitor' | 'keyboard' | 'mouse' | 'speaker'; product: { product_key: string; name: string; image_url: string | null; purchase_url: string | null }; price: number; qty: number }[]
+  peripherals?: { kind: 'monitor' | 'keyboard' | 'mouse' | 'speaker'; product: { product_key: string; name: string; image_url: string | null; purchase_url: string | null }; variant_id?: string | null; price: number; qty: number }[]
 }
 
 export interface WireReportSummary {
@@ -281,6 +281,7 @@ export interface WireListSummary {
   name: string
   category: string | null
   stage: 'category' | 'conditions' | 'results' | 'report'
+  chat?: 'computer' | 'peripheral'
   updated_at: string
   last_active_at: string | null
   first_message: string | null
@@ -368,7 +369,7 @@ export interface WirePeripheralReviewContribution {
 }
 export interface WirePeripheralScoreDetail { axes: { axis: string; label?: string; value: number; weight: number; points: number }[] }
 export interface WirePeripheralRequested {
-  label: string; source: 'stated' | 'situation' | 'purpose'; type: 'spec' | 'evidence'
+  label: string; source: 'stated' | 'situation' | 'purpose' | 'pc_purpose'; type: 'spec' | 'evidence'
   spec_checks: { key: string; text: string; ok: boolean }[]; feel_codes: string[]; external_aspects: string[]
 }
 export interface WirePeripheralItem {
@@ -432,6 +433,7 @@ export interface WirePeripherals {
 export interface WirePeripheralInterpretation {
   kinds: ('monitor' | 'keyboard' | 'mouse' | 'speaker')[]
   purposes: string[]
+  purpose_kinds?: Record<string, ('monitor' | 'keyboard' | 'mouse' | 'speaker')[]>
   situations: string[]
   stated: Record<string, string[]>
   hand_size: 'small' | 'medium' | 'large' | null
@@ -441,6 +443,7 @@ export interface WirePeripheralInterpretation {
   emphasis?: Record<string, string[]>
   brand_like?: Record<string, string[]>
   brand_avoid?: Record<string, string[]>
+  exclude?: Record<string, string[]>
   unrecognized: string[]
 }
 export interface WirePeripheralResolvedCondition { condition: string; label: string; sources?: string[] }
@@ -458,12 +461,23 @@ export interface WirePeripheralInterpret {
   source: 'llm' | 'rules'
   truncated?: boolean
 }
+export interface WirePeripheralHistory {
+  messages: { role: 'user' | 'assistant'; text: string; at: string }[]
+  interpretation: WirePeripheralInterpretation
+  resolved: WirePeripheralInterpret['resolved']
+  showing_results: boolean
+  notices: string[]
+}
+
 export interface WirePeripheralChat extends WirePeripheralInterpret {
   turn: {
     new_conditions: { kind: string; label: string }[]
     not_reflected: string[]
     notes: string[]
     answer: { type: string; topic: string | null; text: string; kinds: ('monitor' | 'keyboard' | 'mouse' | 'speaker')[]; chips: string[] } | null
+    command?: string | null
+    removed_conditions?: { kind: string; label: string }[]
+    reset?: boolean
     reply: string
     chips: string[]
     result_chips: string[]

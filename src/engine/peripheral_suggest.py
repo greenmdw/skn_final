@@ -31,7 +31,7 @@ def _visible_order(pick: PeripheralPick) -> list[str]:
 
 
 def _already_said(add: dict[str, Any], interp: Interpretation, kind: str) -> bool:
-    said_purposes = {*interp.purposes, *interp.situations}
+    said_purposes = {*peripheral_intent.purposes_for(interp, kind), *interp.situations}
     stated = set(interp.stated.get(kind, []))
     return (set(add.get("purposes", [])) | set(add.get("situations", [])) <= said_purposes
             and set(add.get("stated", [])) <= stated)

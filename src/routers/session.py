@@ -1,5 +1,6 @@
 """/session HTTP handlers."""
 from __future__ import annotations
+from typing import Literal
 from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
 from src import schemas
@@ -189,21 +190,38 @@ def swap(list_id: UUID, item_id: UUID, body: schemas.SwapIn, principal: Principa
         stored = recommendation_service.swap_item(conn, revision["id"], item_id, UUID(body.candidate_id), user_id=principal.user_id)
     return schemas.RecommendResultOut(**stored)
 
+@router.get("/{list_id}/omitted-slots/{slot}/options", response_model=schemas.AlternativesOut)
+def omitted_slot_options(list_id: UUID, slot: Literal["GPU", "쿨러"], principal: Principal = Depends(optional_principal)) -> schemas.AlternativesOut:
+    """신규 조립에서 일부러 뺀 GPU·쿨러를 담을 때 고를 후보(요구 사양·호환을 통과한 것, 싼 순 최대 8개). result.omitted_slots 에 있는 슬롯만."""
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        stored = recommendation_service.list_omitted_options(conn, revision["id"], slot)
+    return schemas.AlternativesOut(**stored)
+
+@router.post("/{list_id}/omitted-slots/{slot}/add", response_model=schemas.RecommendResultOut)
+def omitted_slot_add(list_id: UUID, slot: Literal["GPU", "쿨러"], body: schemas.AddOmittedIn, principal: Principal = Depends(optional_principal)) -> schemas.RecommendResultOut:
+    """일부러 뺀 GPU·쿨러를 담는다 — 기본 배분의 그 슬롯 비율을 빌려 재검증한다. 응답은 갱신된 결과 전체."""
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        stored = recommendation_service.add_omitted_item(conn, revision["id"], slot, UUID(body.candidate_id), user_id=principal.user_id)
+    return schemas.RecommendResultOut(**stored)
+
 @router.post("/{list_id}/peripherals/recommend", response_model=schemas.PeripheralsOut)
 def recommend_peripherals(
     list_id: UUID, body: schemas.PeripheralsRecommendIn, principal: Principal = Depends(optional_principal),
 ) -> schemas.PeripheralsOut:
     """주변기기(모니터·키보드·마우스·스피커) 추천 — 개발요청 6번. PC 견적 대화 없이 바로 호출할 수
     있다. `pc_list_id`를 주면 그 PC 견적의 해상도를 묶어 모니터 교차검사를 추가로 켠다."""
-    from src.services import peripherals_service
+    from src.services import peripheral_history_service, peripherals_service
 
     with get_conn() as conn:
-        session_service._owned(PlanRepo(conn), list_id, principal)
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
         pc_context = (
             peripherals_service.pc_context_from_list(conn, UUID(body.pc_list_id), principal)
             if body.pc_list_id else None
         )
         payload = peripherals_service.recommend(conn, body, pc_context)
+        peripheral_history_service.record_recommend(conn, revision["conversation_id"], body, payload)
     return schemas.PeripheralsOut(**payload)
 
 @router.post("/{list_id}/peripherals/chat", response_model=schemas.PeripheralChatOut)
@@ -215,13 +233,13 @@ def chat_peripherals(
     from src.auth import ratelimit
     from src.engine.peripheral_rules import interpretation_settings
     from src.errors import RateLimited
-    from src.services import peripheral_chat_service, peripherals_service
+    from src.services import peripheral_chat_service, peripheral_history_service, peripherals_service
 
     if not ratelimit.allow(f"peripheral-interpret:{ratelimit.client_ip(request)}",
                            limit=interpretation_settings()["per_minute"], window_seconds=60):
         raise RateLimited("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")
     with get_conn() as conn:       # 소유 확인과 PC 맥락만 — 언어 모델을 부르는 동안 연결을 잡고 있지 않는다
-        session_service._owned(PlanRepo(conn), list_id, principal)
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
         pc_context = (
             peripherals_service.pc_context_from_list(conn, UUID(body.pc_list_id), principal)
             if body.pc_list_id else None
@@ -229,7 +247,22 @@ def chat_peripherals(
     out = peripheral_chat_service.turn(
         body.text, body.previous, body.kinds, pc_list_id=body.pc_list_id, pc_context=pc_context, open_conn=get_conn,
     )
-    return schemas.PeripheralChatOut(**out)
+    result = schemas.PeripheralChatOut(**out)
+    with get_conn() as conn:       # 답을 만든 뒤에 남긴다 — 처리하다 실패한 말은 남지 않는다(화면도 오류만 보여 준다)
+        peripheral_history_service.record_turn(conn, revision["conversation_id"], body.text, body.kinds, result.model_dump(mode="json"))
+    return result
+
+
+@router.get("/{list_id}/peripherals/messages", response_model=schemas.PeripheralHistoryOut)
+def peripheral_messages(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.PeripheralHistoryOut:
+    """주변기기 채팅 기록 — 다른 화면에 갔다 오거나 대화 내역에서 열었을 때 채팅과 마지막 조건을 되살린다.
+    `showing_results` 면 화면이 `interpretation` 으로 추천을 다시 받는다(추천 결과 자체는 저장하지 않는다 — 가격이 바뀐다)."""
+    from src.services import peripheral_history_service
+
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        stored = peripheral_history_service.history(conn, revision["conversation_id"])
+    return schemas.PeripheralHistoryOut(**stored)
 
 @router.post("/{list_id}/result-message", response_model=schemas.ResultMessageOut)
 def result_message(

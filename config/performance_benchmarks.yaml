@@ -1,0 +1,102 @@
+# CPU·GPU 공개 벤치마크 값 — 성능 축(config/recommendation_engine.yaml 의 scoring.performance_axis)이 읽는다.
+# 출처·채운 방법·이상치 처리는 docs/validation/benchmark_catalog_20261016.md 에 있고, 값은 그 문서 5장 표를 그대로 옮겼다.
+# 값을 바꾸면 benchmark_version 을 올린다 — run 의 engine_versions 에 기록된다.
+#
+# 키: catalog_repo.pc_catalog_key(product_type, brand, model) — 개발 카탈로그 CPU 40개·GPU 40개.
+# tier: 2026-10-16 의 제조사 등급 점수(lineup_perf_tier). 목표 값(T)을 등급에서 벤치마크 눈금으로 옮길 때만 쓴다.
+#       워크스테이션 GPU 는 등급이 없어(null) 사전 필터에서 판정 보류로 남고 점수에 오르지 않는다.
+# 지표(같은 지표 안에서만 비교한다):
+#   CPU  game_1080p    Tom's Hardware CPU 게임 1080p, Ryzen 7 9850X3D = 100
+#        single_thread Tom's Hardware 단일 스레드 앱, Core Ultra 7 270K Plus = 100
+#        multi_thread  Tom's Hardware 멀티 스레드 앱, Ryzen 9 9950X3D2 = 100
+#        blender       Blender Open Data 4.5.0, 장면 3개 분당 샘플 합의 중앙값
+#   GPU  raster_1080p / raster_1440p / raster_4k / rt_1440p   Tom's Hardware GPU 계층표, RTX 5090 = 100
+#        steel_nomad   3DMark Steel Nomad 중앙값 점수
+#        blender       Blender Open Data 4.5.0(NVIDIA OptiX, AMD HIP)
+# derived: 현재 판에 없어 채운 값 — 환산(과거 판 환산, 문서의 †) / 추정(문서의 *). 그 밖의 값은 현재 판 값이다.
+schema_version: 1
+benchmark_version: perf-bench-20261016
+metrics:
+  cpu: [game_1080p, single_thread, multi_thread, blender]
+  gpu: [raster_1080p, raster_1440p, raster_4k, rt_1440p, steel_nomad, blender]
+products:
+  "cpu:intel:core-i3-12100f": {tier: 4, game_1080p: 48.6, single_thread: 67.3, multi_thread: 18.7, blender: 105.5, derived: {game_1080p: 환산, multi_thread: 환산}}
+  "cpu:intel:core-i3-13100f": {tier: 4, game_1080p: 49, single_thread: 71, multi_thread: 19.9, blender: 119.5, derived: {game_1080p: 환산, multi_thread: 환산}}
+  "cpu:intel:core-i3-14100f": {tier: 4, game_1080p: 49, single_thread: 74.2, multi_thread: 19.2, blender: 118.4, derived: {game_1080p: 추정, single_thread: 추정}}
+  "cpu:intel:core-i5-12400f": {tier: 6, game_1080p: 54.6, single_thread: 69.5, multi_thread: 24, blender: 154.4, derived: {game_1080p: 환산}}
+  "cpu:intel:core-i5-12600k": {tier: 7, game_1080p: 60.8, single_thread: 78.6, multi_thread: 38, blender: 222.4}
+  "cpu:intel:core-i5-13400f": {tier: 6, game_1080p: 55.6, single_thread: 74, multi_thread: 32, blender: 205.4, derived: {game_1080p: 환산}}
+  "cpu:intel:core-i5-13600k": {tier: 8, game_1080p: 70.9, single_thread: 82.4, multi_thread: 48.3, blender: 302.3}
+  "cpu:intel:core-i5-14400": {tier: 6, game_1080p: 58, single_thread: 75.4, multi_thread: 31.4, blender: 198.8}
+  "cpu:intel:core-i5-14400f": {tier: 6, game_1080p: 58, single_thread: 75.4, multi_thread: 31.4, blender: 202.4}
+  "cpu:intel:core-i5-14600k": {tier: 8, game_1080p: 72.8, single_thread: 85.8, multi_thread: 51.9, blender: 299.9}
+  "cpu:intel:core-i7-12700k": {tier: 8, game_1080p: 65.8, single_thread: 79.7, multi_thread: 49.9, blender: 285.8}
+  "cpu:intel:core-i7-13700k": {tier: 9, game_1080p: 75.8, single_thread: 86.7, multi_thread: 64.5, blender: 386.4}
+  "cpu:intel:core-i7-14700k": {tier: 9, game_1080p: 76.4, single_thread: 90.1, multi_thread: 72.2, blender: 441.3}
+  "cpu:intel:core-i9-13900k": {tier: 9, game_1080p: 76.8, single_thread: 92.4, multi_thread: 77.9, blender: 484.4}
+  "cpu:intel:core-i9-14900k": {tier: 9, game_1080p: 78.2, single_thread: 95.4, multi_thread: 80.7, blender: 507.6}
+  "cpu:intel:core-ultra-5-225": {tier: 7, game_1080p: 62.5, single_thread: 87.3, multi_thread: 36.7, blender: 227.5}
+  "cpu:intel:core-ultra-5-245k": {tier: 8, game_1080p: 67.1, single_thread: 92.5, multi_thread: 53.6, blender: 317.9}
+  "cpu:intel:core-ultra-5-250k-plus": {tier: 8, game_1080p: 73.3, single_thread: 94, multi_thread: 68.2, blender: 432.6}
+  "cpu:intel:core-ultra-7-265k": {tier: 9, game_1080p: 70.3, single_thread: 96.8, multi_thread: 75.9, blender: 478}
+  "cpu:intel:core-ultra-7-270k-plus": {tier: 9, game_1080p: 77.5, single_thread: 100, multi_thread: 91.9, blender: 611.1}
+  "cpu:intel:core-ultra-9-285k": {tier: 9, game_1080p: 71.8, single_thread: 98.5, multi_thread: 85.3, blender: 562}
+  "cpu:amd:ryzen-5-7600": {tier: 6, game_1080p: 61.3, single_thread: 76.1, multi_thread: 32.6, blender: 198.1, derived: {game_1080p: 환산, single_thread: 환산, multi_thread: 환산}}
+  "cpu:amd:ryzen-5-7600x": {tier: 7, game_1080p: 67.3, single_thread: 71.5, multi_thread: 30.1, blender: 204}
+  "cpu:amd:ryzen-5-9600x": {tier: 8, game_1080p: 72.6, single_thread: 89, multi_thread: 38.2, blender: 262.7}
+  "cpu:amd:ryzen-7-5800x": {tier: 7, game_1080p: 54.3, single_thread: 68.3, multi_thread: 33.8, blender: 207.2, derived: {game_1080p: 환산, single_thread: 환산, multi_thread: 환산}}
+  "cpu:amd:ryzen-7-5800x3d": {tier: 8, game_1080p: 74.9, single_thread: 65.9, multi_thread: 33.3, blender: 209.5, derived: {game_1080p: 환산}}
+  "cpu:amd:ryzen-7-7700x": {tier: 8, game_1080p: 70.6, single_thread: 84, multi_thread: 45, blender: 279}
+  "cpu:amd:ryzen-7-7700x3d": {tier: 9, game_1080p: 77.7, single_thread: 70.2, multi_thread: 40, blender: 251.5, derived: {game_1080p: 추정, blender: 환산}}
+  "cpu:amd:ryzen-7-7800x3d": {tier: 9, game_1080p: 85.6, single_thread: 77.3, multi_thread: 42.8, blender: 264}
+  "cpu:amd:ryzen-7-9700x": {tier: 8, game_1080p: 77.4, single_thread: 90.6, multi_thread: 45.4, blender: 309.3, derived: {game_1080p: 환산}}
+  "cpu:amd:ryzen-7-9800x3d": {tier: 9, game_1080p: 97, single_thread: 87.6, multi_thread: 54.7, blender: 333.9}
+  "cpu:amd:ryzen-7-9850x3d": {tier: 9, game_1080p: 100, single_thread: 93.2, multi_thread: 54.8, blender: 345.2}
+  "cpu:amd:ryzen-9-7900x3d": {tier: 9, game_1080p: 77.1, single_thread: 83, multi_thread: 58.9, blender: 402}
+  "cpu:amd:ryzen-9-7950x": {tier: 9, game_1080p: 71, single_thread: 85.2, multi_thread: 84.6, blender: 550.7}
+  "cpu:amd:ryzen-9-7950x3d": {tier: 9, game_1080p: 83.9, single_thread: 85.4, multi_thread: 81.8, blender: 540.3}
+  "cpu:amd:ryzen-9-9900x": {tier: 9, game_1080p: 73.9, single_thread: 92.2, multi_thread: 73.7, blender: 501}
+  "cpu:amd:ryzen-9-9900x3d": {tier: 9, game_1080p: 86.9, single_thread: 90.8, multi_thread: 74.1, blender: 473.1}
+  "cpu:amd:ryzen-9-9950x": {tier: 9, game_1080p: 76.9, single_thread: 93.3, multi_thread: 93, blender: 625.4}
+  "cpu:amd:ryzen-9-9950x3d": {tier: 9, game_1080p: 95.7, single_thread: 92.8, multi_thread: 96.2, blender: 663.5}
+  "cpu:amd:ryzen-9-9950x3d2": {tier: 10, game_1080p: 95.7, single_thread: 92.2, multi_thread: 100, blender: 687, derived: {game_1080p: 추정}}
+  "gpu:nvidia:geforce-rtx-3050-(6gb)": {tier: 3, raster_1080p: 16.4, raster_1440p: 13.3, raster_4k: 8.5, rt_1440p: 9.4, steel_nomad: 1003, blender: 1008, derived: {raster_1080p: 추정, raster_1440p: 추정, raster_4k: 추정, rt_1440p: 추정, blender: 추정}}
+  "gpu:nvidia:geforce-rtx-3050-(8gb)": {tier: 5, raster_1080p: 21.9, raster_1440p: 17.8, raster_4k: 11.4, rt_1440p: 12.5, steel_nomad: 1338, blender: 1344.7}
+  "gpu:nvidia:geforce-rtx-3060-(12gb)": {tier: 5, raster_1080p: 30.2, raster_1440p: 25, raster_4k: 20, rt_1440p: 20.6, steel_nomad: 1978, blender: 2155.1}
+  "gpu:nvidia:geforce-rtx-4060": {tier: 6, raster_1080p: 35.1, raster_1440p: 28.4, raster_4k: 15.7, rt_1440p: 21.1, steel_nomad: 2309, blender: 3181.9}
+  "gpu:nvidia:geforce-rtx-4060-ti": {tier: 7, raster_1080p: 43.2, raster_1440p: 35.2, raster_4k: 21.5, rt_1440p: 25.5, steel_nomad: 2907, blender: 3940.8}
+  "gpu:nvidia:geforce-rtx-4070": {tier: 8, raster_1080p: 54.7, raster_1440p: 46.5, raster_4k: 37.2, rt_1440p: 38.3, steel_nomad: 3845, blender: 5219}
+  "gpu:nvidia:geforce-rtx-4070-super": {tier: 8, raster_1080p: 62.2, raster_1440p: 54.5, raster_4k: 44.4, rt_1440p: 43.2, steel_nomad: 4650, blender: 6247}
+  "gpu:nvidia:geforce-rtx-4080-super": {tier: 9, raster_1080p: 78, raster_1440p: 70.9, raster_4k: 62.6, rt_1440p: 68.9, steel_nomad: 6621, blender: 8419.2}
+  "gpu:nvidia:geforce-rtx-4090": {tier: 10, raster_1080p: 90.1, raster_1440p: 85.7, raster_4k: 80.4, rt_1440p: 87, steel_nomad: 9225, blender: 11061.5}
+  "gpu:nvidia:geforce-rtx-5060": {tier: 6, raster_1080p: 43.4, raster_1440p: 35.8, raster_4k: 19.6, rt_1440p: 24.4, steel_nomad: 3178, blender: 3680.9}
+  "gpu:nvidia:geforce-rtx-5060-ti": {tier: 7, raster_1080p: 49.3, raster_1440p: 41, raster_4k: 25.4, rt_1440p: 26.3, steel_nomad: 3622, blender: 4309.3}
+  "gpu:nvidia:geforce-rtx-5070": {tier: 8, raster_1080p: 65.1, raster_1440p: 57.6, raster_4k: 49, rt_1440p: 51.1, steel_nomad: 5340, blender: 6173.5}
+  "gpu:nvidia:geforce-rtx-5070-ti": {tier: 9, raster_1080p: 76.2, raster_1440p: 69.8, raster_4k: 61.9, rt_1440p: 65.7, steel_nomad: 6967, blender: 7589}
+  "gpu:nvidia:geforce-rtx-5080": {tier: 9, raster_1080p: 81.9, raster_1440p: 76.7, raster_4k: 69.8, rt_1440p: 73.4, steel_nomad: 8938, blender: 9138.2}
+  "gpu:nvidia:geforce-rtx-5090": {tier: 10, raster_1080p: 100, raster_1440p: 100, raster_4k: 100, rt_1440p: 100, steel_nomad: 14636, blender: 14966}
+  "gpu:nvidia:nvidia-rtx-2000-ada-generation": {tier: null, blender: 2658.8}
+  "gpu:nvidia:nvidia-rtx-4000-ada-generation": {tier: null, blender: 4445.7}
+  "gpu:nvidia:nvidia-rtx-5000-ada-generation": {tier: null, blender: 5677.1}
+  "gpu:nvidia:nvidia-rtx-6000-ada-generation": {tier: null, blender: 10655.3}
+  "gpu:nvidia:nvidia-rtx-a400-/-a1000": {tier: null, blender: 1248.3}
+  "gpu:amd:radeon-pro-w7500": {tier: null, blender: 859}
+  "gpu:amd:radeon-pro-w7600": {tier: null, blender: 985, derived: {blender: 환산}}
+  "gpu:amd:radeon-pro-w7700": {tier: null, blender: 2116.7}
+  "gpu:amd:radeon-pro-w7800": {tier: null, blender: 2770.1}
+  "gpu:amd:radeon-pro-w7900": {tier: null, blender: 3789.7}
+  "gpu:amd:radeon-rx-6500-xt": {tier: 3, raster_1080p: 13.8, raster_1440p: 8.6, raster_4k: 3.2, rt_1440p: 2.1, steel_nomad: 343, blender: 465.9, derived: {raster_1080p: 환산, raster_1440p: 환산, raster_4k: 추정, rt_1440p: 추정}}
+  "gpu:amd:radeon-rx-6600": {tier: 5, raster_1080p: 25.5, raster_1440p: 14.9, raster_4k: 13.1, rt_1440p: 7.6, steel_nomad: 1486, blender: 933.3}
+  "gpu:amd:radeon-rx-6650-xt": {tier: 5, raster_1080p: 31.5, raster_1440p: 22.7, raster_4k: 17.1, rt_1440p: 9.1, steel_nomad: 1853, blender: 1064.8}
+  "gpu:amd:radeon-rx-6750-xt": {tier: 6, raster_1080p: 40.8, raster_1440p: 34.4, raster_4k: 26.7, rt_1440p: 18.9, steel_nomad: 2539, blender: 1539.1}
+  "gpu:amd:radeon-rx-6800-16gb": {tier: 8, raster_1080p: 51.5, raster_1440p: 42.8, raster_4k: 33.6, rt_1440p: 23.1, steel_nomad: 3181, blender: 1872.3, derived: {raster_1080p: 환산, raster_1440p: 환산, raster_4k: 환산, rt_1440p: 환산}}
+  "gpu:amd:radeon-rx-6800-xt": {tier: 8, raster_1080p: 54.9, raster_1440p: 47.6, raster_4k: 38.1, rt_1440p: 29.4, steel_nomad: 3669, blender: 2406.1}
+  "gpu:amd:radeon-rx-7600": {tier: 6, raster_1080p: 34.3, raster_1440p: 27.2, raster_4k: 16.6, rt_1440p: 9.3, steel_nomad: 2312, blender: 1156.6}
+  "gpu:amd:radeon-rx-7600-xt-16gb": {tier: 6, raster_1080p: 35, raster_1440p: 30, raster_4k: 23.1, rt_1440p: 18, steel_nomad: 2355, blender: 1249.6, derived: {raster_1080p: 환산}}
+  "gpu:amd:radeon-rx-7700-xt": {tier: 6, raster_1080p: 50.5, raster_1440p: 43.4, raster_4k: 34.3, rt_1440p: 25.1, steel_nomad: 3322, blender: 2083.6}
+  "gpu:amd:radeon-rx-7800-xt": {tier: 6, raster_1080p: 58.1, raster_1440p: 50.7, raster_4k: 40.7, rt_1440p: 33.3, steel_nomad: 4152, blender: 2457.5}
+  "gpu:amd:radeon-rx-7900-gre": {tier: 8, raster_1080p: 60.5, raster_1440p: 54.8, raster_4k: 44.8, rt_1440p: 37.9, steel_nomad: 4805, blender: 2897.9, derived: {raster_1080p: 환산, raster_1440p: 환산, raster_4k: 환산, rt_1440p: 환산}}
+  "gpu:amd:radeon-rx-7900-xt": {tier: 8, raster_1080p: 71.3, raster_1440p: 64.6, raster_4k: 54, rt_1440p: 43.1, steel_nomad: 5635, blender: 3626.2}
+  "gpu:amd:radeon-rx-7900-xtx": {tier: 9, raster_1080p: 79.3, raster_1440p: 73.1, raster_4k: 63.7, rt_1440p: 50.1, steel_nomad: 6866, blender: 4340.5}
+  "gpu:amd:radeon-rx-9070": {tier: 8, raster_1080p: 69.1, raster_1440p: 62.1, raster_4k: 52.1, rt_1440p: 47.2, steel_nomad: 6312, blender: 2840.5}
+  "gpu:amd:radeon-rx-9070-xt": {tier: 8, raster_1080p: 76.9, raster_1440p: 69.7, raster_4k: 59.4, rt_1440p: 55.1, steel_nomad: 7273, blender: 3279.2}

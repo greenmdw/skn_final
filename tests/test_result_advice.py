@@ -205,7 +205,8 @@ def test_budget_reason_explains_how_the_set_was_chosen_without_changing_it(conn)
     assert f"잔여 {ctx.budget_max - ctx.total():,}원" in out, out
     assert "점수 합이 가장 높은 것" in out and "예산은 넘으면 안 되는 상한" in out
     assert "(성능 우선): 성능 60%" in out                       # 우선순위별 가중치 표 그대로
-    assert "사무 용도 기준 등급" in out and "- CPU:" in out and "- GPU:" in out
+    # 사무 신규 조립은 GPU 를 견적에 넣지 않는다(computer-rules-v14) — 등급 비교는 있는 부품(CPU)만
+    assert "사무 용도 기준 등급" in out and "- CPU:" in out and "- GPU:" not in out
     assert "\n→ " in out                                         # 결론 줄은 코드가 고른다
     assert _snapshot(conn, revision_id) == before
 

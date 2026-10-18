@@ -191,7 +191,8 @@ def _run_peripherals(scenario: dict, result: PipelineResult, log: LogFn, *, cata
         gpu = resolve_chosen(result.rank, result.build).get("GPU")
         if gpu is not None:
             gpu_specs = gpu.specs
-    pc_context = {"resolution": values.get("resolution"), "gpu_specs": gpu_specs}
+    pc_context = {"resolution": values.get("resolution"), "gpu_specs": gpu_specs,
+                  "integrated_graphics": gpu_specs is None and "GPU" in (getattr(result.requirement, "omitted_slots", None) or {})}
 
     result.peripherals = run_peripherals(
         values, candidates, log, pc_context=pc_context, require_review_details=True,

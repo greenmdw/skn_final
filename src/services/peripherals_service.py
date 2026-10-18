@@ -38,8 +38,22 @@ def pc_context_from_list(conn, pc_list_id: UUID, principal: Principal) -> dict |
              for r in PlanRepo(conn).load_full(revision["id"])["conditions"]}
     if cvals.get("category") != "computer":
         return None
-    return {"resolution": cvals.get("resolution"), "gpu_specs": _selected_gpu_specs(conn, revision["id"]),
+    gpu_specs = _selected_gpu_specs(conn, revision["id"])
+    return {"resolution": cvals.get("resolution"), "gpu_specs": gpu_specs,
+            "integrated_graphics": gpu_specs is None and _gpu_left_out(conn, revision["id"]),
             "purpose": cvals.get("purpose")}
+
+
+def _gpu_left_out(conn, revision_id: UUID) -> bool:
+    """PC 견적이 신규 조립 규칙(용도 배분 GPU 0%)으로 GPU 를 일부러 뺐는가 — 저장된 '견적 구성 슬롯' 기록으로 본다."""
+    from src.engine import omitted_slots
+    from src.repo.engine_repo import EngineRepo
+
+    erepo = EngineRepo(conn)
+    run = erepo.get_latest_run_state(revision_id)
+    if run is None or run["status"] != "completed":
+        return False
+    return "GPU" in omitted_slots.omitted_from_step(erepo.get_run_step(run["id"], omitted_slots.OMITTED_SLOTS_STEP))
 
 
 def _selected_gpu_specs(conn, revision_id: UUID) -> dict | None:
@@ -69,9 +83,12 @@ def _intent_from_body(body, pc_purpose: str | None = None):
     """
     from src.engine import peripheral_intent
 
+    pc_codes = peripheral_intent.from_pc_purpose(pc_purpose)
     raw = {
         "kinds": list(body.kinds),
-        "purposes": [*body.purposes, *peripheral_intent.from_pc_purpose(pc_purpose)],
+        "purposes": [*body.purposes, *pc_codes],
+        # PC 견적 용도에서 온 목적은 모든 종류에 적용한다 — 사용자가 같은 목적을 한 종류에만 말했어도 묶지 않는다.
+        "purpose_kinds": {c: ks for c, ks in body.purpose_kinds.items() if c not in pc_codes},
         "situations": list(body.situations),
         "stated": body.stated,
         "budget": body.kind_budget,
@@ -79,6 +96,7 @@ def _intent_from_body(body, pc_purpose: str | None = None):
         "emphasis": body.emphasis,
         "brand_like": body.brand_like,
         "brand_avoid": body.brand_avoid,
+        "exclude": body.exclude,
         "hand_size": body.hand_size,
     }
     interp = peripheral_intent.sanitize(raw)
@@ -132,9 +150,12 @@ def recommend_detailed(conn, body, pc_context: dict | None) -> tuple[dict, "Peri
         "peripheral_kind_budget_min": interp.budget_min,
         "peripheral_intent": interp,
         "peripheral_resolved": peripheral_intent.resolve(interp),
+        # 사용자가 말하지 않았는데 PC 견적 용도에서만 온 목적 — 결과 카드가 "요청하신"이 아니라 PC 용도라고 보이게 한다.
+        "peripheral_pc_purposes": set(peripheral_intent.from_pc_purpose(pc_purpose)) - set(body.purposes),
         # 선호·기피 브랜드와 강조 축은 목록 안의 값으로 정리한 해석에서 온다(예전 입력과 같은 경로).
         "peripheral_brand_like": {k: list(v) for k, v in interp.brand_like.items() if k in body.kinds},
         "peripheral_brand_avoid": {k: list(v) for k, v in interp.brand_avoid.items() if k in body.kinds},
+        "peripheral_exclude": {k: list(v) for k, v in interp.exclude.items() if k in body.kinds},
         "peripheral_emphasis": {k: list(v) for k, v in interp.emphasis.items() if k in body.kinds},
         # 사용기 분석이 쌓은 근거(종류 → 관측). 분석 결과가 없으면 비어 있고 체감 점수는 외부 리뷰만으로 계산된다.
         "peripheral_feel_observations": peripheral_post_pipeline.current_observations(

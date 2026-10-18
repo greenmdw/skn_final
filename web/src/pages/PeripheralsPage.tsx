@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import PeripheralResultSection from '../components/PeripheralResultSection'
 import PlannerShell from '../components/PlannerShell'
 import ResizeHandle, { usePanelWidth } from '../components/ResizeHandle'
@@ -11,6 +11,7 @@ import type { SetupPeripheral } from '../state/types'
 import { useToast } from '../state/ToastContext'
 import { wonFmt } from '../utils/format'
 import { Linkified } from '../utils/linkify'
+import { rememberedPeripheralSession, rememberPeripheralSession } from '../utils/peripheralSession'
 import {
   EMPTY_INTERPRETATION, EMPTY_UNDERSTOOD, HAND_SIZE_LABEL, PERIPHERAL_KINDS as KINDS, QUICK_CONDITIONS, SITUATION_LABEL, applyAdjustChip,
   recommendInputs, removeUnderstood, withKinds,
@@ -49,13 +50,10 @@ function restoredResult(items: SetupPeripheral[], sessionId: string): Peripheral
 
 interface SendOutcome { reply: string; needsKind: boolean }
 
-function PeripheralChat({ messages, onSay, selectedKinds, selectedLabels, conditionCount, showingResults, questionChips, onSend }: {
+function PeripheralChat({ messages, onSay, selectedKinds, questionChips, onSend }: {
   messages: ChatMessage[]
   onSay: (role: ChatMessage['role'], text: string) => void
   selectedKinds: PeripheralKind[]
-  selectedLabels: string[]
-  conditionCount: number
-  showingResults: boolean
   /** 서버가 이번 답 뒤에 권한 질문 문장(결과가 나온 뒤에는 결과에 대한 질문) */
   questionChips: string[]
   /** hintKind: 빠른 조건 칩을 눌렀을 때 그 칩의 품목. 선택한 품목과 함께 서버에 보낸다 */
@@ -131,8 +129,6 @@ function PeripheralChat({ messages, onSay, selectedKinds, selectedLabels, condit
           <button type="button" className="pf-kind-card-go" disabled={busy || pendingKinds.size === 0} onClick={chooseKinds}>이 종류로 찾기</button>
         </div>}
         {busy && <div className="pf-typing" role="status" aria-label="문장을 읽는 중"><i /><i /><i /></div>}
-        {selectedLabels.length > 0 && <div className="pf-reflected">✓ 선택 품목: {selectedLabels.join(' · ')}{conditionCount ? ` · 조건 ${conditionCount}개` : ''}</div>}
-        {showingResults && <div className="pl-msg-bot">품목마다 하나씩 골랐어요. 스펙 조건과 리뷰 근거를 함께 확인해 주세요.</div>}
       </div>
       <div className="pl-chat-foot">
         {quick.length > 0 && <div className="pl-choices pf-quick" aria-label="빠른 조건">
@@ -153,10 +149,12 @@ function PeripheralChat({ messages, onSay, selectedKinds, selectedLabels, condit
 }
 
 // "이해한 내용": 서버가 읽은 목적·선호·직접 말한 조건·예산을 칩으로 보여 준다. 칩의 ×를 누르면 그 값을 입력에서 빼고 추천만 다시 부른다.
-function UnderstoodChips({ understood, kinds, hasPlan, onRemove }: {
+function UnderstoodChips({ understood, kinds, hasPlan, pcPurposes, onRemove }: {
   understood: UnderstoodState
   kinds: PeripheralKind[]
   hasPlan: boolean
+  /** 말하지 않았고 PC 견적 용도에서 붙은 목적(추천 결과의 요청 항목에서). 지울 수 없다 — PC 견적의 용도를 따른다 */
+  pcPurposes: Partial<Record<PeripheralKind, string[]>>
   onRemove: (removal: UnderstoodRemoval) => void
 }) {
   const { interpretation, resolved, adjusted } = understood
@@ -167,6 +165,7 @@ function UnderstoodChips({ understood, kinds, hasPlan, onRemove }: {
     const entry = resolved[kind]
     const chips = [
       ...(entry?.purposes ?? []).map(purpose => chip(`${kind}:p:${purpose.code}`, '목적', purpose.label, { type: 'purpose', code: purpose.code })),
+      ...(pcPurposes[kind] ?? []).map(label => chip(`${kind}:pc:${label}`, 'PC 용도', label)),
       ...(entry?.filters ?? []).map(item => chip(`${kind}:f:${item.condition}`, '조건', item.label, { type: 'filter', kind, condition: item.condition })),
       ...(entry?.preferences ?? []).map(item => chip(`${kind}:s:${item.condition}`, '선호', item.label, { type: 'preference', kind, condition: item.condition, sources: item.sources })),
       ...(interpretation.budget[kind] ? [chip(`${kind}:b`, '예산', wonFmt(interpretation.budget[kind] as number), { type: 'budget', kind })] : []),
@@ -175,6 +174,7 @@ function UnderstoodChips({ understood, kinds, hasPlan, onRemove }: {
       ...(interpretation.emphasis[kind] ?? []).filter(axis => axis !== '브랜드').map(axis => chip(`${kind}:e:${axis}`, '중요', axis, { type: 'emphasis', kind, axis })),
       ...(interpretation.brandLike[kind] ?? []).map(brand => chip(`${kind}:bl:${brand}`, '선호 브랜드', brand, { type: 'brand_like', kind, brand })),
       ...(interpretation.brandAvoid[kind] ?? []).map(brand => chip(`${kind}:ba:${brand}`, '뺄 브랜드', brand, { type: 'brand_avoid', kind, brand })),
+      ...(interpretation.exclude[kind] ?? []).map(name => chip(`${kind}:x:${name}`, '뺀 제품', name, { type: 'exclude', kind, name })),
     ]
     return { kind, chips }
   })
@@ -215,6 +215,12 @@ function chosenProduct(item: PeripheralItem, selection: Record<string, string>) 
   return { name: item.name, brand: item.brand, price: item.price, variantId: item.variantId, imageUrl: item.imageUrl, productUrl: item.productUrl, fromAlternative: false }
 }
 
+const conditionTotal = (state: UnderstoodState) =>
+  Object.values(state.resolved).reduce((sum, entry) => sum + (entry ? entry.preferences.length + entry.filters.length : 0), 0)
+
+const resultMessage = (kinds: PeripheralKind[], conditions: number) =>
+  `✓ ${kinds.map(kindLabel).join(' · ')}${conditions ? ` · 조건 ${conditions}개` : ''}로 품목마다 하나씩 골랐어요. 스펙 조건과 리뷰 근거를 함께 확인해 주세요.`
+
 export default function PeripheralsPage() {
   const { state, setPeripherals } = usePlan()
   const { showToast } = useToast()
@@ -239,6 +245,9 @@ export default function PeripheralsPage() {
   // 종류 → 1위 대신 고른 다른 선택지의 이름. 없으면 1위를 올린다.
   const [selection, setSelection] = useState<Record<string, string>>({})
   const sessionId = useRef<string | null>(restored?.sessionId ?? null)
+  const location = useLocation()
+  // 사용자가 이 화면에서 무언가 말했는가 — 저장된 대화를 받아 오기 전에 말했으면 받아 온 것으로 덮지 않는다.
+  const spokeHere = useRef(false)
 
   const showResults = result !== null
   const selectedKinds = useMemo(() => KINDS.filter(kind => selected.has(kind.id)).map(kind => kind.id), [selected])
@@ -250,9 +259,54 @@ export default function PeripheralsPage() {
   // 결과 화면은 품목이 둘 이상이면 탭으로 나눠 한 번에 한 품목만 보인다.
   const [activeKind, setActiveKind] = useState<PeripheralKind | null>(null)
   const activeItem = result?.items.find(item => item.kind === activeKind) ?? result?.items[0] ?? null
-  const conditionCount = useMemo(() => Object.values(understood.resolved).reduce((sum, entry) => sum + (entry ? entry.preferences.length + entry.filters.length : 0), 0), [understood])
 
-  const say = (role: ChatMessage['role'], text: string) => setMessages(previous => [...previous, { id: nextMessageId.current++, role, text }])
+  const say = (role: ChatMessage['role'], text: string) => {
+    if (role === 'user') spokeHere.current = true
+    setMessages(previous => [...previous, { id: nextMessageId.current++, role, text }])
+  }
+  const adoptSession = (id: string) => {
+    sessionId.current = id
+    rememberPeripheralSession(id)
+  }
+
+  // 저장된 대화를 되살린다(QA 10/15 #19·#30·#47) — 대화 내역에서 연 대화(?session=), 견적 수정하기로 연 견적, 아니면 이 브라우저에서
+  // 마지막으로 쓰던 대화. "새 대화"로 들어왔으면 이어 가지 않는다. 마지막에 추천을 받은 상태였으면 같은 조건으로 추천을 다시 받는다
+  // (결과는 저장하지 않는다 — 가격이 바뀐다). 견적 수정하기는 확정한 구성을 보여 주므로 대화와 조건만 되살린다.
+  const resumeStarted = useRef(false)
+  useEffect(() => {
+    if (resumeStarted.current) return
+    resumeStarted.current = true
+    const fromPanel = new URLSearchParams(location.search).get('session')
+    const startedNew = !fromPanel && Boolean((location.state as { newConversationKey?: string } | null)?.newConversationKey)
+    if (startedNew) {
+      // "새 대화" 표시는 브라우저 기록에 남아 새로고침해도 그대로다 — 지우지 않으면 새로고침마다 방금 시작한 대화를 버린다.
+      rememberPeripheralSession(null)
+      navigate(location.pathname, { replace: true, state: { ...(location.state as object), newConversationKey: undefined } })
+      return
+    }
+    const remembered = rememberedPeripheralSession()
+    const id = fromPanel ?? restored?.sessionId ?? remembered
+    if (!id) return
+    api.peripherals.history(id).then(history => {
+      if (spokeHere.current || sessionId.current && sessionId.current !== id) return
+      adoptSession(id)
+      if (!history.messages.length) return
+      setMessages([{ id: 1, role: 'assistant', text: GREETING },
+        ...history.messages.map(message => ({ id: nextMessageId.current++, role: message.role, text: message.text }))])
+      spokenNotices.current = history.notices.join('\n')
+      if (!history.interpretation.kinds.length) return
+      const next: UnderstoodState = { interpretation: history.interpretation, resolved: history.resolved, adjusted: [] }
+      setUnderstood(next)
+      setSelected(new Set(history.interpretation.kinds))
+      setKindsTouched(true)
+      if (history.showingResults && !restored) void requestRecommendation(next)
+    }).catch(() => {
+      // 내 것이 아니거나 지운 대화 — 새 대화로 시작한다. 이 브라우저가 기억하던 것이면 잊는다.
+      if (id === remembered) rememberPeripheralSession(null)
+    })
+    // 처음 그릴 때 한 번만 — 이후 바뀌는 값은 쓰지 않는다
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function toggle(kind: PeripheralKind) {
     const next = new Set(selected)
@@ -272,11 +326,19 @@ export default function PeripheralsPage() {
     const base = kindsTouched ? selectedKinds : []
     const kinds = chosen ?? (hintKind ? [...new Set([...base, hintKind])] : (base.length ? base : undefined))
     const out = await api.peripherals.chat({ text, previous, kinds, sessionId: sessionId.current, pcListId: plan?.id })
-    sessionId.current = out.sessionId
+    adoptSession(out.sessionId)
     if (out.turn.resultChips.length) resultChips.current = out.turn.resultChips
     setQuestionChips(showResults ? resultChips.current : out.turn.chips)
     if (out.needsKind && !chosen && !hintKind) return { reply: out.turn.answer?.text ?? '', needsKind: true }
-    const changed = out.turn.newConditions.length > 0
+    // "처음부터 다시": 서버가 조건을 모두 지웠다 — 결과를 지우고 첫 화면(조건 대화)으로 돌아간다. 고른 품목은 둔다.
+    if (out.turn.reset) {
+      setUnderstood({ interpretation: out.interpretation, resolved: out.resolved, adjusted: [] })
+      setResult(null)
+      setNotice('')
+      return { reply: out.turn.reply, needsKind: false }
+    }
+    // 결과 화면 명령("키보드 빼줘"·"무선 조건 취소")은 조건을 빼기만 하므로 removedConditions 로도 바뀐 것을 안다.
+    const changed = out.turn.newConditions.length > 0 || out.turn.removedConditions.length > 0
     // 질문만 한 턴(조건을 바꾸지 않은 질문)은 선택한 품목과 이해한 내용을 건드리지 않는다. "모니터는 어떤 조건으로…?"라고
     // 물었다고 선택 품목이 모니터 하나로 줄면 안 된다. 종류 카드로 종류를 골라 보낸 경우만 그 종류를 받아들인다.
     const questionOnly = out.turn.answer !== null && !changed && !chosen && !hintKind
@@ -297,15 +359,19 @@ export default function PeripheralsPage() {
     }
     setNotice(''); setError(''); setLoading(true)
     try {
+      // 이번 턴에 품목이 바뀌었으면(예: "키보드는 빼줘") 선택 상태가 아직 갱신되기 전이다 — 받은 해석의 품목을 쓴다.
+      const kinds = next.interpretation.kinds.length ? next.interpretation.kinds : selectedKinds
       const out = await api.peripherals.recommend({
-        kinds: selectedKinds,
+        kinds,
         pcListId: plan?.id,
         ...recommendInputs(next.interpretation),
       }, sessionId.current)
-      sessionId.current = out.sessionId
+      adoptSession(out.sessionId)
       setResult(out)
       setSelection({})
       setPickedKinds(new Set(out.items.map(item => item.kind)))
+      // 추천을 받은 그 자리에 한 번 말한다(QA 10/16 #9) — 채팅 끝에 고정해 두면 뒤에 묻고 답해도 최신 답처럼 남는다.
+      say('assistant', resultMessage(out.items.map(item => item.kind), conditionTotal(next)))
       // 서버가 알리는 유의사항(예: PC 견적 없이 고른 모니터)은 채팅으로도 말한다. 같은 내용을 다시 받아도 되풀이하지 않는다.
       const spoken = out.notices.map(item => item.text).join('\n')
       if (spoken && spoken !== spokenNotices.current) out.notices.forEach(item => say('assistant', item.text))
@@ -381,8 +447,13 @@ export default function PeripheralsPage() {
       onChoose={name => (name === null ? chooseFirst(item) : chooseAlternative(item, name))} />
   }
 
+  // PC 견적 용도에서 붙은 목적(QA 10/16 #16 후속) — 채팅·결과 카드에는 보이는데 "이해한 내용"만 비어 있었다.
+  const pcPurposes: Partial<Record<PeripheralKind, string[]>> = Object.fromEntries((result?.items ?? []).map(item =>
+    [item.kind, item.requested.filter(requested => requested.source === 'pc_purpose').map(requested => requested.label)]))
+
   // 접힌 "이해한 내용" 줄: 읽은 조건 이름을 앞에서부터 몇 개만 보인다.
   const understoodLabels = [
+    ...selectedKinds.flatMap(kind => pcPurposes[kind] ?? []),
     ...selectedKinds.flatMap(kind => {
       const entry = understood.resolved[kind]
       return [...(entry?.purposes ?? []).map(purpose => purpose.label), ...(entry?.filters ?? []).map(condition => condition.label), ...(entry?.preferences ?? []).map(condition => condition.label)]
@@ -401,11 +472,11 @@ export default function PeripheralsPage() {
     ? `${understoodUnique.slice(0, 4).join(' · ')} 외 ${understoodUnique.length - 4}개`
     : understoodUnique.join(' · ')
 
-  const understoodPanel = <UnderstoodChips understood={understood} kinds={selectedKinds} hasPlan={Boolean(plan)} onRemove={removal => changeUnderstood(removeUnderstood(understood, removal))} />
+  const understoodPanel = <UnderstoodChips understood={understood} kinds={selectedKinds} hasPlan={Boolean(plan)} pcPurposes={pcPurposes} onRemove={removal => changeUnderstood(removeUnderstood(understood, removal))} />
 
   return (
-    <PlannerShell sidebar={<PeripheralChat messages={messages} onSay={say} selectedKinds={selectedKinds} selectedLabels={selectedLabels} conditionCount={conditionCount}
-      showingResults={showResults} questionChips={questionChips} onSend={sendTurn} />}>
+    <PlannerShell sidebar={<PeripheralChat messages={messages} onSay={say} selectedKinds={selectedKinds}
+      questionChips={questionChips} onSend={sendTurn} />}>
       <div className={'pf-page' + (showResults ? ' results' : '')}>
         {showResults ? <>
           <div className="pf-results-heading">

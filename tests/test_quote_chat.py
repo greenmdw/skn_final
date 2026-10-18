@@ -495,3 +495,34 @@ def test_a_shortened_swap_product_from_the_agent_is_resolved_to_the_catalog_name
 def test_a_short_game_nickname_inside_a_sentence_is_found_in_the_requirement_table(text):
     out = chat.run_fact(_game_review(), "game", {"text": text, "swap_slot": "", "swap_product": ""}, loader())
     assert "게임 요구 사양 표에 없어" not in out and "요구" in out
+
+
+def test_compare_parts_facts_carry_the_gap_between_the_two_candidates():
+    """"7700X와 9700X 비교"에서 모델이 두 후보의 차이(470원 등)를 직접 빼면 근거에 없는 숫자로 거부돼 원문 나열로 바뀌던 문제 — 차이를 코드가 계산해 싣는다."""
+    from src.services import quote_facts
+    cand = lambda name, price, power: {"name": name, "price": price, "price_delta": price - 569_200, "incompatible": [], "compat_changes": [],  # noqa: E731
+                                       "specs": [{"label": "기본 전력", "unit": "W", "baseline": 120, "candidate": power, "diff": power - 120}], "review": {}}
+    out = quote_facts.compare_parts({"slot": "CPU", "baseline": {"name": "7800X3D", "price": 569_200},
+                                     "candidates": [cand("7700X", 417_760, 105), cand("9700X", 417_290, 65)]})
+    assert "후보끼리 가격: 9700X이(가) 7700X보다 470원 저렴" in out
+    assert "후보끼리 기본 전력: 7700X 105W / 9700X 65W (-40)" in out
+
+
+def test_numbers_from_earlier_turns_are_grounded_for_a_follow_up_question():
+    """후속 질문("둘 중 뭐가 나아?")의 답이 앞 턴에서 이미 나온 수치를 다시 써도 거부하지 않는다."""
+    earlier = ["AMD Ryzen 7 7700X와 9700X를 비교해서 보여줘", "7700X는 기본 전력 105W, 9700X는 65W입니다."]
+    reply = "기본 전력은 7700X가 105W, 9700X가 65W입니다. 어느 쪽이 낫다고 판단하지는 않아요."
+    assert quote_review_agent.reply_is_grounded(reply, ["이번 턴 근거"])[0] is False
+    assert quote_review_agent.reply_is_grounded(reply, ["이번 턴 근거", *earlier])[0] is True
+
+
+def test_a_rejected_reply_without_a_matching_lookup_is_not_replaced_by_the_whole_overview(monkeypatch):
+    """질문에 맞는 조회가 없는데 답이 거부되면 요약 전체를 던지지 않고, 어떻게 다시 물으면 되는지 안내한다."""
+    from types import SimpleNamespace
+    import strands
+    monkeypatch.setattr(strands, "Agent", lambda **kw: (lambda text: "근거에 없는 99999원이에요."), raising=False)
+    monkeypatch.setattr(quote_review_agent, "_model", lambda: None)
+    monkeypatch.setattr(quote_review_agent, "make_tools", lambda session: [])
+    monkeypatch.setattr(quote_review_agent, "system_prompt", lambda *a, **k: "prompt")
+    result = quote_review_agent.run_turn({}, [], "둘 중 뭐가 나아?", [], lambda n, a: "요약 전체 문장", user_text="둘 중 뭐가 나아?")
+    assert result.reply == quote_review_agent.NO_GROUNDED_REPLY and "요약 전체 문장" not in result.reply

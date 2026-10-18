@@ -24,6 +24,12 @@ def _targets(assumed=(), **values):
     return stage2_requirement.run(slots, {}, lambda _: None)
 
 
+def _full(**values):
+    """GPU·쿨러를 원하는 부품으로 지정해 8개 슬롯을 모두 사는 spec — 용도 프로필의 요구 하한(tier·용량 …)을 슬롯별로 볼 때 쓴다.
+    (사무·학습·기타는 배분 GPU·쿨러가 0% 라 지정하지 않으면 두 슬롯이 견적에서 빠진다 — tests/test_gpu_cooler_omission.py)"""
+    return _targets(wanted_parts={"GPU": {}, "쿨러": {}}, **values)
+
+
 def _with_rules(tmp_path, monkeypatch, mutate):
     rules = deepcopy(stage2_requirement.load_computer_rules())
     mutate(rules)
@@ -37,7 +43,7 @@ def _with_rules(tmp_path, monkeypatch, mutate):
 
 def test_office_and_study_drop_the_gaming_floor_while_creation_raises_it():
     game = _targets(purpose="game").targets
-    office, study = _targets(purpose="office").targets, _targets(purpose="study").targets
+    office, study = _full(purpose="office").targets, _full(purpose="study").targets
     creation = _targets(purpose="creation").targets
 
     for light in (office, study):
@@ -51,9 +57,33 @@ def test_office_and_study_drop_the_gaming_floor_while_creation_raises_it():
     assert creation["RAM"]["type"] == game["RAM"]["type"]          # 프로필이 안 덮은 값은 기본 그대로
 
 
+def test_office_study_and_other_share_one_budget_allocation():
+    """사무·학습·기타는 배분 한 벌을 함께 쓴다(2026-10-15 통일, YAML 앵커 &office_alloc). GPU·쿨러는 시장 값 그대로 0%."""
+    profiles = stage2_requirement.load_computer_rules()["requirements"]["purpose_profiles"]
+    office = profiles["office"]["budget_allocation"]
+    assert profiles["study"]["budget_allocation"] == office == profiles["other"]["budget_allocation"]
+    assert office == {"GPU": 0, "CPU": 0.29, "메인보드": 0.12, "RAM": 0.25, "저장장치": 0.24, "파워": 0.07, "케이스": 0.03, "쿨러": 0}
+    # 신규 조립에서는 배분 0 인 GPU·쿨러가 견적에서 빠지므로 spec 의 배분에는 나머지 6개만 남는다(합 1 그대로).
+    expected = {slot: v for slot, v in office.items() if v}
+    for purpose in ("office", "study", "other"):
+        assert _targets(purpose=purpose, budget_max=1).budget["alloc"] == expected
+
+
+def test_only_gpu_and_cooler_may_have_zero_budget_allocation():
+    """배분 0 은 "그 슬롯을 사지 않는다"는 뜻이라 GPU·쿨러에만 허용한다. 나머지는 대신할 부품이 없어 양수여야 하고, 기본 배분은 모두 양수다."""
+    req = stage2_requirement.load_computer_rules()["requirements"]
+    allocations = [req["budget_allocation"], *(p["budget_allocation"] for p in req["purpose_profiles"].values())]
+    for alloc in allocations:
+        assert all(v > 0 for slot, v in alloc.items() if slot not in ("GPU", "쿨러"))
+        assert abs(sum(alloc.values()) - 1) < 1e-9
+    assert all(v > 0 for v in req["budget_allocation"].values())          # 다시 넣을 때 빌려 오는 기본 비율
+
+
 def test_profile_budget_allocation_is_used_for_that_purpose_only():
     rules = stage2_requirement.load_computer_rules()["requirements"]
-    assert _targets(purpose="office", budget_max=1).budget["alloc"] == rules["purpose_profiles"]["office"]["budget_allocation"]
+    office_alloc = {s: v for s, v in rules["purpose_profiles"]["office"]["budget_allocation"].items() if v}
+    assert _targets(purpose="office", budget_max=1).budget["alloc"] == office_alloc
+    assert _targets(purpose="creation", budget_max=1).budget["alloc"] == rules["purpose_profiles"]["creation"]["budget_allocation"]
     assert _targets(purpose="game", budget_max=1).budget["alloc"] == rules["budget_allocation"]
 
 
@@ -100,7 +130,7 @@ def test_changed_profile_changes_requirement_without_code_edit(tmp_path, monkeyp
             ram_type="DDR4", storage_capacity_gb_min=2000, psu_efficiency_min="Silver")
 
     _with_rules(tmp_path, monkeypatch, mutate)
-    t = _targets(purpose="office").targets
+    t = _full(purpose="office").targets
     assert (t["CPU"]["perf_tier_min"], t["GPU"]["perf_tier_min"]) == (3, 2)
     assert (t["RAM"]["type"], t["RAM"]["capacity_gb_min"]) == ("DDR4", 64)
     assert t["저장장치"]["capacity_gb_min"] == 2000

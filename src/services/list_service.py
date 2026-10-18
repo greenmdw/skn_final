@@ -232,6 +232,8 @@ def list_conversations(conn, principal: Principal, *, limit: int | None = None, 
             "name": _display_name(row["name"], row["category"]),
             "category": row["category"],
             "stage": _stage(row),
+            # 어느 화면의 대화인가 — 주변기기 대화는 주변기기 화면으로 연다(QA 10/15 #47)
+            "chat": "peripheral" if row.get("has_peripheral_chat") else "computer",
             "updated_at": row["updated_at"],
             "last_active_at": row["last_active_at"],
             "first_message": first[:60] or None,
@@ -252,7 +254,8 @@ def rename(conn, list_id: UUID, principal: Principal, *, name: str) -> dict:
     row = prepo.get_summary(list_id)
     return {
         "list_id": str(row["list_id"]), "name": name, "category": row["category"],
-        "stage": _stage(row), "updated_at": row["updated_at"],
+        "stage": _stage(row), "chat": "peripheral" if row.get("has_peripheral_chat") else "computer",
+        "updated_at": row["updated_at"],
     }
 
 
@@ -402,6 +405,7 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
         peripherals.append({
             "kind": snapshot.get("kind") or line["kind"],
             "product": snapshot.get("product") or {},
+            "variant_id": str(line["variant_id"]),
             "price": int(line["line_amount"]) // max(int(line["pack_count"]), 1), "qty": int(line["pack_count"]),
         })
     watch = NotificationRepo(conn).get_for_revision(revision["id"])

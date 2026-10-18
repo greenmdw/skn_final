@@ -43,6 +43,11 @@ from src.engine.stage3c_verify import _FAIL_ISSUE_PENALTY, _PERIPHERAL_ISSUE_PEN
 # monitor_gpu_port·monitor_usb_c 둘 다 "GPU 쪽 데이터가 없다"는 같은 이유일 때 이 문장을 쓴다.
 _GPU_PORT_DATA_MISSING = "그래픽카드 출력 단자 정보가 없어 확인하지 못했습니다"
 
+# GPU 를 빼고 내장 그래픽을 쓰는 견적(신규 조립에서 용도 배분 GPU 0%, 결정 D6): 모니터는 메인보드의 영상 출력 단자에 연결하는데
+# 메인보드 사양에 영상 출력(HDMI·DP) 정보가 없어 단자 호환은 확인하지 못한다 — 틀렸다고 하지 않고 '확인 필요'로 남긴다.
+_IGPU_PORT_DATA_MISSING = ("내장 그래픽을 쓰는 견적이라 모니터는 메인보드의 영상 출력 단자에 연결하는데, "
+                           "메인보드 영상 출력(HDMI·DP) 정보가 카탈로그에 없어 확인하지 못했습니다")
+
 _IFACES: tuple[str, ...] = ("hdmi", "dp")
 
 PortVersion = tuple[int, int]
@@ -179,9 +184,12 @@ def _iface_state(
 
 def _monitor_gpu_port_check(
     monitor: Candidate, gpu_specs: dict | None, target_refresh_hz: float | None, rules: dict,
+    integrated_graphics: bool = False,
 ) -> dict[str, Any]:
     axis = "monitor_gpu_port"
     gpu_keys = (rules.get("verify") or {}).get("gpu_keys") or {}
+    if gpu_specs is None and integrated_graphics:
+        return _check(axis, "unknown", _IGPU_PORT_DATA_MISSING)
 
     if gpu_specs is None or not gpu_keys or not _gpu_has_port_data(gpu_specs, gpu_keys):
         return _check(axis, "unknown", _GPU_PORT_DATA_MISSING)
@@ -220,10 +228,13 @@ def _monitor_usb_c_applicable(monitor: Candidate) -> bool:
     return usb_c in ("USB-C", "Thunderbolt") and hdmi_ports == 0 and dp_ports == 0
 
 
-def _monitor_usb_c_check(monitor: Candidate, gpu_specs: dict | None, rules: dict) -> dict[str, Any] | None:
+def _monitor_usb_c_check(monitor: Candidate, gpu_specs: dict | None, rules: dict,
+                         integrated_graphics: bool = False) -> dict[str, Any] | None:
     if not _monitor_usb_c_applicable(monitor):
         return None
     axis = "monitor_usb_c"
+    if gpu_specs is None and integrated_graphics:
+        return _check(axis, "unknown", _IGPU_PORT_DATA_MISSING)
     gpu_keys = (rules.get("verify") or {}).get("gpu_keys") or {}
     usb_key = gpu_keys.get("usb_c_video_out")
     if gpu_specs is None or not usb_key or gpu_specs.get(usb_key) is None:
@@ -236,19 +247,22 @@ def _monitor_usb_c_check(monitor: Candidate, gpu_specs: dict | None, rules: dict
 # ── 진입점 ───────────────────────────────────────────────────────────────
 def monitor_cross_checks(
     monitor: Candidate, *, pc_resolution: str, gpu_specs: dict | None,
-    target_refresh_hz: float | None, rules: dict,
+    target_refresh_hz: float | None, rules: dict, integrated_graphics: bool = False,
 ) -> list[dict[str, Any]]:
     """모니터 하나에 대한 교차 검사 결과 목록(계획 §3.3 E12).
 
     `peripheral_payload().items[].checks`(E13)와 어휘를 맞춘 `{"axis", "label", "state",
     "detail"}` 사전을 낸다. `monitor_usb_c`는 해당하지 않으면 목록에서 아예 빠진다
     (`_monitor_usb_c_applicable` 참고).
+
+    `integrated_graphics` — PC 견적이 GPU 를 사지 않고 내장 그래픽을 쓴다(GPU 스펙이 없는 이유가 "못 골라서"가 아니다).
+    단자 검사는 "메인보드 영상 출력 정보 없음"으로 확인 필요가 된다(오류·위반이 아니다).
     """
     checks = [
         _monitor_resolution_check(monitor, pc_resolution, rules),
-        _monitor_gpu_port_check(monitor, gpu_specs, target_refresh_hz, rules),
+        _monitor_gpu_port_check(monitor, gpu_specs, target_refresh_hz, rules, integrated_graphics),
     ]
-    usb_c_check = _monitor_usb_c_check(monitor, gpu_specs, rules)
+    usb_c_check = _monitor_usb_c_check(monitor, gpu_specs, rules, integrated_graphics)
     if usb_c_check is not None:
         checks.append(usb_c_check)
     return checks

@@ -53,7 +53,11 @@ class RequirementSpec(BaseModel):
     # 업그레이드에서 사용자가 그대로 쓰는 부품 — slot -> {name, specs, source(catalog|text|unverified)}.
     # 견적에는 안 넣고 호환성 검사(소켓·메모리·전력 …)에만 쓴다. 모르는 부품은 키가 없다.
     owned: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    budget: dict[str, Any] = Field(default_factory=dict)              # total, alloc, feasibility
+    budget: dict[str, Any] = Field(default_factory=dict)              # total, alloc, feasibility, borrowed_alloc(선택)
+    # 신규 조립에서 용도 배분이 0 이라 견적에서 일부러 뺀 슬롯 — slot -> 대신하는 방식("integrated_graphics" | "box_cooler").
+    # targets·budget.alloc 에는 없다. 정보가 없어 비어 있는 슬롯과 구분하려고(필수 정보 누락·세트 미완성으로 세지 않는다) 따로 둔다.
+    # budget.borrowed_alloc: 배분 0 인 슬롯을 다시 넣을 때 기본 배분에서 빌려 온 비율 — slot -> {"ratio", "reason"}.
+    omitted_slots: dict[str, str] = Field(default_factory=dict)
     flags: list[str] = Field(default_factory=list)
     unresolved: list[dict[str, str]] = Field(default_factory=list)
     # E7 — 인식된 게임 제목별 출처·승인 상태. 항목: {"key", "label", "status", "source"}.

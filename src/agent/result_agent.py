@@ -34,7 +34,7 @@ from src.agent.conditions_agent import _model, is_search_confirmation
 from src.agent.text_guard import foreign_script
 from src.clients.llm_guard import llm_call_slot
 from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, RESULT_AGENT
-from src.errors import NotFound, ServiceUnavailable
+from src.errors import NotFound, ServiceUnavailable, ValidationFailed
 
 log = logging.getLogger(__name__)
 
@@ -111,12 +111,28 @@ class ResultSession:
                 out[node_slot[r["node_id"]]] = int(spec["perf_tier_min"])
         return out
 
+    def _omitted_slot(self, slot: str) -> dict | None:
+        """이 견적에서 일부러 뺀 슬롯(신규 조립, 용도 배분 0%의 GPU·쿨러)이면 그 항목."""
+        s = slot.strip().lower()
+        return next((e for e in self.result.get("omitted_slots") or []
+                     if e["slot"].lower() == s or e.get("slot_label") == slot.strip()), None)
+
+    def _no_slot(self, slot: str) -> str:
+        """구성표에 없는 슬롯 오류 문장 — 일부러 뺀 슬롯이면 담는 방법을 알려 준다."""
+        entry = self._omitted_slot(slot)
+        if entry is not None:
+            return (f"오류: 이 견적은 {entry['slot']}을(를) 일부러 넣지 않았습니다({entry['reason_text']}). 교체·수량 대상이 아닙니다 — 사용자가 "
+                    f"원하면 omitted_options('{entry['slot']}')로 후보를 보고 add_omitted_part 로 담을 수 있습니다.")
+        return f"오류: '{slot}' 슬롯이 없습니다."
+
     # ── 도구 본체 ──
     def list_alternatives(self, slot: str) -> str:
         from src.services.recommendation_service import list_alternatives
         call = f"list_alternatives({slot!r})"
         it = self.item(slot)
         if it is None:
+            if self._omitted_slot(slot) is not None:
+                return self._record(call, self._no_slot(slot))
             return self._record(call, f"오류: '{slot}' 슬롯이 없습니다. 슬롯: {[i['slot'] for i in self.result['items']]}")
         rows = list_alternatives(self.conn, self.revision_id, UUID(it["item_id"]))["items"]
         if not rows:
@@ -157,7 +173,7 @@ class ResultSession:
             return refused
         it = self.item(slot)
         if it is None:
-            return self._record(call, f"오류: '{slot}' 슬롯이 없습니다.")
+            return self._record(call, self._no_slot(slot))
         try:
             cid = UUID(self._seen_candidate_id(candidate_id.strip()))
         except ValueError:
@@ -252,7 +268,7 @@ class ResultSession:
             return refused
         it = self.item(slot)
         if it is None:
-            return self._record(call, f"오류: '{slot}' 슬롯이 없습니다.")
+            return self._record(call, self._no_slot(slot))
         sel = None if selected == "" else selected.strip().lower() in ("true", "1", "yes")
         q = None
         if qty != "":
@@ -268,6 +284,49 @@ class ResultSession:
         t = self.result["totals"]
         return self._record(call, (
             f"{it['slot']}: selected={after['selected']} qty={after['qty']}"
+            f" · 총액 {_won(t['selected_price'])} · 예산 잔여 {_won(t['budget_remaining'])}"
+            + (" · ⚠ 예산 초과" if t["over_budget"] else "")
+            + self._compat_note()))
+
+    def omitted_options(self, slot: str) -> str:
+        """일부러 뺀 GPU·쿨러를 담을 때 고를 후보(싼 순, 요구 사양·호환을 통과한 것만)."""
+        from src.services.recommendation_service import list_omitted_options
+        call = f"omitted_options({slot!r})"
+        entry = self._omitted_slot(slot)
+        if entry is None:
+            return self._record(call, f"오류: '{slot}'은(는) 이 견적에서 뺀 부품이 아닙니다. 빠진 슬롯: "
+                                      f"{[e['slot'] for e in self.result.get('omitted_slots') or []] or '없음'}")
+        rows = list_omitted_options(self.conn, self.revision_id, entry["slot"])["items"]
+        if not rows:
+            return self._record(call, f"{entry['slot']}: 이 견적에 담을 수 있는 후보가 없습니다")
+        lines = [f"{entry['slot']} 담을 수 있는 후보({entry['reason_text']} 구성에서 담으면 그만큼 총액이 늘어납니다):"]
+        lines += [f"{i}. candidate_id={r['candidate_id']} · {r['product']['name']} · {_won(r['price'])}"
+                  + (f" · {r['product']['spec_summary']}" if r["product"].get("spec_summary") else "")
+                  for i, r in enumerate(rows, 1)]
+        return self._record(call, "\n".join(lines))
+
+    def add_omitted_part(self, slot: str, candidate_id: str) -> str:
+        """일부러 뺀 GPU·쿨러를 담는다. candidate_id 는 omitted_options 결과의 값."""
+        from src.services.recommendation_service import add_omitted_item
+        call = f"add_omitted_part({slot!r}, {candidate_id!r})"
+        if (refused := self._refuse_write(call)) is not None:
+            return refused
+        entry = self._omitted_slot(slot)
+        if entry is None:
+            return self._record(call, f"오류: '{slot}'은(는) 이 견적에서 뺀 부품이 아닙니다.")
+        try:
+            cid = UUID(self._seen_candidate_id(candidate_id.strip()))
+        except ValueError:
+            return self._record(call, "오류: candidate_id 는 omitted_options 가 돌려준 값이어야 합니다.")
+        try:
+            self.result = add_omitted_item(self.conn, self.revision_id, entry["slot"], cid, user_id=self.user_id)
+        except (NotFound, ValidationFailed) as exc:
+            return self._record(call, f"오류: {exc}")
+        self.changed = True
+        after = self.item(entry["slot"])
+        t = self.result["totals"]
+        return self._record(call, (
+            f"{entry['slot']} 담음: {after['product']['name']} {_won(after['price'])}"
             f" · 총액 {_won(t['selected_price'])} · 예산 잔여 {_won(t['budget_remaining'])}"
             + (" · ⚠ 예산 초과" if t["over_budget"] else "")
             + self._compat_note()))
@@ -482,6 +541,27 @@ def make_tools(s: ResultSession) -> list:
         return s.set_item(slot, selected=keep)
 
     @tool
+    def omitted_options(slot: str) -> str:
+        """이 견적이 일부러 넣지 않은 부품(구성표에 없는 GPU 또는 쿨러 — 내장 그래픽·CPU 기본 쿨러를 쓰는 견적)을 담고 싶다고 할 때
+        고를 수 있는 후보를 보여준다. 담기 전에 반드시 이걸로 candidate_id 를 확인한다. 구성표에 이미 있는 슬롯에는 쓰지 않는다.
+
+        Args:
+            slot: 일부러 뺀 슬롯 이름 (GPU 또는 쿨러)
+        """
+        return s.omitted_options(slot)
+
+    @tool
+    def add_omitted_part(slot: str, candidate_id: str) -> str:
+        """이 견적이 일부러 넣지 않은 GPU·쿨러를 사용자가 담아 달라고 할 때 담는다("그래픽카드도 넣어줘", "쿨러 추가해줘").
+        candidate_id 는 omitted_options 가 돌려준 값. 구성표에 이미 있는 슬롯은 swap 을 쓴다.
+
+        Args:
+            slot: 일부러 뺀 슬롯 이름 (GPU 또는 쿨러)
+            candidate_id: omitted_options 가 돌려준 candidate_id
+        """
+        return s.add_omitted_part(slot, candidate_id)
+
+    @tool
     def explain(slot: str) -> str:
         """왜 이 부품인지 묻는 질문("왜 이 CPU야?", "이거 괜찮아?", "리뷰 어때?")에 답하기 위해 부른다.
         저장된 추천 이유, 예산 비중, 추천 당시 점수 근거(후보 중 순위·점수 비중·리뷰 점수와 속성별 긍정·부정 관측),
@@ -586,7 +666,7 @@ def make_tools(s: ResultSession) -> list:
 
     return [list_alternatives, swap, set_qty, remove_or_restore, explain,
             preview_swap, preview_qty, upgrade_options, budget_reason, savings_options, check_build, game_check,
-            search_unavailable_part]
+            search_unavailable_part, omitted_options, add_omitted_part]
 
 
 # ── 프롬프트 ───────────────────────────────────────────────────────────────
@@ -814,6 +894,10 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "가격 차이는 도구 결과대로 전합니다. '가장 비싼/싼 후보'는 list_alternatives 끝의 '가장 싼 것·가장 비싼 것' 줄로만 말합니다.",
         "17. '아까 ~라고 했잖아', '전에 ~해 준다고 했지'처럼 앞의 대화를 전제로 하면 위 대화 기록에 있는지 봅니다. 없으면 그런 말을 한 적이 없다고 "
         "짧게 바로잡고(잘못을 인정하거나 사과하지 않습니다) 지금 구성표 상태를 전한 뒤, 원하면 해 드린다고 묻습니다.",
+        *(["18. 이 견적은 " + ", ".join(f"{e['slot']}({e['reason_text']})" for e in result.get("omitted_slots") or []) +
+           "을(를) 일부러 넣지 않았습니다(용도 배분 0%). 구성표에 없는 이 부품은 교체·수량 대상이 아니라 사용자가 원할 때만 담습니다 — "
+           "omitted_options 로 후보를 보여 주고 고르면 add_omitted_part 로 담습니다. 물으면 이유와 구매 전 확인 안내를 그대로 전하고, 먼저 권하지 않습니다."]
+          if result.get("omitted_slots") else []),
         *(["", "직전 답의 근거가 된 후보(앞 턴 도구 결과 — '응 그렇게 바꿔줘'처럼 앞 제안을 받으면 이 candidate_id 로 swap):",
            previous] if previous else []),
         *(["", "사용자 질문에 대해 미리 조회한 근거 (이걸로 답합니다. 더 필요하면 explain):", prefetched] if prefetched else []),

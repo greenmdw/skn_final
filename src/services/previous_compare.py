@@ -45,7 +45,7 @@ def _signed_won(amount: int) -> str:
 
 def _requirements(cat_def: dict, values: dict) -> dict:
     slots = slots_from_conditions("computer", cat_def, values)
-    spec = stage2_requirement.run(slots, cat_def, lambda _msg: None)
+    spec = stage2_requirement.run(slots, cat_def, lambda _msg: None, full_slots=True)   # 요구 등급 비교 — 슬롯 구매 여부와 무관
     return {key: spec.targets.get(key[0], {}).get(key[1]) for key in _REQUIREMENT_FIELDS}
 
 

@@ -304,6 +304,8 @@ def run_one(conn, req: dict, by_slot_master: dict, cat_def: dict, category: str)
             rec["owned"] = {s: {"source": o.get("source"), "specs": o.get("specs")} for s, o in sorted(spec.owned.items())}
             rec["current_tiers"] = {s: {"tier": i["tier"], "keys": sorted(i["keys"])} for s, i in sorted(current_tiers.items())}
         rec["targets"] = sorted(spec.targets)
+        rec["omitted_slots"] = dict(spec.omitted_slots)       # computer-rules-v14: 용도 배분 0% 라 견적에서 일부러 뺀 GPU·쿨러
+        rec["borrowed_alloc"] = {s: dict(i) for s, i in (spec.budget.get("borrowed_alloc") or {}).items()}
         rec["target_floors"] = {s: t["perf_tier_min"] for s, t in sorted(spec.targets.items()) if t.get("perf_tier_min") is not None}
         feasibility = feasibility_engine.assess(spec, by_slot)
         spec.budget["feasibility"] = feasibility["level"]
@@ -313,6 +315,12 @@ def run_one(conn, req: dict, by_slot_master: dict, cat_def: dict, category: str)
         flow = engine_flow(spec, slots, by_slot, enricher=make_enricher(conn), conn=conn, catalog_source="db",
                            category=category, already_owned=frozenset(already_owned))
         rec.update(flow_fields(flow, _quiet_aspects()))
+        # 선택된 CPU 의 내장 그래픽·기본 쿨러·TDP — GPU·쿨러를 뺀 견적이 CPU 조건을 지켰는지 보고서가 확인한다.
+        cpu_item = next((i for i in (rec.get("build") or {}).get("items") or [] if i["slot"] == "CPU"), None)
+        if cpu_item is not None:
+            cpu = next((c for c in by_slot.get("CPU", []) if c.product_key == cpu_item["product_key"]), None)
+            if cpu is not None:
+                rec["selected_cpu"] = {k: cpu.specs.get(k) for k in ("integrated_graphics", "cooler_included", "tdp_w")}
     except Exception as exc:  # noqa: BLE001 — 정책 변경 뒤 새 예외가 나와도 덤프는 계속한다
         rec["error"] = _error(exc)
     rec["wall_ms"] = round((time.perf_counter() - started) * 1000)
@@ -338,7 +346,14 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
     ap.add_argument("--limit", type=int)
+    ap.add_argument("--engine-config", help="점수식 설정 YAML 경로(기본: config/recommendation_engine.yaml). "
+                                           "가격 축 alpha 등을 저장소 설정을 고치지 않고 바꿔 비교할 때 쓴다")
     args = ap.parse_args()
+
+    from src.engine import engine_config
+    if args.engine_config:
+        engine_config._ENGINE_CONFIG_PATH = Path(args.engine_config).resolve()
+    engine_cfg = engine_config.load_engine_config()
 
     from src.categories import load_category
     from src.db import get_conn
@@ -356,6 +371,8 @@ def main() -> None:
             "git_commit": _git("rev-parse", "HEAD"),
             "git_dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
             "rule_set_version": load_computer_rules().get("rule_set_version"),
+            "engine_config_version": engine_cfg["config_version"],
+            "price_alpha": engine_cfg["scoring"]["price_axis"]["alpha"],
             "catalog_counts": {s: len(c) for s, c in master.items()},
             "ram_pair_prices": ram_pair_prices(master),
             "requests": [],

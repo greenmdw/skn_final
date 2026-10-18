@@ -204,7 +204,9 @@ def test_end_to_end_board_alternatives_all_fit_the_chosen_cpu(conn):
 
 def test_end_to_end_tiered_alternatives_offer_both_cheaper_and_pricier_options(conn):
     """10/15 QA #61 — CPU·GPU 대안이 등급 가까운 3개뿐이고 모두 더 비쌌다(엔진이 같은 등급의 가장 싼 것을 고른다).
-    지금 가격보다 싼 쪽·비싼 쪽에서 각각 등급이 가까운 것을 고른다."""
+    지금 가격보다 싼 쪽·비싼 쪽에서 각각 등급이 가까운 것을 고른다.
+    computer-rules-v13 배분(게임 CPU 0.14)에서는 이 조건의 CPU 가 보드에 맞는 가장 싼 CPU 라 싼 쪽이 비어 있는 게 맞다 —
+    싼 쪽·비싼 쪽 둘 다 있어야 하는 검사는 양쪽 후보가 있는 GPU 로 하고, CPU 는 비싼 쪽과 개수 상한만 본다."""
     revision_id, result = _recommend(conn)
     for slot in ("CPU", "GPU"):
         item = next(i for i in result["items"] if i["slot"] == slot)
@@ -213,5 +215,5 @@ def test_end_to_end_tiered_alternatives_offer_both_cheaper_and_pricier_options(c
         assert current["current"]
         cheaper = [a["price"] for a in others if a["price"] < current["price"]]
         pricier = [a["price"] for a in others if a["price"] >= current["price"]]
-        assert 0 < len(cheaper) <= rs._SIMILAR_TIER_ALTERNATIVES, (slot, current["price"], cheaper, pricier)
+        assert (0 if slot == "CPU" else 1) <= len(cheaper) <= rs._SIMILAR_TIER_ALTERNATIVES, (slot, current["price"], cheaper, pricier)
         assert 0 < len(pricier) <= rs._SIMILAR_TIER_ALTERNATIVES, (slot, current["price"], cheaper, pricier)

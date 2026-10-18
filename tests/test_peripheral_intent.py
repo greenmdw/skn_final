@@ -605,3 +605,50 @@ def test_recommend_body_hand_size_reaches_interpretation():
     from src.services.peripherals_service import _intent_from_body
     interp, ignored = _intent_from_body(PeripheralsRecommendIn(kinds=["mouse"], hand_size="small"))
     assert interp.hand_size == "small" and ignored == []
+
+
+def test_words_amount_after_several_listed_kinds_is_a_total():
+    """'모니터랑 스피커 30만원'의 금액은 가장 가까운 스피커 하나가 아니라 합계다. 사이에 다른 금액이 있으면 종류별 그대로다."""
+    got = pi.interpret_by_words("모니터랑 스피커 30만원")
+    assert got.budget == {} and got.budget_total == 300000
+    assert pi.interpret_by_words("마우스 5만원 키보드 10만원").budget_total is None
+
+
+@pytest.mark.parametrize("context, total, budget", [
+    (["monitor", "speaker"], 300000, {}),
+    (["monitor"], None, {"monitor": 300000}),
+])
+def test_reconcile_reads_a_bare_amount_with_the_conversation_kinds(context, total, budget):
+    """종류 이름 없이 이어 말한 '30만원'을 규칙 해석도 대화의 종류로 읽는다(10/17 — 전에는 버렸다)."""
+    new = pi.interpret_by_words("30만원")
+    assert new.budget == {} and new.budget_total is None
+    got = pi.reconcile_budget(new, "30만원", context)
+    assert got.budget_total == total and got.budget == budget
+
+
+def test_purpose_kinds_survive_sanitize_and_merge():
+    scoped = pi.sanitize({"kinds": ["mouse"], "purposes": ["fps"], "purpose_kinds": {"fps": ["mouse", "toaster"]}})
+    assert scoped.purpose_kinds == {"fps": ["mouse"]}
+    assert pi.resolve(scoped.model_copy(update={"kinds": ["keyboard", "mouse"]}))["keyboard"].purposes == []
+    unscoped = pi.Interpretation(kinds=["keyboard"], purposes=["fps"])
+    assert pi.merge(scoped, unscoped).purpose_kinds == {}            # 종류 없이 다시 말하면 모든 종류
+    again = pi.Interpretation(kinds=["keyboard"], purposes=["fps"], purpose_kinds={"fps": ["keyboard"]})
+    assert pi.merge(scoped, again).purpose_kinds == {"fps": ["keyboard", "mouse"]}
+
+
+def test_history_restores_purpose_kinds_from_a_recommend_record():
+    """저장된 대화를 되살릴 때 추천 기록의 입력에서 목적의 종류도 되살린다(빠뜨리면 새로고침 뒤 fps 가 키보드로 번졌다)."""
+    from src.services.peripheral_history_service import _from_body
+
+    interp = _from_body({"kinds": ["keyboard", "mouse"], "purposes": ["fps"], "purpose_kinds": {"fps": ["mouse"]}}, [])
+    assert interp.purpose_kinds == {"fps": ["mouse"]}
+
+
+@pytest.mark.parametrize("text, purposes, situations", [
+    ("디자인 예쁜 모니터", [], ["design"]),                      # 외관 — 사진·영상 작업(IPS·고해상도)이 아니다
+    ("디자인 작업용 모니터", ["creative"], []),                  # 작업 — 외관이 아니다
+    ("사진 편집용 모니터, 디자인도 예뻤으면", ["creative"], ["design"]),
+])
+def test_design_as_looks_and_design_as_work_are_told_apart(text, purposes, situations):
+    got = pi.interpret_by_words(text)
+    assert got.purposes == purposes and got.situations == situations

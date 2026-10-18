@@ -16,7 +16,7 @@ export const lists: Api['lists'] = {
       .filter(item => item.category === 'computer')
       .map(item => ({
         listId: item.list_id, name: item.name, stage: item.stage, lastActiveAt: item.last_active_at,
-        firstMessage: item.first_message,
+        firstMessage: item.first_message, chat: item.chat === 'peripheral' ? 'peripheral' as const : 'computer' as const,
         reports: item.reports.map(reportSummaryFromWire),
       }))
       .sort((a, b) => (b.lastActiveAt ?? '').localeCompare(a.lastActiveAt ?? ''))

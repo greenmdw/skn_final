@@ -231,6 +231,36 @@ def test_choose_reports_truncation_and_considered_count():
     assert picks["mouse"].product_key == "m1"   # top-5 안에서는 여전히 1위가 최선
 
 
+def test_choose_looks_past_the_top_n_when_only_cheaper_candidates_fit_the_budget():
+    # 점수 top-5 가 모두 비싸도 더 싼 후보로 예산을 맞출 수 있으면 예산 초과가 아니다(QA 10/16 #8 — 4종 30만 원에 34만 원 + 초과 표시)
+    pricey = [Candidate(product_key=f"p{i}", slot="monitor", name=f"p{i}", price=300_000 + i, score=0.9 - i * 0.01) for i in range(5)]
+    cheap = [Candidate(product_key="c1", slot="monitor", name="c1", price=190_000, score=0.5),
+             Candidate(product_key="c2", slot="monitor", name="c2", price=200_000, score=0.6)]
+    mice = [Candidate(product_key="s1", slot="mouse", name="s1", price=20_000, score=0.8)]
+    picks, counts = choose({"monitor": [*pricey, *cheap], "mouse": mice}, budget_max=250_000)
+    assert "over_budget" not in counts and counts["widened"] == 1
+    assert picks["monitor"].product_key == "c2"      # 예산 안에서는 여전히 점수가 높은 쪽
+    assert sum(c.price for c in picks.values()) <= 250_000
+
+    picks, counts = choose({"monitor": [*pricey, *cheap], "mouse": mice}, budget_max=100_000)
+    assert counts["over_budget"] == 1
+    assert picks["monitor"].product_key == "c1"      # 못 맞추면 top-5 밖까지 포함한 최저가
+
+
+def test_run_peripherals_tells_the_chat_when_no_combination_fits_the_budget():
+    values = {"peripherals": ["monitor", "mouse"], "resolution": "QHD_165", "purpose": "game", "peripheral_budget_max": 1000}
+    result = run_peripherals(values, _candidates(), _NOLOG)
+    assert result.budget["over_budget"] is True
+    notice = result.notices[0]
+    assert (notice["kind"], notice["code"]) == ("budget", "over_budget")
+    total = result.budget["total"]
+    assert f"예산 1,000원" in notice["text"] and f"{total:,}원" in notice["text"] and f"{total - 1000:,}원 넘어요" in notice["text"]
+    assert notice["text"].startswith("모니터·마우스를")
+
+    values["peripheral_budget_max"] = 10_000_000
+    assert not any(n["code"] == "over_budget" for n in run_peripherals(values, _candidates(), _NOLOG).notices)
+
+
 # ── run_peripherals 진입점 ────────────────────────────────────────────────
 def test_run_peripherals_skipped_when_no_condition():
     result = run_peripherals({}, _candidates(), _NOLOG)

@@ -260,7 +260,8 @@ def _messages_out(rows: list[dict]) -> list[dict]:
             "text": row["content"],
             "created_at": row["created_at"].isoformat(),
         }
-        for row in rows
+        # 주변기기 추천 기록(peripheral_history_service, 빈 system 행)은 대화가 아니다
+        for row in rows if not (row["role"] == "system" and (row.get("metadata") or {}).get("channel") == "peripheral")
     ]
 
 
