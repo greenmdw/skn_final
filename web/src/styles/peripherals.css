@@ -377,3 +377,9 @@
 .pr-meter i { display: block; height: 100%; flex-basis: 0; }
 .pr-meter .g { background: var(--ok); }
 .pr-meter .b { background: var(--bad); }
+
+/* 채팅 칩 줄: 한 줄로 두고 옆으로 넘긴다(스크롤바는 숨기고 끝은 흐리게) — 칩이 여러 줄이면 입력칸이 대화에서 멀어 보인다(QA 10/16 #15) */
+.pf-chat .pf-quick { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); padding-right: 24px; }
+.pf-chat .pf-quick::-webkit-scrollbar { display: none; }
+.pf-chat .pf-quick .pl-choice { flex: 0 0 auto; white-space: nowrap; }
+.pf-quick-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
