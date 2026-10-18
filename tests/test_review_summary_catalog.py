@@ -45,6 +45,17 @@ def test_a_catalog_part_with_reviews_gets_its_review_count_and_aspect_counts():
     assert f"{n:,}건" in j["data_notice"]
 
 
+def test_a_catalog_part_summary_does_not_depend_on_the_database_url_env_var(monkeypatch):
+    # .env 에서 DATABASE_URL 을 주석 처리하고 띄운 서버는 config 기본 주소로 접속한다 — 그때도 요약이 나와야 한다.
+    key, _ = _key("p.product_type IN ('cpu','gpu','cooler') AND EXISTS (SELECT 1 FROM evidence.review_aspect_aggregate a "
+                  "WHERE a.product_id = p.id AND a.p + a.n + a.mixed > 0)")
+    monkeypatch.delenv("DATABASE_URL")
+    r = TestClient(app).get(f"/reviews/summary/{key}")
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["status"] == "ready" and j["total_count"] > 0 and j["aspect_facts"]
+
+
 def test_a_catalog_part_without_reviews_is_still_404():
     key, _ = _key("p.product_type IN ('cpu','gpu','motherboard','psu','case','cooler','ram','ssd') AND NOT EXISTS "
                   "(SELECT 1 FROM evidence.review_document d WHERE d.product_id = p.id)")

@@ -94,9 +94,11 @@ def _catalog_review_facts(product_key: str, conn=None) -> dict | None:
 
     위의 두 경로(아마존 관계·행동 축 파일, review_aggregate)는 우리 카탈로그 부품과 겹치지 않아 결과 화면의 부품이
     전부 404 → "리뷰 요약은 아직 없어요"였다(10/15 QA #27·#57). 추천 순위는 같은 부품의 evidence.review_document·
-    review_aspect_aggregate 를 이미 읽고 있다. 리뷰 본문은 내지 않고 건수만 낸다. 실패는 "없음"으로 접는다."""
-    if not os.environ.get("DATABASE_URL"):
-        return None
+    review_aspect_aggregate 를 이미 읽고 있다. 리뷰 본문은 내지 않고 건수만 낸다. 실패는 "없음"으로 접는다.
+
+    `_db_backed_analysis` 와 달리 `DATABASE_URL` 환경변수 유무로 막지 않는다 — 그 변수 없이 띄운 서버(.env 주석,
+    `src/config.py` 기본 주소로 접속)는 결과 화면의 리뷰 개수는 내면서 이 요약만 "분석 없음"으로 냈다. 접속은 앱의
+    다른 경로와 같은 `src/config.DATABASE_URL` 풀을 쓰고, 테스트의 개발 DB 차단·접속 실패는 아래 except 가 접는다."""
     from src.services.result_advice import ASPECT_LABEL
 
     def _read(c):
