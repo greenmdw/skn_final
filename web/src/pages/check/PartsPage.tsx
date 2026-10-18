@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError, errorMessage } from '../../api'
-import { checkV2, LIVE_BATCH_MAX, liveLookupBatch, type Draft, type DraftItem, type MatchReason } from '../../api/checkV2'
+import { checkV2, keySpecsText, LIVE_BATCH_MAX, liveLookupBatch, type Draft, type DraftItem, type MatchReason } from '../../api/checkV2'
 import { CATEGORY_ORDER, PURPOSE_LABEL, RESOLUTION_LABEL, wonText } from '../../utils/checkReview'
 import CheckLayout, { CHECK2 } from './CheckLayout'
 import { useDraft } from './useDraft'
@@ -9,6 +9,12 @@ import { useDraft } from './useDraft'
 const REASON_CHIP: Record<MatchReason['code'], string> = {
   not_in_catalog: '카탈로그에 없음', variant_mismatch: '비슷하지만 다른 제품', ambiguous: '후보가 여러 개',
   insufficient_info: '정보 부족', uncertain_reading: '글자가 흐림', low_quality_photo: '글자가 흐림',     // 두 이유는 사용자에게 같은 말이라 칩은 합치고 설명 문구만 원인별로 다르다
+}
+
+/** 카탈로그에 같은 제품이 표기만 달리(괄호·공백) 두 번 들어 있으면 한 번만 보인다 */
+const uniqueCandidates = (candidates: MatchReason['candidates']) => {
+  const seen = new Set<string>()
+  return candidates.filter(cand => { const key = cand.name.toLowerCase().replace(/[^0-9a-z가-힣]/g, ''); if (seen.has(key)) return false; seen.add(key); return true })
 }
 
 function ItemRow({ item, draft, busy, onPick, onDelete, onLookup, lookup }: {
@@ -44,13 +50,13 @@ function ItemRow({ item, draft, busy, onPick, onDelete, onLookup, lookup }: {
         <div className="c2-detail">
           {reason && <p>{reason.message}</p>}
           {reason?.nearest?.name && (
-            <p className="c2-sub">가장 가까운 제품: {reason.nearest.name}{reason.nearest.why_not ? ` — ${reason.nearest.why_not}` : ''}</p>
+            <p className="c2-sub">가장 가까운 제품: {reason.nearest.name}{reason.nearest.why_not ? ` — ${reason.nearest.why_not}` : ''}{keySpecsText(reason.nearest.key_specs) ? ` (${keySpecsText(reason.nearest.key_specs)})` : ''}</p>
           )}
           {(reason?.candidates.length ?? 0) > 0 && reason && (
             <ul className="c2-cands">
-              {reason.candidates.map(cand => (
+              {uniqueCandidates(reason.candidates).map(cand => (
                 <li key={cand.name}>
-                  <div><strong>{cand.name}</strong><div className="c2-sub">{(cand.key_specs ?? []).join(' · ')}</div></div>
+                  <div><strong>{cand.name}</strong><div className="c2-sub">{keySpecsText(cand.key_specs)}</div></div>
                   <button type="button" className="c2-btn" disabled={busy} onClick={() => onPick(item, cand.name)}>이 제품이에요</button>
                 </li>
               ))}

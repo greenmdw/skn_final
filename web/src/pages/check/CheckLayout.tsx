@@ -5,6 +5,7 @@ import CheckChat from '../../components/check/CheckChat'
 import '../../styles/check.css'          // 재사용하는 업로더·채팅·저장 견적 비교 컴포넌트의 스타일
 import '../../styles/check2.css'
 import type { ChatAction } from '../../api/checkV2'
+import CheckBoundary from './CheckBoundary'
 import { CHAT_HINT, useCheckChat } from './useCheckChat'
 
 export const CHECK2 = '/check'      // 새 화면이 /check 를 쓴다(구 화면은 /check-legacy)
@@ -46,7 +47,7 @@ export default function CheckLayout({ current, draftId, analyzed = false, reacha
     <PlannerShell sidebar={sidebar}>
       <div className="c2-page">
         <StepBar current={current} draftId={draftId} reachable={reachable} />
-        {children}
+        <CheckBoundary>{children}</CheckBoundary>
       </div>
     </PlannerShell>
   )

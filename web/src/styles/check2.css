@@ -52,3 +52,8 @@
 .c2-rename { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
 .c2-rename .c2-field { flex: 1 1 240px; }
 .c2-req { color: #dc2626; }
+
+/* 업로더 조건 줄: 라벨 줄 수가 달라도 입력칸이 같은 높이에 맞게 아래 정렬하고, 부가 표시는 같은 줄에 둔다 */
+.ck-conditions { align-items: end; }
+.ck-conditions label > span { white-space: nowrap; }
+.ck-conditions label > span small { display: inline; margin-left: 2px; font-size: 10px; color: var(--muted); }

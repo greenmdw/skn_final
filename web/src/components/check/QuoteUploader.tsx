@@ -167,22 +167,22 @@ export default function QuoteUploader({
             ))}
           </div>
           <div className="ck-conditions">
-            <label>용도 <b className="c2-req" title="필수">*</b>
+            <label><span>용도 <b className="c2-req" title="필수">*</b></span>
               <select value={conditions.purpose ?? ''} onChange={event => onConditions({ ...conditions, purpose: (event.target.value || undefined) as QuoteConditions['purpose'] })}>
                 <option value="">선택해 주세요</option><option value="game">게임</option><option value="creation">창작</option><option value="office">사무</option><option value="study">학습</option><option value="other">기타</option>
               </select>
             </label>
-            <label>해상도 <small>(게임이면 필수)</small>
+            <label><span>해상도 <small>(게임이면 필수)</small></span>
               <select value={conditions.resolution ?? ''} onChange={event => onConditions({ ...conditions, resolution: (event.target.value || undefined) as QuoteConditions['resolution'] })}>
-                <option value="">선택해 주세요 (게임이면 필수)</option><option value="FHD_144">FHD 144Hz</option><option value="QHD_165">QHD 165Hz</option><option value="4K">4K</option>
+                <option value="">선택해 주세요</option><option value="FHD_144">FHD 144Hz</option><option value="QHD_165">QHD 165Hz</option><option value="4K">4K</option>
               </select>
             </label>
-            <label>우선순위
+            <label><span>우선순위 <small>(선택)</small></span>
               <select value={conditions.priority ?? ''} onChange={event => onConditions({ ...conditions, priority: (event.target.value || undefined) as QuoteConditions['priority'] })}>
                 <option value="">선택 안 함</option><option value="performance">성능 우선</option><option value="value">가성비</option><option value="quiet">저소음</option>
               </select>
             </label>
-            <label>총예산(만 원, 선택)
+            <label><span>총예산(만 원) <small>(선택)</small></span>
               <input type="number" min={0} max={10000} step={10} inputMode="numeric" value={conditions.budgetMax ? conditions.budgetMax / 10_000 : ''}
                 onChange={event => onConditions({ ...conditions, budgetMax: event.target.value ? Math.round(Number(event.target.value) * 10_000) : undefined })} placeholder="예: 120" />
             </label>

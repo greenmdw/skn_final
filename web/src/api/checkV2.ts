@@ -2,11 +2,21 @@
 // 기존 `api` 객체(types.ts)와 분리한 이유: 새 화면이 안정되어 기존 CheckPage 를 걷어낼 때 이 파일만 남기고 합치기 위해서다(재기획 8단계).
 import { request, requestForm } from './http/client'
 
+/** 후보의 핵심 사양 — 서버가 {"성능 등급": 7, "소켓": "AM5"} 같은 객체로 준다(없으면 빈 객체) */
+export type KeySpecs = Record<string, unknown>
+
+/** 핵심 사양을 "성능 등급 7 · 소켓 AM5" 한 줄로. 모양이 예상과 달라도(배열·null) 화면이 죽지 않게 안전하게 읽는다 */
+export function keySpecsText(specs: KeySpecs | string[] | null | undefined): string {
+  if (!specs) return ''
+  if (Array.isArray(specs)) return specs.map(String).join(' · ')
+  return Object.entries(specs).filter(([, value]) => value !== null && value !== undefined && value !== '').map(([key, value]) => `${key} ${String(value)}`).join(' · ')
+}
+
 export interface MatchReason {
   code: 'not_in_catalog' | 'variant_mismatch' | 'ambiguous' | 'insufficient_info' | 'uncertain_reading' | 'low_quality_photo'
   message: string
-  nearest?: { name?: string; why_not?: string; key_specs?: string[] } | null
-  candidates: { name: string; product_key?: string; key_specs?: string[] }[]
+  nearest?: { name?: string; why_not?: string; key_specs?: KeySpecs } | null
+  candidates: { name: string; product_key?: string; key_specs?: KeySpecs }[]
 }
 
 export interface DraftItem {
