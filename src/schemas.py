@@ -1317,6 +1317,9 @@ class ConfirmPeripheralIn(BaseModel):
     kind: PeripheralKind
     variant_id: str
     qty: int = Field(default=1, ge=1, le=99)
+    # 화면이 확정 때 보이던 주변기기 설명(스펙 한 줄·요청 근거·점수 축·사용기)을 그대로 보낸다(QA 10/16 #5 스냅샷). 서버는 해석하지 않고
+    # 가격 계산에도 쓰지 않는다. dict 가 아니거나 JSON 이 32KB 를 넘으면 저장하지 않고 버린다(확정은 성공) — 그래서 타입을 Any 로 둔다.
+    view: Any = None
 
 
 class ConfirmIn(BaseModel):
@@ -1355,6 +1358,8 @@ class ReportPeripheralOut(BaseModel):
     variant_id: str
     price: int            # 단가 — 줄 금액은 price × qty, 참고가(reference_snapshot)
     qty: int = 1
+    # 확정할 때 화면이 보낸 설명(ConfirmPeripheralIn.view)을 그대로 돌려준다 — 서버는 해석하지 않는다. 없으면 null.
+    view: dict[str, Any] | None = None
 
 
 class PriceWatchOut(BaseModel):
