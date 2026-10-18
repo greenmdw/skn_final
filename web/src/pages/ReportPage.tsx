@@ -77,6 +77,9 @@ export default function ReportPage() {
   }
 
   const total = planTotal(setup.plan) + peripheralsTotal(setup.peripherals)
+  // 주변기기 대화: 확정할 때 함께 저장한 대화 id, 없으면 주변기기만 확정한 견적(목록이 곧 대화)일 때 그 목록 id
+  const peripheralSessionId = setup.peripherals?.find(item => item.view?.sessionId)?.view?.sessionId
+    ?? ((setup.peripherals?.length ?? 0) > 0 && setup.plan.items.length === 0 ? setup.id : null)
   const confirmed = setup.savedAt ? confirmedAtText(setup.savedAt) : ''
   return (
     <PlannerShell>
@@ -137,7 +140,13 @@ export default function ReportPage() {
 
           {(setup.peripherals?.length ?? 0) > 0 && (
             <section>
-              <div style={{ fontSize: 13, fontWeight: 700, padding: '14px 0 8px' }}>주변기기</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 0 8px' }}>
+                <span style={{ fontSize: 13, fontWeight: 700 }}>주변기기</span>
+                {peripheralSessionId && (
+                  <button type="button" className="pl-pill" title="이 주변기기를 고를 때 나눈 대화를 주변기기 화면에서 열어요."
+                    onClick={() => navigate(`/peripherals?session=${encodeURIComponent(peripheralSessionId)}`, { state: { plannerMode: 'peripherals' } })}>주변기기 대화 보기</button>
+                )}
+              </div>
               {setup.peripherals?.map(item => (
                 <div className="pl-report-row" key={`${item.kind}-${item.name}`}>
                   <ProductThumb imageUrl={item.imageUrl} partKey={item.kind} name={item.name} />

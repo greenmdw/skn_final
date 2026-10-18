@@ -99,7 +99,7 @@ export function requestedEvidence(view: CandidateView, requested: PeripheralRequ
 }
 
 /** 확정할 때 저장할 설명: 지금 큰 카드에 올린 제품(`chosenName`, null 이면 1위)이 화면에 보이던 그대로. */
-export function snapshotOf(item: PeripheralItem, chosenName: string | null): PeripheralSnapshot {
+export function snapshotOf(item: PeripheralItem, chosenName: string | null, sessionId?: string | null): PeripheralSnapshot {
   const views = candidateViews(item)
   const hero = views.find(view => view.name === chosenName) ?? views[0]
   return {
@@ -107,6 +107,7 @@ export function snapshotOf(item: PeripheralItem, chosenName: string | null): Per
     scoreAxes: hero.scoreAxes, feel: hero.feel, reviewAspects: hero.reviewAspects,
     // 조건 충족 태그는 1위 카드에만 있다
     requirement: hero.rank === 1 ? item.requirement : [],
+    ...(sessionId ? { sessionId } : {}),
   }
 }
 

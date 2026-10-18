@@ -332,5 +332,6 @@ function snapshotFromWire(raw: unknown): PeripheralSnapshot | null {
     v: 1, rank: Number(view.rank) || 1, keySpecs: view.keySpecs, requested: view.requested, pricePosition: view.pricePosition ?? null,
     scoreAxes: Array.isArray(view.scoreAxes) ? view.scoreAxes : [], feel: view.feel ?? null,
     reviewAspects: Array.isArray(view.reviewAspects) ? view.reviewAspects : [], requirement: Array.isArray(view.requirement) ? view.requirement : [],
+    ...(typeof view.sessionId === 'string' ? { sessionId: view.sessionId } : {}),
   }
 }

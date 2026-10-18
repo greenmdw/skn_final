@@ -67,6 +67,8 @@ export interface PeripheralSnapshot {
   feel: PeripheralFeel | null
   reviewAspects: PeripheralReviewAspect[]
   requirement: { key: string; label: string; value: string }[]
+  /** 이 제품을 추천받은 주변기기 대화 id — 리포트에서 그 대화를 열 때 쓴다(본체와 함께 확정하면 리포트 목록과 다른 목록이다) */
+  sessionId?: string
 }
 
 export interface SetupPeripheral {

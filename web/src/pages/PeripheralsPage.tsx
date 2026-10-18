@@ -418,7 +418,7 @@ export default function PeripheralsPage() {
         kind: item.kind, name: product.name, brand: product.brand, price: product.price, qty: 1, variantId: product.variantId,
         imageUrl: product.imageUrl, productUrl: product.productUrl,
         // 지금 화면에 보이는 설명을 함께 저장해 견적 수정하기로 다시 열 때 그대로 보여 준다(QA 10/16 #5)
-        view: snapshotOf(item, product.fromAlternative ? product.name : null),
+        view: snapshotOf(item, product.fromAlternative ? product.name : null, result.sessionId),
       }
     })
     if (!items.length) { setNotice('장바구니에 담을 수 있는 품목이 없어요.'); return }
