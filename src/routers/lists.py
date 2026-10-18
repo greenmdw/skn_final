@@ -1,4 +1,4 @@
-"""/lists/* — 사이드바 목록 · S5-a 확정 · S5-b 리포트 · 목표가 알림 (§D-4-3)."""
+"""/lists/* — 사이드바 목록 · S5-a 확정 · S5-b 리포트 (§D-4-3)."""
 from __future__ import annotations
 
 from uuid import UUID
@@ -14,7 +14,7 @@ from src.auth import ratelimit
 from src.config import ME_WRITE_LIMIT_PER_MIN
 from src.db import get_conn
 from src.errors import RateLimited
-from src.services import list_history, list_service, me_service, notification_service
+from src.services import list_history, list_service, me_service
 
 router = APIRouter(prefix="/lists", tags=["lists"])
 
@@ -158,23 +158,3 @@ def history(list_id: UUID, revision: int | None = None,
     with get_conn() as conn:
         found, journey = list_service.get_history(conn, list_id, principal, revision)
     return schemas.ListHistoryOut(**list_history.render(list_id, found, journey))
-
-
-@router.post("/{list_id}/alert")
-def set_alert(
-    list_id: UUID, body: schemas.AlertIn, principal: Principal = Depends(optional_principal)
-) -> dict:
-    """목표가 추적 생성/갱신."""
-    with get_conn() as conn:
-        result = list_service.set_alert(
-            conn, list_id, principal, enabled=body.enabled, target_amount=body.target_amount
-        )
-    return {"price_watch": schemas.PriceWatchOut(**result["price_watch"]).model_dump()}
-
-
-@router.get("/{list_id}/alert", response_model=schemas.PriceWatchOut)
-def get_alert(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.PriceWatchOut:
-    """목표가 추적 현재 상태 — 지금 카탈로그 관측가 기준 총액·목표가·도달 여부·최근 판정 시각."""
-    with get_conn() as conn:
-        status = notification_service.get_watch_status(conn, list_id, principal)
-    return schemas.PriceWatchOut(**status)

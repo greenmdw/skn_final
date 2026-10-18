@@ -1357,14 +1357,6 @@ class ReportPeripheralOut(BaseModel):
     qty: int = 1
 
 
-class PriceWatchOut(BaseModel):
-    enabled: bool
-    target_amount: int | None = None
-    status: Literal["waiting", "tracking", "reached"] = "waiting"
-    latest_total: int | None = None
-    observed_at: str | None = None
-
-
 class ReportOut(BaseModel):
     list_id: str
     revision_no: int = 1
@@ -1378,7 +1370,6 @@ class ReportOut(BaseModel):
     confirmed_at: str
     items: list[ReportItemOut] = Field(default_factory=list)
     peripherals: list[ReportPeripheralOut] = Field(default_factory=list)
-    price_watch: PriceWatchOut
     data_notice: str = "상품·가격·리뷰는 합성 데이터입니다."
 
 
@@ -1405,11 +1396,6 @@ class ListHistoryOut(BaseModel):
     summary: TextStatusOut
     steps: list[HistoryStepOut] = Field(default_factory=list)
     events: list[HistoryEventOut] = Field(default_factory=list)
-
-
-class AlertIn(BaseModel):
-    enabled: bool
-    target_amount: Optional[int] = None
 
 
 # ── reviews (A7) ──

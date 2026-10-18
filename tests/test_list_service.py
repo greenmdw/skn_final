@@ -136,10 +136,6 @@ def test_confirm_then_report_round_trip(ctx):
     assert list_service.get_report(ctx.conn, uuid.UUID(list_id), principal)["name"] == "나의 첫 컴퓨터"
     assert any(item["list_id"] == list_id and item["name"] == "나의 첫 컴퓨터"
                for item in list_service.list_conversations(ctx.conn, principal))
-    assert report["price_watch"] == {
-        "enabled": False, "target_amount": 1400000, "status": "waiting",
-        "latest_total": None, "observed_at": None,
-    }
 
     # 재확정 시도는 거부되지 않고 멱등하게 같은 리포트를 반환한다(이중 클릭 등 재시도 대비).
     again = list_service.confirm(
@@ -153,27 +149,6 @@ def test_confirm_then_report_round_trip(ctx):
 
     summaries = list_service.list_conversations(ctx.conn, principal)
     assert any(item["list_id"] == list_id and item["stage"] == "report" for item in summaries)
-
-
-def test_alert_reenable_without_amount_keeps_last_value(ctx):
-    principal = ctx.signup(_unique_email())
-    list_id = ctx.build_recommended_list(principal)
-    list_service.confirm(
-        ctx.conn, uuid.UUID(list_id), principal,
-        name="x", planned_purchase_at=None, target_amount=1400000, memo="",
-    )
-
-    on = list_service.set_alert(ctx.conn, uuid.UUID(list_id), principal, enabled=True, target_amount=1450000)
-    assert on["price_watch"]["target_amount"] == 1450000
-
-    on_again = list_service.set_alert(ctx.conn, uuid.UUID(list_id), principal, enabled=True, target_amount=None)
-    assert on_again["price_watch"]["target_amount"] == 1450000  # 확정 스냅샷(1400000)으로 되돌아가면 버그
-
-    off = list_service.set_alert(ctx.conn, uuid.UUID(list_id), principal, enabled=False, target_amount=None)
-    assert off["price_watch"] == {
-        "enabled": False, "target_amount": 1450000, "status": "waiting",
-        "latest_total": None, "observed_at": None,
-    }
 
 
 def test_delete_excludes_from_list_and_report(ctx):

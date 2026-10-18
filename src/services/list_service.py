@@ -1,20 +1,19 @@
-"""리스트(계획) 서비스 — 사이드바 목록 · S5-a 확정 · S5-b 리포트 · 가격 알림 (§D-4-3).
+"""리스트(계획) 서비스 — 사이드바 목록 · S5-a 확정 · S5-b 리포트 (§D-4-3).
 
 확정 = plan_revision draft → confirmed (이름·구매예정일·목표가·메모). 비로그인은 로그인 요구.
 확정 시점에 선택된 후보를 planning.purchase_line에 얼려서 남긴다 — 이후 추천 결과가 어떻게
 바뀌어도(현재는 확정된 revision에 재추천을 막아 그럴 일이 없지만) 리포트는 확정 순간 그대로
-보여준다. price_watch 생성은 확정 트랜잭션 이후, 확정된 target_amount를 기본값으로 쓴다.
+보여준다.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from uuid import UUID
 
 from src.auth.deps import Principal
 from src.engine.lang import fmt_money
 from src.errors import Conflict, NotFound, ValidationFailed
 from src.repo.engine_repo import EngineRepo
-from src.repo.notification_repo import NotificationRepo
 from src.repo.plan_repo import PlanRepo
 from src.repo.user_repo import UserRepo
 from src.services import auth_service, feedback_service, recommendation_service
@@ -22,7 +21,6 @@ from src.services.session_service import _owned, _token_hash
 
 _DEFAULT_NAME_BY_CATEGORY = {"computer": "컴퓨터 장바구니"}
 _PLACEHOLDER_NAMES = {"새 추천", ""}
-_PRICE_WATCH_WINDOW_DAYS = 90
 
 
 def _display_name(name: str, category: str | None) -> str:
@@ -59,31 +57,9 @@ def _require_login(conn, principal: Principal) -> UUID:
     """단순 user_id 유무만이 아니라 계정이 여전히 active인지까지 확인한다(§A-3).
 
     JWT 자체는 유효 기간 안이어도 그 사이 탈퇴·정지된 계정일 수 있어서, principal.user_id가
-    채워져 있다는 사실만으로는 로그인 요구 엔드포인트(확정·리포트·알림)를 통과시킬 수 없다.
+    채워져 있다는 사실만으로는 로그인 요구 엔드포인트(확정·리포트)를 통과시킬 수 없다.
     """
     return auth_service.require_active_user(conn, principal)["id"]
-
-
-def _price_watch_out(nrepo: NotificationRepo, watch: dict | None, fallback_target_amount) -> dict:
-    if watch is None:
-        return {
-            "enabled": False, "target_amount": fallback_target_amount,
-            "status": "waiting", "latest_total": None, "observed_at": None,
-        }
-    target = int(watch["target_amount"]) if watch["target_amount"] is not None else fallback_target_amount
-    if watch["state"] != "active":
-        return {"enabled": False, "target_amount": target, "status": "waiting", "latest_total": None, "observed_at": None}
-    status = {"unknown": "waiting", "above": "tracking", "reached": "reached"}.get(
-        watch["last_condition_state"], "waiting"
-    )
-    # ACC-02: 판정 이력(notification.price_watch_evaluation)이 이제 생기므로, 그중 최신 값을 보여준다
-    # (전엔 이 테이블이 없어 항상 None 이었다 — db/migrations/0004_notification_events.sql).
-    latest = nrepo.latest_evaluation(watch["id"])
-    return {
-        "enabled": True, "target_amount": target, "status": status,
-        "latest_total": int(latest["amount"]) if latest and latest["amount"] is not None else None,
-        "observed_at": latest["evaluated_at"].isoformat() if latest else None,
-    }
 
 
 def confirmed_revision(conn, list_id: UUID, principal: Principal, revision_no: int | None = None) -> dict:
@@ -408,7 +384,6 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
             "variant_id": str(line["variant_id"]),
             "price": int(line["line_amount"]) // max(int(line["pack_count"]), 1), "qty": int(line["pack_count"]),
         })
-    watch = NotificationRepo(conn).get_for_revision(revision["id"])
     return {
         "list_id": str(list_id),
         "revision_no": revision["revision_no"],
@@ -425,9 +400,6 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
         "confirmed_at": revision["confirmed_at"].isoformat(),
         "items": items,
         "peripherals": peripherals,
-        "price_watch": _price_watch_out(
-            NotificationRepo(conn), watch, int(revision["target_amount"]) if revision["target_amount"] is not None else None
-        ),
         "data_notice": ("PC 상품·가격은 수집 파일 기반으로 실시간 정보가 아닙니다. 리뷰 요약은 합성 데이터입니다."
                         if revision["category"] == "computer" else "상품·가격·리뷰는 합성 데이터입니다."),
     }
@@ -441,29 +413,3 @@ def get_history(conn, list_id: UUID, principal: Principal,
 
     revision = confirmed_revision(conn, list_id, principal, revision_no)
     return revision, list_history.build(conn, revision)
-
-
-def set_alert(conn, list_id: UUID, principal: Principal, *, enabled: bool, target_amount: int | None) -> dict:
-    revision = confirmed_revision(conn, list_id, principal)
-
-    nrepo = NotificationRepo(conn)
-    existing = nrepo.get_for_revision(revision["id"])
-    confirmed_target = int(revision["target_amount"]) if revision["target_amount"] is not None else None
-
-    if not enabled:
-        if existing is not None and existing["state"] == "active":
-            nrepo.pause(existing["id"])
-            existing = nrepo.get_for_revision(revision["id"])
-        return {"price_watch": _price_watch_out(nrepo, existing, confirmed_target)}
-
-    # target_amount 미지정 시 기존 watch에 이미 설정된 값 → 확정 스냅샷 목표가 순으로 fallback.
-    amount = target_amount
-    if amount is None and existing is not None:
-        amount = existing["target_amount"]
-    if amount is None:
-        amount = revision["target_amount"]
-    if amount is None:
-        raise ValidationFailed("목표 금액을 입력해 주세요.", field="target_amount")
-    ends_at = datetime.now(timezone.utc) + timedelta(days=_PRICE_WATCH_WINDOW_DAYS)
-    watch = nrepo.upsert_active(revision["id"], target_amount=amount, ends_at=ends_at)
-    return {"price_watch": _price_watch_out(nrepo, watch, confirmed_target)}

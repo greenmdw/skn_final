@@ -333,14 +333,6 @@ export interface WirePreviousComparison {
   totals?: { before: number; after: number; diff: number } | null
 }
 
-export interface WirePriceWatch {
-  enabled: boolean
-  target_amount: number | null
-  status: 'waiting' | 'tracking' | 'reached'
-  latest_total: number | null
-  observed_at: string | null
-}
-
 export interface WireUser { user: { email: string; display_name: string; marketing_agreed?: boolean; created_at?: string } }
 
 // ── 부품 교체(src.schemas.AlternativesOut) ──

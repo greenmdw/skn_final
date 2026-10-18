@@ -77,7 +77,7 @@ def run(conn, user_id: UUID | None = None) -> dict:
     """배치 1회 실행. 반환값은 몇 건의 신호가 실제로 바뀌었는지(로그·테스트용) — 다시 돌려 같으면 0.
 
     user_id 를 주면 그 사용자 것만 다시 센다 — 되묻기 조회(session_service.preference_hint)가 보여 주기 직전에
-    부른다. 이 프로젝트엔 워커를 주기적으로 부르는 스케줄러가 없어서(price_poll_worker 주석), 전체 배치만 두면
+    부른다. 이 프로젝트엔 워커를 주기적으로 부르는 스케줄러가 없어서, 전체 배치만 두면
     앱이 도는 동안 교체·제외에서 신호가 하나도 쌓이지 않았다. 매번 처음부터 세는 방식이라 언제 불러도 같다."""
     repo = PreferenceRepo(conn)
     updated = 0
