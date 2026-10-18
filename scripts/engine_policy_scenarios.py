@@ -495,8 +495,8 @@ def s15():
     raw = clip01(math.fsum(weights[a] * axes[a] for a in AXES))
     stored = round(raw, 4)                                       # numeric(8,4) 저장값
     snapshot = {"candidates": {"v1": {"slot": "GPU", "product_id": "p1", "variant_id": "v1", "rank_score": raw,
-                                      "rank_breakdown": axes, "rank_weights": weights, "score_method": "pc-fit-v3"}}}
-    versions = {"pipeline": "computer-v1", "computer_rules": "computer-rules-v14", "score_method": "pc-fit-v3"}
+                                      "rank_breakdown": axes, "rank_weights": weights, "score_method": "pc-fit-v4"}}}
+    versions = {"pipeline": "computer-v1", "computer_rules": "computer-rules-v14", "score_method": "pc-fit-v4"}
     fit = fit_for_item(snapshot, versions, variant_id="v1", product_id="p1", slot="GPU")
     avg = avg_fit(snapshot, versions, [{"variant_id": "v1", "product_id": "p1", "slot": "GPU"}])
     missing = fit_for_item(None, versions, variant_id="v1", product_id="p1", slot="GPU")

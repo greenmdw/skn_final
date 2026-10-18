@@ -149,7 +149,7 @@ def test_removed_policy_keys_are_rejected(tmp_path, key, value):
 
 def test_default_and_priority_weights_match_the_policy_table():
     ranking = _ranking()
-    assert ranking["score_method"] == "pc-fit-v3"
+    assert ranking["score_method"] == "pc-fit-v4"
     assert ranking["weights"] == {"가격": 0.45, "성능": 0.30, "리뷰": 0.25}
     assert ranking["priority_weights"] == {
         "performance": {"가격": 0.20, "성능": 0.60, "리뷰": 0.20},

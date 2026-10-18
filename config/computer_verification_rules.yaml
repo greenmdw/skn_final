@@ -253,7 +253,9 @@ ranking:
     other: {default: {GPU: 3.0, CPU: 6.0}}
   # 점수 산식 버전(저장 시 score_method_version). 축은 가격·성능·리뷰 세 개, 가중치는 0.01 단위·합 1.
   # pc-fit-v3(2026-10-14): 가격 축을 1/(1+(P/B)^alpha)로 바꿨다. alpha 는 config/recommendation_engine.yaml.
-  score_method: pc-fit-v3
+  # pc-fit-v4(2026-10-18): CPU·GPU 성능 축을 perf_tier/10 에서 벤치마크 목표식 1/(1+(T/Q)^beta)로 바꿨다. 목표 T 는 위
+  # ideal_tiers 의 등급을 벤치마크 눈금으로 옮긴 값이다. beta·지표는 config/recommendation_engine.yaml 의 scoring.performance_axis.
+  score_method: pc-fit-v4
   weights: {가격: 0.45, 성능: 0.30, 리뷰: 0.25}
   # 우선순위(priority)별 가중치 세트. 표에 없는 값/미지정은 위 weights 를 쓴다.
   # noise_sensitive 는 바깥 가중치를 바꾸지 않는다(리뷰 프로필의 정숙성 중요도가 따로 반영한다).

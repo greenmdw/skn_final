@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import math
 
-from src.engine.engine_config import price_alpha
+from src.engine.engine_config import perf_beta, price_alpha
 
 AXES = ("가격", "성능", "리뷰")
 _WEIGHT_TOLERANCE = 1e-9
@@ -45,6 +45,24 @@ def price_axis(price, ref_budget, alpha=None) -> float:
     try:
         ratio_pow = (p / b) ** a
     except OverflowError:       # P/B가 매우 크면 점수는 0에 수렴한다
+        return 0.0
+    return 1.0 / (1.0 + ratio_pow)
+
+
+def performance_axis(value, target, beta=None) -> float:
+    """성능 축 = 1 / (1 + (T/Q)^beta) — 가격 축과 같은 모양. Q = T이면 0.5, 목표보다 빠를수록 1, 느릴수록 0에 가깝다.
+
+    Q는 후보의 벤치마크 값, T는 목표 값(같은 지표). beta를 주지 않으면 config/recommendation_engine.yaml 값을 쓴다."""
+    q = _finite_real(value, "성능 값")
+    t = _finite_real(target, "성능 목표 값")
+    if q <= 0 or t <= 0:
+        raise ScoreInputError(f"성능 값과 목표 값은 양수여야 합니다: 값={value!r}, 목표={target!r}")
+    b = perf_beta() if beta is None else _finite_real(beta, "성능 축 beta")
+    if b <= 0:
+        raise ScoreInputError(f"성능 축 beta는 양수여야 합니다: {beta!r}")
+    try:
+        ratio_pow = (t / q) ** b
+    except OverflowError:       # 목표보다 아주 느리면 점수는 0에 수렴한다
         return 0.0
     return 1.0 / (1.0 + ratio_pow)
 

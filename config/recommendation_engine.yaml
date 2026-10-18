@@ -1,8 +1,8 @@
 # PC 추천 엔진의 점수식 설정. 값을 바꾸면 config_version 을 올린다 — run 의 engine_versions 에 기록된다.
 # 요구 사양·호환 규칙·축 가중치는 computer_verification_rules.yaml 이 맡고, 이 파일은 점수식의 모양을 정하는 값만 둔다.
-# 읽는 곳: src/engine/engine_config.py → src/engine/score_policy.py(price_axis)
+# 읽는 곳: src/engine/engine_config.py → src/engine/score_policy.py(price_axis·performance_axis)
 schema_version: 1
-config_version: recommendation-engine-v1-20261014
+config_version: recommendation-engine-v2-20261018
 
 scoring:
   price_axis:
@@ -13,3 +13,28 @@ scoring:
     # 2026-10-14 잠정값 2: 슬롯별 예산 배분 검증 전의 시작값이다. 근거와 남은 검증은
     # docs/추천점수_예산배분_검증방향_종합_20261014.md §4.2(E3·예산 배분 하한 점검).
     alpha: 2
+
+  performance_axis:
+    # 성능 축 s = 1 / (1 + (T/Q)^beta) — CPU·GPU 만. 그 밖의 슬롯은 등급이 있으면 perf_tier/10, 없으면 중립 0.5 로 그대로다.
+    # Q: 후보의 벤치마크 값(아래 benchmarks 파일, 용도별 지표). T: 목표 값 — ranking.ideal_tiers 의 용도·해상도 목표 등급을
+    #    같은 지표의 눈금으로 옮긴 값이다(게임 요구로 오른 하한은 사전 필터와 병목 힌트에만 쓰고 T 는 바꾸지 않는다). 등급별 중앙값을 로그 눈금에서 이어
+    #    구한다(7.5 = 7등급 중앙값과 8등급 중앙값의 기하평균). 예산에 맞춰 목표를 낮추지 않는다(2026-10-18 결정).
+    # Q = T 이면 0.5, 목표보다 빠를수록 1, 느릴수록 0 에 수렴한다. 가격 축과 같은 모양이라 beta 가 클수록 목표 근처에서 빠르게 변한다.
+    # 벤치마크 값이 없는 후보(실시간 검색으로 들어온 부품 등)는 perf_tier 를 같은 방법으로 지표 눈금에 옮겨 Q 로 쓰고
+    # score_notes 에 "tier_estimate:성능"을 남긴다. 용도에 지표가 없으면 이전 식 perf_tier/10 을 쓴다.
+    # beta 4(2026-10-18 결정): 개발 DB 가격으로 모의 계산해 고른 권장값이다. 126개 요청 전후 비교는
+    # docs/validation/perf_axis_compare_20261018.md.
+    beta: 4
+    benchmarks: config/performance_benchmarks.yaml
+    benchmark_version: perf-bench-20261016      # benchmarks 파일의 benchmark_version 과 같아야 한다
+    # 용도 → 슬롯 → 지표. 게임 GPU 는 해상도별이다. 게임 CPU 는 해상도와 관계없이 1080p 지표를 쓰고 목표만 해상도별로 다르다
+    # (1440p CPU 값은 2024-10 판까지만 있어 카탈로그 40개 중 13개만 채워진다). 사무·학습·기타는 한 벌을 같이 쓴다 —
+    # 이 용도의 신규 조립은 GPU 를 사지 않지만, 원하는 부품·결과 대화로 GPU 가 다시 들어오면 1080p 래스터로 본다.
+    metrics:
+      game:
+        CPU: game_1080p
+        GPU: {FHD_144: raster_1080p, QHD_165: raster_1440p, 4K: raster_4k}
+      creation: {CPU: blender, GPU: blender}
+      office: &general_metrics {CPU: single_thread, GPU: raster_1080p}
+      study: *general_metrics
+      other: *general_metrics
