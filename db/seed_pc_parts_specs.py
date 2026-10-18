@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import openpyxl
+import psycopg
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -34,8 +35,8 @@ _MERCHANT_PLATFORM = "danawa"
 _MERCHANT_SELLER_ID = "danawa-aggregate"
 
 # 리뷰 수집 작업(2026-09-27) 중 이미 검증해 둔 product_key -> 다나와 상품코드(pcode) 매핑
-# (config/danawa_product_pcode.json — ID 쌍만 담은 작은 파일, 스크랩 원문 없음). 322개 중
-# 241개가 여기 있다. 나머지는 개별 매칭이 없어 고정 상품 페이지로 대체한다.
+# (config/danawa_product_pcode.json — ID 쌍만 담은 작은 파일, 스크랩 원문 없음). 적재하는 319개 중
+# 252개가 여기 있다(2026-10-16). 나머지는 개별 매칭이 없어 고정 상품 페이지로 대체한다.
 _PCODE_MAP_PATH = Path(__file__).resolve().parent.parent / "config" / "danawa_product_pcode.json"
 _PCODE_MAP: dict[str, str] = json.loads(_PCODE_MAP_PATH.read_text(encoding="utf-8"))
 
@@ -49,6 +50,49 @@ def _purchase_url(external_offer_id: str) -> str:
     pcode = _PCODE_MAP.get(external_offer_id)
     return f"https://prod.danawa.com/info/?pcode={pcode}" if pcode else DANAWA_PLACEHOLDER_PRODUCT_URL
 _MERCHANT_NAME = "다나와 가격비교"
+
+# 원본 엑셀에 같은 제품이 이름 표기만 달리 두 번 들어간 행(2026-10-16 확인 — 사양·가격이 같고, 한쪽 '사양 기준'에
+# "행 N과 동일 모델"이라 적혀 있다). 적재하지 않고, 이미 적재된 DB 에서는 지운다. 남기는 쪽은 리뷰 시드
+# (data/review_seed/documents.json 의 product_model)가 가리키는 이름이다 — 그 시드는 brand/model 정확 일치로 붙는다.
+# 값: (시트, 제조사, 지우는 모델명) -> 남기는 모델명
+_DUPLICATE_ROWS: dict[tuple[str, str, str], str] = {
+    ("GPU", "NVIDIA", "GeForce RTX 3050 6GB"): "GeForce RTX 3050 (6GB)",
+    ("GPU", "NVIDIA", "GeForce RTX 3060 12GB"): "GeForce RTX 3060 (12GB)",
+    ("GPU", "NVIDIA", "RTX 6000 Ada Generation"): "NVIDIA RTX 6000 Ada Generation",
+}
+
+# 원본 엑셀 값 보정(2026-10-16). 4060 Ti·5060 Ti 는 VRAM 칸이 "8 / 16"(두 판을 한 행에)인데 가격·다나와 상품
+# (config/danawa_product_pcode.json 의 pcode 20274764·101725700)은 둘 다 8GB 판이다 — 8GB 로 고정해 하드필터가
+# 16GB 로 읽지 않게 한다. 남긴 RTX 6000 Ada 행의 '사양 기준'은 지운 행을 가리키던 메모라 그 행의 값으로 바꾼다.
+_ROW_FIXES: dict[tuple[str, str, str], dict[str, object]] = {
+    ("GPU", "NVIDIA", "GeForce RTX 4060 Ti"): {"VRAM(GB)": 8},
+    ("GPU", "NVIDIA", "GeForce RTX 5060 Ti"): {"VRAM(GB)": 8},
+    ("GPU", "NVIDIA", "NVIDIA RTX 6000 Ada Generation"): {"사양 기준": "NVIDIA 레퍼런스"},
+}
+
+
+def _delete_duplicate(conn, brand: str, model: str, product_type: str) -> str | None:
+    """중복 행으로 이미 적재된 제품을 지운다. 견적·리뷰 등이 참조하면 지우지 않고 offer 를 expired 로 돌려
+    후보에서만 뺀다(이력 보존). 지운/뺀 결과를 문자열로, 없으면 None."""
+    row = conn.execute("SELECT id FROM catalog.product WHERE brand = %s AND model = %s AND product_type = %s",
+                       (brand, model, product_type)).fetchone()
+    if row is None:
+        return None
+    product_id = row[0]
+    try:
+        with conn.transaction():
+            conn.execute("""DELETE FROM catalog.offer_observation WHERE offer_id IN (
+                                SELECT o.id FROM catalog.offer o JOIN catalog.product_variant v ON v.id = o.variant_id
+                                WHERE v.product_id = %s)""", (product_id,))
+            conn.execute("""DELETE FROM catalog.offer WHERE variant_id IN (
+                                SELECT id FROM catalog.product_variant WHERE product_id = %s)""", (product_id,))
+            conn.execute("DELETE FROM catalog.product_variant WHERE product_id = %s", (product_id,))
+            conn.execute("DELETE FROM catalog.product WHERE id = %s", (product_id,))   # *_spec 은 ON DELETE CASCADE
+        return f"삭제: {model}"
+    except psycopg.errors.ForeignKeyViolation:
+        conn.execute("""UPDATE catalog.offer SET status = 'expired' WHERE variant_id IN (
+                            SELECT id FROM catalog.product_variant WHERE product_id = %s)""", (product_id,))
+        return f"참조가 있어 지우지 않고 판매 종료(expired)로 둠: {model}"
 
 # 시트명 -> (product_type 슬러그, 전용 스펙 테이블, {엑셀 헤더: DB 컬럼} 매핑)
 _SHEET_SPECS: dict[str, tuple[str, str, dict[str, str]]] = {
@@ -202,6 +246,12 @@ def main() -> int:
                 brand, model = row.get("제조사"), row.get("모델명")
                 if not brand or not model:
                     continue
+                if (sheet_name, brand, model) in _DUPLICATE_ROWS:
+                    result = _delete_duplicate(conn, brand, model, product_type)
+                    if result:
+                        print(f"  {sheet_name} 중복 행 — {result}")
+                    continue
+                row.update(_ROW_FIXES.get((sheet_name, brand, model), {}))
 
                 image_url = _clean(row.get("이미지 URL"))
                 product_id = repo.upsert_product(
@@ -217,7 +267,7 @@ def main() -> int:
 
                 external_offer_id = f"{product_type}:{brand}:{model}".lower().replace(" ", "-")
                 # 엑셀 "상품 URL"은 제조사 사양 페이지라 구매 링크로 못 쓴다(원본 데이터 그대로).
-                # config/danawa_product_pcode.json에 매칭이 있으면(322개 중 241개) 그 부품의
+                # config/danawa_product_pcode.json에 매칭이 있으면(319개 중 252개) 그 부품의
                 # 실제 다나와 상품 페이지로, 없으면 고정 플레이스홀더 페이지로 — 단순 링크라
                 # 저작권 문제 없음(새 탭으로 열어 iframe 임베드도 안 함). 플레이스홀더로 빠진
                 # 부품은 실제 그 부품 페이지가 아니라는 점을 화면 문구로 알린다.
