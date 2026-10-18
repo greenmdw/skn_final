@@ -265,6 +265,8 @@ export default function PeripheralsPage() {
   const pickedItems = useMemo(() => (result?.items ?? []).filter(item => pickedKinds.has(item.kind)), [pickedKinds, result])
   const total = useMemo(() => pickedItems.reduce((sum, item) => sum + chosenProduct(item, selection).price, 0), [pickedItems, selection])
   const budget = understood.interpretation.budgetTotal
+  // 담은 제품 합계가 말한 합계 예산을 넘은 만큼(넘지 않았으면 0) — 결과 맨 위에 눈에 띄게 알린다
+  const overBy = budget != null && total > budget ? total - budget : 0
   const plan = state.currentPlan
   // 결과 화면은 품목이 둘 이상이면 탭으로 나눠 한 번에 한 품목만 보인다.
   const [activeKind, setActiveKind] = useState<PeripheralKind | null>(null)
@@ -499,11 +501,25 @@ export default function PeripheralsPage() {
         {showResults ? <>
           <div className="pf-results-heading">
             <div><span className="pl-eyebrow pl-mono">주변기기 견적 · 추천 결과</span><h1>원하는 느낌에 맞춘 주변기기</h1></div>
-            <div className="pf-total">
+            <div className={'pf-total' + (overBy > 0 ? ' over' : '')}>
               <strong className="pl-mono">{wonFmt(total)}</strong>
-              <span>{budget != null ? `주변기기 예산 ${wonFmt(budget)} · ${total <= budget ? `잔액 ${wonFmt(budget - total)}` : `${wonFmt(total - budget)} 초과`}` : '예산을 알려 주면 잔액도 보여 드려요'}</span>
+              {overBy > 0 && <span className="pr-over-badge">예산 초과 +{wonFmt(overBy)}</span>}
+              <span>{budget != null ? `주변기기 예산 ${wonFmt(budget)}${overBy > 0 ? '' : ` · 잔액 ${wonFmt(budget - total)}`}` : '예산을 알려 주면 잔액도 보여 드려요'}</span>
             </div>
           </div>
+          {overBy > 0 && budget != null && (
+            <section className="pr-budget-alert" role="alert">
+              <div className="pr-budget-alert-head">
+                <b>예산을 {wonFmt(overBy)} 넘었어요</b>
+                <span>주변기기 예산 {wonFmt(budget)} · 지금 구성 {wonFmt(total)}</span>
+              </div>
+              <div className="pr-budget-bar" aria-hidden="true">
+                <i className="ok" style={{ width: `${Math.round((budget / total) * 100)}%` }} />
+                <i className="over" style={{ width: `${100 - Math.round((budget / total) * 100)}%` }} />
+              </div>
+              <small>아래 “다른 선택지”에서 더 싼 제품으로 바꾸거나, 품목을 줄이거나, 채팅에서 예산을 올려 보세요.</small>
+            </section>
+          )}
           {/* 이해한 내용·더 맞추기는 접어 두고, 열면 칩 × 제거와 더 맞추기를 쓸 수 있다. 접힌 줄에는 읽은 조건 요약만 보인다. */}
           <details className="pf-understood pr-understood">
             <summary>
