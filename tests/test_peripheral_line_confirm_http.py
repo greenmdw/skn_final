@@ -5,6 +5,7 @@
 나타난다. `item_count`는 본체 부품 수만, `total`은 본체+주변기기 합계다. 일회용 DB 가 필요하다."""
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -159,3 +160,74 @@ def test_peripherals_do_not_bypass_the_pc_checks_when_a_recommendation_exists():
     })
     assert r.status_code == 422, r.text
     assert r.json()["error"]["code"] == "no_items_selected"
+
+
+# ── 확정 때 화면이 보낸 설명(view)을 그대로 보관·반환한다(QA 10/16 #5, 스냅샷) ──────────────────
+def _confirm_with_views(c, lid: str, picks: list[dict], views: dict) -> dict:
+    """views: 종류 → 보낼 view 값(없으면 view 키를 보내지 않는다)."""
+    body = {"name": "설명 스냅샷", "peripherals": []}
+    for p in picks:
+        line = {"kind": p["kind"], "variant_id": p["product"]["variant_id"], "qty": 1}
+        if p["kind"] in views:
+            line["view"] = views[p["kind"]]
+        body["peripherals"].append(line)
+    r = c.post(f"/lists/{lid}/confirm", json=body)
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+VIEW = {"v": 1, "rank": 1, "keySpecs": [{"key": "size", "label": "크기", "value": "27인치"}], "requested": [],
+        "pricePosition": None, "scoreAxes": [], "feel": None, "reviewAspects": [], "requirement": [],
+        "한글": "그대로 돌려준다"}
+
+
+def test_view_is_stored_untouched_and_returned_in_the_report_peripherals_only():
+    c = _signed_up()
+    lid = _new_session(c)
+    picks = _pick(c, lid, "monitor", "keyboard")
+    report = _confirm_with_views(c, lid, picks, {"monitor": VIEW, "keyboard": {"v": 2, "unknown": [1, 2]}})
+    by_kind = {p["kind"]: p for p in report["peripherals"]}
+    assert by_kind["monitor"]["view"] == VIEW                                    # 서버는 해석하지 않는다
+    assert by_kind["keyboard"]["view"] == {"v": 2, "unknown": [1, 2]}             # 모르는 버전도 그대로 돌려준다
+    again = {p["kind"]: p for p in c.get(f"/lists/{lid}/report").json()["peripherals"]}
+    assert again["monitor"]["view"] == VIEW and again["keyboard"]["view"] == {"v": 2, "unknown": [1, 2]}
+    # 가격은 view 가 아니라 카탈로그에서 다시 조회한 값이다
+    assert by_kind["monitor"]["price"] == next(p for p in picks if p["kind"] == "monitor")["price"]
+
+
+def test_view_is_stored_when_confirmed_together_with_the_pc_parts():
+    c = _signed_up()
+    lid, _revision_id, data = _recommended_list(c)
+    keyboard = _peripheral_candidate(c, lid, "keyboard")
+    report = _confirm_with_views(c, lid, [keyboard], {"keyboard": VIEW})
+    assert report["items"] and report["peripherals"][0]["view"] == VIEW
+    assert c.get(f"/lists/{lid}/report").json()["peripherals"][0]["view"] == VIEW
+
+
+def test_without_a_view_the_report_says_null():
+    c = _signed_up()
+    lid = _new_session(c)
+    picks = _pick(c, lid, "mouse")
+    assert _confirm_with_views(c, lid, picks, {})["peripherals"][0]["view"] is None          # view 키를 보내지 않음
+    lid2 = _new_session(c)
+    picks2 = _pick(c, lid2, "keyboard")
+    assert _confirm_with_views(c, lid2, picks2, {"keyboard": None})["peripherals"][0]["view"] is None   # 명시적 null
+
+
+def test_a_view_that_is_not_a_dict_or_is_over_32kb_is_dropped_but_the_confirm_succeeds():
+    c = _signed_up()
+    for bad in ("문자열", [VIEW], 7, {"v": 1, "blob": "가" * 12_000}):             # 한글 3바이트 × 12,000 = 36KB
+        lid = _new_session(c)
+        picks = _pick(c, lid, "mouse")
+        report = _confirm_with_views(c, lid, picks, {"mouse": bad})
+        assert report["peripherals"][0]["view"] is None, bad if not isinstance(bad, dict) else "32KB 초과"
+        assert c.get(f"/lists/{lid}/report").json()["peripherals"][0]["view"] is None
+
+
+def test_a_view_just_under_32kb_is_kept():
+    c = _signed_up()
+    lid = _new_session(c)
+    picks = _pick(c, lid, "mouse")
+    view = {"v": 1, "blob": "a" * (32 * 1024 - 30)}
+    assert len(json.dumps(view, ensure_ascii=False, separators=(",", ":")).encode()) <= 32 * 1024
+    assert _confirm_with_views(c, lid, picks, {"mouse": view})["peripherals"][0]["view"] == view

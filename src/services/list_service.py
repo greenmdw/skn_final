@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
@@ -265,6 +266,21 @@ def delete(conn, list_id: UUID, principal: Principal) -> None:
     prepo.soft_delete(list_id)
 
 
+PERIPHERAL_VIEW_MAX_BYTES = 32 * 1024
+
+
+def _storable_view(view) -> dict | None:
+    """확정 때 화면이 보낸 주변기기 설명(`view`)을 저장해도 되는 모양으로 거른다. 서버는 내용을 해석하지 않는다 — dict 가 아니거나
+    JSON 이 32KB 를 넘으면 버린다(확정은 막지 않는다)."""
+    if not isinstance(view, dict):
+        return None
+    try:
+        size = len(json.dumps(view, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    except (TypeError, ValueError):
+        return None
+    return view if size <= PERIPHERAL_VIEW_MAX_BYTES else None
+
+
 def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_purchase_at: str | None,
             target_amount: int | None, memo: str, if_match: int | None = None,
             peripherals: list[dict] | None = None) -> dict:
@@ -299,6 +315,7 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
     # 개발요청 11번 — 가격은 클라이언트가 보낸 값을 안 믿고 variant_id로 카탈로그에서 다시 조회한다
     # (PC 쪽 stored가 서버에서 다시 읽는 것과 같은 원칙). 확정 전에 다 검증해, 실패하면 아무것도 안 남긴다.
     peripheral_picks: list[tuple[str, object, int]] = []
+    peripheral_views: list[dict | None] = []      # peripheral_picks 와 같은 순서
     if peripherals:
         from src.repo.catalog_repo import load_peripheral_candidates
         pool = load_peripheral_candidates(conn)
@@ -308,6 +325,7 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
             if cand is None:
                 raise ValidationFailed(f"주변기기 후보를 찾을 수 없습니다: {kind}", code="peripheral_not_found")
             peripheral_picks.append((kind, cand, qty))
+            peripheral_views.append(_storable_view(p.get("view")))
     peripheral_total = sum(c.price * qty for _, c, qty in peripheral_picks)
 
     purchase_at = None
@@ -359,7 +377,7 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
             pack_count=qty,
         )
 
-    for kind, cand, qty in peripheral_picks:
+    for (kind, cand, qty), view in zip(peripheral_picks, peripheral_views):
         snapshot = {
             "kind": kind,
             "product": {
@@ -367,6 +385,8 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
                 "image_url": cand.provenance.get("image_url"), "purchase_url": cand.provenance.get("product_url"),
             },
         }
+        if view is not None:
+            snapshot["view"] = view
         prepo.add_peripheral_line(
             revision["id"], kind, UUID(cand.variant_id), int(cand.price) * qty, snapshot, pack_count=qty,
         )
@@ -407,6 +427,7 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
             "product": snapshot.get("product") or {},
             "variant_id": str(line["variant_id"]),
             "price": int(line["line_amount"]) // max(int(line["pack_count"]), 1), "qty": int(line["pack_count"]),
+            "view": snapshot.get("view"),       # 확정 때 화면이 보낸 설명 그대로(없던 확정본은 None)
         })
     watch = NotificationRepo(conn).get_for_revision(revision["id"])
     return {
