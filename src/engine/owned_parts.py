@@ -85,6 +85,21 @@ def _narrow_by_capacity(text: str, matches: list[Candidate]) -> list[Candidate]:
     return narrowed or matches
 
 
+def _collapse_duplicate_listings(cands: list[Candidate], text: str = "") -> list[Candidate]:
+    """카탈로그에 같은 제품이 표기만 달리(괄호·공백) 두 번 들어 있고 가격도 같으면 하나로 본다 — 안 그러면 "RTX 3050 (6GB)"와
+    "RTX 3050 6GB"처럼 사실상 같은 두 줄 때문에 항상 "후보가 여러 개"가 되어 어느 쪽을 골라도 확정되지 않는다. 가격이 다르면 다른 판매 항목이라 남긴다."""
+    seen: set[tuple[str, int | None]] = set()
+    out: list[Candidate] = []
+    lowered = text.lower()
+    for cand in sorted(cands, key=lambda c: c.name.lower() not in lowered):   # 입력과 표기가 똑같은 줄을 먼저 남긴다
+        key = (re.sub(r"[^0-9a-z가-힣]", "", cand.name.lower()), cand.price)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(cand)
+    return out
+
+
 def _match_catalog(text: str, pool: list[Candidate]) -> list[Candidate]:
     """카탈로그 이름의 의미 있는 토큰이 전부 사용자 글 안에 있어야 대응으로 본다(부분 일치 아님 —
     5600 은 5600X 가 아니다: 후보 이름에만 있고 글에는 없는 토큰이 있으면 그 후보는 제외한다). 방향이
@@ -118,9 +133,10 @@ def _match_catalog(text: str, pool: list[Candidate]) -> list[Candidate]:
             return []
         top = max(size for size, _ in scored)
         best_matches = [cand for size, cand in scored if size == top]
+        best_matches = _collapse_duplicate_listings(best_matches, text)
         return best_matches if len(best_matches) == 1 else []
     best = max(size for size, _ in scored)
-    return _narrow_by_capacity(text, [cand for size, cand in scored if size == best])
+    return _collapse_duplicate_listings(_narrow_by_capacity(text, [cand for size, cand in scored if size == best]), text)
 
 
 # 규격·속도·용량 표기는 모델 번호가 아니다("DDR5"·"PCIe4"·"850W"·"6000MHz") — 모델 번호 기준 매칭의 근거로 쓰지 않는다.

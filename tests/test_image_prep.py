@@ -62,3 +62,10 @@ def test_a_low_quality_photo_is_trusted_only_when_enough_parts_were_read_clearly
     assert image_prep.reading_is_unreliable(True, clean[:3]) is True                                 # 너무 적게 읽힘
     assert image_prep.reading_is_unreliable(True, [*clean, {"category": "GPU", "raw_text": "RTX 5?80"}]) is True
     assert image_prep.reading_is_unreliable(True, [*clean, {"category": "GPU", "raw_text": "RTX 5080", "uncertain": True}]) is True
+
+
+def test_a_huge_but_tiny_file_is_not_decoded(monkeypatch):
+    """파일은 작아도 펼치면 수천만 화소인 사진(압축 폭탄)은 열어 보지 않는다 — 전처리·품질 검사가 메모리를 쓰지 않게."""
+    data = _png(Image.new("L", (9000, 6000), 255))           # 54M 화소, 파일은 수십 KB
+    assert image_prep.prepare_for_reading("image/png", data) == ("image/png", data)
+    assert image_prep.assess_quality(data)["low"] is False

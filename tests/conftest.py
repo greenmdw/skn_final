@@ -184,7 +184,7 @@ _REVIEW_SUCCESS_MODULES = {
     'test_feedback_events', 'test_fit_score', 'test_history_journey', 'test_list_history_http',
     'test_list_revisions_http', 'test_list_service', 'test_notification_acc02',
     'test_peripheral_line_confirm_http', 'test_peripherals_recommend_http',
-    'test_pipeline_http_smoke', 'test_postprocess_swap_race', 'test_preference_signal', 'test_quote_apply',
+    'test_pipeline_http_smoke', 'test_postprocess_swap_race', 'test_preference_signal',
     'test_report_delete_rename_http', 'test_research_loop', 'test_result_status_http', 'test_result_advice', 'test_result_interaction',
     'test_reverify_after_swap', 'test_revise_confirmed_report',
     'test_revision_from_old_report_http', 'test_session_resume_http',
@@ -228,3 +228,15 @@ def _session_check_no_cache(monkeypatch):
     session_check.reset_cache()
     yield
     session_check.reset_cache()
+
+
+@pytest.fixture(autouse=True)
+def _relax_quote_conditions(request, monkeypatch):
+    """받은 견적 분석은 용도가 있어야 하지만(`quote_draft_service.require_conditions`), 다른 것을 시험하는 수백 개 테스트가 조건 없이
+    초안을 분석한다 — 그 규칙 자체를 시험하는 테스트(`@pytest.mark.enforce_conditions`)만 실제 규칙을 쓴다."""
+    if request.node.get_closest_marker("enforce_conditions"):
+        yield
+        return
+    from src.services import quote_draft_service
+    monkeypatch.setattr(quote_draft_service, "require_conditions", lambda conditions: None)
+    yield

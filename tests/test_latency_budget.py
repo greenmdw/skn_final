@@ -91,10 +91,7 @@ def test_peripherals_and_quote_review_stay_within_their_time_budget():
     analysis = _timed("견적 분석", lambda: client.post(f"/pc/review-drafts/{draft['draft_id']}/analysis", json={}))
     assert analysis.status_code == 200, analysis.text
 
-    created = client.post("/pc/reviews", json={"current_specs": {"CPU": "AMD Ryzen 7 9800X3D", "GPU": "NVIDIA GeForce RTX 5070 Ti"},
-                                               "conditions": {"purpose": "game", "resolution": "QHD_165", "budget_max": 3_000_000}})
-    assert created.status_code == 201, created.text
-    list_id = created.json()["list_id"]
+    list_id = draft["draft_id"]                                                     # 분석한 초안의 대화에 되묻는다
     _timed("견적 점검 되묻기(규칙)", lambda: client.post(f"/pc/reviews/{list_id}/messages", json={"text": "호환은 문제없어?"}))
 
 

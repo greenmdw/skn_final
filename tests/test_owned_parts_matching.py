@@ -106,3 +106,20 @@ def test_a_qualifier_in_the_text_that_the_catalog_name_lacks_is_a_different_prod
 def test_a_part_category_word_in_front_of_the_name_does_not_block_the_match(pool, slot, text, expected):
     """텍스트로 붙여 넣은 견적은 줄 앞에 부품군 이름이 붙는다 — 그 낱말 때문에 연결이 막히면 안 된다."""
     assert _confirmed_name(pool, slot, text) == expected
+
+
+def _listing(name, price, **specs):
+    from src.dto import Candidate
+    return Candidate(product_key=name.lower().replace(" ", "-"), slot="GPU", name=name, price=price, specs=specs)
+
+
+def test_the_same_product_listed_twice_with_different_punctuation_is_one_match():
+    from src.engine.owned_parts import _match_catalog
+    pool = [_listing("NVIDIA GeForce RTX 3050 (6GB)", 308_800, perf_tier=3), _listing("NVIDIA GeForce RTX 3050 6GB", 308_800, perf_tier=3)]
+    assert [c.name for c in _match_catalog("NVIDIA GeForce RTX 3050 (6GB)", pool)] == ["NVIDIA GeForce RTX 3050 (6GB)"]
+
+
+def test_the_same_name_at_a_different_price_stays_ambiguous():
+    from src.engine.owned_parts import _match_catalog
+    pool = [_listing("NVIDIA GeForce RTX 3050 (6GB)", 308_800), _listing("NVIDIA GeForce RTX 3050 6GB", 320_000)]
+    assert len(_match_catalog("NVIDIA GeForce RTX 3050 6GB", pool)) == 2

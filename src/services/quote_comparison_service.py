@@ -74,6 +74,12 @@ def _saved_side(report: dict, by_slot: dict) -> dict[str, dict]:
             "name": product.get("name"), "image_url": product.get("image_url") or None,
             "quantity": item["qty"], "line_total": item["price"] * item["qty"],
         }
+    for kept in report.get("kept_parts") or []:            # 받은 견적 리포트의 유지한 부품 — 견적에 적힌 그대로(가격을 몰랐으면 line_total 은 None)
+        if kept["slot"] in SLOTS and kept["slot"] not in out:
+            out[kept["slot"]] = {
+                "product_id": kept.get("product_id"), "product_key": kept.get("product_key"), "name": kept["name"],
+                "image_url": kept.get("image_url"), "quantity": kept["qty"], "line_total": kept.get("line_amount"),
+            }
     return out
 
 

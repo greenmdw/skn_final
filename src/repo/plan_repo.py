@@ -18,7 +18,10 @@ RESUMED_FROM_KEY = "resumed_from"
 # "견적 수정하기"로 복사해 온 원본 견적서 번호. 견적 리스트 히스토리가 "견적서 N에서 고쳐 시작"과 비교 대상을
 # 정하는 데만 쓴다 — 추천 입력이 아니므로 위 둘처럼 load_full 에서 빼고 lock_version 도 올리지 않는다.
 REVISED_FROM_KEY = "revised_from"
-_NOT_CONDITIONS = (QUOTE_REVIEW_KEY, QUOTE_DRAFT_KEY, QUOTE_SAVED_COMPARISONS_KEY, RESUMED_FROM_KEY, REVISED_FROM_KEY)
+# 받은 견적을 "일부 교체 후 확정"할 때 얼려 둔 점검 요약(재기획 3단계). 리포트가 이 키로 "받은 견적에서 만든 견적서"임을 안다.
+QUOTE_CONFIRM_KEY = "quote_confirm"
+_NOT_CONDITIONS = (QUOTE_REVIEW_KEY, QUOTE_DRAFT_KEY, QUOTE_SAVED_COMPARISONS_KEY, RESUMED_FROM_KEY, REVISED_FROM_KEY,
+                   QUOTE_CONFIRM_KEY)
 _NOT_CONDITIONS_SQL = ", ".join(["%s"] * len(_NOT_CONDITIONS))
 
 
@@ -114,7 +117,8 @@ class PlanRepo(Repo):
         item_count는 본체 부품 수만(개발요청 11번), peripheral_count는 주변기기 수다."""
         return self._all(
             "SELECT r.id, r.revision_no, r.name_snapshot, r.confirmed_at, r.confirmed_total, r.planned_purchase_at, "
-            "(SELECT count(*) FROM planning.purchase_line l WHERE l.revision_id=r.id) AS item_count, "
+            "(SELECT count(*) FROM planning.purchase_line l WHERE l.revision_id=r.id) "
+            "+ (SELECT count(*) FROM planning.kept_part_line k WHERE k.revision_id=r.id) AS item_count, "
             "(SELECT count(*) FROM planning.peripheral_line pl WHERE pl.revision_id=r.id) AS peripheral_count "
             "FROM planning.plan_revision r WHERE r.plan_id=%s AND r.state='confirmed' AND r.deleted_at IS NULL "
             "ORDER BY r.revision_no",
@@ -351,6 +355,29 @@ class PlanRepo(Repo):
             "SELECT count(*) AS n FROM planning.peripheral_line WHERE revision_id=%s", (revision_id,)
         )
         return int(row["n"])
+
+    def offer_for_observation(self, observation_id: UUID) -> UUID | None:
+        """가격 관측이 속한 판매 정보(offer) — 교체한 부품을 purchase_line 으로 얼릴 때 쓴다."""
+        row = self._one("SELECT offer_id FROM catalog.offer_observation WHERE id=%s", (observation_id,))
+        return row["offer_id"] if row else None
+
+    def add_kept_part_line(self, revision_id: UUID, slot: str, source_text: str, variant_id: UUID | None,
+                           amount: int | None, snapshot: dict, pack_count: int = 1) -> UUID:
+        """받은 견적에서 바꾸지 않고 유지한 부품(0020). 견적에 적힌 그대로 얼린다 — 카탈로그에 없어도, 가격을 몰라도(amount=None) 된다."""
+        row = self._one(
+            "INSERT INTO planning.kept_part_line "
+            "(revision_id, slot, source_text, variant_id, pack_count, line_amount, snapshot) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (revision_id, slot, source_text, variant_id, pack_count, amount, Jsonb(snapshot)),
+        )
+        return row["id"]
+
+    def list_kept_part_lines(self, revision_id: UUID) -> list[dict]:
+        return self._all(
+            "SELECT slot, source_text, pack_count, line_amount, snapshot FROM planning.kept_part_line "
+            "WHERE revision_id=%s ORDER BY created_at",
+            (revision_id,),
+        )
 
     def lock_revision(self, revision_id: UUID) -> None:
         """같은 리비전의 조건·요구사항 변경을 하나의 행 잠금으로 직렬화한다."""

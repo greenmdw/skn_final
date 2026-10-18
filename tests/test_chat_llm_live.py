@@ -183,7 +183,7 @@ COND = {"purpose": "game", "resolution": "QHD_165", "budget_max": 2_000_000}
 ])
 def test_quote_chat_answers_a_named_comparison_with_that_product(live, question, expect):
     client = TestClient(app)
-    lid = client.post("/pc/reviews", json={"current_specs": QUOTE, "conditions": COND}).json()["list_id"]
+    lid = __import__("tests.quote_review_helpers", fromlist=["create_review"]).create_review(client, QUOTE, COND)["list_id"]
     res = client.post(f"/pc/reviews/{lid}/messages", json={"text": question}).json()
     assert expect in res["reply"], res["reply"]
     assert res["evidence"] == ["부품 비교"], res["evidence"]
@@ -191,7 +191,7 @@ def test_quote_chat_answers_a_named_comparison_with_that_product(live, question,
 
 def test_quote_chat_asks_which_model_for_a_series_and_for_consent_for_an_unknown_product(live):
     client = TestClient(app)
-    lid = client.post("/pc/reviews", json={"current_specs": QUOTE, "conditions": COND}).json()["list_id"]
+    lid = __import__("tests.quote_review_helpers", fromlist=["create_review"]).create_review(client, QUOTE, COND)["list_id"]
     series = client.post(f"/pc/reviews/{lid}/messages", json={"text": "라이젠 9000이랑 비교해줘"}).json()
     assert "시리즈" in series["reply"] and "어느 모델" in series["reply"], series["reply"]
     ask = client.post(f"/pc/reviews/{lid}/messages", json={"text": "RTX 6090이랑 비교해줘"}).json()

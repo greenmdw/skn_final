@@ -30,8 +30,8 @@ export const lists: Api['lists'] = {
     await request<unknown>('PATCH', `/lists/${listId}/reports/${revisionNo}`, { name })
   },
 
-  async removeReport(listId, revisionNo) {
-    await request<unknown>('DELETE', `/lists/${listId}/reports/${revisionNo}`)
+  async removeReport(listId, revisionNo, permanent) {
+    await request<unknown>('DELETE', `/lists/${listId}/reports/${revisionNo}${permanent ? '?permanent=true' : ''}`)
   },
 
 }

@@ -1,5 +1,6 @@
 import NavigationLink from '../components/NavigationLink'
 import { useEffect, useState } from 'react'
+import QuoteReportSection, { useQuoteReportExtra } from '../components/check/QuoteReportSection'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import ListHistory from '../components/ListHistory'
@@ -39,6 +40,7 @@ export default function ReportPage() {
   }, [id, wanted, needsOlder])
 
   const setup = needsOlder ? older : latest
+  const quoteExtra = useQuoteReportExtra(id, setup?.revisionNo)
   const reports = latest?.reports ?? []
   async function revise() {
     // 작성 중인 견적이 있으면 서버가 버리고 이 견적서에서 새로 시작한다 — 먼저 물어본다.
@@ -76,7 +78,11 @@ export default function ReportPage() {
     )
   }
 
-  const total = planTotal(setup.plan) + peripheralsTotal(setup.peripherals)
+  // 받은 견적으로 만든 리포트는 유지한 부품도 합계에 들어가므로 서버가 계산한 합계를 쓴다(가격을 모르는 부품은 서버가 뺀다).
+  const quoteReport = quoteExtra?.source === 'quote_check'
+  const total = quoteReport ? quoteExtra.total : planTotal(setup.plan) + peripheralsTotal(setup.peripherals)
+  // 받은 견적 리포트의 목표 금액은 사용자가 입력한 값만 보인다(비웠으면 합계로 채우지 않는다)
+  const targetText = quoteReport ? (quoteExtra.target_amount != null ? `목표 금액 ${wonFmt(quoteExtra.target_amount)}` : '') : `목표 금액 ${wonFmt(setup.target)}`
   // 주변기기 대화: 확정할 때 함께 저장한 대화 id, 없으면 주변기기만 확정한 견적(목록이 곧 대화)일 때 그 목록 id
   const peripheralSessionId = setup.peripherals?.find(item => item.view?.sessionId)?.view?.sessionId
     ?? ((setup.peripherals?.length ?? 0) > 0 && setup.plan.items.length === 0 ? setup.id : null)
@@ -93,7 +99,8 @@ export default function ReportPage() {
           ))}
           {setup.revisionNo != null && (
             <>
-              {setup.plan.items.length > 0
+              {/* 받은 견적으로 만든 리포트는 "견적 수정하기"로 열 수 없다(서버가 거절) — 아래 "이 구성으로 새 점검 시작"을 쓴다 */}
+              {quoteReport ? null : setup.plan.items.some(item => !item.kept)
                 ? <button type="button" className="pl-pill mint" onClick={() => void revise()} title="이 견적서의 구성으로 추천 결과 화면을 열어 수정해요. 확정할 때 덮어쓸지 새로 저장할지 고를 수 있어요.">견적 수정하기</button>
                 : Boolean(setup.peripherals?.length) && <button type="button" className="pl-pill mint" onClick={() => void revisePeripherals()} title="저장된 주변기기를 다시 불러와 제품과 조건을 수정해요.">견적 수정하기</button>}
               <button type="button" className="pl-pill danger" onClick={() => void remove()} title="이 견적서만 삭제해요. 대화와 다른 견적서는 그대로예요.">견적서 삭제</button>
@@ -107,19 +114,19 @@ export default function ReportPage() {
               <div className="pl-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>TRUEFIT 견적 리포트</div>
               <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em' }}>{setup.title}</div>
               <div className="pl-note">
-                {[confirmed && `${confirmed} 확정`, setup.date && `구매 예정 ${isoToKo(setup.date)}`, `목표 금액 ${wonFmt(setup.target)}`].filter(Boolean).join(' · ')}
+                {[confirmed && `${confirmed} 확정`, !quoteReport && setup.date && `구매 예정 ${isoToKo(setup.date)}`, targetText].filter(Boolean).join(' · ')}
               </div>
               {setup.memo && <div style={{ fontSize: 13, lineHeight: 1.6 }}>메모 · {setup.memo}</div>}
             </div>
             <div style={{ textAlign: 'right' }}>
-              <div className="pl-note">합계</div>
+              <div className="pl-note">합계{quoteReport && quoteExtra.quote_check?.total_partial ? ' (일부 가격 제외)' : ''}</div>
               <div className="pl-mono" style={{ fontSize: 26, fontWeight: 600 }}>{wonFmt(total)}</div>
             </div>
           </div>
 
-          {setup.plan.items.length > 0 && <section>
+          {setup.plan.items.some(item => !item.kept) && <section>
             <div style={{ fontSize: 13, fontWeight: 700, paddingBottom: 8 }}>본체</div>
-            {setup.plan.items.map(item => (
+            {setup.plan.items.filter(item => !item.kept).map(item => (
               <div className="pl-report-row" key={item.id}>
                 <ProductThumb imageUrl={item.imageUrl} partKey={item.key} name={item.name} />
                 <span className="cat" style={{ color: 'var(--muted)' }}>{item.type}</span>
@@ -137,6 +144,8 @@ export default function ReportPage() {
               </div>
             ))}
           </section>}
+
+          <QuoteReportSection extra={quoteExtra} listId={setup.id} />
 
           {(setup.peripherals?.length ?? 0) > 0 && (
             <section>
@@ -167,7 +176,7 @@ export default function ReportPage() {
             </section>
           )}
 
-          <ListHistory listId={setup.id} revisionNo={setup.revisionNo} />
+          {!quoteReport && <ListHistory listId={setup.id} revisionNo={setup.revisionNo} />}
         </article>
       </div>
     </PlannerShell>

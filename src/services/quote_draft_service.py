@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -22,7 +23,8 @@ from uuid import UUID
 from src.agent import spec_extraction_agent
 from src.auth.deps import Principal
 from src.config import QUOTE_DRAFT_MAX_FILES, QUOTE_DRAFT_MAX_FILE_BYTES, QUOTE_DRAFT_MAX_TOTAL_BYTES
-from src.engine import image_prep
+from src.engine import image_prep, match_reason
+from src.engine import source_relation as source_relation_engine
 from src.engine.owned_parts import preview_current_specs, resolve_owned_parts
 from src.engine.quote_items import default_selection, is_non_part_line, is_placeholder_line, merge_same_products, spec_text, split_line
 from src.engine.spec_text import parse_spec_lines
@@ -160,16 +162,29 @@ def _match(category: str, text: str, by_slot: dict) -> dict[str, Any]:
             "match_via": row.get("match_via")}
 
 
-def _make_item(category: str, raw_text: str, source_id: str, by_slot: dict, uncertain: bool = False) -> dict[str, Any]:
+def _set_reason(item: dict[str, Any], by_slot: dict, *, uncertain: bool = False, low_quality: bool = False) -> None:
+    """항목이 왜 확정되지 않았는지(화면의 "제품 확인 필요" 이유). 확정이면 None."""
+    item["match_reason"] = match_reason.explain(
+        item["category"], spec_text(item), by_slot.get(item["category"], []), status=item["match_status"],
+        matched_name=item.get("matched_name"), candidate_count=item.get("candidate_count"), uncertain=uncertain, low_quality=low_quality)
+
+
+def _make_item(category: str, raw_text: str, source_id: str, by_slot: dict, uncertain: bool = False,
+               low_quality: bool = False) -> dict[str, Any]:
     parts = split_line(raw_text)
     item = {"id": str(uuid.uuid4()), "category": category, "raw_text": raw_text, **parts,
             "image_url": None, "source_ids": [source_id], "selected_for_analysis": False, "user_edited": False}
+    # 텍스트 견적의 "GPU: NVIDIA …" 같은 부품군 머리말은 이름이 아니다 — 화면·리포트·교체 문구에 "GPU: "가 붙어 나오지 않게 뺀다.
+    bare = re.sub(rf"^\s*{re.escape(category)}\s*[:：]\s*", "", item["normalized_name"])
+    if bare:
+        item["normalized_name"] = bare
     item.update(_match(category, spec_text(item), by_slot))
-    if uncertain:
+    if uncertain or low_quality:
         # 글자가 흐려 읽은 이름이 틀렸을 수 있다 — 카탈로그 제품으로 확정하지 않고 "제품 확인 필요"로 둔다(찾은 제품 이름은 힌트로 남긴다).
         item["uncertain"] = True
         if item["match_status"] == "confirmed":
             item.update(match_status="candidate", matched_product_id=None, matched_product_key=None, match_via=None)
+    _set_reason(item, by_slot, uncertain=uncertain, low_quality=low_quality)
     return item
 
 
@@ -219,7 +234,7 @@ def recognize(files: list[tuple[str, str | None, bytes]], text: str | None, by_s
                 sources[index].setdefault("ignored_lines", []).append(entry["raw_text"])
                 continue
             items.append(_make_item(entry["category"], entry["raw_text"], sources[index]["id"], by_slot,
-                                    bool(entry.get("uncertain")) or low_quality))
+                                    uncertain=bool(entry.get("uncertain")), low_quality=low_quality))
     if text and text.strip():
         sources.append({"id": "source-text", "type": "text", "file_name": None, "sort_order": len(sources) + 1,
                         "status": "completed", "error_code": None})
@@ -265,6 +280,8 @@ def _revision_and_draft(conn, list_id: UUID, principal: Principal, *, lock: bool
     revision = session_service._owned(repo, list_id, principal)
     if lock:
         repo.lock_revision(revision["id"])
+        if revision["state"] == "confirmed":           # 확정한 견적의 초안·교체 목록은 리포트의 근거라 더는 바꾸지 못한다
+            raise Conflict("이미 확정한 견적이에요. 고치려면 새로 점검을 시작해 주세요.", code="quote_already_confirmed")
     row = repo.active_condition(revision["id"], QUOTE_DRAFT_KEY)
     if row is None:
         raise NotFound("이 목록에는 견적 초안이 없습니다.")
@@ -306,6 +323,12 @@ def get_draft(conn, list_id: UUID, principal: Principal) -> dict:
     return _revision_and_draft(conn, list_id, principal)[2]
 
 
+def get_draft_state(conn, list_id: UUID, principal: Principal) -> tuple[dict, bool]:
+    """(초안, 이미 확정한 견적인가) — 화면이 확정한 견적을 다시 분석하려 들지 않게 알려 준다."""
+    _repo, revision, draft = _revision_and_draft(conn, list_id, principal)
+    return draft, revision["state"] == "confirmed"
+
+
 def groups(draft: dict) -> list[dict]:
     """견적 묶음 — 올린 이미지(또는 텍스트) 하나가 견적 하나다. 서로 다른 견적(A안·B안)을 올렸을 때 묶음별로 분석·비교하는 단위.
     항목이 두 견적에 모두 있으면(같은 제품으로 합쳐진 경우) 두 묶음에 모두 들어간다. 저장하지 않고 항상 항목에서 계산한다."""
@@ -330,23 +353,56 @@ def mark_live_values(conn, draft: dict) -> dict:
     return draft
 
 
-_FULL_BUILD_CATEGORIES = 5          # 사진 한 장에 이만큼의 부품군이 보이면 그 사진은 한 대 분량의 견적이다
+def source_relation(draft: dict) -> dict:
+    """올린 사진들의 관계 판정(한 견적의 여러 장 / 서로 다른 견적) — 사용자가 확인했으면 그 값을 따른다. 규칙은 engine/source_relation.py."""
+    return source_relation_engine.judge(draft.get("sources") or [], draft.get("items") or [], draft.get("source_relation_choice"))
 
 
 def source_mode_hint(draft: dict) -> str:
-    """사진이 "서로 다른 견적"인지 "한 견적의 여러 장"인지 추정한다 — 'separate' 는 부품군이 5개 이상 보이는 사진이 둘 이상일 때다.
-    한 견적을 여러 장으로 나눠 찍으면 장마다 일부 부품군만 보인다. 화면은 이 값을 기본 선택으로만 쓰고 사용자가 바꿀 수 있다."""
-    per_source: dict[str, set[str]] = {}
-    for item in draft.get("items") or []:
-        for source_id in item.get("source_ids") or []:
-            per_source.setdefault(source_id, set()).add(item["category"])
-    images = {s["id"] for s in draft.get("sources") or [] if s.get("type") == "image"}
-    full = [sid for sid, categories in per_source.items() if sid in images and len(categories) >= _FULL_BUILD_CATEGORIES]
-    return "separate" if len(full) >= 2 else "single"
+    """하위 호환용 — 판정의 mode 만. 화면은 `source_relation` 을 쓴다."""
+    return source_relation(draft)["mode"]
 
 
-def draft_out(list_id: str, draft: dict) -> dict:
-    return {"draft_id": list_id, **draft, "groups": groups(draft), "source_mode_hint": source_mode_hint(draft)}
+def set_source_relation(conn, list_id: UUID, principal: Principal, expected_version: int, mode: str) -> dict:
+    """사용자가 사진 관계를 확인한다("한 견적" / "서로 다른 견적"). 이 값이 있으면 자동 판정보다 우선하고 뒤집을 수 있다."""
+    repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
+    if draft["version"] != expected_version:
+        raise StaleReviewVersion("초안이 다른 곳에서 바뀌었습니다. 새로 불러온 뒤 다시 시도해 주세요.", field="expected_version")
+    if not source_relation_engine.judge(draft.get("sources") or [], [], None)["applies"]:
+        raise ValidationFailed("사진이 2장 이상일 때만 정할 수 있어요.", field="mode")
+    draft["source_relation_choice"] = mode
+    draft["version"] += 1
+    _save(repo, revision["id"], draft)
+    return draft
+
+
+def analysis_stale(draft: dict) -> bool:
+    """마지막 분석에 쓴 조건과 지금 조건이 다르면 True — 분석한 적이 없으면 False."""
+    analyzed = draft.get("analyzed_conditions")
+    return analyzed is not None and analyzed != (draft.get("conditions") or {})
+
+
+def draft_out(list_id: str, draft: dict, confirmed: bool = False) -> dict:
+    relation = source_relation(draft)
+    return {"draft_id": list_id, **draft, "groups": groups(draft), "source_mode_hint": relation["mode"], "source_relation": relation,
+            "analysis_stale": analysis_stale(draft), "confirmed": confirmed}
+
+
+def update_conditions(conn, list_id: UUID, principal: Principal, expected_version: int, patch: dict[str, Any]) -> dict:
+    """조건을 일부만 바꾼다(재기획: 폼·채팅이 같은 조건 하나를 쓴다). 분석은 돌리지 않는다 — 결과가 오래됐다고만 표시한다."""
+    repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
+    if draft["version"] != expected_version:
+        raise StaleReviewVersion("초안이 다른 곳에서 바뀌었습니다. 새로 불러온 뒤 다시 시도해 주세요.", field="expected_version")
+    merged = dict(draft.get("conditions") or {})
+    for key, value in patch.items():
+        if value in (None, "", 0, []):
+            merged.pop(key, None)
+        else:
+            merged[key] = value
+    draft["conditions"] = quote_review_service.normalise_conditions(merged)
+    draft["version"] += 1
+    _save(repo, revision["id"], draft)
+    return draft
 
 
 def items_for_sources(draft: dict, source_ids: list[str]) -> list[dict]:
@@ -404,6 +460,8 @@ def patch_items(conn, list_id: UUID, principal: Principal, expected_version: int
         if renamed:
             by_slot = by_slot or load_pc_catalog(lambda _msg: None)
             item.update(_match(item["category"], spec_text(item), by_slot))
+            item.pop("uncertain", None)                     # 사용자가 이름을 고쳤으면 사진 글자 불확실은 더는 해당 없다
+            _set_reason(item, by_slot)
             _attach_image_urls(conn, [item])
     if deleted:
         draft["items"] = [i for i in draft["items"] if i["id"] not in deleted]
@@ -451,10 +509,29 @@ def add_item(conn, list_id: UUID, principal: Principal, expected_version: int, c
 
 
 # ── BE-07·08 ─────────────────────────────────────────────────────────────────
+def require_conditions(conditions: dict | None) -> None:
+    """분석(과 그 위의 교체 추천)에는 용도가 있어야 한다 — 용도가 없으면 용도 대비 균형을 판단하지 못해 "무엇을 바꿀지"가 나오지 않는다.
+    게임이면 해상도도 있어야 한다(해상도에 따라 요구 사양이 크게 달라진다). 해상도·우선순위·총예산은 선택이다."""
+    conditions = conditions or {}
+    if not conditions.get("purpose"):
+        raise ValidationFailed("용도를 먼저 골라 주세요. 용도를 알아야 바꿀 부품을 추천할 수 있어요.", field="conditions", code="purpose_required")
+    if conditions["purpose"] == "game" and not conditions.get("resolution"):
+        raise ValidationFailed("게임 용도는 해상도도 골라 주세요. 해상도에 따라 필요한 성능이 달라져요.", field="conditions", code="resolution_required")
+
+
 def analyze_selected(conn, list_id: UUID, principal: Principal, source_ids: list[str] | None = None) -> dict:
     """선택한 항목만 기존 점검에 넣어 분석하고 같은 세션에 저장한다. source_ids 를 주면 그 견적(이미지)의 항목만 —
     서로 다른 견적을 올렸을 때 한 견적을 골라 분석한다(안 주면 부품군마다 고른 기준 제품 전체)."""
     repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
+    require_conditions(draft.get("conditions"))
+    if not source_ids:         # 견적을 하나 고르지 않은 일반 분석은 사진들이 한 견적일 때만 — 서로 다른 견적을 합치면 결과가 섞인다
+        relation = source_relation(draft)
+        if relation["applies"] and not relation["confirmed"] and relation["confidence"] == "low":
+            raise Conflict("올린 사진이 한 견적을 나눠 찍은 것인지 서로 다른 견적인지 확실하지 않아요. 먼저 확인해 주세요.",
+                           code="source_relation_unconfirmed")
+        if relation["applies"] and relation["mode"] == "separate":
+            raise Conflict("올린 사진은 서로 다른 견적이에요. 견적 비교를 하거나 한 견적을 골라 분석해 주세요.",
+                           code="source_relation_separate")
     chosen = items_for_sources(draft, source_ids) if source_ids else \
         [i for i in draft["items"] if i["id"] in set(draft["selected_item_by_category"].values())]
     if not chosen:
@@ -464,11 +541,36 @@ def analyze_selected(conn, list_id: UUID, principal: Principal, source_ids: list
     totals = [s["quote_total"] for s in draft["sources"] if s["id"] in involved and s.get("quote_total")]
     review = quote_review_service.analyze(specs, draft.get("conditions"), conn=conn, quote_total=totals[0] if totals else None)
     quote_review_service._save(repo, revision["id"], review)
+    draft["analyzed_conditions"] = dict(review["input"]["conditions"])        # 이 분석에 쓴 조건 — 이후 조건이 바뀌면 analysis_stale
+    _save(repo, revision["id"], draft)
+    view = price_view(chosen, review, totals[0] if totals else None)
     rows = price_rows(chosen, review, load_pc_catalog(lambda _msg: None))
     excluded = [{"category": i["category"], "item_id": i["id"], "reason": "견적에 가격이 없어 합계에서 제외했습니다."}
                 for i in chosen if i["quote_price_type"] == "unknown"]
     return {**review, "list_id": str(list_id), "used_items": chosen, "question": draft.get("question"),
-            "draft_version": draft["version"], "price_excluded": excluded, "price_rows": rows}
+            "draft_version": draft["version"], "price_excluded": excluded, "price_rows": rows, "price_view": view}
+
+
+def price_view(chosen: list[dict], review: dict, quote_total: int | None) -> dict:
+    """화면이 가격을 어떻게 보일지 — 서버가 정해서 내려준다(클라이언트가 모르는 값을 0원으로 만들지 않게).
+    line: 부품별 가격이 적혀 있다 · total_only: 사진 총액만 있다 · none: 가격 정보가 없다. 가격은 보조 정보라 모르면 모른다고 한다."""
+    prices = review.get("prices") or {}
+    line = [i["quote_line_total"] for i in chosen if i.get("quote_line_total") is not None]
+    total_info = prices.get("quote_total") or {}
+    if line:
+        summary = prices.get("summary") or {}
+        complete = len(line) == len(chosen)
+        return {"mode": "line", "quote_total": quote_total, "line_total": sum(line), "priced_count": len(line), "total_count": len(chosen),
+                "catalog_total": summary.get("catalog_total"), "catalog_parts": summary.get("compared"),
+                "label": "견적 합계" if complete else f"가격이 확인된 부품 {len(line)}개의 합계",
+                "note": None if complete else f"나머지 {len(chosen) - len(line)}개는 가격 정보가 없어 합계에 넣지 않았어요."}
+    if quote_total:
+        return {"mode": "total_only", "quote_total": quote_total, "line_total": None, "priced_count": 0, "total_count": len(chosen),
+                "catalog_total": total_info.get("catalog_total"), "catalog_parts": total_info.get("catalog_parts"),
+                "label": "사진 총액", "note": "부품별 가격은 적혀 있지 않아요. 카탈로그 합계는 확정된 부품만의 참고 값이에요."}
+    return {"mode": "none", "quote_total": None, "line_total": None, "priced_count": 0, "total_count": len(chosen),
+            "catalog_total": None, "catalog_parts": None, "label": "가격 정보 없음",
+            "note": "가격 정보가 없어 가격은 평가하지 않았어요. 호환과 용도 점검은 그대로 볼 수 있어요."}
 
 
 # ── BE-08: 가격 필드(항목별) ─────────────────────────────────────────────────
@@ -509,204 +611,12 @@ def _selected_items(draft: dict) -> list[dict]:
     return [i for i in draft["items"] if i["id"] in chosen_ids]
 
 
-def _specs_for(draft: dict, *, baseline_item: dict | None = None) -> dict[str, str]:
-    """분석 기준으로 고른 항목들의 점검 입력. baseline_item 을 주면 그 부품군은 그 항목으로 바꿔 본다."""
-    specs = {i["category"]: spec_text(i) for i in _selected_items(draft)}
-    if baseline_item is not None:
-        specs[baseline_item["category"]] = spec_text(baseline_item)
-    return specs
-
-
 def _pool_by_product(by_slot: dict, category: str) -> dict[str, Any]:
     return {c.product_id: c for c in by_slot.get(category, []) if c.product_id}
 
 
-def _item_card(item: dict, by_slot: dict) -> dict:
-    """인식 항목 하나의 카드 — 가격·이미지·핵심 사양(점검과 같은 해석 결과)."""
-    from src.services.quote_alternatives import _spec_rows
-
-    info = resolve_owned_parts({item["category"]: spec_text(item)}, by_slot, [item["category"]]).get(item["category"]) or {}
-    return {"item_id": item["id"], "product_id": item.get("matched_product_id"), "name": item.get("matched_name") or item["normalized_name"],
-            "image_url": item.get("image_url"), "quantity": item["quantity"], "quote_line_total": item["quote_line_total"],
-            "match_status": item["match_status"], "specs": _spec_rows(item["category"], {}, dict(info.get("specs") or {}))}
-
-
-def _new_issue_replacements(category: str, changes: list[dict]) -> list[dict]:
-    """이 교체 때문에 새로 비호환이 되는 검사에 걸린 **다른 부품군** — 같이 바꿔야 할 부품과 그 근거 문장."""
-    from src.engine.stage3c_verify import AXIS_SLOTS
-
-    out, seen = [], set()
-    for ch in changes:
-        if ch["to"] != "fail":
-            continue
-        for slot in AXIS_SLOTS.get(ch["axis"], ()):
-            if slot != category and slot not in seen:
-                seen.add(slot)
-                out.append({"category": slot, "axis": ch["axis"], "reason": f"{ch['label']}: {ch['detail']}"})
-    return out
-
-
-def _reason_sentence(base_name: str | None, price_delta: int | None, new_fail: list[dict]) -> str:
-    parts = []
-    if price_delta is not None and base_name:
-        parts.append(f"{base_name}보다 {abs(price_delta):,}원 {'저렴' if price_delta < 0 else '비싸' if price_delta > 0 else '같은 가격'}"
-                     .replace("같은 가격", "가격이 같") + ("합니다" if price_delta else "습니다"))
-    if new_fail:
-        parts.append("바꾸면 " + ", ".join(c["label"] for c in new_fail) + " 문제가 새로 생깁니다")
-    return ". ".join(parts) + "." if parts else "가격 차이를 계산할 수 없습니다."
-
-
 # ── BE-05: 분석 전 제품 비교 ─────────────────────────────────────────────────
-MAX_COMPARE_TARGETS = 4
-
-
-def comparison(conn, list_id: UUID, principal: Principal, category: str, baseline_item_id: str | None,
-               direction: str | None, target_product_ids: list[str]) -> dict:
-    """분석 전에 한 부품군의 인식 제품들과 추천 제품을 나란히. 조회만 한다(초안·점검 결과를 바꾸지 않는다)."""
-    from src.services import quote_alternatives
-
-    draft = get_draft(conn, list_id, principal)
-    if category not in _SLOTS:
-        raise ValidationFailed(f"부품군이 아닙니다: {category}", field="category")
-    if direction not in (None, "cheaper", "better"):
-        raise ValidationFailed("direction은 cheaper 또는 better 여야 합니다.", field="direction")
-    if len(target_product_ids) > MAX_COMPARE_TARGETS:
-        raise ValidationFailed(f"비교 대상 제품은 {MAX_COMPARE_TARGETS}개까지입니다.", field="target_product_id")
-    in_category = [i for i in draft["items"] if i["category"] == category]
-    baseline = next((i for i in in_category if i["id"] == baseline_item_id), None) if baseline_item_id else \
-        next((i for i in in_category if i["id"] == draft["selected_item_by_category"].get(category)), None)
-    if baseline_item_id and baseline is None:
-        raise ValidationFailed("그 부품군의 항목이 아닙니다.", field="baseline_item_id")
-    if baseline is None:
-        raise NoRecognizedItems(f"{category}로 인식된 항목이 없습니다.")
-    by_slot = load_pc_catalog(lambda _msg: None)
-    pool = _pool_by_product(by_slot, category)
-    names = []
-    for pid in target_product_ids:
-        if pid not in pool:
-            raise ValidationFailed(f"카탈로그에 없는 제품입니다: {pid}", field="target_product_id")
-        names.append(pool[pid].name)
-    review = {"input": {"current_specs": _specs_for(draft, baseline_item=baseline)}}
-    result = quote_alternatives.compare_parts(review, category, by_slot, names or None, direction)
-    if result.get("error"):
-        raise ValidationFailed(result["error"], field="category")
-    by_name = {c.name: c for c in by_slot[category]}
-    urls = _image_urls(conn, [c.product_id for c in by_name.values() if c.product_id and c.name in {r["name"] for r in result["candidates"]}])
-    recommended = []
-    for row in result["candidates"]:
-        cand = by_name.get(row["name"])
-        new_fail = [c for c in row["compat_changes"] if c["to"] == "fail"]
-        recommended.append({
-            "product_id": cand.product_id if cand else None, "name": row["name"],
-            "image_url": urls.get(cand.product_id) if cand and cand.product_id else None,
-            "price": row["price"], "price_delta": row["price_delta"], "perf_tier": row["perf_tier"],
-            "specs": row["specs"], "compat_changes": row["compat_changes"], "incompatible": row["incompatible"],
-            "additional_replacements": _new_issue_replacements(category, row["compat_changes"]),
-            "review": row["review"], "reason": _reason_sentence(result["baseline"].get("name"), row["price_delta"], new_fail),
-        })
-    notes = ([result["note"]] if result.get("note") else []) + [f"비교하지 못한 제품: {', '.join(result['unmatched_targets'])}"] * bool(result.get("unmatched_targets"))
-    return {"category": category, "baseline_item_id": baseline["id"],
-            "recognized": [_item_card(i, by_slot) for i in in_category], "recommended": recommended, "notes": notes}
-
-
 # ── BE-06: 교체 영향 미리보기·적용 ────────────────────────────────────────────
-def _resolve_replacements(draft: dict, replacements: list[dict], by_slot: dict) -> list[tuple[str, Any, dict]]:
-    if not replacements:
-        raise ValidationFailed("교체할 제품을 하나 이상 골라 주세요.", field="replacements")
-    seen, out = set(), []
-    selected = {i["category"]: i for i in _selected_items(draft)}
-    for rep in replacements:
-        category, pid = rep["category"], rep["candidate_product_id"]
-        if category not in _SLOTS:
-            raise ValidationFailed(f"부품군이 아닙니다: {category}", field="replacements")
-        if category in seen:
-            raise ValidationFailed(f"{category}는 한 번에 하나만 교체할 수 있습니다.", field="replacements")
-        seen.add(category)
-        cand = _pool_by_product(by_slot, category).get(pid)
-        if cand is None:
-            raise ValidationFailed(f"카탈로그에 없는 제품입니다: {pid}", field="replacements")
-        out.append((category, cand, selected.get(category)))
-    return out
-
-
-def replacement_preview(conn, list_id: UUID, principal: Principal, replacements: list[dict]) -> dict:
-    """여러 교체를 한꺼번에 적용했을 때 합계·호환이 어떻게 달라지는지. 조회만 한다 — 적용은 `replacement_apply`."""
-    draft = get_draft(conn, list_id, principal)
-    by_slot = load_pc_catalog(lambda _msg: None)
-    resolved = _resolve_replacements(draft, replacements, by_slot)
-    slot_structure = list(_SLOTS)
-    specs = _specs_for(draft)
-    owned_before = resolve_owned_parts(specs, by_slot, slot_structure)
-    owned_after = dict(owned_before)
-    for category, cand, _old in resolved:
-        owned_after[category] = {"name": cand.name, "specs": dict(cand.specs), "source": "catalog"}
-    before = quote_review_service.compat_for_quote(specs, by_slot, slot_structure, owned_before)
-    after = quote_review_service.compat_for_quote(specs, by_slot, slot_structure, owned_after)
-    changes = [c for c in _changes(before["checks"], after["checks"])]
-    replaced = {category for category, _c, _o in resolved}
-    before_total = after_total = 0
-    excluded = []
-    for item in _selected_items(draft):
-        total = item["quote_line_total"]
-        if item["category"] in replaced:
-            cand = next(c for category, c, _o in resolved if category == item["category"])
-            after_total += cand.price * max(int(item["quantity"] or 1), 1)
-            if total is not None:
-                before_total += total
-            else:
-                excluded.append({"category": item["category"], "item_id": item["id"], "reason": "견적에 가격이 없어 변경 전 합계에서 제외했습니다."})
-        elif total is not None:
-            before_total += total
-            after_total += total
-        else:
-            excluded.append({"category": item["category"], "item_id": item["id"], "reason": "견적에 가격이 없어 합계에서 제외했습니다."})
-    return {
-        "before_total": before_total, "after_total": after_total, "total_diff": after_total - before_total,
-        "new_issues": [c for c in changes if c["to"] == "fail"],
-        "resolved_issues": [c for c in changes if c["from"] == "fail" and c["to"] != "fail"],
-        "additional_replacements": [r for category, _c, _o in resolved
-                                    for r in _new_issue_replacements(category, changes) if r["category"] not in replaced],
-        "replaced_items": [{"category": category, "from_item_id": old["id"] if old else None,
-                            "candidate_product_id": cand.product_id, "candidate_name": cand.name}
-                           for category, cand, old in resolved],
-        "price_excluded": excluded,
-    }
-
-
-def _changes(before_checks: list[dict], after_checks: list[dict]) -> list[dict]:
-    from src.services.quote_alternatives import _compat_changes
-    return _compat_changes(before_checks, after_checks)
-
-
-def replacement_apply(conn, list_id: UUID, principal: Principal, expected_version: int, replacements: list[dict]) -> dict:
-    """정확한 제품 ID로 초안의 항목을 교체한다 — 새 항목을 만들어 그 부품군의 분석 기준으로 삼는다(원래 항목은 남는다).
-    교체 뒤 분석은 따로 요청한다(`analysis`)."""
-    repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
-    if draft["version"] != expected_version:
-        raise StaleReviewVersion("초안이 다른 곳에서 바뀌었습니다. 새로 불러온 뒤 다시 시도해 주세요.", field="expected_version")
-    by_slot = load_pc_catalog(lambda _msg: None)
-    resolved = _resolve_replacements(draft, replacements, by_slot)
-    if not any(s["id"] == "replacement" for s in draft["sources"]):
-        draft["sources"].append({"id": "replacement", "type": "replacement", "file_name": None,
-                                 "sort_order": len(draft["sources"]) + 1, "status": "completed", "error_code": None})
-    for category, cand, old in resolved:
-        quantity = max(int(old["quantity"] or 1), 1) if old else 1
-        total = cand.price * quantity
-        item = {"id": str(uuid.uuid4()), "category": category, "raw_text": cand.name, "normalized_name": cand.name,
-                "product_code": None, "quantity": quantity, "quote_unit_price": cand.price, "quote_line_total": total,
-                "quote_price_type": "unit" if quantity == 1 else "line_total", "image_url": None,
-                "source_ids": ["replacement"], "selected_for_analysis": True, "user_edited": True,
-                "matched_product_id": cand.product_id, "matched_product_key": cand.product_key,
-                "matched_name": cand.name, "match_status": "confirmed", "candidate_count": None}
-        _attach_image_urls(conn, [item])
-        draft["items"].append(item)
-        draft["selected_item_by_category"][category] = item["id"]
-    _apply_selection(draft)
-    draft["version"] += 1
-    _save(repo, revision["id"], draft)
-    return draft
-
-
 # ── 항목 단위 실시간 검색 ─────────────────────────────────────────────────────
 def live_lookup_item(conn, list_id: UUID, principal: Principal, item_id: str) -> dict:
     """초안의 항목 하나를 실시간 검색+검증(사용자가 버튼을 눌렀을 때만). 카탈로그에서 확정된 항목은 대상이 아니다."""
@@ -721,3 +631,126 @@ def live_lookup_item(conn, list_id: UUID, principal: Principal, item_id: str) ->
     if item["match_status"] not in quote_review_service.LIVE_LOOKUP_STATUSES:
         raise ValidationFailed("카탈로그에 이미 대응된 부품은 실시간 검색 대상이 아닙니다.", field="item_id", code="already_matched")
     return {"item_id": item_id, **quote_review_service.live_lookup_text(conn, item["normalized_name"], item["category"])}
+
+
+def _batch_state(result: dict) -> str:
+    fields = result.get("supported_fields") or {}
+    return "found" if result.get("relevant") and any(v is not None for v in fields.values()) else "not_found"
+
+
+def prepare_live_batch(conn, list_id: UUID, principal: Principal, item_ids: list[str]) -> tuple[list[dict], list[dict]]:
+    """일괄 검색 대상 확인(재기획 6.8). (검색할 항목, 건너뛴 항목). 개수가 상한을 넘으면 거절한다 — 요청 1번이 사용자 한도 1회라 상한이 비용 상한이다."""
+    from src.config import LIVE_LOOKUP_BATCH_MAX
+    from src.services import live_spec_lookup
+
+    if not live_spec_lookup.available():
+        raise ServiceUnavailable("지금은 실시간 검색을 쓸 수 없습니다.", code="live_part_lookup_unavailable")
+    ids = list(dict.fromkeys(item_ids))
+    if len(ids) > LIVE_LOOKUP_BATCH_MAX:
+        raise ValidationFailed(f"한 번에 {LIVE_LOOKUP_BATCH_MAX}개까지 찾을 수 있어요.", field="item_ids", code="batch_too_large")
+    draft = get_draft(conn, list_id, principal)
+    by_id = {i["id"]: i for i in draft["items"]}
+    targets, skipped = [], []
+    for item_id in ids:
+        item = by_id.get(item_id)
+        if item is None or item["match_status"] not in quote_review_service.LIVE_LOOKUP_STATUSES:
+            skipped.append({"item_id": item_id, "state": "skipped", "message": "이미 카탈로그 제품으로 확인됐거나 없는 항목이에요.", "result": None})
+        else:
+            targets.append({"item_id": item_id, "name": item["normalized_name"], "category": item["category"]})
+    return targets, skipped
+
+
+def run_live_batch(targets: list[dict]) -> list[dict]:
+    """대상을 동시에 최대 LIVE_LOOKUP_MAX_CONCURRENCY 개씩 검색한다(항목마다 자기 연결). 한 항목이 실패해도 나머지는 계속한다."""
+    from src.config import LIVE_LOOKUP_MAX_CONCURRENCY
+    from src.db import get_conn
+
+    def one(target: dict) -> dict:
+        try:
+            with get_conn() as conn:
+                result = quote_review_service.live_lookup_text(conn, target["name"], target["category"])
+            return {"item_id": target["item_id"], "state": _batch_state(result), "message": None, "result": result}
+        except TruefitError as exc:
+            return {"item_id": target["item_id"], "state": "failed", "message": str(exc), "result": None}
+        except Exception:                                    # noqa: BLE001 — 한 항목의 예상 못 한 오류가 일괄 전체를 깨지 않게 한다
+            log.exception("live batch item failed")
+            return {"item_id": target["item_id"], "state": "failed", "message": "검색하지 못했어요. 잠시 후 다시 시도해 주세요.", "result": None}
+
+    if not targets:
+        return []
+    with ThreadPoolExecutor(max_workers=max(1, min(LIVE_LOOKUP_MAX_CONCURRENCY, len(targets)))) as pool:
+        return list(pool.map(one, targets))
+
+
+# ── 재기획 2단계: 교체 대상 추천과 교체 목록(서버 저장) ─────────────────────────────────
+def _stored_review(conn, list_id: UUID, principal: Principal) -> dict:
+    """교체 추천은 분석한 결과를 입력으로 쓴다 — 분석한 적이 없으면 먼저 분석하라고 알린다."""
+    try:
+        return quote_review_service.get_review(conn, list_id, principal)
+    except NotFound:
+        raise Conflict("분석을 먼저 해 주세요. 교체 추천은 분석 결과를 바탕으로 해요.", code="analysis_required") from None
+
+
+def replacement_targets(conn, list_id: UUID, principal: Principal) -> dict:
+    """부품별 교체 필요도와 후보(재기획 5절). 조회만 한다 — 초안을 바꾸지 않는다."""
+    from src.services import quote_replacement_plan
+
+    draft = get_draft(conn, list_id, principal)
+    review = _stored_review(conn, list_id, principal)
+    by_slot = load_pc_catalog(lambda _msg: None)
+    out = quote_replacement_plan.build_targets(review, by_slot, conn=conn)
+    return {**out, "draft_version": draft["version"], "analysis_stale": analysis_stale(draft)}
+
+
+def _replacement_map(draft: dict, by_slot: dict) -> dict[str, Any]:
+    out = {}
+    for slot, entry in (draft.get("replacements") or {}).items():
+        cand = _pool_by_product(by_slot, slot).get(entry["candidate_product_id"])
+        if cand is not None:                          # 카탈로그에서 사라진 제품은 조용히 뺀다
+            out[slot] = cand
+    return out
+
+
+def replacement_state(conn, list_id: UUID, principal: Principal) -> dict:
+    """저장된 교체 목록과 그것을 적용했을 때의 점검 변화·경고."""
+    draft = get_draft(conn, list_id, principal)
+    return _replacement_state(conn, list_id, principal, draft)
+
+
+def _replacement_state(conn, list_id: UUID, principal: Principal, draft: dict) -> dict:
+    from src.services import quote_replacement_plan
+
+    review = _stored_review(conn, list_id, principal)
+    by_slot = load_pc_catalog(lambda _msg: None)
+    state = quote_replacement_plan.build_state(review, _replacement_map(draft, by_slot), by_slot)
+    return {**state, "draft_version": draft["version"], "analysis_stale": analysis_stale(draft)}
+
+
+def set_replacement(conn, list_id: UUID, principal: Principal, expected_version: int, slot: str, product_id: str) -> dict:
+    """교체 목록에 부품 하나를 담는다(같은 부품군은 하나만, 다시 담으면 바뀐다). 카탈로그 제품만 되고, 성능이 낮거나 새 비호환이 생기면
+    막지 않고 경고로 알린다(사용자가 일부러 고를 수 있다 — 추천 후보는 따로 엄격하게 거른다)."""
+    repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
+    if draft["version"] != expected_version:
+        raise StaleReviewVersion("초안이 다른 곳에서 바뀌었습니다. 새로 불러온 뒤 다시 시도해 주세요.", field="expected_version")
+    if slot not in _SLOTS:
+        raise ValidationFailed(f"부품군이 아닙니다: {slot}", field="slot")
+    by_slot = load_pc_catalog(lambda _msg: None)
+    cand = _pool_by_product(by_slot, slot).get(product_id)
+    if cand is None:
+        raise ValidationFailed(f"카탈로그에 없는 제품입니다: {product_id}", field="candidate_product_id")
+    _stored_review(conn, list_id, principal)           # 분석한 뒤에만 교체를 담을 수 있다
+    draft.setdefault("replacements", {})[slot] = {"candidate_product_id": product_id, "candidate_name": cand.name, "added_at": _now()}
+    draft["version"] += 1
+    _save(repo, revision["id"], draft)
+    return _replacement_state(conn, list_id, principal, draft)
+
+
+def remove_replacement(conn, list_id: UUID, principal: Principal, expected_version: int, slot: str) -> dict:
+    """교체 목록에서 부품 하나를 뺀다(되돌리기). 담지 않은 부품군이어도 오류가 아니다."""
+    repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
+    if draft["version"] != expected_version:
+        raise StaleReviewVersion("초안이 다른 곳에서 바뀌었습니다. 새로 불러온 뒤 다시 시도해 주세요.", field="expected_version")
+    if (draft.get("replacements") or {}).pop(slot, None) is not None:
+        draft["version"] += 1
+        _save(repo, revision["id"], draft)
+    return _replacement_state(conn, list_id, principal, draft)

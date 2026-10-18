@@ -53,3 +53,26 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # 삭제 표시한 대화·견적서를 보관 기간(PURGE_DELETED_AFTER_DAYS, 기본 30일)이 지나면 영구 삭제한다(재기획 6.7).
+  # 켜기: .env 에 PURGE_DELETED=1 → docker compose up -d purge. 꺼져 있으면 아무것도 지우지 않고 대기한다.
+  purge:
+    image: truefit-api:aws
+    env_file: .env
+    depends_on:
+      - api
+    command:
+      - sh
+      - -c
+      - |
+        if [ "$${PURGE_DELETED:-0}" = "1" ]; then
+          exec python -u -m src.workers.purge_deleted
+        fi
+        echo "영구 삭제 작업이 꺼져 있습니다(PURGE_DELETED=1 로 켠 뒤 docker compose up -d purge). 대기합니다."
+        exec sleep infinity
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

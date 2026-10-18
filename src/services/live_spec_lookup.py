@@ -18,7 +18,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from openai import APIConnectionError, RateLimitError
-from pydantic import BaseModel, ConfigDict, Field
+from urllib.parse import urlsplit
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from src.auth import ratelimit
 from src.clients.llm_client import call_llm, call_web_search
@@ -63,6 +65,18 @@ class SupportedFields(BaseModel):
     interface: str | None = None
 
 
+def safe_http_url(value: Any) -> str | None:
+    """출처 주소는 http(s) 만 쓴다 — 모델이나 검색 결과가 `javascript:` 같은 주소를 내놓아도 저장·표시하지 않는다(화면이 링크로 그대로 연다).
+    호스트가 없거나 공백·제어 문자가 섞인 주소도 버린다."""
+    if not isinstance(value, str):
+        return None
+    url = value.strip()
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in ("http", "https") or not parts.netloc or any(ch.isspace() or ord(ch) < 32 for ch in url):
+        return None
+    return url
+
+
 class LiveSpecLookupResult(BaseModel):
     """live_spec_lookup_system()의 구조화 출력 계약.
 
@@ -75,6 +89,11 @@ class LiveSpecLookupResult(BaseModel):
     relevant: bool
     supported_fields: SupportedFields = Field(default_factory=SupportedFields)
     source_url: str | None = None
+
+    @field_validator("source_url", mode="after")
+    @classmethod
+    def _only_http_urls(cls, value: str | None) -> str | None:
+        return safe_http_url(value)
 
     def has_any_field(self) -> bool:
         return any(v is not None for v in self.supported_fields.model_dump().values())
@@ -287,7 +306,7 @@ def _outcome(row: dict, *, cached: bool, slot: str | None = None) -> LookupOutco
         price = price_at = None                      # 가격은 스펙보다 빨리 변한다 — 오래된 참고가는 내지 않는다
     return LookupOutcome(
         result=_from_row(row, slot), fetched_at=row["fetched_at"], status=row["status"], cached=cached,
-        reference_price=price, reference_price_source_url=row.get("reference_price_source_url") if price else None,
+        reference_price=price, reference_price_source_url=safe_http_url(row.get("reference_price_source_url")) if price else None,
         reference_price_at=price_at)
 
 
@@ -356,7 +375,7 @@ def _search_and_verify(conn, repo, name: str, key: str, query: str, slot, brand,
         # 검색 글에 이 제품의 모델 번호가 없다 — LLM 검증을 부르지 않고 "못 찾음"으로 저장한다(비용도 아낀다).
         log.info("live lookup: %r — 검색 글에 모델 번호 %s 없음, 못 찾음 처리", name, sorted(_identity_tokens(name)))
         row = repo.upsert(lookup_key=key, query_text=query, brand=brand, model=model, relevant=False,
-                          supported_fields={}, source_url=search.get("source_url"))
+                          supported_fields={}, source_url=safe_http_url(search.get("source_url")))
         return _outcome(row, cached=False, slot=slot)
     kind = f"부품 종류: {normalize_pc_slot(slot) or slot}\n" if slot else ""
     prompt = (f"질문: {name}\n{kind}검색 스니펫:\n{search['text']}\n"

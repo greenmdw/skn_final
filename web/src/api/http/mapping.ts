@@ -296,6 +296,17 @@ function reportItem(item: WireReportItem, index: number): PlanItem {
   }
 }
 
+function keptItem(part: NonNullable<WireReport['kept_parts']>[number], index: number): PlanItem {
+  const key = slotKey(part.slot)
+  return {
+    id: 'kept-' + part.slot + '-' + index, key, type: part.slot_label, name: part.name,
+    price: part.line_amount ?? 0, qty: part.qty, unitPrice: part.line_amount != null ? Math.round(part.line_amount / Math.max(part.qty, 1)) : undefined,
+    meta: part.slot_label, source: '견적에 적힌 그대로', score: '', fit: '', reasonTitle: '', tags: [], rating: '', reviews: '',
+    label: key ? SHORT_LABEL[key] : part.slot_label.slice(0, 4), imageUrl: part.image_url, purchaseUrl: null,
+    kept: true, noPrice: part.line_amount == null,
+  }
+}
+
 function dateOnly(value: string | null, fallbackIso: string): string {
   const source = value && /^\d{4}-\d{2}-\d{2}/.test(value) ? value : fallbackIso
   return source.slice(0, 10)
@@ -304,7 +315,7 @@ function dateOnly(value: string | null, fallbackIso: string): string {
 export function setupFromReport(report: WireReport, extras: SetupExtras | undefined): SavedSetup {
   const plan: CurrentPlan = {
     id: report.list_id, mode: extras?.mode ?? 'new',
-    items: report.items.map(reportItem),
+    items: [...report.items.map(reportItem), ...(report.kept_parts ?? []).map(keptItem)],
     budget: extras?.budget ?? null,
     conditions: extras?.conditions ?? { intent: '', performance: '', quiet: '' },
     checkSnapshot: extras?.checkSnapshot ?? null,

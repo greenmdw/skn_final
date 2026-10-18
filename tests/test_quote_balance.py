@@ -174,17 +174,21 @@ def test_conditions_are_saved_and_kept_when_only_the_quote_is_edited(monkeypatch
     from fastapi.testclient import TestClient
     from src.api import app
 
+    from tests.quote_review_helpers import create_review
+
     monkeypatch.setenv("CATALOG_SOURCE", "mock")
     with TestClient(app) as client:
-        created = client.post("/pc/reviews", json={
-            "current_specs": {"GPU": "RTX 4060 Ti"}, "conditions": {"purpose": "game", "resolution": "QHD_165"}}).json()
+        created = create_review(client, {"GPU": "RTX 4060 Ti"}, {"purpose": "game", "resolution": "QHD_165"})
         assert created["balance"]["available"] is True and created["input"]["conditions"]["resolution"] == "QHD_165"
-        # 견적만 고쳐 다시 보내면(조건 생략) 조건이 유지된다
-        kept = client.put(f"/pc/reviews/{created['list_id']}", json={"current_specs": {"GPU": "RTX 4070"}}).json()
+        draft_url = f"/pc/review-drafts/{created['list_id']}"
+        # 같은 초안을 다시 분석하면(조건 그대로) 조건이 유지된다
+        kept = client.post(f"{draft_url}/analysis", json={}).json()
         assert kept["input"]["conditions"] == created["input"]["conditions"] and kept["balance"]["available"] is True
-        # 빈 조건을 보내면 지워진다
-        cleared = client.put(f"/pc/reviews/{created['list_id']}",
-                             json={"current_specs": {"GPU": "RTX 4070"}, "conditions": {}}).json()
+        # 조건을 지우면(null) 용도 대비 균형은 판단하지 않는다
+        version = client.get(draft_url).json()["version"]
+        patched = client.patch(f"{draft_url}/conditions", json={"expected_version": version, "conditions": {"purpose": None, "resolution": None}})
+        assert patched.status_code == 200, patched.text
+        cleared = client.post(f"{draft_url}/analysis", json={}).json()
         assert cleared["balance"]["available"] is False and cleared["input"]["conditions"] == {}
         assert client.get(f"/pc/reviews/{created['list_id']}").json()["balance"] == cleared["balance"]
 
@@ -195,7 +199,7 @@ def test_invalid_conditions_are_rejected(monkeypatch):
     from src.api import app
 
     with TestClient(app) as client:
-        res = client.post("/pc/reviews", json={"current_specs": {"CPU": "i5-14400F"}, "conditions": {"purpose": "게임"}})
+        res = client.post("/pc/review-drafts", data={"text": "CPU: i5-14400F", "conditions": '{"purpose": "게임"}'})
         assert res.status_code == 422
 
 

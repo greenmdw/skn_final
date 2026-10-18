@@ -1,4 +1,4 @@
-import type { BudgetWarning, ChatChoice, CheckDraft, ConditionField, CurrentPlan, PartKey, PlanMode, ReviewRow, SavedSetup } from '../state/types'
+import type { BudgetWarning, ChatChoice, CheckDraft, ConditionField, CurrentPlan, PartKey, PlanMode, SavedSetup } from '../state/types'
 
 // 화면이 백엔드에 기대하는 계약입니다. 실제 서버를 붙일 때는 이 인터페이스(Api)를 그대로 구현하면 됩니다.
 
@@ -155,77 +155,6 @@ export interface QuoteConditions {
   budgetMax?: number
 }
 
-export interface QuoteCompatCheck {
-  axis: string
-  label: string
-  state: 'ok' | 'fail' | 'unknown' | 'skipped'
-  detail: string
-}
-
-export interface QuotePriceRow {
-  part: string
-  matched: string | null
-  quoted: number | null
-  catalog: number | null
-  quantity: number
-  diff: number | null
-  diffPercent: number | null
-  state: 'cheaper' | 'similar' | 'pricier' | 'no_quote_price' | 'no_catalog'
-  detail: string
-}
-
-export interface QuoteBalanceRow {
-  part: string
-  aspect: string
-  state: 'short' | 'excess' | 'ok' | 'unknown'
-  detail: string
-  measured: number | null
-  target: number | null
-}
-
-export interface QuoteCompareRow {
-  part: string
-  quote: Record<string, unknown> | null
-  ours: Record<string, unknown>
-  sameProduct: boolean
-  priceDiff: number | null
-  priceDiffPercent: number | null
-  priceState: 'cheaper' | 'similar' | 'pricier' | null
-  tierDiff: number | null
-  detail: string
-}
-
-export interface QuoteReviewResult {
-  listId: string
-  version: number
-  input: { currentSpecs: Record<string, string>; conditions: Record<string, unknown>; inputHash: string }
-  parts: ReviewRow[]
-  compat: { checks: QuoteCompatCheck[]; summary: Record<string, number>; incompatible: string[] }
-  prices: { available: boolean; reason: string | null; rows: QuotePriceRow[]; summary: Record<string, unknown> } | null
-  balance: { available: boolean; reason: string | null; rows: QuoteBalanceRow[]; summary: Record<string, number>; notes: string[] } | null
-  compare: { available: boolean; reason: string | null; rows: QuoteCompareRow[]; summary: Record<string, unknown>; notes: string[] } | null
-  computedAt: string
-}
-
-/** DB 미보유 부품 실시간 검색 결과(docs/미보유부품_실시간스펙검색_설계.md). relevant가 false거나
- * supportedFields가 전부 비어 있으면 "찾지 못했다"로 보여준다. */
-export interface LiveSpecLookupResult {
-  slot: string
-  query: string
-  relevant: boolean
-  supportedFields: Record<string, unknown>
-  sourceUrl: string | null
-  /** 이 값을 확인(검색)한 시각 — ISO. 저장소에서 가져온 값이면 그때의 시각이다 */
-  fetchedAt: string | null
-  /** unreviewed 미검토 · confirmed 사람이 확인함 · rejected 틀린 값(서버가 못 찾음으로 돌려준다) */
-  reviewStatus: 'unreviewed' | 'confirmed' | 'rejected'
-  /** 참고가(원). 서버가 켜져 있고 만료 전일 때만 있다 — 합계·가격 비교와 무관한 참고 표시용 */
-  referencePrice: number | null
-  referencePriceAt: string | null
-}
-
-export interface QuoteApplyResult { listId: string; slots: string[]; missing: string[]; runId: string | null }
-
 // ---- 받은 견적 점검: 여러 장 업로드 초안(백엔드 /pc/review-drafts) ----
 export interface QuoteCapabilities {
   imageExtraction: boolean
@@ -296,87 +225,6 @@ export interface QuoteDraftCreateRequest {
   text?: string
   question?: string
   conditions?: QuoteConditions
-}
-
-export interface QuoteDraftItemEdit {
-  id: string
-  delete?: boolean
-  name?: string
-  quantity?: number
-  /** null 이면 금액을 지운다 */
-  lineTotal?: number | null
-}
-
-export interface QuoteDraftPriceRow {
-  category: string
-  itemId: string
-  quantity: number
-  quoteUnitPrice: number | null
-  quoteLineTotal: number | null
-  quotePriceType: 'unit' | 'line_total' | 'unknown'
-  catalogUnitPrice: number | null
-  catalogLineTotal: number | null
-  catalogCheckedAt: string | null
-  catalogStatus: 'available' | 'out_of_stock' | 'no_price' | 'unmatched'
-  diffLineTotal: number | null
-}
-
-export interface QuoteBalanceRequirement {
-  label: string
-  purpose: string | null
-  resolution: string | null
-}
-
-export interface QuoteDraftAnalysis extends QuoteReviewResult {
-  usedItems: QuoteDraftItem[]
-  question: string | null
-  draftVersion: number
-  priceExcluded: { category: string; itemId: string; reason: string }[]
-  priceRows: QuoteDraftPriceRow[]
-  /** 용도 대비 균형 기준 라벨(예: "게임 · QHD 165Hz"). 용도를 입력하지 않았으면 null */
-  requirementLabel: string | null
-}
-
-export interface QuoteRecognizedOption {
-  itemId: string
-  productId: string | null
-  name: string
-  imageUrl: string | null
-  quantity: number
-  quoteLineTotal: number | null
-  matchStatus: QuoteMatchStatus
-  specs: { key: string; label: string; unit: string; candidate: unknown }[]
-}
-
-export interface QuoteRecommendedOption {
-  productId: string
-  name: string
-  imageUrl: string | null
-  price: number | null
-  priceDelta: number | null
-  specs: { key: string; label: string; unit: string; baseline: unknown; candidate: unknown; diff: number | null }[]
-  compatChanges: { axis: string; label: string; from: string; to: string; detail: string }[]
-  incompatible: string[]
-  additionalReplacements: { category: string; axis: string; reason: string }[]
-  reason: string
-}
-
-export interface QuoteDraftComparison {
-  category: string
-  baselineItemId: string
-  recognized: QuoteRecognizedOption[]
-  recommended: QuoteRecommendedOption[]
-  notes: string[]
-}
-
-export interface QuoteReplacementPreview {
-  beforeTotal: number
-  afterTotal: number
-  totalDiff: number
-  newIssues: { axis: string; label: string; detail: string }[]
-  resolvedIssues: { axis: string; label: string; detail: string }[]
-  additionalReplacements: { category: string; axis: string; reason: string }[]
-  priceExcluded: { category: string; itemId: string; reason: string }[]
 }
 
 export interface QuoteComparisonProduct {
@@ -869,12 +717,6 @@ export interface Api {
     /** 제품 하나의 리뷰 요약. 서버에 요약이 없는 제품이면 NOT_FOUND */
     summary(productKey: string): Promise<ReviewSummary>
   }
-  checks: {
-    /** 저장된 받은 견적 점검 결과(분석)를 읽는다. 분석 전이면 오류 */
-    getReview(listId: string): Promise<QuoteReviewResult>
-    /** 점검한 부품으로 새 추천 세션을 만든다(장바구니로 넘기기 전 단계). */
-    apply(listId: string, slots: string[]): Promise<QuoteApplyResult>
-  }
   peripherals: {
     /** 주변기기(모니터·키보드·마우스·스피커)를 추천받는다. sessionId 가 없으면 서버에 빈 세션을 만들어 쓴다. */
     recommend(request: PeripheralRecommendRequest, sessionId?: string | null): Promise<PeripheralsResult>
@@ -890,22 +732,10 @@ export interface Api {
     capabilities(): Promise<QuoteCapabilities>
     /** 이미지(여러 장)·텍스트로 초안을 만든다. 같은 제품만 합쳐지고 서로 다른 제품은 모두 남는다 */
     create(request: QuoteDraftCreateRequest): Promise<QuoteDraft>
-    get(draftId: string): Promise<QuoteDraft>
-    /** 여러 항목 수정·분석 기준 선택을 한 번에 저장한다. 버전이 다르면 STALE_REVIEW_VERSION */
-    patchItems(draftId: string, expectedVersion: number, items: QuoteDraftItemEdit[], selectedItemByCategory?: Record<string, string>): Promise<QuoteDraft>
-    /** 분석 기준으로 고른 항목만 분석한다(저장된 점검 결과가 만들어진다) */
-    analyze(draftId: string, sourceIds?: string[]): Promise<QuoteDraftAnalysis>
     /** 올린 서로 다른 두 견적을 비교한다(저장 견적 비교와 같은 모양) */
     compareQuotes(draftId: string, aSourceIds: string[], bSourceIds: string[]): Promise<QuoteSavedComparison>
-    compareCategory(draftId: string, category: string, baselineItemId?: string): Promise<QuoteDraftComparison>
-    previewReplacements(draftId: string, replacements: { category: string; candidateProductId: string }[]): Promise<QuoteReplacementPreview>
-    applyReplacements(draftId: string, expectedVersion: number, replacements: { category: string; candidateProductId: string }[]): Promise<QuoteDraft>
-    /** 카탈로그에 없는 항목을 실시간 검색한다(사용자가 눌렀을 때만) */
-    liveLookupItem(draftId: string, itemId: string): Promise<LiveSpecLookupResult>
     /** 분석 결과와 저장 견적을 비교한다(로그인 필요) */
     compareSaved(listId: string, savedListId: string, savedRevisionNo?: number): Promise<QuoteSavedComparison>
-    getSavedComparison(listId: string, comparisonId: string): Promise<QuoteSavedComparison>
-    sendChat(listId: string, text: string, options?: { clientMessageId?: string; comparisonId?: string }): Promise<QuoteDraftChatReply>
     chatHistory(listId: string): Promise<QuoteDraftChatMessage[]>
   }
   lists: {
@@ -916,7 +746,7 @@ export interface Api {
     /** 견적서(확정본) 하나의 이름 바꾸기 — 대화 이름과 별개 */
     renameReport(listId: string, revisionNo: number, name: string): Promise<void>
     /** 견적서 하나만 삭제 — 대화와 다른 견적서는 그대로 */
-    removeReport(listId: string, revisionNo: number): Promise<void>
+    removeReport(listId: string, revisionNo: number, permanent?: boolean): Promise<void>
   }
   setups: {
     /** 확정한 견적서가 있는 목록과 그 리포트. 이미 읽은 대화 목록(computer 만)을 주면 GET /lists 를 다시 부르지 않는다 */
@@ -929,7 +759,8 @@ export interface Api {
     newRevision(id: string, fromRevisionNo?: number): Promise<LoadedConversation>
     /** 같은 id가 있으면 갱신합니다. 저장된 구성을 돌려줍니다. */
     save(setup: SavedSetup): Promise<SavedSetup>
-    remove(id: string): Promise<void>
+    /** permanent 이면 보관 기간 없이 바로 영구 삭제(로그인한 소유자만) */
+    remove(id: string, permanent?: boolean): Promise<void>
     /** 확정한 견적(가장 최근 견적서)의 목표가 알림 상태. 로그인한 소유자만 */
     priceWatch(id: string): Promise<PriceWatch>
     /** 목표가 알림을 켜거나 끄고 목표 금액을 바꾼다. 켤 때 금액을 안 주면 서버가 지난 값·확정 목표 금액을 쓴다 */
