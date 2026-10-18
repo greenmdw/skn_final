@@ -214,7 +214,8 @@ export function checksFromWire(checks: WireItem['checks']): string[] {
 /** 세트 검증 쟁점 → 화면 안내. major(확정 문제)와 minor(확인 못 한 항목)로 나눈다. */
 export function compatFromWire(verification: WireResult['verification']): CompatNotice | undefined {
   if (!verification || verification.status !== 'ready') return undefined
-  const texts = (severity: 'major' | 'minor') => verification.issues.filter(issue => (issue.severity === 'major') === (severity === 'major')).map(issue => issue.text)
+  const texts = (severity: 'major' | 'minor') => verification.issues.filter(issue => (issue.severity === 'major') === (severity === 'major'))
+    .map(issue => issue.axis === 'budget' || issue.axis === '예산' ? '예산이 초과되었습니다.' : issue.text)
   return { problems: texts('major'), unchecked: texts('minor') }
 }
 

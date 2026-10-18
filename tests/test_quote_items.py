@@ -26,6 +26,21 @@ def test_ram_kit_notation_stays_in_the_name_because_it_is_the_product_configurat
     assert "x2" in parts["normalized_name"] and parts["quantity"] == 2
 
 
+@pytest.mark.parametrize("count", ["× 2개당", "× 2개 당", "× 2개", "x 2ea", "* 2개"])
+def test_image_quantity_label_does_not_leave_multiplier_or_per_unit_suffix_in_name(count):
+    parts = split_line(f"삼성전자 DDR5-5600 (8GB) {count} 60,000원")
+    assert parts["normalized_name"] == "삼성전자 DDR5-5600 (8GB)"
+    assert parts["quantity"] == 2
+    assert spec_text(parts) == "삼성전자 DDR5-5600 (8GB) 2개 60,000원"
+
+
+def test_parenthesized_ram_configuration_is_preserved():
+    parts = split_line("삼성전자 DDR5-5600 (8GB) × 2")
+    assert parts["normalized_name"] == "삼성전자 DDR5-5600 (8GB) × 2"
+    assert parts["quantity"] == 2
+    assert spec_text(parts) == parts["normalized_name"]
+
+
 def test_no_price_is_unknown_and_not_invented():
     parts = split_line("AMD Ryzen 5 7500F")
     assert parts["quote_line_total"] is None and parts["quote_unit_price"] is None

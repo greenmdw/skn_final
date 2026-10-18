@@ -1,9 +1,9 @@
+import NavigationLink from '../components/NavigationLink'
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import ListHistory from '../components/ListHistory'
 import PlannerShell from '../components/PlannerShell'
-import PriceWatchPanel from '../components/PriceWatchPanel'
 import ProductThumb from '../components/ProductThumb'
 import { peripheralsTotal, planTotal } from '../state/planModel'
 import { usePlan } from '../state/PlanContext'
@@ -86,10 +86,10 @@ export default function ReportPage() {
       <div className="pl-page pl-report">
         <div className="pl-noprint" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
           {reports.length > 1 && reports.map(report => (
-            <button type="button" key={report.revisionNo} onClick={() => navigate(`/report/${id}?v=${report.revisionNo}`)}
+            <NavigationLink to={`/report/${id}?v=${report.revisionNo}`}  key={report.revisionNo} onClick={() => navigate(`/report/${id}?v=${report.revisionNo}`)}
               className={'pl-pill' + (report.revisionNo === setup.revisionNo ? ' on' : '')} aria-pressed={report.revisionNo === setup.revisionNo}>
               견적서 {report.revisionNo}
-            </button>
+            </NavigationLink>
           ))}
           {setup.revisionNo != null && (
             <>
@@ -169,8 +169,6 @@ export default function ReportPage() {
 
           <ListHistory listId={setup.id} revisionNo={setup.revisionNo} />
         </article>
-        {/* 목표가 알림은 서버가 가장 최근 확정 견적서에만 건다 — 예전 견적서를 볼 때는 보이지 않는다. */}
-        {!needsOlder && setup.revisionNo != null && <PriceWatchPanel listId={setup.id} confirmedTarget={setup.target} />}
       </div>
     </PlannerShell>
   )

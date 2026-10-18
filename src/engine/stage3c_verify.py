@@ -324,7 +324,7 @@ def verify_build(
         else:
             budget_axis, budget_judge, budget_tool_result = "예산", "초과", f"{used_pct}%"
         ev = _catalog_evidence(rows_by_axis.get(budget_axis), chosen) if have_provenance else []
-        issues.append(Issue(axis=budget_axis, text=_issue_sentence(budget_axis, budget_tool_result, ev, deadline),
+        issues.append(Issue(axis=budget_axis, text="예산이 초과되었습니다.",
                             tool_result=budget_tool_result, evidence=ev, judge=budget_judge, penalty=budget_penalty))
         penalty += budget_penalty
 

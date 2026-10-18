@@ -1,5 +1,6 @@
+import NavigationLink from '../components/NavigationLink'
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import MarketingHeader from '../components/MarketingHeader'
 import SiteFooter from '../components/SiteFooter'
 import '../styles/home.css'
@@ -34,19 +35,19 @@ export default function HomePage() {
 <p className="tf-kicker">LESS SEARCHING. BETTER CHOOSING.</p>
 <h1 id="tf-hero-title">잘 고르는 시작,<br /><em>TrueFit</em></h1>
 <p className="tf-hero-lead">Your needs, perfectly matched.<br />진짜 나에게 맞는 조합을 찾아드립니다.</p>
-<button type="button" className="tf-primary" onClick={() => go('/choose')}>나의 장바구니 만들기 <span>↗</span></button>
-<p className="tf-hero-note">무엇을 살지 막막할 땐, 대화부터 시작해 보세요.<br />이미 골라둔 견적이 있다면 <button onClick={() => go('/check')}>호환성과 리뷰를 확인해보세요 →</button></p>
+<Link className="tf-primary" to="/choose">나의 장바구니 만들기 <span>↗</span></Link>
+<p className="tf-hero-note">무엇을 살지 막막할 땐, 대화부터 시작해 보세요.<br />이미 골라둔 견적이 있다면 <NavigationLink to={'/check'} onClick={() => go('/check')}>호환성과 리뷰를 확인해보세요 →</NavigationLink></p>
 </div>
 </section>
 <section className="tf-section tf-about" aria-labelledby="tf-about-title">
 <div><p className="tf-kicker">ABOUT TrueFit</p><h2 id="tf-about-title">검색은 줄이고,<br />내게 맞는 선택에 가까이.</h2></div>
-<div className="tf-about-copy"><h3>무엇을 사야 할지보다,<br />어떤 생활을 원하는지부터 시작해요.</h3><p>TrueFit은 예산과 사용 목적을 바탕으로 필요한 제품을 함께 정리하는 구매 계획 서비스입니다. 컴퓨터 한 대를 구성할 때도, 주변기기만 따로 고를 때도 선택의 이유와 확인할 점을 한곳에서 살펴볼 수 있어요.</p><button type="button" className="tf-text-link" onClick={() => go('/start')}>나의 계획 시작하기 ↗</button></div>
+<div className="tf-about-copy"><h3>무엇을 사야 할지보다,<br />어떤 생활을 원하는지부터 시작해요.</h3><p>TrueFit은 예산과 사용 목적을 바탕으로 필요한 제품을 함께 정리하는 구매 계획 서비스입니다. 컴퓨터 한 대를 구성할 때도, 주변기기만 따로 고를 때도 선택의 이유와 확인할 점을 한곳에서 살펴볼 수 있어요.</p><NavigationLink to={'/start'}  className="tf-text-link" onClick={() => go('/start')}>나의 계획 시작하기 ↗</NavigationLink></div>
 </section>
 <section ref={pathsRef} className={`tf-section tf-paths${pathsVisible ? ' is-visible' : ''}`} aria-labelledby="tf-paths-title">
 <p className="tf-kicker">TWO WAYS TO BUILD YOUR BASKET</p><h2 id="tf-paths-title">서로 다른 준비, 그에 맞는 기준.</h2>
 <div className="tf-path-grid">
-<article className="tf-path-card"><h3>컴퓨터</h3><h4>부품 하나보다,<br />함께 작동하는 한 대를 봅니다.</h4><p>게임·작업·학습 등 주로 하는 일과 예산을 알려주세요. 프로세서부터 케이스까지 필요한 구성을 모으고, 부품 간 호환성과 전체 조합의 확인 사항을 살펴보는 흐름입니다.</p><ul><li>용도·해상도·예산에 맞는 구성</li><li>소켓·메모리 규격과 전력 여유 검토</li><li>대체 후보 비교와 세트 가격 확인</li></ul><button type="button" className="tf-text-link" onClick={() => go('/choose?mode=computer')}>컴퓨터 구성 시작하기 →</button></article>
-<article className="tf-path-card"><h3>주변기기</h3><h4>모니터부터 마우스까지,<br />따로 골라도 확실하게.</h4><p>모니터·키보드·마우스·스피커 중 필요한 것만 골라 예산과 우선순위를 알려주세요. 컴퓨터 본체와 별개로 부속기기만 비교하고 확인하는 흐름입니다.</p><ul><li>필요한 항목만 선택하는 구성</li><li>연결 방식과 예산 내 구성 검토</li><li>대체 후보 비교와 세트 가격 확인</li></ul><button type="button" className="tf-text-link" onClick={() => go('/peripherals')}>주변기기 추천받기 →</button></article>
+<article className="tf-path-card"><h3>컴퓨터</h3><h4>부품 하나보다,<br />함께 작동하는 한 대를 봅니다.</h4><p>게임·작업·학습 등 주로 하는 일과 예산을 알려주세요. 프로세서부터 케이스까지 필요한 구성을 모으고, 부품 간 호환성과 전체 조합의 확인 사항을 살펴보는 흐름입니다.</p><ul><li>용도·해상도·예산에 맞는 구성</li><li>소켓·메모리 규격과 전력 여유 검토</li><li>대체 후보 비교와 세트 가격 확인</li></ul><NavigationLink to={'/choose?mode=computer'}  className="tf-text-link" onClick={() => go('/choose?mode=computer')}>컴퓨터 구성 시작하기 →</NavigationLink></article>
+<article className="tf-path-card"><h3>주변기기</h3><h4>모니터부터 마우스까지,<br />따로 골라도 확실하게.</h4><p>모니터·키보드·마우스·스피커 중 필요한 것만 골라 예산과 우선순위를 알려주세요. 컴퓨터 본체와 별개로 부속기기만 비교하고 확인하는 흐름입니다.</p><ul><li>필요한 항목만 선택하는 구성</li><li>연결 방식과 예산 내 구성 검토</li><li>대체 후보 비교와 세트 가격 확인</li></ul><NavigationLink to={'/peripherals'}  className="tf-text-link" onClick={() => go('/peripherals')}>주변기기 추천받기 →</NavigationLink></article>
 </div></section>
 <section className="tf-section tf-process" aria-labelledby="tf-process-title">
 <p className="tf-kicker">HOW IT WORKS</p><h2 id="tf-process-title">이야기에서 시작해, 나만의 리스트로.</h2><p className="tf-section-intro">조건을 바꾸고 후보를 비교하면서, 납득할 수 있는 장바구니를 만들어보세요.</p>

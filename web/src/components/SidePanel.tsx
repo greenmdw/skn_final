@@ -10,6 +10,7 @@ import { useRemoveSheet } from '../state/useRemoveSheet'
 import { logout, useAuthUser } from '../state/authStore'
 import { compactWon, dateGroup, fullDate, shortDate } from '../utils/format'
 import ResizeHandle, { usePanelWidth } from './ResizeHandle'
+import NavigationLink from './NavigationLink'
 import '../styles/sidepanel.css'
 
 // 플래너 화면 왼쪽의 접이식 패널: 새 견적 · 대화 내역 · 저장한 견적 · 사용자/로그아웃.
@@ -66,6 +67,13 @@ interface RowHandlers {
 }
 interface SheetEdit { draft: string; onChange: (value: string) => void; onCommit: () => void; onCancel: () => void }
 
+function blockModifiedRowClick(event: ReactMouseEvent<HTMLElement>) {
+  if (event.button === 1 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+    event.preventDefault()
+    event.stopPropagation()
+  }
+}
+
 // 견적서 한 줄: 문서 아이콘 · 저장할 때 정한 이름 · 부품 수와 시각 · 오른쪽 금액. 대화 아래에 세로선으로 이어진다.
 // 우클릭/길게 누르기 메뉴(handlers)로 이름 바꾸기·삭제를 한다. 이름을 바꾸는 동안에는 링크가 아니라 입력창이 된다.
 function SheetRow({ listId, report, active, menuOpen, handlers, edit, onLinkClick }: {
@@ -92,7 +100,8 @@ function SheetRow({ listId, report, active, menuOpen, handlers, edit, onLinkClic
     </>
   )
   if (edit) return <div className={cls + ' editing'} {...handlers}>{body}</div>
-  return <Link to={`/report/${listId}?v=${report.revisionNo}`} className={cls} onClick={onLinkClick} {...handlers}>{body}</Link>
+  return <Link to={`/report/${listId}?v=${report.revisionNo}`} className={cls} onClick={onLinkClick}
+    onClickCapture={blockModifiedRowClick} onAuxClick={blockModifiedRowClick} {...handlers}>{body}</Link>
 }
 
 // 화면을 옮기면 패널이 새로 그려진다 — 대화를 연 뒤에도 같은 보기(대화 내역 / 저장한 견적)가 보이게 선택을 기억한다.
@@ -414,10 +423,11 @@ export default function SidePanel() {
                             onKeyDown={event => { if (event.key === 'Enter') void commitRename(item); if (event.key === 'Escape') setEditingId(null) }}
                             onBlur={() => void commitRename(item)} />
                         ) : (
-                          <button type="button" className="sp-conv-main" onClick={guard(() => void openHistory(item))}>
+                          <NavigationLink to={`/conversation/${item.listId}`} className="sp-conv-main" onClick={guard(() => void openHistory(item))}
+                            onClickCapture={blockModifiedRowClick} onAuxClick={blockModifiedRowClick}>
                             <span className="sp-name sp-conv-name">{conversationTitle(item)}</span>
                             <span className="sp-meta">{[item.chat === 'peripheral' ? '주변기기' : STAGE_LABEL[item.stage], fullDate(item.lastActiveAt)].filter(Boolean).join(' · ')}</span>
-                          </button>
+                          </NavigationLink>
                         )}
                         {item.reports.length > 0 && editingId !== item.listId && (
                           <button type="button" className="sp-count" title={`저장한 견적서 ${item.reports.length}개 — 누르면 ${sheetsOpen ? '접어요' : '펼쳐요'}`}

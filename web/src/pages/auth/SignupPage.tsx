@@ -1,3 +1,4 @@
+import NavigationLink from '../../components/NavigationLink'
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
@@ -32,7 +33,8 @@ export default function SignupPage() {
     return password === password2 ? 'auth-ok' : 'auth-invalid'
   }
   const noteClass = (tone: Note['tone']) => 'auth-field-note' + (tone === 'ok' ? ' auth-ok-text' : tone === 'bad' ? ' auth-bad-text' : '')
-  const allAgreed = agreed.every(Boolean)
+  const requiredAgreed = agreed.every(Boolean)
+  const allAgreed = requiredAgreed && marketing
 
   async function submit(event: FormEvent) {
     event.preventDefault()
@@ -43,7 +45,7 @@ export default function SignupPage() {
     if (!validPassword(password)) problems.push('비밀번호 조건을 확인해 주세요.')
     else if (password !== password2) problems.push('비밀번호가 일치하지 않습니다.')
     if (!nameValue) problems.push('표시 이름을 입력해 주세요.')
-    if (!allAgreed) problems.push('필수 약관에 동의해 주세요.')
+    if (!requiredAgreed) problems.push('필수 약관에 동의해 주세요.')
     if (problems.length) { setError(problems[0]); return }
     setError('')
     setBusy(true)
@@ -63,7 +65,7 @@ export default function SignupPage() {
           <span className="auth-success-badge">✓</span>
           <h1>회원가입이 완료되었습니다</h1>
           <p className="auth-sub"><strong>{done}</strong>님, TrueFit에 오신 걸 환영해요.</p>
-          <button type="button" className="auth-btn" onClick={() => navigate('/')}>TrueFit 시작하기 →</button>
+          <NavigationLink to={'/'}  className="auth-btn" onClick={() => navigate('/')}>TrueFit 시작하기 →</NavigationLink>
         </section>
       </AuthLayout>
     )
@@ -101,7 +103,11 @@ export default function SignupPage() {
           </div>
           <div className="auth-terms">
             <label className="auth-term-all">
-              <input type="checkbox" checked={allAgreed} onChange={e => setAgreed([e.target.checked, e.target.checked])} />
+              <input type="checkbox" checked={allAgreed} onChange={e => {
+                const checked = e.target.checked
+                setAgreed([checked, checked])
+                setMarketing(checked)
+              }} />
               <span>전체 동의합니다</span>
             </label>
             {(['이용약관 동의', '개인정보 처리방침 동의'] as const).map((label, i) => (

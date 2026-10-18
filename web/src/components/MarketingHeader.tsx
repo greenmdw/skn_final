@@ -26,8 +26,8 @@ export default function MarketingHeader() {
         <><UserMenu name={user.name} /><CommunityNotifications /></>
       ) : (
         <div className="tf-home-auth">
-          <Link to="/login"><button type="button">로그인</button></Link>
-          <Link to="/signup"><button type="button">회원가입</button></Link>
+          <Link className="navigation-link" to="/login">로그인</Link>
+          <Link className="navigation-link" to="/signup">회원가입</Link>
         </div>
       )}
       <ThemeToggle />
