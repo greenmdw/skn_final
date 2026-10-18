@@ -111,7 +111,7 @@ export default function ReportPage() {
               <div className="pl-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>TRUEFIT 견적 리포트</div>
               <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em' }}>{setup.title}</div>
               <div className="pl-note">
-                {[confirmed && `${confirmed} 확정`, setup.date && `구매 예정 ${isoToKo(setup.date)}`, targetText].filter(Boolean).join(' · ')}
+                {[confirmed && `${confirmed} 확정`, !quoteReport && setup.date && `구매 예정 ${isoToKo(setup.date)}`, targetText].filter(Boolean).join(' · ')}
               </div>
               {setup.memo && <div style={{ fontSize: 13, lineHeight: 1.6 }}>메모 · {setup.memo}</div>}
             </div>

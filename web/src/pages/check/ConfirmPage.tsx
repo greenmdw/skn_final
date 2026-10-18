@@ -7,7 +7,7 @@ import { signedWon } from '../../utils/checkReview'
 import CheckLayout, { CHECK2 } from './CheckLayout'
 import { useDraft } from './useDraft'
 
-/** ⑤ 확정 — 이름·구매 예정일·목표 금액·메모. 로그인한 사용자만 확정할 수 있다(401 이면 안내). */
+/** ⑤ 확정 — 이름·메모만 받는다(구매 예정일·목표 금액은 받은 견적 점검에 필요 없다). 로그인한 사용자만 확정할 수 있다(401 이면 안내). */
 export default function ConfirmPage() {
   const { id } = useParams()
   const navigate = useNavigate()
@@ -15,8 +15,6 @@ export default function ConfirmPage() {
   const { reload: reloadSetups } = useSetups()
   const [state, setState] = useState<ReplacementState | null>(null)
   const [name, setName] = useState(() => { const now = new Date(); return `받은 견적 점검 (${now.getMonth() + 1}/${now.getDate()})` })      // 날짜를 붙여 여러 번 확정해도 구분되게
-  const [plannedAt, setPlannedAt] = useState('')
-  const [target, setTarget] = useState('')
   const [memo, setMemo] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -39,7 +37,6 @@ export default function ConfirmPage() {
     try {
       const body = {
         expected_version: draft.version, name: name.trim(), memo,
-        planned_purchase_at: plannedAt || null, target_amount: target ? Math.round(Number(target) * 10_000) : null,
       }
       const report = await checkV2.confirm(id, body)
       reloadSetups()   // 저장 목록에 새 견적서를 넣어야 리포트 화면이 찾는다
@@ -65,10 +62,8 @@ export default function ConfirmPage() {
           <ul>{state.replacements.map(row => <li key={row.slot} className="c2-sub">{row.slot}: {row.from.name ?? '현재 부품'} → <strong>{row.candidate.name}</strong>{row.price_delta != null && ` (${signedWon(row.price_delta)})`}</li>)}</ul>
         ) : <p className="c2-note">교체 없이 견적 그대로 저장돼요.</p>}
       </section>
-      <form className="c2-card c2-form" onSubmit={e => void submit(e)}>
+      <form className="c2-card c2-form c2-confirm-form" onSubmit={e => void submit(e)}>
         <label>견적서 이름<input value={name} maxLength={60} onChange={e => setName(e.target.value)} required /></label>
-        <label>구매 예정일<input type="date" value={plannedAt} onChange={e => setPlannedAt(e.target.value)} /></label>
-        <label>목표 금액(만 원)<input type="number" min={0} step={5} value={target} onChange={e => setTarget(e.target.value)} /></label>
         <label>메모<textarea value={memo} maxLength={1000} onChange={e => setMemo(e.target.value)} /></label>
         <div className="c2-actions end">
           <Link className="c2-btn" to={`${CHECK2}/${id}/replace`}>교체 구성으로</Link>

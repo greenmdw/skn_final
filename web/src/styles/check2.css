@@ -57,3 +57,14 @@
 .ck-conditions { align-items: end; }
 .ck-conditions label > span { white-space: nowrap; }
 .ck-conditions label > span small { display: inline; margin-left: 2px; font-size: 10px; color: var(--muted); }
+
+/* 입력칸 공통 모양 — 브라우저 기본 글꼴·모서리가 그대로 나오지 않게 앱의 글꼴과 색을 따른다 */
+.c2-form input, .c2-form select, .c2-form textarea, .c2-field input, .c2-field select {
+  font: inherit; font-size: 14px; color: var(--text, inherit); background: var(--panel, transparent);
+  border: 1px solid var(--line, #d8dde6); border-radius: 8px; padding: 8px 10px; width: 100%; box-sizing: border-box;
+}
+.c2-form input:focus, .c2-form select:focus, .c2-form textarea:focus, .c2-field input:focus { outline: 2px solid var(--mint, #2563eb); outline-offset: 1px; }
+.c2-form textarea { resize: vertical; }
+.c2-form label { color: var(--muted, #6b7280); font-weight: 500; }
+.c2-confirm-form { grid-template-columns: 1fr; max-width: 640px; }
+.c2-confirm-form .c2-actions { margin-top: 4px; }
