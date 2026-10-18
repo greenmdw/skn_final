@@ -138,10 +138,12 @@ export default function PartsPage() {
     } finally { setBusy(false) }
   }
 
-  async function analyze() {
+  /** 서로 다른 견적으로 설정돼 있어도(부품을 지워 하나로 만들었을 때 등) 한 번에 한 견적으로 바꾸고 분석한다 */
+  async function analyze(asSingle = false) {
     if (!id) return
     setBusy(true); setError('')
     try {
+      if (asSingle && draft) setDraft(await checkV2.setSourceRelation(id, draft.version, 'single'))
       const analysis = await checkV2.analyze(id)
       navigate(`${CHECK2}/${id}/review`, { state: { analysis } })
     } catch (caught) {
@@ -259,8 +261,14 @@ export default function PartsPage() {
       <div className="c2-actions end">
         {noBasis && <span className="c2-sub">확인된 부품이 하나도 없어 분석할 수 없어요. 이름을 고치거나 정보를 찾아 주세요.</span>}
         {!noBasis && unconfirmed.length > 0 && <span className="c2-sub">제품 확인이 남은 부품 {unconfirmed.length}개는 가진 정보로만 점검해요.</span>}
-        {separateMode && <span className="c2-sub">서로 다른 견적은 비교로 진행해요.</span>}
-        <button type="button" className="c2-btn primary" disabled={busy || blocked || separateMode || needConditions || noBasis || draft.items.length === 0} onClick={() => void analyze()}>이대로 분석하기</button>
+        {separateMode ? (
+          <>
+            <span className="c2-sub">지금은 서로 다른 견적으로 설정돼 있어서 바로 분석할 수 없어요. 부품을 직접 골라 한 견적으로 만들었다면 오른쪽 버튼을 눌러 주세요.</span>
+            <button type="button" className="c2-btn primary" disabled={busy || needConditions || noBasis || draft.items.length === 0} onClick={() => void analyze(true)}>한 견적으로 바꾸고 분석하기</button>
+          </>
+        ) : (
+          <button type="button" className="c2-btn primary" disabled={busy || blocked || needConditions || noBasis || draft.items.length === 0} onClick={() => void analyze()}>이대로 분석하기</button>
+        )}
       </div>
     </CheckLayout>
   )
