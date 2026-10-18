@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ChatChoice, ChatMessage, CheckDraft, CurrentPlan, EditingSheet, PartKey, PlanState, SavedSetup, SetupPeripheral } from './types'
 import { createCheckDraft } from '../data/checkDraftSeed'
-import { parseBudget, planTotal } from './planModel'
+import { planTotal } from './planModel'
 import { api, ApiError, errorMessage, SESSION_GONE, type ChatTopic } from '../api'
 import { onLogout } from './authStore'
 import type { ConditionTurnResult, ItemPatch, LoadedConversation } from '../api/types'
@@ -485,47 +485,12 @@ export function PlanProvider({ children }: { children: ReactNode }) {
     setCustomHeading({ title: setup.title, desc: '확정한 구성' })
     showToast('저장한 구성을 불러왔습니다.')
   }, [cancelPending, updateState, showToast])
-  const loadCheckedQuote = useCallback((plan: CurrentPlan, draft: CheckDraft) => {
-    cancelPending()
-    const nextPlan = structuredClone(plan)
-    const nextDraft = structuredClone(draft)
-    updateState(prev => ({ ...prev, currentPlan: nextPlan, mode: nextPlan.mode, budget: nextPlan.budget,
-      intent: nextPlan.conditions.intent, performance: nextPlan.conditions.performance, quiet: nextPlan.conditions.quiet,
-      checkSnapshot: nextDraft, selectedPart: nextPlan.items.find(item => item.key)?.key ?? 'cpu', stage: 4 }))
-    setCheckDraft(nextDraft)
-    setMessages([makeMessage('bot', `받은 견적 점검 결과를 장바구니에 담았습니다.\n총 ${wonFmt(planTotal(nextPlan))}`)])
-    setCustomHeading({ title: '받은 견적 점검', desc: '확인한 구성' })
-  }, [cancelPending, updateState])
-  // draft 를 주면 그 점검 초안으로 시작한다(받은 견적 점검 화면에서 바로 넘어올 때 — 상태 반영을 기다리지 않는다).
-  const startUpgradeMode = useCallback(async (draft?: CheckDraft) => {
-    const source = draft ?? checkDraft
-    const budget = parseBudget(source.budget)
-    if (budget === undefined) { showToast('예산을 원 단위 숫자로 입력해주세요. 예: 800,000원'); return false }
-    cancelPending()
-    const mine = epoch.current
-    const snapshot = structuredClone(source)
-    try {
-      const plan = await api.plans.recommend({
-        mode: 'upgrade', budget, checkSnapshot: snapshot,
-        conditions: { intent: snapshot.question, performance: '', quiet: '' },
-      })
-      if (mine !== epoch.current) return false
-      updateState(prev => ({ ...prev, mode: 'upgrade', selectedPart: plan.items.find(p => p.key)?.key ?? 'gpu', stage: 4, budget,
-        intent: snapshot.question, performance: '', quiet: '', checkSnapshot: snapshot, currentPlan: plan }))
-      setMessages([makeMessage('user', snapshot.question), makeMessage('bot', '입력한 질문·예산·부품을 가져왔습니다. 입력하지 않은 유지 부품 정보는 확인하지 못한 채 추천하니, 구매 전에 호환성을 다시 확인해주세요.')])
-      setCustomHeading(null)
-      return true
-    } catch (error) {
-      if (mine === epoch.current) showToast(errorMessage(error, '업그레이드 구성을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.'))
-      return false
-    }
-  }, [checkDraft, cancelPending, updateState, showToast])
   const value = useMemo<PlanContextValue>(() => ({
     state, checkDraft, updateCheckDraft, messages, busy, starterHidden: state.stage > 0, analyzingIndex, customHeading,
-    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, loadCheckedQuote, startUpgradeMode, setPeripherals,
+    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, setPeripherals,
     openConversation, reviseSetup, revisePeripheralSetup, clearEditingSheet, reopenConditions, showResults,
   }), [state, checkDraft, updateCheckDraft, messages, busy, analyzingIndex, customHeading,
-    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, loadCheckedQuote, startUpgradeMode, setPeripherals,
+    handleInput, handleChoice, startAnalysis, retryWithPerformance, refreshPlan, checkSession, loadAlternatives, swapItem, updateItem, selectPart, setBudget, setDesk, resetPlan, loadFromSavedSetup, setPeripherals,
     openConversation, reviseSetup, revisePeripheralSetup, clearEditingSheet, reopenConditions, showResults])
   return <PlanContext.Provider value={value}>{children}</PlanContext.Provider>
 }

@@ -206,11 +206,6 @@ class QuoteDraftConditionsPatchIn(BaseModel):
     conditions: QuoteConditionsIn
 
 
-class QuoteReviewIn(OwnedPartsPreviewIn):
-    # None = 보내지 않음(수정 시 이전 조건 유지), 값이 없는 객체({}) = 조건 지움.
-    conditions: QuoteConditionsIn | None = None
-
-
 class QuoteBalanceRowOut(BaseModel):
     part: str
     aspect: str                                         # 성능 등급 · VRAM · 용량 · 예산 · 예산 비중
@@ -259,14 +254,6 @@ class QuoteCompareOut(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
-class QuotePartCompareOut(BaseModel):
-    slot: str
-    baseline: dict[str, Any]                            # 견적 속 부품(이름·가격·성능 등급·리뷰)
-    candidates: list[dict[str, Any]] = Field(default_factory=list)   # 비교 대상 — 스펙 표·가격 차이·호환 변화·리뷰
-    unmatched_targets: list[str] = Field(default_factory=list)       # 요청했지만 카탈로그에서 못 찾은 제품
-    note: str | None = None
-
-
 class LiveSpecLookupOut(BaseModel):
     """DB 미보유 부품 실시간 검색 결과(docs/미보유부품_실시간스펙검색_설계.md §5).
     relevant=False거나 supported_fields가 전부 비어 있으면 화면은 "찾지 못했다"로 보여야 한다 —
@@ -285,19 +272,6 @@ class LiveSpecLookupOut(BaseModel):
     reference_price: int | None = None
     reference_price_source_url: str | None = None
     reference_price_at: str | None = None
-
-
-class QuoteApplyIn(BaseModel):
-    # 새 계획에서 업그레이드 대상으로 삼을 부품(견적에 적힌 값은 버리고 추천이 다시 고른다).
-    # 나머지 부품은 견적에 적힌 대로 유지한다.
-    slots: list[str] = Field(min_length=1, max_length=8)
-
-
-class QuoteApplyOut(BaseModel):
-    list_id: str                            # 새로 만들어진 계획(세션) id
-    slots: list[str]
-    missing: list[str] = Field(default_factory=list)   # 비어 있지 않으면 이 조건들을 먼저 채워야 추천을 받을 수 있다
-    run_id: str | None = None               # missing 이 비어 있으면 즉시 추천을 시작한 run id
 
 
 class QuoteChatContextIn(BaseModel):
@@ -608,53 +582,6 @@ class QuoteDraftAnalysisOut(QuoteReviewOut):
 
 
 # BE-05 분석 전 제품 비교 · BE-06 교체 영향 미리보기
-class QuoteCompareProductOut(BaseModel):
-    product_id: str | None = None
-    name: str
-    image_url: str | None = None
-    price: int | None = None
-    price_delta: int | None = None
-    perf_tier: float | int | None = None
-    specs: list[dict[str, Any]] = Field(default_factory=list)
-    compat_changes: list[dict[str, Any]] = Field(default_factory=list)
-    incompatible: list[str] = Field(default_factory=list)
-    additional_replacements: list[dict[str, Any]] = Field(default_factory=list)
-    review: dict[str, Any] | None = None
-    reason: str = ""
-
-
-class QuoteDraftComparisonOut(BaseModel):
-    category: str
-    baseline_item_id: str
-    recognized: list[dict[str, Any]] = Field(default_factory=list)
-    recommended: list[QuoteCompareProductOut] = Field(default_factory=list)
-    notes: list[str] = Field(default_factory=list)
-
-
-class QuoteReplacementIn(BaseModel):
-    category: str
-    candidate_product_id: str
-
-
-class QuoteReplacementsPreviewIn(BaseModel):
-    replacements: list[QuoteReplacementIn] = Field(min_length=1, max_length=8)
-
-
-class QuoteReplacementsApplyIn(QuoteReplacementsPreviewIn):
-    expected_version: int
-
-
-class QuoteReplacementPreviewOut(BaseModel):
-    before_total: int
-    after_total: int
-    total_diff: int
-    new_issues: list[dict[str, Any]] = Field(default_factory=list)
-    resolved_issues: list[dict[str, Any]] = Field(default_factory=list)
-    additional_replacements: list[dict[str, Any]] = Field(default_factory=list)
-    replaced_items: list[dict[str, Any]] = Field(default_factory=list)
-    price_excluded: list[QuotePriceExcludedOut] = Field(default_factory=list)
-
-
 # ── 조건 대화 (§D-4-1) ──
 class MessageOut(BaseModel):
     id: str

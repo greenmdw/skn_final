@@ -22,11 +22,10 @@ import re
 
 from uuid import UUID
 
-from typing import Literal
 
 import json
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
 
 from src import schemas
 from src.agent import spec_extraction_agent
@@ -42,7 +41,7 @@ from src.engine.spec_text import parse_spec_text
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.errors import RateLimited, ServiceUnavailable, ValidationFailed
 from src.services import (
-    quote_apply, quote_chat_service, quote_comparison_service, quote_confirm_service, quote_draft_service, quote_review_service, recommendation_runner,
+    quote_chat_service, quote_comparison_service, quote_confirm_service, quote_draft_service, quote_review_service,
 )
 
 
@@ -290,40 +289,6 @@ def compare_draft_quotes(
     return schemas.QuoteSavedComparisonOut(**result)
 
 
-@router.get("/review-drafts/{draft_id}/categories/{category}/comparison", response_model=schemas.QuoteDraftComparisonOut)
-def compare_quote_draft_category(
-    draft_id: UUID, category: str, baseline_item_id: str | None = Query(default=None),
-    direction: Literal["cheaper", "better"] | None = Query(default=None),
-    target_product_id: list[str] = Query(default=[], max_length=4),
-    principal: Principal = Depends(optional_principal),
-) -> schemas.QuoteDraftComparisonOut:
-    """분석 전에 한 부품군의 인식 제품과 추천 제품을 나란히(BE-05). 조회만 한다."""
-    with get_conn() as conn:
-        result = quote_draft_service.comparison(conn, draft_id, principal, category, baseline_item_id, direction, target_product_id)
-    return schemas.QuoteDraftComparisonOut(**result)
-
-
-@router.post("/review-drafts/{draft_id}/replacements/preview", response_model=schemas.QuoteReplacementPreviewOut)
-def preview_quote_draft_replacements(
-    draft_id: UUID, body: schemas.QuoteReplacementsPreviewIn, principal: Principal = Depends(optional_principal),
-) -> schemas.QuoteReplacementPreviewOut:
-    """여러 교체 후보를 한꺼번에 적용했을 때의 합계·호환 변화(BE-06). 조회만 한다."""
-    with get_conn() as conn:
-        result = quote_draft_service.replacement_preview(conn, draft_id, principal, [r.model_dump() for r in body.replacements])
-    return schemas.QuoteReplacementPreviewOut(**result)
-
-
-@router.post("/review-drafts/{draft_id}/replacements/apply", response_model=schemas.QuoteDraftOut)
-def apply_quote_draft_replacements(
-    draft_id: UUID, body: schemas.QuoteReplacementsApplyIn, principal: Principal = Depends(optional_principal),
-) -> schemas.QuoteDraftOut:
-    """정확한 제품 ID로 초안의 항목을 교체한다(BE-06). 분석은 이어서 `/analysis`로 요청한다."""
-    with get_conn() as conn:
-        draft = quote_draft_service.replacement_apply(
-            conn, draft_id, principal, body.expected_version, [r.model_dump() for r in body.replacements])
-    return _draft_response(draft_id, draft)
-
-
 @router.post("/review-drafts/{draft_id}/items/{item_id}/live-lookup", response_model=schemas.LiveSpecLookupOut)
 def live_lookup_draft_item(
     draft_id: UUID, item_id: str, request: Request, principal: Principal = Depends(optional_principal),
@@ -352,86 +317,11 @@ def live_lookup_draft_batch(
                                       failed=count("failed"), skipped=count("skipped"))
 
 
-@router.post("/reviews", response_model=schemas.QuoteReviewOut, status_code=201)
-def create_quote_review(
-    body: schemas.QuoteReviewIn, request: Request, response: Response,
-    principal: Principal = Depends(optional_principal),
-) -> schemas.QuoteReviewOut:
-    """견적(텍스트·이미지·슬롯별 입력)을 분석해 새 세션에 저장한다 — 매칭 표와 호환 검사(CHK-04·CHK-09)."""
-    _check_rate_limit(request)
-    current_specs = _resolve_current_specs(body)
-    with get_conn() as conn:
-        session, review = quote_review_service.create_review(
-            conn, principal, current_specs, body.conditions.model_dump() if body.conditions else None)
-    if session["browser_token"]:
-        response.set_cookie("truefit_guest", session["browser_token"],
-                            httponly=True, samesite="lax", max_age=60 * 60 * 24 * 180)
-    return _review_out(session["list_id"], review)
-
-
-@router.put("/reviews/{list_id}", response_model=schemas.QuoteReviewOut)
-def update_quote_review(
-    list_id: UUID, body: schemas.QuoteReviewIn, request: Request,
-    principal: Principal = Depends(optional_principal),
-) -> schemas.QuoteReviewOut:
-    """인식 결과를 고친 견적으로 같은 세션의 분석을 다시 계산해 저장한다."""
-    _check_rate_limit(request)
-    current_specs = _resolve_current_specs(body)
-    with get_conn() as conn:
-        review = quote_review_service.update_review(
-            conn, list_id, principal, current_specs, body.conditions.model_dump() if body.conditions else None)
-    return _review_out(str(list_id), review)
-
-
 @router.get("/reviews/{list_id}", response_model=schemas.QuoteReviewOut)
 def get_quote_review(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.QuoteReviewOut:
     with get_conn() as conn:
         review = quote_review_service.get_review(conn, list_id, principal)
     return _review_out(str(list_id), review)
-
-
-@router.post("/reviews/{list_id}/apply", response_model=schemas.QuoteApplyOut, status_code=201)
-def apply_quote_alternative(
-    list_id: UUID, body: schemas.QuoteApplyIn, response: Response, background_tasks: BackgroundTasks,
-    principal: Principal = Depends(optional_principal),
-) -> schemas.QuoteApplyOut:
-    """비교 결과의 대안을 받아들여 새 계획을 만든다(CHK-08) — 고른 부품은 업그레이드 대상, 나머지는 견적 그대로 유지.
-    업그레이드 추천(mode=upgrade)을 재사용한다. 필수 조건이 다 있으면 바로 추천을 시작한다."""
-    with get_conn() as conn:
-        result = quote_apply.apply_alternative(conn, list_id, principal, body.slots)
-    if result["browser_token"]:
-        response.set_cookie("truefit_guest", result["browser_token"],
-                            httponly=True, samesite="lax", max_age=60 * 60 * 24 * 180)
-    if result["run_id"]:
-        background_tasks.add_task(recommendation_runner.dispatch, UUID(result["revision_id"]), UUID(result["run_id"]))
-    return schemas.QuoteApplyOut(list_id=result["list_id"], slots=result["slots"], missing=result["missing"],
-                                 run_id=result["run_id"])
-
-
-@router.get("/reviews/{list_id}/parts/{slot}/compare", response_model=schemas.QuotePartCompareOut)
-def compare_quote_part(
-    list_id: UUID, slot: str, target: list[str] = Query(default_factory=list, max_length=4),
-    direction: Literal["cheaper", "better"] | None = None, principal: Principal = Depends(optional_principal),
-) -> schemas.QuotePartCompareOut:
-    """견적 속 부품 하나를 같은 부품군의 다른 제품과 스펙·가격·리뷰로 나란히 비교한다(CHK-10). `target` 으로 비교할 제품을
-    직접 고르고, 안 주면 `direction`(더 저렴한/더 좋은)에 맞는 후보를 고른다. 조회만 한다."""
-    with get_conn() as conn:
-        result = quote_review_service.compare_part(conn, list_id, principal, slot, target, direction)
-    return schemas.QuotePartCompareOut(**result)
-
-
-@router.post("/reviews/{list_id}/parts/{slot}/live-lookup", response_model=schemas.LiveSpecLookupOut)
-def live_lookup_quote_part(
-    list_id: UUID, slot: str, request: Request, principal: Principal = Depends(optional_principal),
-    _slot: None = Depends(llm_request_slot),
-) -> schemas.LiveSpecLookupOut:
-    """카탈로그에 "대응 안 됨"으로 뜬 부품을 사용자가 버튼으로 눌렀을 때만 실시간 검색+검증한다
-    (docs/미보유부품_실시간스펙검색_설계.md §2 — 자동 실행 금지, PC_CHECK_LIMIT_PER_MIN보다
-    엄격한 전용 한도를 쓴다). 캐시 히트면 검색·LLM 호출 없이 바로 응답한다."""
-    _check_live_lookup_limit(request)
-    with get_conn() as conn:
-        result = quote_review_service.live_lookup_part(conn, list_id, principal, slot)
-    return schemas.LiveSpecLookupOut(**result)
 
 
 @router.post("/reviews/{list_id}/messages", response_model=schemas.QuoteChatOut)
@@ -463,6 +353,7 @@ def create_saved_comparison(
 def get_saved_comparison(
     list_id: UUID, comparison_id: UUID, principal: Principal = Depends(optional_principal),
 ) -> schemas.QuoteSavedComparisonOut:
+    """저장해 둔 비교 결과를 다시 읽는다(비교는 만들 때 한 번 계산해 저장한다)."""
     with get_conn() as conn:
         result = quote_comparison_service.get_comparison(conn, list_id, principal, str(comparison_id))
     return schemas.QuoteSavedComparisonOut(**result)

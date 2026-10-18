@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import PlannerShell from '../../components/PlannerShell'
 import CheckChat from '../../components/check/CheckChat'
+import '../../styles/check.css'          // 재사용하는 업로더·채팅·저장 견적 비교 컴포넌트의 스타일
 import '../../styles/check2.css'
 import type { ChatAction } from '../../api/checkV2'
 import { CHAT_HINT, useCheckChat } from './useCheckChat'

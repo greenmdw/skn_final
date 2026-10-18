@@ -169,7 +169,8 @@ def client():
 
 
 def _created(client) -> str:
-    return client.post("/pc/reviews", json={"current_specs": QUOTE, "conditions": COND}).json()["list_id"]
+    from tests.quote_review_helpers import create_review
+    return create_review(client, QUOTE, COND)["list_id"]
 
 
 @db_only

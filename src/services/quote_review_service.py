@@ -24,7 +24,7 @@ from src.engine.quote_price import compare_price, line_quantity, parse_price
 from src.engine.stage2_requirement import load_computer_rules, normalize_pc_slot
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.engine.stage4_optimize import pc_compat_details, pc_link_check
-from src.errors import NotFound, ServiceUnavailable, ValidationFailed
+from src.errors import NotFound, ValidationFailed
 from src.repo.plan_repo import QUOTE_REVIEW_KEY, PlanRepo
 from src.services import quote_balance, quote_compare, session_service
 
@@ -201,34 +201,6 @@ def _save(repo: PlanRepo, revision_id: UUID, review: dict) -> None:
     repo.upsert_condition(revision_id, QUOTE_REVIEW_KEY, {"value": review}, "extracted", bump_version=False)
 
 
-def create_review(conn, principal: Principal, current_specs: dict, conditions: dict | None = None) -> tuple[dict, dict]:
-    """새 세션을 만들고 그 안에 분석 결과를 저장한다. (세션 정보, 저장된 결과)."""
-    review = analyze(current_specs, conditions, conn=conn)          # 분석이 실패하면 빈 세션을 만들지 않는다
-    session = session_service.create_session(conn, principal)
-    repo = PlanRepo(conn)
-    list_id = UUID(session["list_id"])
-    repo.rename(list_id, REVIEW_LIST_NAME)
-    revision = repo.get_current_revision(list_id)
-    _save(repo, revision["id"], review)
-    return session, review
-
-
-def update_review(conn, list_id: UUID, principal: Principal, current_specs: dict,
-                  conditions: dict | None = None) -> dict:
-    """사용자가 인식 결과를 고쳤을 때 — 같은 세션의 분석을 새로 계산해 덮는다(이전 결과는 superseded 로 남는다).
-
-    conditions 를 안 보내면(None) 이전에 저장한 조건을 그대로 쓴다 — 견적 표만 고칠 때 조건이 사라지지 않게. 조건을
-    지우려면 빈 값({})을 보낸다."""
-    repo = PlanRepo(conn)
-    revision = session_service._owned(repo, list_id, principal)
-    if conditions is None:
-        previous = repo.active_condition(revision["id"], QUOTE_REVIEW_KEY)
-        conditions = (((previous or {}).get("value") or {}).get("value") or {}).get("input", {}).get("conditions")
-    review = analyze(current_specs, conditions, conn=conn)
-    _save(repo, revision["id"], review)
-    return review
-
-
 def get_review(conn, list_id: UUID, principal: Principal) -> dict:
     repo = PlanRepo(conn)
     revision = session_service._owned(repo, list_id, principal)
@@ -241,24 +213,6 @@ def get_review(conn, list_id: UUID, principal: Principal) -> dict:
 # 카탈로그에서 확실히 찾지 못한 상태 — 대응 없음, 글에서 추정(inferred), 가장 비슷한 제품으로 대신 본 것(candidate).
 # 추정·비슷한 제품은 점검이 그 값으로 이미 판단하고 있어 틀릴 수 있으니, 사용자가 정확한 값을 직접 확인해 볼 수 있게 연다.
 LIVE_LOOKUP_STATUSES = ("unmatched", "inferred", "candidate")
-
-
-def live_lookup_part(conn, list_id: UUID, principal: Principal, slot: str) -> dict:
-    """저장된 견적 점검에서 "대응 안 됨"인 슬롯 하나를 실시간 검색+검증한다(개발요청 — 사용자가
-    버튼을 눌렀을 때만, docs/미보유부품_실시간스펙검색_설계.md §2·§5). 저장하지 않는다 —
-    같은 질의는 live_spec_lookup의 캐시(§4)가 재검색을 막아 주므로 다시 눌러도 비용이 없다."""
-    from src.services import live_spec_lookup
-
-    if not live_spec_lookup.available():
-        raise ServiceUnavailable("지금은 실시간 검색을 쓸 수 없습니다.", code="live_part_lookup_unavailable")
-    review = get_review(conn, list_id, principal)
-    row = next((p for p in review.get("parts", []) if p["part"] == slot), None)
-    if row is None:
-        raise NotFound(f"그 슬롯을 찾을 수 없습니다: {slot}", field="slot")
-    if row["match_status"] not in LIVE_LOOKUP_STATUSES:
-        raise ValidationFailed("카탈로그에 이미 대응된 부품은 실시간 검색 대상이 아닙니다.", field="slot",
-                               code="already_matched")
-    return live_lookup_text(conn, row["original"], slot)
 
 
 def live_lookup_text(conn, text: str, slot: str) -> dict:
@@ -274,14 +228,3 @@ def live_lookup_text(conn, text: str, slot: str) -> dict:
             "reference_price_at": iso(outcome.reference_price_at)}
 
 
-def compare_part(conn, list_id: UUID, principal: Principal, slot: str, targets: list[str] | None = None,
-                 direction: str | None = None) -> dict:
-    """저장된 견적 점검의 부품 하나를 같은 부품군의 다른 제품과 나란히(CHK-10) — 저장하지 않고 그때그때 계산한다."""
-    from src.services import quote_alternatives
-    from src.engine.stage3_0_candidates import load_pc_catalog
-
-    review = get_review(conn, list_id, principal)
-    result = quote_alternatives.compare_parts(review, slot, load_pc_catalog(lambda _msg: None), targets or None, direction)
-    if result.get("error"):
-        raise ValidationFailed(result["error"], field="slot")
-    return result

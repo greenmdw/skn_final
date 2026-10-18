@@ -93,7 +93,7 @@ def test_an_empty_quote_is_rejected():
 DSN = os.getenv("DATABASE_URL")
 db_only = pytest.mark.skipif(not DSN, reason="requires disposable test database")
 
-QUOTE = {"current_specs": {"CPU": "AMD Ryzen 5 7500F", "메인보드": "MSI B450 TOMAHAWK"}}
+QUOTE = {"CPU": "AMD Ryzen 5 7500F", "메인보드": "MSI B450 TOMAHAWK"}
 
 
 @pytest.fixture()
@@ -120,18 +120,20 @@ def _lock_version(raw_conn, list_id: str) -> int:
 
 @db_only
 def test_a_review_is_saved_in_a_new_session_and_can_be_read_back(client):
-    res = client.post("/pc/reviews", json=QUOTE)
-    assert res.status_code == 201
-    created = res.json()
+    from tests.quote_review_helpers import create_review
+
+    created = create_review(client, QUOTE)
     assert created["compat"]["incompatible"] == ["socket"]
     got = client.get(f"/pc/reviews/{created['list_id']}")
     assert got.status_code == 200
-    assert got.json() == created
+    assert got.json()["compat"] == created["compat"] and got.json()["input"] == created["input"]
 
 
 @db_only
 def test_the_review_is_saved_as_a_named_list_the_owner_can_see(client):
-    list_id = client.post("/pc/reviews", json=QUOTE).json()["list_id"]
+    from tests.quote_review_helpers import create_review
+
+    list_id = create_review(client, QUOTE)["list_id"]
     listed = {item["list_id"]: item for item in client.get("/lists").json()["items"]}
     assert listed[list_id]["name"] == qrs.REVIEW_LIST_NAME
 
@@ -139,9 +141,11 @@ def test_the_review_is_saved_as_a_named_list_the_owner_can_see(client):
 @db_only
 def test_saving_a_review_does_not_touch_the_recommendation_inputs(client, raw_conn):
     """분석 결과는 추천 입력(조건)이 아니다 — 조건 상태에 안 보이고 lock_version 도 그대로다."""
-    list_id = client.post("/pc/reviews", json=QUOTE).json()["list_id"]
+    from tests.quote_review_helpers import create_review
+
+    list_id = create_review(client, QUOTE)["list_id"]
     before = _lock_version(raw_conn, list_id)
-    assert client.put(f"/pc/reviews/{list_id}", json={"current_specs": {"CPU": "AMD Ryzen 5 7500F"}}).status_code == 200
+    assert client.post(f"/pc/review-drafts/{list_id}/analysis", json={}).status_code == 200      # 다시 분석해도
     assert _lock_version(raw_conn, list_id) == before
     state = client.get(f"/session/{list_id}").json()
     assert "quote_review" not in [f["key"] for f in state["fields"]]
@@ -149,10 +153,16 @@ def test_saving_a_review_does_not_touch_the_recommendation_inputs(client, raw_co
 
 
 @db_only
-def test_updating_replaces_the_analysis_and_keeps_the_previous_one_as_history(client, raw_conn):
-    created = client.post("/pc/reviews", json=QUOTE).json()
-    fixed = {"current_specs": {"CPU": "AMD Ryzen 5 7500F", "메인보드": "MSI B650 TOMAHAWK"}}
-    updated = client.put(f"/pc/reviews/{created['list_id']}", json=fixed).json()
+def test_analysing_again_replaces_the_analysis_and_keeps_the_previous_one_as_history(client, raw_conn):
+    from tests.quote_review_helpers import create_review
+
+    created = create_review(client, QUOTE)
+    draft_url = f"/pc/review-drafts/{created['list_id']}"
+    draft = client.get(draft_url).json()
+    board = next(i for i in draft["items"] if i["category"] == "메인보드")
+    fixed = client.patch(f"{draft_url}/items", json={"expected_version": draft["version"], "items": [{"id": board["id"], "normalized_name": "MSI B650 TOMAHAWK"}]})
+    assert fixed.status_code == 200, fixed.text
+    updated = client.post(f"{draft_url}/analysis", json={}).json()
     assert updated["compat"]["incompatible"] == []
     assert updated["input"]["input_hash"] != created["input"]["input_hash"]
     assert client.get(f"/pc/reviews/{created['list_id']}").json()["compat"]["incompatible"] == []
@@ -163,12 +173,14 @@ def test_updating_replaces_the_analysis_and_keeps_the_previous_one_as_history(cl
 
 
 @db_only
-def test_only_the_owner_can_read_or_update_a_review(client):
-    list_id = client.post("/pc/reviews", json=QUOTE).json()["list_id"]
+def test_only_the_owner_can_read_or_analyse_a_review(client):
+    from tests.quote_review_helpers import create_review
+
+    list_id = create_review(client, QUOTE)["list_id"]
     from src.api import app
     with TestClient(app) as stranger:
         assert stranger.get(f"/pc/reviews/{list_id}").status_code == 404
-        assert stranger.put(f"/pc/reviews/{list_id}", json=QUOTE).status_code == 404
+        assert stranger.post(f"/pc/review-drafts/{list_id}/analysis", json={}).status_code == 404
 
 
 @db_only
@@ -180,6 +192,6 @@ def test_a_list_without_a_review_has_nothing_to_read(client):
 @db_only
 def test_an_empty_quote_creates_no_session(client):
     before = client.get("/lists").json()
-    res = client.post("/pc/reviews", json={"current_specs": {}})
+    res = client.post("/pc/review-drafts", data={"text": "  "})
     assert res.status_code == 422
     assert client.get("/lists").json() == before
