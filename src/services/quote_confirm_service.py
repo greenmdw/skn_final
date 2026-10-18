@@ -116,7 +116,8 @@ def confirm(conn, list_id: UUID, principal: Principal, *, expected_version: int,
         amount = int(item["quote_line_total"]) if item.get("quote_line_total") is not None else None
         snapshot = {
             "slot": item["category"], "slot_label": item["category"], "raw_text": item["raw_text"], "quantity": quantity,
-            "display_name": _display_name(item), "match_status": item.get("match_status"), "matched_name": item.get("matched_name") if pid else None,
+            "display_name": _display_name(item), "product_id": pid, "product_key": item.get("matched_product_key") if pid else None,
+            "match_status": item.get("match_status"), "matched_name": item.get("matched_name") if pid else None,
             "quote_unit_price": item.get("quote_unit_price"), "quote_price_type": item.get("quote_price_type"),
             "image_url": item.get("image_url"),
         }

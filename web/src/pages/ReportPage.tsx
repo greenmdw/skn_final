@@ -96,7 +96,8 @@ export default function ReportPage() {
           ))}
           {setup.revisionNo != null && (
             <>
-              {setup.plan.items.length > 0
+              {/* 받은 견적으로 만든 리포트는 "견적 수정하기"로 열 수 없다(서버가 거절) — 아래 "이 구성으로 새 점검 시작"을 쓴다 */}
+              {quoteReport ? null : setup.plan.items.some(item => !item.kept)
                 ? <button type="button" className="pl-pill mint" onClick={() => void revise()} title="이 견적서의 구성으로 추천 결과 화면을 열어 수정해요. 확정할 때 덮어쓸지 새로 저장할지 고를 수 있어요.">견적 수정하기</button>
                 : Boolean(setup.peripherals?.length) && <button type="button" className="pl-pill mint" onClick={() => void revisePeripherals()} title="저장된 주변기기를 다시 불러와 제품과 조건을 수정해요.">견적 수정하기</button>}
               <button type="button" className="pl-pill danger" onClick={() => void remove()} title="이 견적서만 삭제해요. 대화와 다른 견적서는 그대로예요.">견적서 삭제</button>
@@ -120,9 +121,9 @@ export default function ReportPage() {
             </div>
           </div>
 
-          {setup.plan.items.length > 0 && <section>
+          {setup.plan.items.some(item => !item.kept) && <section>
             <div style={{ fontSize: 13, fontWeight: 700, paddingBottom: 8 }}>본체</div>
-            {setup.plan.items.map(item => (
+            {setup.plan.items.filter(item => !item.kept).map(item => (
               <div className="pl-report-row" key={item.id}>
                 <ProductThumb imageUrl={item.imageUrl} partKey={item.key} name={item.name} />
                 <span className="cat" style={{ color: 'var(--muted)' }}>{item.type}</span>

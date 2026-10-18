@@ -25,7 +25,7 @@ function ItemRow({ item, draft, busy, onPick, onDelete, onLookup, lookup }: {
       <div className="c2-item-main">
         <div>
           <strong>{item.normalized_name || item.raw_text}</strong>
-          {item.matched_name && <div className="c2-sub">카탈로그: {item.matched_name}</div>}
+          {item.matched_name && item.matched_name !== (item.normalized_name || item.raw_text) && <div className="c2-sub">카탈로그: {item.matched_name}</div>}
           <div className="c2-sub">
             수량 {item.quantity}{item.quote_line_total != null ? ` · ${wonText(item.quote_line_total)}` : ' · 가격 정보 없음'}
             {siblings > 1 && item.selected_for_analysis && ' · 분석 기준'}

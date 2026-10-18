@@ -260,6 +260,8 @@ export interface WireReport {
   total: number
   confirmed_at: string
   items: WireReportItem[]
+  /** 받은 견적에서 바꾸지 않고 유지한 부품(받은 견적으로 만든 리포트만). 가격을 몰랐으면 line_amount 는 null */
+  kept_parts?: { slot: string; slot_label: string; name: string; qty: number; line_amount: number | null; image_url: string | null }[]
   /** 확정할 때 같이 얼린 주변기기(없으면 빈 배열) */
   peripherals?: { kind: 'monitor' | 'keyboard' | 'mouse' | 'speaker'; product: { product_key: string; name: string; image_url: string | null; purchase_url: string | null }; variant_id?: string | null; price: number; qty: number }[]
 }

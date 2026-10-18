@@ -140,6 +140,9 @@ export interface PlanItem extends Omit<Part, 'price'> {
   unitPrice?: number
   /** 서버 결과에서의 순서. 뺀 부품을 제자리에 흐리게 보여 줄 때 쓴다 */
   order?: number
+  /** 받은 견적에서 바꾸지 않고 유지한 부품(견적 그대로). 리포트는 이 줄을 따로 보여 주고, 가격을 몰랐으면 price 는 0 이지만 noPrice 가 true 다 */
+  kept?: boolean
+  noPrice?: boolean
 }
 
 export interface CompatCheck {

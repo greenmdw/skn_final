@@ -1454,6 +1454,8 @@ class KeptPartOut(BaseModel):
     name: str
     match_status: str | None = None
     image_url: str | None = None
+    product_id: str | None = None        # 카탈로그 제품으로 확인된 부품만(이전에 확정한 리포트에는 없다)
+    product_key: str | None = None
     qty: int = 1
     line_amount: int | None = None
 

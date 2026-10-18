@@ -162,3 +162,22 @@ def test_a_confirmed_quote_can_restart_as_a_new_check_with_replaced_and_kept_par
         assert stranger.post(f"{base}/restart").status_code in (401, 404)
     other, v2 = _analyzed(client, monkeypatch, catalog)
     assert client.post(f"{other}/restart").status_code == 404                                                                 # 확정하지 않은 견적은 시작할 수 없다
+
+
+def test_a_saved_comparison_against_a_quote_report_includes_its_kept_parts(client, monkeypatch, catalog):
+    base, version = _analyzed(client, monkeypatch, catalog)
+    report = client.post(f"{base}/confirm", json=_body(version)).json()
+    other, _ = _analyzed(client, monkeypatch, catalog)
+    r = client.post(f"/pc/reviews/{other.rsplit('/', 1)[1]}/saved-comparisons", json={"saved_list_id": report["list_id"]})
+    assert r.status_code == 201, r.text
+    rows = {row["category"]: row for row in r.json()["rows"]}
+    assert {"CPU", "RAM", "메인보드", "저장장치", "파워"} <= set(rows)                     # 유지한 부품도 저장 쪽에 들어간다
+    assert all(rows[c]["saved"] is not None for c in ("CPU", "RAM", "메인보드", "저장장치", "파워"))
+    assert rows["CPU"]["same_product"] is True                                              # 같은 제품이면 같다고 가른다(제품 식별자를 같이 얼렸다)
+
+
+def test_text_quote_names_drop_the_category_prefix(client, monkeypatch, catalog):
+    from src.services import quote_draft_service as qds
+    item = qds._make_item("GPU", "GPU: NVIDIA GeForce RTX 3050 (6GB) 308,800원", "s", catalog)
+    assert not item["normalized_name"].startswith("GPU")
+    assert "RTX 3050" in item["normalized_name"]

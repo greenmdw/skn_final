@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
-import { api, errorMessage, type QuoteSavedComparison } from '../../api'
+import { api, ApiError, errorMessage, type QuoteSavedComparison } from '../../api'
 import { checkV2, type Analysis } from '../../api/checkV2'
 import SavedComparisonPanel from '../../components/check/SavedComparisonPanel'
 import SavedQuotePicker from '../../components/check/SavedQuotePicker'
@@ -44,6 +44,7 @@ export default function ReviewPage() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [editing, setEditing] = useState(false)
+  const [confirmed, setConfirmed] = useState(false)          // 이미 확정한 견적 — 저장된 결과만 보여 주고 고치지 못한다
   const [form, setForm] = useState<Record<string, unknown>>({})
   // 저장한 견적과 비교(재기획 6.9) — 사진 2장 "견적 비교"와는 다른 기능이다
   const { savedSetups, loading: setupsLoading, storageError } = useSetups()
@@ -66,6 +67,7 @@ export default function ReviewPage() {
       setBusy(true)
       try { setAnalysis(await checkV2.analyze(id)) } catch (caught) {
         // 이미 확정한 견적(리포트에서 들어온 경우)은 다시 분석하지 못한다 — 저장된 결과를 그대로 보여 준다.
+        if (caught instanceof ApiError && caught.code === 'quote_already_confirmed') setConfirmed(true)
         try { setAnalysis(await checkV2.getReview(id)) } catch { setError(errorMessage(caught, '분석 결과를 불러오지 못했습니다.')) }
       } finally { setBusy(false) }
     })()
@@ -106,7 +108,7 @@ export default function ReviewPage() {
         <h1>지금 견적은 이래요</h1>
         <p>
           평가 기준: {tags.length ? tags.join(' · ') : '용도를 정하지 않았어요'}{' '}
-          <button type="button" className="c2-link" onClick={() => { setForm({ ...conditions }); setEditing(!editing) }}>조건 바꾸기</button>
+          {!confirmed && <button type="button" className="c2-link" onClick={() => { setForm({ ...conditions }); setEditing(!editing) }}>조건 바꾸기</button>}
         </p>
       </header>
       {error && <p className="c2-error" role="alert">{error}</p>}
@@ -124,7 +126,13 @@ export default function ReviewPage() {
         </section>
       )}
 
-      {draft?.analysis_stale && (
+      {confirmed && (
+        <section className="c2-card" role="status">
+          <strong>이미 확정한 견적이에요.</strong> 저장된 점검 결과만 볼 수 있어요. 고치려면 <Link to={`/report/${id}`}>리포트</Link>에서 "이 구성으로 새 점검 시작"을 눌러 주세요.
+        </section>
+      )}
+
+      {draft?.analysis_stale && !confirmed && (
         <section className="c2-card warn" role="status">
           <strong>조건이 바뀌어 이 결과는 오래됐어요.</strong>{' '}
           <button type="button" className="c2-btn primary" disabled={busy} onClick={() => void analyze()}>다시 분석하기</button>
@@ -167,8 +175,8 @@ export default function ReviewPage() {
 
           <div className="c2-actions end">
             <button type="button" className="c2-btn" onClick={() => { setCompareError(''); setPickerOpen(true) }}>저장한 견적과 비교</button>
-            <button type="button" className="c2-btn" disabled={busy} onClick={() => void analyze()}>다시 분석하기</button>
-            <button type="button" className="c2-btn primary" onClick={() => navigate(`${CHECK2}/${id}/replace`)}>교체 구성으로{replaceCount ? `(추천 ${replaceCount}개)` : ''}</button>
+            {!confirmed && <button type="button" className="c2-btn" disabled={busy} onClick={() => void analyze()}>다시 분석하기</button>}
+            {!confirmed && <button type="button" className="c2-btn primary" onClick={() => navigate(`${CHECK2}/${id}/replace`)}>교체 구성으로{replaceCount ? `(추천 ${replaceCount}개)` : ''}</button>}
           </div>
         </>
       )}

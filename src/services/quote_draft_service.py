@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
@@ -173,6 +174,10 @@ def _make_item(category: str, raw_text: str, source_id: str, by_slot: dict, unce
     parts = split_line(raw_text)
     item = {"id": str(uuid.uuid4()), "category": category, "raw_text": raw_text, **parts,
             "image_url": None, "source_ids": [source_id], "selected_for_analysis": False, "user_edited": False}
+    # 텍스트 견적의 "GPU: NVIDIA …" 같은 부품군 머리말은 이름이 아니다 — 화면·리포트·교체 문구에 "GPU: "가 붙어 나오지 않게 뺀다.
+    bare = re.sub(rf"^\s*{re.escape(category)}\s*[:：]\s*", "", item["normalized_name"])
+    if bare:
+        item["normalized_name"] = bare
     item.update(_match(category, spec_text(item), by_slot))
     if uncertain or low_quality:
         # 글자가 흐려 읽은 이름이 틀렸을 수 있다 — 카탈로그 제품으로 확정하지 않고 "제품 확인 필요"로 둔다(찾은 제품 이름은 힌트로 남긴다).
