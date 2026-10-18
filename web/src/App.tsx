@@ -14,6 +14,7 @@ import CheckPage from './pages/CheckPage'
 import PeripheralsPage from './pages/PeripheralsPage'
 import MyPage from './pages/MyPage'
 import CommunityPage from './pages/community/CommunityPage'
+import ConversationPage from './components/ConversationPage'
 import './styles/theme.css'
 
 // 같은 모드에서 "새 견적"을 눌러도 주소는 유지되므로, 전달된 키로 화면을 다시 만들어
@@ -25,7 +26,8 @@ function CheckRoute() {
 
 function PeripheralsRoute() {
   const location = useLocation()
-  return <PeripheralsPage key={location.state?.newConversationKey ?? 'peripherals'} />
+  const session = new URLSearchParams(location.search).get('session')
+  return <PeripheralsPage key={session ? `session:${session}` : location.state?.newConversationKey ?? 'peripherals'} />
 }
 
 // 모든 화면은 React로 구성하며, 서버 데이터가 필요한 기능은 실제 백엔드 API만 사용한다.
@@ -47,6 +49,7 @@ export default function App() {
             <Route path="/peripherals" element={<PeripheralsRoute />} />
             <Route path="/mypage" element={<MyPage />} />
             <Route path="/community" element={<CommunityPage />} />
+            <Route path="/conversation/:id" element={<ConversationPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </PlanProvider>

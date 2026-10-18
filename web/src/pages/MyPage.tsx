@@ -1,3 +1,4 @@
+import NavigationLink from '../components/NavigationLink'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
@@ -170,9 +171,9 @@ export default function MyPage() {
             {NAV.map(item => (item === 'separator'
               ? <span className="mp-separator" aria-hidden="true" key="sep" />
               : (
-                <button key={item[0]} className={page === item[0] ? 'on' : ''} type="button" aria-current={page === item[0] ? 'page' : undefined} onClick={() => go(item[0])}>
+                <NavigationLink to={`/mypage?tab=${item[0]}`} key={item[0]} className={page === item[0] ? 'on' : ''}  aria-current={page === item[0] ? 'page' : undefined} onClick={() => go(item[0])}>
                   <span className="mp-icon">{item[1]}</span>{item[2]}
-                </button>
+                </NavigationLink>
               )))}
           </nav>
         </aside>

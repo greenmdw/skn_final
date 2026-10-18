@@ -4,7 +4,7 @@ import { errorMessage } from '../api'
 import { communityApi, relativeTime, type WireNotification } from '../api/http/community'
 
 // 커뮤니티 알림 종. 내 글에 새 댓글이 달리거나 내 댓글에 답글이 달리면 서버가 알림을 만들고, 종은 안 읽은 개수만 주기적으로 묻는다(60초).
-// 종을 누르면 알림 목록을 불러오고, "확인"을 누르면 그 알림을 읽음 처리하고 글로 이동한다.
+// 종을 누르면 알림 목록을 불러오고, 알림 행을 누르면 읽음 처리하고 글로 이동한다.
 const POLL_MS = 60_000
 
 export default function CommunityNotifications() {
@@ -73,11 +73,12 @@ export default function CommunityNotifications() {
               : items.length === 0
                 ? <article><div><strong>새 알림이 없어요</strong><p>내 글에 댓글이 달리면 여기에 보여 드려요.</p></div></article>
                 : items.map(item => (
-                  <article className={item.read ? 'read' : ''} key={item.id}>
+                  <Link className={'tf-notification-item' + (item.read ? ' read' : '')} key={item.id}
+                    to={`/community?view=post&post=${encodeURIComponent(item.post_id)}`} onClick={() => readOne(item.id)}>
                     <span className="tf-notification-kind">{item.type === 'new_reply' ? '답' : '댓'}</span>
                     <div><strong>{item.title}</strong><p>{item.message}</p><small>{relativeTime(item.created_at)}</small></div>
-                    <Link to={`/community?view=post&post=${encodeURIComponent(item.post_id)}`} onClick={() => readOne(item.id)}>{item.read ? '보기' : '확인'}</Link>
-                  </article>
+                    <span className="tf-notification-action">{item.read ? '보기' : '확인'}</span>
+                  </Link>
                 ))}
         </div>
         <footer><span /><Link to="/mypage?tab=community" onClick={() => setOpen(false)}>나의 커뮤니티 〉</Link></footer>

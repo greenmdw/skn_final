@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import NavigationLink from '../../components/NavigationLink'
 import { useSetups } from '../../state/SetupsContext'
 import { wonFmt } from '../../utils/format'
 import { Empty, Hero, Row } from './parts'
@@ -45,7 +46,7 @@ export function ConsultsPage() {
             <Row key={item.listId} icon="▣" title={conversationTitle(item)}
               subtitle={`${dateText(item.lastActiveAt)} · ${stageText[item.stage]}${item.reports.length ? ` · 견적서 ${item.reports.length}개` : ''}`}
               price={item.stage === 'report' ? '완료' : '진행 중'}>
-              <button className="mp-btn" type="button" onClick={() => void openConversation(item)}>상담 열기</button>
+              <NavigationLink className="mp-btn" to={`/conversation/${item.listId}`} onClick={() => void openConversation(item)}>상담 열기</NavigationLink>
             </Row>
           ))}
           {items.length === 0 && (conversations === null && !conversationsError

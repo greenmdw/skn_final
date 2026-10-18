@@ -250,20 +250,6 @@
 .tf-link:hover { text-decoration-thickness: 2px; }
 .pl-msg-user .tf-link { color: var(--on-mint); font-weight: 700; }
 
-/* 확정 리포트의 목표가 알림 */
-.pl-pricewatch-body { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
-.pl-pricewatch-body > p { margin: 0; line-height: 1.6; }
-.pl-pricewatch-state { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel2); font-size: 13px; }
-.pl-pricewatch-state b { padding: 3px 9px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 16%, transparent); color: var(--muted); font-size: 12px; }
-.pl-pricewatch-state.tracking b { background: color-mix(in srgb, var(--info) 16%, transparent); color: var(--info); }
-.pl-pricewatch-state.reached b { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
-.pl-pricewatch-state.waiting b { background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn); }
-.pl-pricewatch-state small { color: var(--muted); font-size: 11px; }
-.pl-pricewatch-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
-.pl-pricewatch-form label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); flex: 1 1 200px; max-width: 280px; }
-.pl-pricewatch-form input { height: 42px; padding: 0 13px; border: 1px solid var(--line2); border-radius: 9px; background: var(--ink); color: var(--text); font: inherit; font-size: 14px; }
-.pl-pricewatch-form input:focus { outline: none; border-color: var(--mint); box-shadow: 0 0 0 3px color-mix(in srgb, var(--mint) 22%, transparent); }
-.pl-pricewatch-form .pl-btn { padding: 11px 18px; font-size: 14px; }
 .pl-link-btn { margin-left: 8px; border: 0; background: transparent; color: inherit; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
 
 /* 추천 결과의 "이전 견적과 비교" */

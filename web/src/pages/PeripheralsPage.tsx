@@ -225,9 +225,12 @@ export default function PeripheralsPage() {
   const { state, setPeripherals } = usePlan()
   const { showToast } = useToast()
   const navigate = useNavigate()
+  const location = useLocation()
+  const requestedSession = new URLSearchParams(location.search).get('session')
   const restored = state.editingSheet && state.peripheralSessionId && state.peripherals.length
+    && (!requestedSession || requestedSession === state.peripheralSessionId)
     ? restoredResult(state.peripherals, state.peripheralSessionId) : null
-  const [selected, setSelected] = useState<Set<PeripheralKind>>(() => new Set(restored?.items.map(item => item.kind) ?? KINDS.map(kind => kind.id)))
+  const [selected, setSelected] = useState<Set<PeripheralKind>>(() => new Set(restored?.items.map(item => item.kind) ?? []))
   // 사용자가 종류 카드를 직접 눌렀는지. 눌렀다면 문장을 읽을 때 그 종류를 서버에 함께 보낸다.
   const [kindsTouched, setKindsTouched] = useState(false)
   const [understood, setUnderstood] = useState<UnderstoodState>(EMPTY_UNDERSTOOD)
@@ -245,7 +248,6 @@ export default function PeripheralsPage() {
   // 종류 → 1위 대신 고른 다른 선택지의 이름. 없으면 1위를 올린다.
   const [selection, setSelection] = useState<Record<string, string>>({})
   const sessionId = useRef<string | null>(restored?.sessionId ?? null)
-  const location = useLocation()
   // 사용자가 이 화면에서 무언가 말했는가 — 저장된 대화를 받아 오기 전에 말했으면 받아 온 것으로 덮지 않는다.
   const spokeHere = useRef(false)
 
@@ -290,7 +292,6 @@ export default function PeripheralsPage() {
     api.peripherals.history(id).then(history => {
       if (spokeHere.current || sessionId.current && sessionId.current !== id) return
       adoptSession(id)
-      if (!history.messages.length) return
       setMessages([{ id: 1, role: 'assistant', text: GREETING },
         ...history.messages.map(message => ({ id: nextMessageId.current++, role: message.role, text: message.text }))])
       spokenNotices.current = history.notices.join('\n')
@@ -300,9 +301,10 @@ export default function PeripheralsPage() {
       setSelected(new Set(history.interpretation.kinds))
       setKindsTouched(true)
       if (history.showingResults && !restored) void requestRecommendation(next)
-    }).catch(() => {
+    }).catch(caught => {
       // 내 것이 아니거나 지운 대화 — 새 대화로 시작한다. 이 브라우저가 기억하던 것이면 잊는다.
       if (id === remembered) rememberPeripheralSession(null)
+      if (fromPanel) setError(errorMessage(caught, '주변기기 대화 내역을 불러오지 못했어요. 잠시 후 다시 열어 주세요.'))
     })
     // 처음 그릴 때 한 번만 — 이후 바뀌는 값은 쓰지 않는다
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -353,14 +355,15 @@ export default function PeripheralsPage() {
   }
 
   async function requestRecommendation(next: UnderstoodState = understood) {
-    if (!selected.size) {
+    // 복원 직후에는 setSelected가 아직 반영되지 않았다. 저장된 해석의 품목으로 먼저 판정한다.
+    const kinds = next.interpretation.kinds.length ? next.interpretation.kinds : selectedKinds
+    if (!kinds.length) {
       setNotice('추천받을 주변기기를 한 개 이상 선택해주세요.')
       return
     }
     setNotice(''); setError(''); setLoading(true)
     try {
       // 이번 턴에 품목이 바뀌었으면(예: "키보드는 빼줘") 선택 상태가 아직 갱신되기 전이다 — 받은 해석의 품목을 쓴다.
-      const kinds = next.interpretation.kinds.length ? next.interpretation.kinds : selectedKinds
       const out = await api.peripherals.recommend({
         kinds,
         pcListId: plan?.id,

@@ -140,11 +140,11 @@ export default function MyCommunityPage() {
               ? <div className="mp-empty-card mpc-empty-compact"><strong>새 활동이 없어요</strong><span>내 글에 댓글이 달리거나 내 댓글에 답글이 달리면 여기에 보여 드려요.</span></div>
               : <div className="mpc-notice-list">
                 {notices.map(notice => (
-                  <article className="mpc-notice" key={notice.id}>
+                  <Link className="mpc-notice" key={notice.id} to={postPath(notice.post_id)} onClick={() => readNotice(notice.id)}>
                     <span className="mpc-notice-icon">{notice.type === 'new_reply' ? '답' : '댓'}</span>
                     <span className="mpc-notice-copy"><strong>{notice.title}</strong><span>{notice.message}</span><small>{relativeTime(notice.created_at)}</small></span>
-                    <Link to={postPath(notice.post_id)} onClick={() => readNotice(notice.id)}>확인</Link>
-                  </article>
+                    <span className="mpc-notice-action">확인</span>
+                  </Link>
                 ))}
               </div>}
         </section>
