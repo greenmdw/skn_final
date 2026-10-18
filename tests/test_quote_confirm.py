@@ -142,3 +142,23 @@ def test_a_confirmed_quote_can_no_longer_be_changed(client, monkeypatch, catalog
         r = client.request(method, path, json=body)
         assert r.status_code == 409 and r.json()["error"]["code"] == "quote_already_confirmed", (path, r.text)
     assert client.get(base).status_code == 200                                   # 읽기는 그대로
+
+
+def test_a_confirmed_quote_can_restart_as_a_new_check_with_replaced_and_kept_parts(client, monkeypatch, catalog):
+    base, version = _analyzed(client, monkeypatch, catalog)
+    gpu_target = next(t for t in client.get(f"{base}/replacement-targets").json()["targets"] if t["slot"] == "GPU")
+    cand = gpu_target["candidates"][0]
+    put = client.put(f"{base}/replacements/GPU", json={"expected_version": version, "candidate_product_id": cand["product_id"]})
+    report = client.post(f"{base}/confirm", json=_body(put.json()["draft_version"])).json()
+    r = client.post(f"{base}/restart")
+    assert r.status_code == 201, r.text
+    fresh = r.json()
+    assert fresh["draft_id"] != report["list_id"] and fresh["version"] == 1
+    by_cat = {i["category"]: i for i in fresh["items"]}
+    assert set(by_cat) == {"GPU", "CPU", "RAM", "메인보드", "저장장치", "파워"} and by_cat["GPU"]["matched_name"] == cand["name"]   # 바꾼 제품이 들어간다
+    assert fresh["conditions"].get("purpose") == "game"                                                                       # 조건을 이어 간다
+    assert client.get(f"/lists/{report['list_id']}/report").json()["source"] == "quote_check"                                 # 원래 리포트는 그대로
+    with TestClient(app) as stranger:
+        assert stranger.post(f"{base}/restart").status_code in (401, 404)
+    other, v2 = _analyzed(client, monkeypatch, catalog)
+    assert client.post(f"{other}/restart").status_code == 404                                                                 # 확정하지 않은 견적은 시작할 수 없다

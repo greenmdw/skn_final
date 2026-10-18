@@ -6,7 +6,7 @@ import '../../styles/check2.css'
 import type { ChatAction } from '../../api/checkV2'
 import { CHAT_HINT, useCheckChat } from './useCheckChat'
 
-export const CHECK2 = '/check2'
+export const CHECK2 = '/check'      // 새 화면이 /check 를 쓴다(구 화면은 /check-legacy)
 const STEPS = [
   { key: 'upload', label: '① 올리기', path: () => CHECK2 },
   { key: 'parts', label: '② 인식 확인', path: (id: string) => `${CHECK2}/${id}/parts` },

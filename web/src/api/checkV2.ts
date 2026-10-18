@@ -1,4 +1,4 @@
-// 받은 견적 점검 새 화면(/check2/…)이 쓰는 API. 서버 응답을 거의 그대로(snake_case) 쓰고, 새 화면이 아는 필드만 타입으로 적는다.
+// 받은 견적 점검 새 화면(/check/…)이 쓰는 API. 서버 응답을 거의 그대로(snake_case) 쓰고, 새 화면이 아는 필드만 타입으로 적는다.
 // 기존 `api` 객체(types.ts)와 분리한 이유: 새 화면이 안정되어 기존 CheckPage 를 걷어낼 때 이 파일만 남기고 합치기 위해서다(재기획 8단계).
 import { request, requestForm } from './http/client'
 
@@ -55,10 +55,15 @@ export interface TargetReason { code: string; text: string }
 export interface Candidate {
   product_id: string | null; name: string; price: number | null; price_delta: number | null; grade_label: string | null
   grade_change: number | null; resolves: string[]; resolves_all: boolean
+  /** 후보 카드에 붙일 주의("성능이 낮아요" 등) */
+  cautions: string[]
+  recommend_score: number | null
 }
 export interface Target {
   slot: string; current_name: string | null; current_confirmed: boolean; kind: 'replace' | 'verify' | 'keep'
   rank: number | null; reasons: TargetReason[]; candidates: Candidate[]; note: string | null
+  /** 과한 부품의 절감 후보(가성비 우선일 때만, 선택 사항) */
+  savings: Candidate[]; savings_note: string | null
 }
 export interface Targets { replace_budget: number | null; counts: Record<string, number>; targets: Target[]; draft_version: number; analysis_stale: boolean }
 
@@ -93,12 +98,14 @@ export const checkV2 = {
     request<ReplacementState>('PUT', `${base(id)}/replacements/${encodeURIComponent(slot)}`, { expected_version: version, candidate_product_id: productId }),
   removeReplacement: (id: string, version: number, slot: string) =>
     request<ReplacementState>('DELETE', `${base(id)}/replacements/${encodeURIComponent(slot)}`, { expected_version: version }),
-  confirm: (id: string, body: { expected_version: number; name: string; planned_purchase_at?: string | null; target_amount?: number | null; memo?: string }) =>
+  confirm: (id: string, body: { expected_version: number; name: string; planned_purchase_at?: string | null; target_amount?: number | null; memo?: string; over_budget_ack?: boolean }) =>
     request<Report>('POST', `${base(id)}/confirm`, body),
+  /** 확정한 받은 견적 리포트의 구성으로 새 점검을 시작한다 — 새 draft_id 를 돌려준다 */
+  restart: (id: string) => request<Draft>('POST', `${base(id)}/restart`),
 }
 
 export interface KeptPart { slot: string; slot_label: string; source_text: string; name: string; match_status: string | null; qty: number; line_amount: number | null }
-export interface QuoteReportExtra { total: number; source: 'recommendation' | 'quote_check'; kept_parts: KeptPart[]; quote_check: { total_partial?: boolean; kept_unpriced_slots?: string[] } | null }
+export interface QuoteReportExtra { total: number; target_amount: number | null; source: 'recommendation' | 'quote_check'; kept_parts: KeptPart[]; quote_check: { total_partial?: boolean; kept_unpriced_slots?: string[] } | null }
 
 /** 리포트에서 받은 견적용 섹션(유지한 부품)만 따로 읽는다. 기존 리포트 매핑(SavedSetup)은 건드리지 않는다. */
 export const quoteReportExtra = (listId: string, revisionNo?: number | null) =>

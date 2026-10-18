@@ -249,21 +249,29 @@ def _do_fix(conn, list_id, principal, draft, plan) -> tuple[str, dict | None]:
     return sentence, {"kind": "edit_item", "label": f"제품 확정 · {slot}", "undo": {"kind": "edit_item", "item_id": item["id"], "name": old_name}}
 
 
-def _do_lookup(conn, list_id, principal, draft, plan) -> tuple[str, dict | None]:
+def _do_lookup(conn, list_id, principal, draft, plan) -> tuple[str, dict | None, dict]:
+    """정보 찾기는 외부 검색(비용이 든다)이라 바로 실행하지 않고 먼저 묻는다 — 동의하면 다음 턴에 기존 검색 동의 흐름이 실행한다."""
+    from src.agent.conditions_agent import SEARCH_PERMISSION_MARKER
+    from src.services import live_spec_lookup
+
     item = _item_for(draft, plan["slot"])
     if item is None or item["match_status"] == "confirmed":
-        return f"{plan['slot']}은(는) 이미 카탈로그 제품으로 확인돼서 따로 찾을 정보가 없어요.", None
-    result = qds.live_lookup_item(conn, list_id, principal, item["id"])
-    fields = {k: v for k, v in (result.get("supported_fields") or {}).items() if v is not None}
-    if not result.get("relevant") or not fields:
-        return f"'{item['normalized_name']}' 정보를 실시간 검색으로도 찾지 못했어요. 제품 이름을 다시 확인해 주세요.", None
-    shown = ", ".join(f"{k}={v}" for k, v in fields.items())
-    return (f"'{item['normalized_name']}' 정보를 찾았어요 — {shown}. 카탈로그 정식 등재 값이 아니라 참고용이에요. '다시 분석해줘'라고 하시면 점검에 반영돼요.",
-            {"kind": "lookup_part", "label": f"정보 찾기 · {plan['slot']}", "undo": None})
+        return f"{plan['slot']}은(는) 이미 카탈로그 제품으로 확인돼서 따로 찾을 정보가 없어요.", None, {}
+    if not live_spec_lookup.available():
+        return "지금은 실시간 검색을 쓸 수 없어요.", None, {}
+    reply = f"'{item['normalized_name']}' 정보를 찾으려면 외부 검색을 해야 하고 검색 비용이 들어요. {SEARCH_PERMISSION_MARKER}"
+    return reply, None, {"pending_search": {"slot": plan["slot"], "product": item["normalized_name"]}}
 
 
-def try_action(conn, list_id: UUID, principal: Principal, text: str) -> tuple[str, dict | None] | None:
-    """말이 동작 요청이면 실행하고 (답변 문장, action 메타)를 돌려준다. 동작이 아니면 None(읽기 답변으로)."""
+def try_action(conn, list_id: UUID, principal: Principal, text: str) -> tuple[str, dict | None, dict] | None:
+    """말이 동작 요청이면 실행하고 (답변 문장, action 메타, 메시지에 더 저장할 값)을 돌려준다. 동작이 아니면 None(읽기 답변으로)."""
+    result = _try_action(conn, list_id, principal, text)
+    if result is None:
+        return None
+    return result if len(result) == 3 else (*result, {})
+
+
+def _try_action(conn, list_id: UUID, principal: Principal, text: str):
     try:
         draft = qds.get_draft(conn, list_id, principal)
     except NotFound:

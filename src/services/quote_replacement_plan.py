@@ -31,7 +31,7 @@ from src.services import quote_balance
 from src.services import quote_review_service as qrs
 
 log = logging.getLogger(__name__)
-DEFAULT_LIMIT = 3
+DEFAULT_LIMIT = 6      # 화면은 처음 3개를 보이고 "더 보기"로 6개까지(결정 ⑧)
 _PRIORITY = {"incompatible": 1, "game_unmet": 2, "balance_short": 3}
 _REPLACE_REASONS = frozenset(_PRIORITY)
 _BALANCE_ASPECTS = ("성능 등급", "VRAM", "용량")
@@ -153,6 +153,37 @@ def _recommend_scores(conn, slot: str, rows: list[dict], conditions: dict, ref_b
     return {str(c["product_id"]): float(c["score"]) for c in rank.slots[slot]["pool"] if c.get("product_id")}
 
 
+VALUE_GRADE_ALLOWANCE = 1.0                 # 우선순위가 가성비일 때 CPU·GPU 후보의 성능 등급을 현재보다 이만큼까지 낮게 허용한다(결정 ④)
+_ALLOWANCE_SLOTS = ("CPU", "GPU")           # RAM·저장장치·파워는 용량을 줄이는 것이 위험해 허용하지 않는다
+SAVINGS_LIMIT = 3
+
+
+def _dedupe(rows: list[dict]) -> list[dict]:
+    """카탈로그에 같은 제품이 표기만 달리(괄호·공백) 두 번 들어 있는 경우 한 번만 보인다 — 이름을 공백·괄호 없이 견주고 가격이 같으면 같은 제품이다."""
+    seen: set[tuple[str, int | None]] = set()
+    out = []
+    for row in rows:
+        key = ("".join(ch for ch in row["name"].lower() if ch.isalnum()), row.get("price"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
+def _reference_budget(conditions: dict, slot: str, current_price: int | None, prices: list[int]) -> float:
+    """점수의 가격 축 기준(결정 ②): 총예산을 적었으면 새 컴퓨터 본체 추천과 같은 부품별 배분, 아니면 현재 부품 가격(모르면 후보 가격 중앙값)."""
+    total = conditions.get("budget_max")
+    if total:
+        from src.engine.stage2_requirement import load_computer_rules
+        requirements = load_computer_rules()["requirements"]
+        profile = (requirements.get("purpose_profiles") or {}).get(conditions.get("purpose") or "") or {}
+        allocation = profile.get("budget_allocation") or requirements.get("budget_allocation") or {}      # 용도별 배분, 없으면 기본(게임) 배분
+        if allocation.get(slot):
+            return float(total) * float(allocation[slot])
+    return float(current_price or (statistics.median(prices) if prices else 0))
+
+
 def _candidates(slot: str, owned: dict[str, dict], reasons: list[dict], review: dict, by_slot: dict[str, list[Candidate]],
                 slots: list[str], base_incompat: set[str], replace_budget: int | None, limit: int,
                 conn=None) -> tuple[list[dict], str | None]:
@@ -162,56 +193,107 @@ def _candidates(slot: str, owned: dict[str, dict], reasons: list[dict], review: 
     base_specs = dict(info.get("specs") or {})
     needed = [r for r in reasons if r["code"] in _REPLACE_REASONS]
     name, base_value = _measure(slot, base_specs)
-    if name and base_value is None:
-        return [], f"현재 부품의 {name}을 확인하지 못해 낮은 부품을 추천하지 않도록 후보를 보이지 않았어요. 먼저 정보를 확인해 주세요."
+    grade_unknown = bool(name) and base_value is None
     specs = (review.get("input") or {}).get("current_specs") or {}
     conditions = _conditions(review)
+    value_first = conditions.get("priority") == "value"
     current_price = info.get("catalog_price") if info.get("source") == "catalog" else None
 
-    full: list[dict] = []
-    partial: list[dict] = []
+    rows: list[dict] = []
     for cand in by_slot.get(slot, []):
         if info.get("source") == "catalog" and cand.name == info.get("name"):
             continue
         cand_specs = dict(cand.specs or {})
-        if _grade_state(slot, base_specs, cand_specs) != "same_or_better":
-            continue
+        state = _grade_state(slot, base_specs, cand_specs)
+        cautions: list[str] = []
+        cand_value = _measure(slot, cand_specs)[1]
+        if grade_unknown:
+            cautions.append("현재 부품의 성능을 몰라 비교하지 못했어요")        # 결정 ③: 숨기지 않고 안내를 붙인다
+        elif state == "unknown":
+            continue                                                  # 후보의 성능 값을 몰라 낮은지 확인할 수 없다
+        elif state == "worse":
+            gap = (base_value or 0) - (cand_value or 0)
+            if not (value_first and slot in _ALLOWANCE_SLOTS and gap <= VALUE_GRADE_ALLOWANCE):
+                continue                                              # 결정 ④: 가성비 우선일 때 CPU·GPU 만 등급 1 이내를 허용
+            cautions.append("성능이 낮아요")
         swapped = {**owned, slot: {"name": cand.name, "specs": cand_specs, "source": "catalog"}}
         result = qrs.compat_for_quote(specs, by_slot, slots, swapped)
         if [a for a in result["incompatible"] if a not in base_incompat]:
             continue                                                  # 이 후보 때문에 새로 비호환이 생긴다
-        cand_value = _measure(slot, cand_specs)[1]
         cost = _cost(cand, current_price)
         if replace_budget is not None and cost is not None and cost > replace_budget:
             continue
         resolved = [r for r in needed if _is_resolved(r, slot, swapped, result, conditions)]
-        row = {"product_id": cand.product_id, "product_key": cand.product_key, "name": cand.name, "price": cand.price,
-               "price_delta": cost if current_price is not None else None, "perf_tier": cand_specs.get("perf_tier"),
-               "grade_label": name or None,
-               "grade_change": (round(cand_value - base_value, 2) if cand_value is not None and base_value is not None else None),
-               "specs": _spec_rows(slot, base_specs, cand_specs), "resolves": [r["text"] for r in resolved],
-               "resolves_all": len(resolved) == len(needed), "_cost": cost if cost is not None else 10**12, "_cand": cand}
-        (full if row["resolves_all"] else partial if resolved else []).append(row)
-    pool = full or partial
-    # 순서는 새 컴퓨터 본체 추천과 같은 점수(우선순위·리뷰 반영)로 정한다. 참고 가격은 현재 부품 가격, 모르면 후보 가격의 중앙값이다.
-    prices = [row["price"] for row in pool if row["price"]]
-    ref_budget = float(current_price or (statistics.median(prices) if prices else 0))
-    scores = _recommend_scores(conn, slot, pool, conditions, ref_budget)
-    for row in pool:
+        if not resolved:
+            continue
+        rows.append({"product_id": cand.product_id, "product_key": cand.product_key, "name": cand.name, "price": cand.price,
+                     "price_delta": cost if current_price is not None else None, "perf_tier": cand_specs.get("perf_tier"),
+                     "grade_label": name or None,
+                     "grade_change": (round(cand_value - base_value, 2) if cand_value is not None and base_value is not None else None),
+                     "specs": _spec_rows(slot, base_specs, cand_specs), "resolves": [r["text"] for r in resolved],
+                     "resolves_all": len(resolved) == len(needed), "cautions": cautions,
+                     "_cost": cost if cost is not None else 10**12, "_cand": cand})
+    # 순서: 이유를 모두 푸는 후보 → 일부만 푸는 후보(결정 ⑥), 각 묶음 안에서는 새 컴퓨터 본체 추천과 같은 점수 순.
+    prices = [row["price"] for row in rows if row["price"]]
+    scores = _recommend_scores(conn, slot, rows, conditions, _reference_budget(conditions, slot, current_price, prices))
+    for row in rows:
         row["recommend_score"] = round(scores[str(row["product_id"])], 4) if scores and str(row["product_id"]) in scores else None
-    if scores:
-        pool.sort(key=lambda r: (-(r["recommend_score"] if r["recommend_score"] is not None else -1.0), r["_cost"], r["name"]))
-    else:
-        pool.sort(key=lambda r: (r["_cost"], r["name"]))
-    for row in pool:
+    rows.sort(key=lambda r: (not r["resolves_all"], -(r["recommend_score"] if r["recommend_score"] is not None else -1.0), r["_cost"], r["name"]))
+    for row in rows:
         row.pop("_cost", None)
         row.pop("_cand", None)
-    note = None
-    if not pool:
-        note = "조건에 맞는 대안이 카탈로그에 없어요." + (" (교체 예산 안에서는 없어요.)" if replace_budget is not None else "")
-    elif not full:
-        note = "이유를 모두 풀어 주는 후보는 없어서 일부만 풀어 주는 후보를 보여 드려요."
-    return pool[:limit], note
+    notes = []
+    if not rows:
+        notes.append("조건에 맞는 대안이 카탈로그에 없어요." + (" (교체 예산 안에서는 없어요.)" if replace_budget is not None else ""))
+    else:
+        if not any(r["resolves_all"] for r in rows):
+            notes.append("이유를 모두 풀어 주는 후보는 없어서 일부만 풀어 주는 후보를 보여 드려요.")
+        elif not all(r["resolves_all"] for r in rows):
+            notes.append("‘일부만 해결’ 표시가 붙은 후보는 짚은 이유 중 일부만 풀어 줘요.")
+    if grade_unknown:
+        notes.append(f"현재 부품의 {name}을 확인하지 못해 낮은 부품이 섞일 수 있어요. 먼저 정보를 확인하면 더 정확해져요.")
+    rows = _dedupe(rows)
+    return rows[:limit], " ".join(notes) or None
+
+
+def _saving_candidates(slot: str, owned: dict[str, dict], review: dict, by_slot: dict[str, list[Candidate]], slots: list[str],
+                       base_incompat: set[str]) -> tuple[list[dict], str | None]:
+    """과한 부품의 절감 후보(결정 ⑪) — 우선순위가 가성비이고 균형 점검이 "기준보다 높음"으로 본 부품에만, 선택 사항으로 보인다.
+    조건: 현재보다 저렴, 새 확정 비호환 없음, 용도 기준(균형 부족·게임 요구)이 새로 깨지지 않음."""
+    from src.services.quote_alternatives import _spec_rows
+
+    info = owned[slot]
+    current_price = info.get("catalog_price") if info.get("source") == "catalog" else None
+    if current_price is None:
+        return [], "현재 부품의 가격을 몰라 절감 후보를 계산하지 못했어요."
+    base_specs = dict(info.get("specs") or {})
+    name, base_value = _measure(slot, base_specs)
+    specs = (review.get("input") or {}).get("current_specs") or {}
+    conditions = _conditions(review)
+    short_before = {(r["part"], r["aspect"]) for r in (quote_balance.assess(conditions, owned, {}).get("rows") or []) if r["state"] == "short"}
+    unmet_before = {(r["game"], r["key"]) for r in _game_rows(conditions, owned) if r["state"] == "unmet"}
+    out: list[dict] = []
+    for cand in by_slot.get(slot, []):
+        if cand.price is None or cand.price >= current_price or (info.get("source") == "catalog" and cand.name == info.get("name")):
+            continue
+        cand_specs = dict(cand.specs or {})
+        swapped = {**owned, slot: {"name": cand.name, "specs": cand_specs, "source": "catalog"}}
+        if [a for a in qrs.compat_for_quote(specs, by_slot, slots, swapped)["incompatible"] if a not in base_incompat]:
+            continue
+        short_after = {(r["part"], r["aspect"]) for r in (quote_balance.assess(conditions, swapped, {}).get("rows") or []) if r["state"] == "short"}
+        unmet_after = {(r["game"], r["key"]) for r in _game_rows(conditions, swapped) if r["state"] == "unmet"}
+        if short_after - short_before or unmet_after - unmet_before:
+            continue                                                  # 절감하다 용도 기준이 새로 깨진다
+        cand_value = _measure(slot, cand_specs)[1]
+        out.append({"product_id": cand.product_id, "product_key": cand.product_key, "name": cand.name, "price": cand.price,
+                    "price_delta": cand.price - current_price, "perf_tier": cand_specs.get("perf_tier"), "grade_label": name or None,
+                    "grade_change": (round(cand_value - base_value, 2) if cand_value is not None and base_value is not None else None),
+                    "specs": _spec_rows(slot, base_specs, cand_specs), "resolves": [], "resolves_all": True,
+                    "cautions": ["성능이 낮아져요"] if cand_value is not None and base_value is not None and cand_value < base_value else [],
+                    "recommend_score": None})
+    out.sort(key=lambda r: (r["price_delta"], r["name"]))                  # 가장 많이 아끼는 후보부터
+    note = None if out else "용도 기준을 지키면서 더 저렴한 대안이 카탈로그에 없어요."
+    return _dedupe(out)[:SAVINGS_LIMIT], note
 
 
 def build_targets(review: dict, by_slot: dict[str, list[Candidate]], *, conn=None, limit: int = DEFAULT_LIMIT) -> dict:
@@ -235,12 +317,16 @@ def build_targets(review: dict, by_slot: dict[str, list[Candidate]], *, conn=Non
         replace = [r for r in why if r["code"] in _REPLACE_REASONS]
         kind = "replace" if replace else "verify" if any(r["code"] == "unknown_info" for r in why) else "keep"
         candidates, note = ([], None)
+        savings, savings_note = [], None
+        if kind == "keep" and conditions.get("priority") == "value" and any(r["code"] == "excess" for r in why):
+            savings, savings_note = _saving_candidates(slot, owned, review, by_slot, slots, base_incompat)
         if kind == "replace":
             candidates, note = _candidates(slot, owned, why, review, by_slot, slots, base_incompat, replace_budget, limit, conn=conn)
         targets.append({
             "slot": slot, "current_name": info.get("name"), "current_confirmed": info.get("source") == "catalog", "kind": kind,
             "reasons": [{k: v for k, v in r.items() if k in ("code", "text")} for r in why if r["code"] != "excess" or kind == "keep"],
             "priority": min((_PRIORITY[r["code"]] for r in replace), default=None), "candidates": candidates, "note": note,
+            "savings": savings, "savings_note": savings_note,
         })
     order = {"replace": 0, "verify": 1, "keep": 2}
     slot_index = {s: i for i, s in enumerate(slots)}

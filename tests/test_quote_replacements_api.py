@@ -136,9 +136,13 @@ def test_candidates_are_ordered_by_the_recommendation_score(client, monkeypatch,
     draft = _draft(client, monkeypatch, catalog, _weakest_gpu(catalog))
     _analyze(client, draft)
     target = next(t for t in client.get(f"/pc/review-drafts/{draft['draft_id']}/replacement-targets").json()["targets"] if t["slot"] == "GPU")
-    scores = [c["recommend_score"] for c in target["candidates"]]
-    assert len(scores) >= 2 and all(s is not None and 0 <= s <= 1 for s in scores), target["candidates"]
-    assert scores == sorted(scores, reverse=True)
+    cands = target["candidates"]
+    assert len(cands) >= 2 and all(c["recommend_score"] is not None and 0 <= c["recommend_score"] <= 1 for c in cands), cands
+    full = [c["recommend_score"] for c in cands if c["resolves_all"]]
+    partial = [c["recommend_score"] for c in cands if not c["resolves_all"]]
+    assert full == sorted(full, reverse=True) and partial == sorted(partial, reverse=True)       # 묶음 안에서는 점수 순
+    assert [c["resolves_all"] for c in cands] == sorted((c["resolves_all"] for c in cands), reverse=True)   # 모두 푸는 후보가 먼저(결정 ⑥)
+    assert len(cands) <= 6
 
 
 def test_the_priority_changes_the_order_it_does_not_just_sort_by_price(client, monkeypatch, catalog):

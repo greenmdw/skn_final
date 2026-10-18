@@ -1396,6 +1396,7 @@ class QuoteConfirmIn(BaseModel):
     planned_purchase_at: Optional[str] = None
     target_amount: Optional[int] = Field(default=None, ge=0)
     memo: str = Field(default="", max_length=1000)
+    over_budget_ack: bool = False        # 교체 예산을 넘은 채로 확정하겠다는 확인(넘었는데 false 면 409 over_budget_unconfirmed)
 
 
 class ConfirmIn(BaseModel):
@@ -1662,6 +1663,7 @@ class ReplacementCandidateOut(BaseModel):
     resolves: list[str] = Field(default_factory=list)    # 이 후보가 풀어 주는 이유 문장
     resolves_all: bool = True                            # false 면 일부만 풀어 준다
     recommend_score: float | None = None                 # 새 컴퓨터 본체 추천과 같은 점수(0~1). 점수를 못 매겼으면 null(가격순)
+    cautions: list[str] = Field(default_factory=list)    # 후보 카드에 붙일 주의("성능이 낮아요", "현재 부품의 성능을 몰라 비교하지 못했어요")
 
 
 class ReplacementTargetOut(BaseModel):
@@ -1674,6 +1676,8 @@ class ReplacementTargetOut(BaseModel):
     reasons: list[ReplacementReasonOut] = Field(default_factory=list)
     candidates: list[ReplacementCandidateOut] = Field(default_factory=list)
     note: str | None = None
+    savings: list[ReplacementCandidateOut] = Field(default_factory=list)   # 과한 부품의 절감 후보(가성비 우선일 때만, 선택 사항)
+    savings_note: str | None = None
 
 
 class ReplacementTargetsOut(BaseModel):

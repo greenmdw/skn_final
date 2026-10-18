@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { api, errorMessage, type QuoteCapabilities, type QuoteConditions } from '../../api'
 import { checkV2 } from '../../api/checkV2'
 import QuoteUploader, { type UploadFile } from '../../components/check/QuoteUploader'
@@ -13,6 +13,8 @@ const DEFAULT_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 /** ① 올리기 — 사진·텍스트, 조건, 질문만 둔다. 채팅과 사진 관계 질문은 없다(관계는 읽은 뒤 ② 에서 알려 준다). */
 export default function UploadPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const [search] = useSearchParams()
   const { showToast } = useToast()
   const [capabilities, setCapabilities] = useState<QuoteCapabilities | null>(null)
   const [tab, setTab] = useState<'image' | 'text'>('image')
@@ -34,6 +36,14 @@ export default function UploadPage() {
     return () => { alive = false }
   }, [])
   useEffect(() => () => { filesRef.current.forEach(entry => URL.revokeObjectURL(entry.url)) }, [])
+  // 마이페이지의 "받은 견적 점검에 적용"으로 들어오면 텍스트 견적 탭에 내 현재 PC 구성을 미리 채운다(한 번만).
+  useEffect(() => {
+    const preset = location.state as { tab?: unknown; text?: unknown } | null
+    if (preset?.tab !== 'text' || typeof preset.text !== 'string' || !preset.text) return
+    setTab('text')
+    setText(current => (current.trim() ? current : preset.text as string))
+    navigate(location.pathname, { replace: true, state: null })
+  }, [location, navigate])
 
   function addFiles(incoming: File[]) {
     const images = incoming.filter(file => file.type.startsWith('image/'))
@@ -100,6 +110,9 @@ export default function UploadPage() {
       setError(errorMessage(caught, '견적을 인식하지 못했습니다.'))
     } finally { setBusy(false) }
   }
+
+  const legacyDraft = search.get('draft')           // 예전 주소(/check?draft=…)로 들어와도 지난 점검을 연다
+  if (legacyDraft) return <Navigate to={`/check/${legacyDraft}`} replace />
 
   return (
     <CheckLayout current="upload" reachable={[]} chat={false}>

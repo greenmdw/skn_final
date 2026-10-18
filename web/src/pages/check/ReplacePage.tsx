@@ -9,18 +9,19 @@ const WARNING_TEXT: Record<string, string> = {
   grade_lower: '현재 부품보다 성능이 낮아요', new_incompatible: '새 호환 문제가 생겨요', over_budget: '교체 예산을 넘어요',
 }
 
-function CandidateRow({ cand, picked, busy, onPick }: { cand: Candidate; picked: boolean; busy: boolean; onPick: () => void }) {
+function CandidateRow({ cand, picked, busy, onPick, saving = false }: { cand: Candidate; picked: boolean; busy: boolean; onPick: () => void; saving?: boolean }) {
   return (
     <li className="c2-cand">
       <div>
         <strong>{cand.name}</strong>
         <div className="c2-sub">
           {cand.price != null ? wonText(cand.price) : '가격 정보 없음'}
-          {cand.price_delta != null && ` (${signedWon(cand.price_delta)})`}
+          {cand.price_delta != null && (saving ? ` (${wonText(-cand.price_delta)} 절약)` : ` (${signedWon(cand.price_delta)})`)}
           {cand.grade_label && cand.grade_change != null && ` · ${cand.grade_label} ${cand.grade_change > 0 ? '+' : ''}${cand.grade_change}`}
         </div>
         {cand.resolves.map(text => <div key={text} className="c2-sub">✓ {text}</div>)}
-        {!cand.resolves_all && <div className="c2-sub">일부 문제만 풀어 줘요.</div>}
+        {!cand.resolves_all && <div className="c2-sub"><span className="c2-chip warn">일부만 해결</span> 짚은 이유 중 일부만 풀어 줘요.</div>}
+        {cand.cautions.map(text => <div key={text}><span className="c2-chip warn">{text}</span></div>)}
       </div>
       <button type="button" className={`c2-btn${picked ? '' : ' primary'}`} disabled={busy || picked || !cand.product_id} onClick={onPick}>{picked ? '담았어요' : '교체 목록에 담기'}</button>
     </li>
@@ -37,6 +38,7 @@ export default function ReplacePage() {
   const [state, setState] = useState<ReplacementState | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({})        // "더 보기"를 누른 부품(처음에는 3개만 보인다)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -86,10 +88,29 @@ export default function ReplacePage() {
           {target.kind === 'verify' && <Link className="c2-btn" to={`${CHECK2}/${id}/parts`}>인식 확인으로 돌아가기</Link>}
           {target.kind === 'replace' && (target.candidates.length === 0
             ? <p className="c2-note">조건에 맞는 후보가 없어요.</p>
-            : <ul className="c2-cands">{target.candidates.map(cand => (
-              <CandidateRow key={cand.product_id ?? cand.name} cand={cand} busy={busy} picked={picked.get(target.slot) === cand.product_id}
-                onPick={() => cand.product_id && void change(version => checkV2.putReplacement(id!, version, target.slot, cand.product_id!))} />
-            ))}</ul>)}
+            : <>
+              <ul className="c2-cands">{(expanded[target.slot] ? target.candidates : target.candidates.slice(0, 3)).map(cand => (
+                <CandidateRow key={cand.product_id ?? cand.name} cand={cand} busy={busy} picked={picked.get(target.slot) === cand.product_id}
+                  onPick={() => cand.product_id && void change(version => checkV2.putReplacement(id!, version, target.slot, cand.product_id!))} />
+              ))}</ul>
+              {target.candidates.length > 3 && (
+                <button type="button" className="c2-link" onClick={() => setExpanded(prev => ({ ...prev, [target.slot]: !prev[target.slot] }))}>
+                  {expanded[target.slot] ? '접기' : `더 보기 (${target.candidates.length - 3}개)`}
+                </button>
+              )}
+            </>)}
+          {target.kind === 'keep' && (target.savings.length > 0 || target.savings_note) && (
+            <details>
+              <summary className="c2-sub">아껴도 돼요 (선택)</summary>
+              <p className="c2-sub">기준보다 높은 부품이라, 용도 기준은 지키면서 더 저렴한 대안을 보여 드려요. 바꾸지 않아도 문제없어요.</p>
+              {target.savings.length === 0 ? <p className="c2-note">{target.savings_note}</p> : (
+                <ul className="c2-cands">{target.savings.map(cand => (
+                  <CandidateRow key={cand.product_id ?? cand.name} cand={cand} busy={busy} saving picked={picked.get(target.slot) === cand.product_id}
+                    onPick={() => cand.product_id && void change(version => checkV2.putReplacement(id!, version, target.slot, cand.product_id!))} />
+                ))}</ul>
+              )}
+            </details>
+          )}
           {picked.has(target.slot) && (
             <button type="button" className="c2-link" disabled={busy} onClick={() => void change(version => checkV2.removeReplacement(id!, version, target.slot))}>되돌리기</button>
           )}
@@ -116,7 +137,7 @@ export default function ReplacePage() {
           </p>
           <p className="c2-sub">
             가격 차이 합계: {state.price.unpriced_slots.length > 0 ? `확인된 부품 기준 ${signedWon(state.price.delta_total)} (가격 정보 없는 ${state.price.unpriced_slots.join('·')} 제외)` : signedWon(state.price.delta_total)}
-            {state.price.over_budget && ' · 교체 예산을 넘었어요(확정은 할 수 있어요)'}
+            {state.price.over_budget && ' · 교체 예산을 넘었어요(확정할 때 한 번 더 확인해요)'}
           </p>
         </section>
       )}

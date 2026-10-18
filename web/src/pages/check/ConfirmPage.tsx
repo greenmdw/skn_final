@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { errorMessage } from '../../api'
+import { ApiError, errorMessage } from '../../api'
 import { checkV2, type ReplacementState } from '../../api/checkV2'
 import { useSetups } from '../../state/SetupsContext'
 import { signedWon } from '../../utils/checkReview'
@@ -14,7 +14,7 @@ export default function ConfirmPage() {
   const { draft, reload } = useDraft(id)
   const { reload: reloadSetups } = useSetups()
   const [state, setState] = useState<ReplacementState | null>(null)
-  const [name, setName] = useState('받은 견적 점검')
+  const [name, setName] = useState(() => { const now = new Date(); return `받은 견적 점검 (${now.getMonth() + 1}/${now.getDate()})` })      // 날짜를 붙여 여러 번 확정해도 구분되게
   const [plannedAt, setPlannedAt] = useState('')
   const [target, setTarget] = useState('')
   const [memo, setMemo] = useState('')
@@ -27,15 +27,28 @@ export default function ConfirmPage() {
     checkV2.replacements(id).then(setState).catch(caught => setError(errorMessage(caught, '교체 목록을 불러오지 못했습니다.')))
   }, [id])
 
+  // 교체하지 않고 견적 그대로 두는 부품 중 카탈로그 제품으로 확인되지 않은 것 — 확정 전에 알린다
+  const replacedSlots = new Set((state?.replacements ?? []).map(row => row.slot))
+  const unconfirmedKept = (draft?.items ?? []).filter(item => item.selected_for_analysis && item.match_status !== 'confirmed' && !replacedSlots.has(item.category)).length
+
   async function submit(event: FormEvent) {
     event.preventDefault()
     if (!id || !draft || !name.trim()) return
+    if (unconfirmedKept > 0 && !window.confirm(`확인하지 못한 부품 ${unconfirmedKept}개가 있어요. 그 부품은 견적에 적힌 대로만 저장돼요. 그대로 확정할까요?`)) return
     setBusy(true); setError(''); setNeedLogin(false)
     try {
-      const report = await checkV2.confirm(id, {
+      const body = {
         expected_version: draft.version, name: name.trim(), memo,
         planned_purchase_at: plannedAt || null, target_amount: target ? Math.round(Number(target) * 10_000) : null,
-      })
+      }
+      let report
+      try {
+        report = await checkV2.confirm(id, body)
+      } catch (caught) {
+        // 교체 예산을 넘은 채로 확정하려면 한 번 더 확인받는다(담을 때는 경고만 했다)
+        if (!(caught instanceof ApiError && caught.code === 'over_budget_unconfirmed') || !window.confirm('교체 목록이 교체 예산을 넘었어요. 그래도 확정할까요?')) throw caught
+        report = await checkV2.confirm(id, { ...body, over_budget_ack: true })
+      }
       reloadSetups()   // 저장 목록에 새 견적서를 넣어야 리포트 화면이 찾는다
       navigate(`/report/${report.list_id}`,{ state: { plannerMode: 'check' } })
     } catch (caught) {
@@ -52,6 +65,7 @@ export default function ConfirmPage() {
       {error && <p className="c2-error" role="alert">{error}</p>}
       {needLogin && <p className="c2-error" role="alert">확정하려면 로그인이 필요해요. 로그인한 뒤 이 화면에서 다시 눌러 주세요.</p>}
       {draft?.analysis_stale && <section className="c2-card warn" role="status">조건이 바뀌어 분석이 오래됐어요. <Link to={`${CHECK2}/${id}/review`}>다시 분석</Link>한 뒤 확정해 주세요.</section>}
+      {unconfirmedKept > 0 && <section className="c2-card warn" role="status">확인하지 못한 부품 {unconfirmedKept}개는 견적에 적힌 대로만 저장돼요. 확정 전에 <Link to={`${CHECK2}/${id}/parts`}>인식 확인</Link>에서 정보를 찾을 수 있어요.</section>}
       <section className="c2-card">
         <h2>교체 {state?.replacements.length ?? 0}개</h2>
         {state && state.replacements.length > 0 ? (

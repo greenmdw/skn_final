@@ -81,6 +81,8 @@ export default function ReportPage() {
   // 받은 견적으로 만든 리포트는 유지한 부품도 합계에 들어가므로 서버가 계산한 합계를 쓴다(가격을 모르는 부품은 서버가 뺀다).
   const quoteReport = quoteExtra?.source === 'quote_check'
   const total = quoteReport ? quoteExtra.total : planTotal(setup.plan) + peripheralsTotal(setup.peripherals)
+  // 받은 견적 리포트의 목표 금액은 사용자가 입력한 값만 보인다(비웠으면 합계로 채우지 않는다)
+  const targetText = quoteReport ? (quoteExtra.target_amount != null ? `목표 금액 ${wonFmt(quoteExtra.target_amount)}` : '') : `목표 금액 ${wonFmt(setup.target)}`
   const confirmed = setup.savedAt ? confirmedAtText(setup.savedAt) : ''
   return (
     <PlannerShell>
@@ -108,12 +110,12 @@ export default function ReportPage() {
               <div className="pl-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>TRUEFIT 견적 리포트</div>
               <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em' }}>{setup.title}</div>
               <div className="pl-note">
-                {[confirmed && `${confirmed} 확정`, setup.date && `구매 예정 ${isoToKo(setup.date)}`, `목표 금액 ${wonFmt(setup.target)}`].filter(Boolean).join(' · ')}
+                {[confirmed && `${confirmed} 확정`, setup.date && `구매 예정 ${isoToKo(setup.date)}`, targetText].filter(Boolean).join(' · ')}
               </div>
               {setup.memo && <div style={{ fontSize: 13, lineHeight: 1.6 }}>메모 · {setup.memo}</div>}
             </div>
             <div style={{ textAlign: 'right' }}>
-              <div className="pl-note">합계</div>
+              <div className="pl-note">합계{quoteReport && quoteExtra.quote_check?.total_partial ? ' (일부 가격 제외)' : ''}</div>
               <div className="pl-mono" style={{ fontSize: 26, fontWeight: 600 }}>{wonFmt(total)}</div>
             </div>
           </div>

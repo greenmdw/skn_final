@@ -161,3 +161,51 @@ def test_chat_reanalyze_and_a_stranger_cannot_act(client, monkeypatch, catalog):
         r = stranger.post(f"/pc/reviews/{draft['draft_id']}/messages", json={"text": "교체 예산 10만원으로 해줘"})
         assert r.status_code == 404
     assert client.get(base).json()["conditions"].get("replace_budget") is None
+
+
+@pytest.mark.db
+@pytest.mark.skipif(not DSN, reason="일회용 DB 필요")
+def test_chat_asks_before_a_paid_lookup_and_searches_only_after_consent(client, monkeypatch, catalog):
+    from src.agent.conditions_agent import SEARCH_PERMISSION_MARKER
+    from src.services import live_spec_lookup
+    from src.services.live_spec_lookup import LiveSpecLookupResult
+
+    gpu = _weakest_gpu(catalog)
+    monkeypatch.setattr(spec_extraction_agent, "available", lambda: True)
+    monkeypatch.setattr(spec_extraction_agent, "extract_items_from_image",
+                        lambda _url: [{"category": "GPU", "raw_text": gpu.name}, {"category": "CPU", "raw_text": "정체불명 프로세서 ZX-1"}])
+    draft = client.post("/pc/review-drafts", files=[("images", ("q.png", PNG, "image/png"))]).json()
+    calls: list[str] = []
+    monkeypatch.setattr(live_spec_lookup, "available", lambda: True)
+    monkeypatch.setattr(live_spec_lookup, "lookup", lambda conn, text, **kw: calls.append(text) or LiveSpecLookupResult.model_validate(
+        {"relevant": True, "supported_fields": {"socket": "AM5"}, "source_url": "https://example.com/zx"}))
+    asked = _say(client, draft, "CPU 정보 찾아줘")
+    assert SEARCH_PERMISSION_MARKER in asked["reply"] and asked["action"] is None and calls == []          # 묻기만 하고 검색하지 않는다
+    done = _say(client, draft, "네")
+    assert calls == ["정체불명 프로세서 ZX-1"] and "socket=AM5" in done["reply"]
+    again = _say(client, draft, "네")                                                                    # 한 번 동의로 두 번 검색하지 않는다
+    assert calls == ["정체불명 프로세서 ZX-1"] and "socket=AM5" not in again["reply"]
+
+
+@pytest.mark.db
+@pytest.mark.skipif(not DSN, reason="일회용 DB 필요")
+def test_over_budget_replacements_need_one_more_confirmation_to_confirm(monkeypatch, catalog):
+    client = TestClient(app)
+    signup = client.post("/auth/signup", json={"email": f"ob-{__import__('uuid').uuid4().hex[:10]}@example.test", "password": "abcd1234", "display_name": "초과",
+                                                "terms_agreed": True, "privacy_agreed": True, "marketing_agreed": False})
+    assert signup.status_code == 201, signup.text
+    draft = _draft(client, monkeypatch, catalog)
+    base = f"/pc/review-drafts/{draft['draft_id']}"
+    patched = client.patch(f"{base}/conditions", json={"expected_version": draft["version"], "conditions": {"replace_budget": 1000}})
+    assert patched.status_code == 200, patched.text
+    assert client.post(f"{base}/analysis").status_code == 200
+    weakest = _weakest_gpu(catalog)
+    pricier = next(c for c in catalog["GPU"] if c.product_id and c.price and c.price > weakest.price and c.specs.get("perf_tier", 0) >= weakest.specs["perf_tier"])
+    version = client.get(f"{base}/replacements").json()["draft_version"]
+    put = client.put(f"{base}/replacements/GPU", json={"expected_version": version, "candidate_product_id": pricier.product_id})
+    assert put.status_code == 200 and put.json()["price"]["over_budget"] is True, put.text            # 사용자가 직접 고른 제품은 예산을 넘을 수 있다 — 담을 때 경고
+    version = client.get(base).json()["version"]
+    blocked = client.post(f"{base}/confirm", json={"expected_version": version, "name": "초과"})
+    assert blocked.status_code == 409 and blocked.json()["error"]["code"] == "over_budget_unconfirmed"
+    ok = client.post(f"{base}/confirm", json={"expected_version": version, "name": "초과", "over_budget_ack": True})
+    assert ok.status_code == 200, ok.text

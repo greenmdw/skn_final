@@ -37,7 +37,7 @@ def _freeze_summary(state: dict, kept_unpriced: list[str], total_partial: bool) 
 
 
 def confirm(conn, list_id: UUID, principal: Principal, *, expected_version: int, name: str,
-            planned_purchase_at: str | None, target_amount: int | None, memo: str) -> dict:
+            planned_purchase_at: str | None, target_amount: int | None, memo: str, over_budget_ack: bool = False) -> dict:
     user_id = list_service._require_login(conn, principal)
     repo = PlanRepo(conn)
     revision = _owned(repo, list_id, principal)
@@ -69,6 +69,8 @@ def confirm(conn, list_id: UUID, principal: Principal, *, expected_version: int,
     if not chosen:
         raise ValidationFailed("확정할 부품이 없습니다.", code="no_items_selected")
     state = quote_replacement_plan.build_state(review, replacements, by_slot)
+    if state["price"]["over_budget"] and not over_budget_ack:       # 결정 ⑩: 담을 때 경고하고, 확정할 때 한 번 더 확인한다
+        raise Conflict("교체 목록이 교체 예산을 넘었어요. 그대로 확정할지 확인해 주세요.", code="over_budget_unconfirmed")
 
     # 교체 부품은 판매 정보가 있어야 purchase_line 으로 얼린다 — 가격 관측이 없으면 확정하지 않는다(0원으로 얼리지 않는다).
     frozen_replacements = []
@@ -121,3 +123,55 @@ def confirm(conn, list_id: UUID, principal: Principal, *, expected_version: int,
         repo.add_kept_part_line(revision["id"], item["category"], item["raw_text"], UUID(variant_id) if variant_id else None,
                                 amount, snapshot, pack_count=quantity)
     return list_service.get_report(conn, list_id, principal)
+
+
+def restart_from_report(conn, list_id: UUID, principal: Principal, revision_no: int | None = None) -> tuple[str, dict]:
+    """확정한 받은 견적 리포트의 구성(교체한 부품은 바꾼 제품, 유지한 부품은 견적 그대로)으로 새 점검 초안을 만든다(결정 3-6).
+    새 세션이라 원래 리포트는 그대로이고, 새 초안은 ②부터 다시 진행한다. (새 목록 id, 초안)."""
+    from src.engine.quote_items import default_selection
+    from src.services import quote_review_service, session_service
+    from src.errors import ValidationFailed
+
+    list_service._require_login(conn, principal)
+    revision = list_service.confirmed_revision(conn, list_id, principal, revision_no)
+    repo = PlanRepo(conn)
+    if repo.active_condition(revision["id"], QUOTE_CONFIRM_KEY) is None:
+        raise ValidationFailed("받은 견적으로 만든 견적서가 아니에요.", code="not_quote_report")
+    old = repo.active_condition(revision["id"], qds.QUOTE_DRAFT_KEY)
+    conditions = ((old or {}).get("value") or {}).get("value", {}).get("conditions") or {}
+
+    by_slot = qds.load_pc_catalog(lambda _msg: None)
+    source_id = "source-restart"
+    lines: list[tuple[str, str, int, int | None]] = []                       # (부품군, 이름, 수량, 줄 금액)
+    for line in repo.list_purchase_lines(revision["id"]):
+        snap = line["snapshot"] or {}
+        lines.append((snap.get("slot"), (snap.get("product") or {}).get("name") or "", int(line["pack_count"]), int(line["line_amount"])))
+    for line in repo.list_kept_part_lines(revision["id"]):
+        snap = line["snapshot"] or {}
+        name = snap.get("matched_name") or snap.get("display_name") or line["source_text"]
+        lines.append((line["slot"], name, int(line["pack_count"]), int(line["line_amount"]) if line["line_amount"] is not None else None))
+    items = []
+    for slot, name, quantity, amount in lines:
+        if slot not in qds._SLOTS or not name:
+            continue
+        item = qds._make_item(slot, name, source_id, by_slot)
+        item["quantity"], item["quote_line_total"], item["user_edited"] = max(quantity, 1), amount, True
+        item["quote_unit_price"] = round(amount / item["quantity"]) if amount else None
+        item["quote_price_type"] = "unknown" if not amount else "unit" if item["quantity"] == 1 else "line_total"
+        items.append(item)
+    if not items:
+        raise ValidationFailed("다시 시작할 부품이 없어요.", code="no_items_selected")
+    qds._attach_image_urls(conn, items)
+    draft = {
+        "schema": qds.SCHEMA_VERSION, "version": 1,
+        "sources": [{"id": source_id, "type": "manual", "file_name": None, "sort_order": 1, "status": "completed", "error_code": None}],
+        "items": items, "selected_item_by_category": default_selection(items),
+        "conditions": quote_review_service.normalise_conditions(conditions), "question": None,
+        "partial_success": False, "created_at": qds._now(),
+    }
+    qds._apply_selection(draft)
+    session = session_service.create_session(conn, principal)
+    new_id = UUID(session["list_id"])
+    repo.rename(new_id, quote_review_service.REVIEW_LIST_NAME)
+    qds._save(repo, repo.get_current_revision(new_id)["id"], draft)
+    return str(new_id), draft

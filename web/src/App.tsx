@@ -13,6 +13,7 @@ import ReportPage from './pages/ReportPage'
 import CheckPage from './pages/CheckPage'
 import ComparePage from './pages/check/ComparePage'
 import ConfirmPage from './pages/check/ConfirmPage'
+import ResumePage from './pages/check/ResumePage'
 import PartsPage from './pages/check/PartsPage'
 import ReplacePage from './pages/check/ReplacePage'
 import ReviewPage from './pages/check/ReviewPage'
@@ -27,6 +28,11 @@ import './styles/theme.css'
 function CheckRoute() {
   const location = useLocation()
   return <CheckPage key={location.state?.newConversationKey ?? 'check'} />
+}
+
+function UploadRoute() {
+  const location = useLocation()
+  return <UploadPage key={location.state?.newConversationKey ?? 'check'} />
 }
 
 function PeripheralsRoute() {
@@ -49,14 +55,15 @@ export default function App() {
             <Route path="/plan" element={<PlanPage />} />
             <Route path="/cart" element={<CartPage />} />
             <Route path="/report/:id" element={<ReportPage />} />
-            <Route path="/check" element={<CheckRoute />} />
-            {/* 재기획 새 화면 — 안정되면 /check 로 교체한다(재기획 8단계) */}
-            <Route path="/check2" element={<UploadPage />} />
-            <Route path="/check2/:id/parts" element={<PartsPage />} />
-            <Route path="/check2/:id/review" element={<ReviewPage />} />
-            <Route path="/check2/:id/replace" element={<ReplacePage />} />
-            <Route path="/check2/:id/confirm" element={<ConfirmPage />} />
-            <Route path="/check2/:id/compare" element={<ComparePage />} />
+            {/* 재기획 새 화면이 /check 를 쓴다. 구 화면은 새 화면이 안정될 때까지 /check-legacy 에 남겨 둔다(재기획 8단계) */}
+            <Route path="/check" element={<UploadRoute />} />
+            <Route path="/check/:id" element={<ResumePage />} />
+            <Route path="/check/:id/parts" element={<PartsPage />} />
+            <Route path="/check/:id/review" element={<ReviewPage />} />
+            <Route path="/check/:id/replace" element={<ReplacePage />} />
+            <Route path="/check/:id/confirm" element={<ConfirmPage />} />
+            <Route path="/check/:id/compare" element={<ComparePage />} />
+            <Route path="/check-legacy" element={<CheckRoute />} />
             <Route path="/peripherals" element={<PeripheralsRoute />} />
             <Route path="/mypage" element={<MyPage />} />
             <Route path="/community" element={<CommunityPage />} />

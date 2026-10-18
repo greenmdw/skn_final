@@ -118,3 +118,76 @@ def test_a_replacement_over_the_replace_budget_is_warned_and_an_empty_list_chang
     assert state["price"]["over_budget"] is True and "over_budget" in state["replacements"][0]["warnings"]
     empty = rp.build_state(review, {}, by_slot)
     assert empty["replacements"] == [] and empty["compat"]["before"] == empty["compat"]["after"] and empty["price"]["delta_total"] == 0
+
+
+# ── 결정 ③④⑥⑪ ────────────────────────────────────────────────────────────────
+def _socket_pool(current_tier=7):
+    return {
+        "CPU": [_cand("CPU", "Intel Core i5-14600K", 237_000, socket="LGA1700", perf_tier=current_tier),
+                _cand("CPU", "AMD Ryzen 7 7700", 300_000, socket="AM5", perf_tier=7), _cand("CPU", "AMD Ryzen 5 7600", 240_000, socket="AM5", perf_tier=6),
+                _cand("CPU", "AMD Ryzen 5 7500F", 190_000, socket="AM5", perf_tier=5)],
+        "메인보드": [_cand("메인보드", "ASUS TUF GAMING B650-PLUS WIFI", 155_000, socket="AM5")],
+    }
+
+
+def _socket_review(**conditions):
+    return {"input": {"current_specs": {"CPU": "Intel Core i5-14600K", "메인보드": "ASUS TUF GAMING B650-PLUS WIFI"}, "conditions": conditions}}
+
+
+def test_a_slightly_lower_cpu_is_offered_only_when_value_comes_first_and_within_one_grade():
+    plain = _by_slot(rp.build_targets(_socket_review(purpose="office"), _socket_pool()))["CPU"]
+    assert [c["name"] for c in plain["candidates"]] == ["AMD Ryzen 7 7700"]
+    value = _by_slot(rp.build_targets(_socket_review(purpose="office", priority="value"), _socket_pool()))["CPU"]
+    names = {c["name"]: c for c in value["candidates"]}
+    assert set(names) == {"AMD Ryzen 7 7700", "AMD Ryzen 5 7600"}                       # 등급 1 낮은 7600 은 허용, 2 낮은 7500F 는 아니다
+    assert names["AMD Ryzen 5 7600"]["cautions"] == ["성능이 낮아요"] and names["AMD Ryzen 7 7700"]["cautions"] == []
+
+
+def test_a_lower_ram_or_storage_is_never_offered_even_when_value_comes_first(by_slot):
+    out = rp.build_targets(_review(purpose="game", resolution="4K", priority="value"), by_slot)
+    for slot in ("RAM", "저장장치"):
+        for cand in _by_slot(out)[slot]["candidates"]:
+            assert "성능이 낮아요" not in cand["cautions"]
+
+
+def test_candidates_are_shown_with_a_notice_when_the_current_grade_is_unknown():
+    pool = _socket_pool()
+    pool["CPU"][0] = _cand("CPU", "Intel Core i5-14600K", 237_000, socket="LGA1700")             # 현재 부품의 성능 등급을 모른다
+    target = _by_slot(rp.build_targets(_socket_review(purpose="office"), pool))["CPU"]
+    assert target["candidates"], target                                                          # 숨기지 않는다
+    assert all("성능을 몰라 비교하지 못했어요" in c["cautions"][0] for c in target["candidates"])
+    assert "성능 등급을 확인하지 못해" in (target["note"] or "")
+
+
+def test_partial_candidates_come_after_full_ones_instead_of_being_hidden(by_slot):
+    out = rp.build_targets(_review(purpose="game", resolution="4K", games=["사이버펑크 2077"]), by_slot, limit=10)
+    flags = [c["resolves_all"] for t in out["targets"] for c in t["candidates"] if t["slot"] == "GPU"]
+    assert flags == sorted(flags, reverse=True)
+
+
+def test_savings_candidates_appear_only_for_value_priority_and_an_excess_part(by_slot):
+    base = {"GPU": "NVIDIA GeForce RTX 5090"}
+    off = rp.build_targets(_review(base, purpose="office"), by_slot)
+    assert all(t["savings"] == [] for t in off["targets"])                                      # 가성비가 아니면 나타나지 않는다
+    on = rp.build_targets(_review(base, purpose="office", priority="value"), by_slot)
+    gpu = _by_slot(on)["GPU"]
+    assert gpu["kind"] == "keep" and any(r["code"] == "excess" for r in gpu["reasons"]), gpu["reasons"]
+    assert gpu["savings"], gpu
+    current_price = next(c.price for c in by_slot["GPU"] if c.name == "NVIDIA GeForce RTX 5090")
+    assert all(s["price_delta"] < 0 and s["price"] < current_price for s in gpu["savings"])
+    assert [s["price_delta"] for s in gpu["savings"]] == sorted(s["price_delta"] for s in gpu["savings"])      # 가장 많이 아끼는 순
+    assert len(gpu["savings"]) <= 3
+
+
+def test_the_price_reference_uses_the_total_budget_share_only_when_a_total_budget_is_given():
+    assert rp._reference_budget({}, "GPU", 500_000, [400_000, 600_000]) == 500_000                     # 현재 부품 가격
+    assert rp._reference_budget({}, "GPU", None, [400_000, 600_000]) == 500_000                         # 모르면 후보 가격 중앙값
+    with_total = rp._reference_budget({"budget_max": 3_100_000, "purpose": "game"}, "GPU", 500_000, [])
+    assert with_total != 500_000 and 0 < with_total < 3_100_000                                          # 총예산 × 부품별 배분
+    assert rp._reference_budget({"budget_max": 3_100_000}, "GPU", 500_000, []) > 0                       # 용도가 없어도 기본 배분
+
+
+def test_the_same_product_listed_twice_in_the_catalog_is_shown_once():
+    rows = [{"name": "NVIDIA GeForce RTX 3050 (6GB)", "price": 308_800}, {"name": "NVIDIA GeForce RTX 3050 6GB", "price": 308_800},
+            {"name": "NVIDIA GeForce RTX 3050 6GB", "price": 320_000}]
+    assert [r["price"] for r in rp._dedupe(rows)] == [308_800, 320_000]                # 이름만 같고 가격이 다르면 다른 판매 항목이라 둘 다 보인다

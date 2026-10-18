@@ -7,6 +7,7 @@ import { useToast } from '../state/ToastContext'
 import { isCheckSession } from '../utils/checkSessions'
 import { peripheralConversationPath, peripheralConversationState } from '../utils/peripheralSession'
 import { askPermanent, useRemoveSheet } from '../state/useRemoveSheet'
+import { askDelete } from '../utils/deleteDialog'
 import { logout, useAuthUser } from '../state/authStore'
 import { compactWon, dateGroup, fullDate, shortDate } from '../utils/format'
 import ResizeHandle, { usePanelWidth } from './ResizeHandle'
@@ -149,7 +150,7 @@ export default function SidePanel() {
   const pressOrigin = useRef({ x: 0, y: 0 })
   const suppressClick = useRef(false)
   const viewingId = pathname.startsWith('/report/') ? pathname.slice('/report/'.length) : null
-  const currentDraftId = pathname.startsWith('/check') ? new URLSearchParams(search).get('draft') : null
+  const currentDraftId = pathname.startsWith('/check-legacy') ? new URLSearchParams(search).get('draft') : (pathname.match(/^\/check\/([^/]+)/)?.[1] ?? null)
   const inComputerFlow = ['/start', '/plan', '/cart', '/report/'].some(path => pathname === path || pathname.startsWith(path))
   // 다른 모드로 이동한 뒤에도 PlanProvider에는 직전 본체 세션이 남아 있을 수 있다. 현재 URL의 흐름에 속한 대화만 활성 표시한다.
   const activeConversationId = viewingId ?? currentDraftId ?? (inComputerFlow ? state.sessionId : null)
@@ -192,7 +193,7 @@ export default function SidePanel() {
   // 구성을 못 읽으면 리포트로 간다. 견적서를 누르면 리포트가 열린다(견적서 행).
   async function openHistory(item: ConversationSummary) {
     // 서버에 저장된 이름도 함께 확인하므로 다른 브라우저에서 만든 점검 대화도 올바른 주소로 연다.
-    if (isCheckSession(item.listId) || item.name === '받은 견적 점검') { navigate('/check?draft=' + item.listId); return }
+    if (isCheckSession(item.listId) || item.name === '받은 견적 점검') { navigate('/check/' + item.listId); return }
     if (item.chat === 'peripheral') { navigate(peripheralConversationPath(item.listId), peripheralConversationState(item.listId)); return }
     const confirmed = item.stage === 'report'
     const opened = await openConversation(item.listId, item.stage === 'results' || confirmed, confirmed)
@@ -300,8 +301,9 @@ export default function SidePanel() {
     setCtx(null)
     const title = conversationTitle(item) ?? '이 대화'
     const sheets = item.reports.length > 0 ? ` 저장한 견적서 ${item.reports.length}개도 함께 지워져요.` : ''
-    if (!window.confirm(`“${title}” 대화를 삭제할까요?${sheets}`)) return
-    const permanent = askPermanent()
+    const choice = await askDelete(`“${title}” 대화를 삭제할까요?`, sheets.trim())
+    if (!choice) return
+    const permanent = choice === 'permanent'
     // 저장한 견적 목록도 함께 갱신되게 setups 쪽 삭제를 쓴다(DELETE /lists/{id}, 이미 없으면 지운 것으로 본다).
     if (!await removeSetup(item.listId, permanent)) { showToast('삭제하지 못했습니다. 잠시 후 다시 시도해주세요.'); return }
     await refreshConversations()

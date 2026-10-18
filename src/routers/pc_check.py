@@ -245,7 +245,16 @@ def confirm_review_draft(draft_id: UUID, body: schemas.QuoteConfirmIn, principal
     with get_conn() as conn:
         return schemas.ReportOut(**quote_confirm_service.confirm(
             conn, draft_id, principal, expected_version=body.expected_version, name=body.name,
-            planned_purchase_at=body.planned_purchase_at, target_amount=body.target_amount, memo=body.memo))
+            planned_purchase_at=body.planned_purchase_at, target_amount=body.target_amount, memo=body.memo,
+            over_budget_ack=body.over_budget_ack))
+
+
+@router.post("/review-drafts/{draft_id}/restart", response_model=schemas.QuoteDraftOut, status_code=201)
+def restart_review_draft(draft_id: UUID, revision: int | None = Query(default=None), principal: Principal = Depends(optional_principal)) -> schemas.QuoteDraftOut:
+    """확정한 받은 견적 리포트의 구성으로 새 점검을 시작한다 — 새 세션(새 draft_id)이 만들어지고 원래 리포트는 그대로다. 로그인한 소유자만."""
+    with get_conn() as conn:
+        new_id, draft = quote_confirm_service.restart_from_report(conn, draft_id, principal, revision)
+    return _draft_response(new_id, draft)
 
 
 @router.post("/review-drafts/{draft_id}/items", response_model=schemas.QuoteDraftOut, status_code=201)

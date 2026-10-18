@@ -411,13 +411,20 @@ def chat(conn, list_id: UUID, principal: Principal, text: str, *, client_message
                 return _payload(answer["id"], answer["created_at"].isoformat(timespec="seconds"), answer["content"], answer["metadata"] or {})
 
     if not context:
-        # 말로 하는 동작(교체 담기·빼기, 조건 바꾸기, 제품 확정, 정보 찾기, 다시 분석) — 요청 말투일 때만. 분석 전에도 된다.
+        # 직전 답이 "외부 검색을 진행해도 될까요?"였고 이번이 동의이면 그 제품을 검색한다 — 분석 전에도 된다.
+        searched = _answer_search_consent(conn, conversations.messages(conversation_id), text)
+        if searched is not None:
+            reply, meta = searched
+            conversations.add_message(conversation_id, "user", text, client_message_id=client_message_id, metadata={})
+            message_id = conversations.add_message(conversation_id, "assistant", reply, metadata=meta)
+            return _payload(message_id, _now_iso(), reply, meta)
+        # 말로 하는 동작(교체 담기·빼기, 조건 바꾸기, 제품 확정, 정보 찾기 제안, 다시 분석) — 요청 말투일 때만. 분석 전에도 된다.
         from src.services import quote_chat_actions
         acted = quote_chat_actions.try_action(conn, list_id, principal, text)
         if acted is not None:
-            reply, action = acted
+            reply, action, extra = acted
             meta = {"answer_id": str(uuid.uuid4()), "evidence": ["채팅 동작"] if action else [], "guide_refs": [], "visuals": [],
-                    "via": "rules", "display_target": "chat", "action": action}
+                    "via": "rules", "display_target": "chat", "action": action, **extra}
             conversations.add_message(conversation_id, "user", text, client_message_id=client_message_id, metadata={})
             message_id = conversations.add_message(conversation_id, "assistant", reply, metadata=meta)
             return _payload(message_id, _now_iso(), reply, meta)

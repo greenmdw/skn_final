@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
-import { quoteReportExtra, type QuoteReportExtra } from '../../api/checkV2'
+import { Link, useNavigate } from 'react-router-dom'
+import { errorMessage } from '../../api'
+import { checkV2, quoteReportExtra, type QuoteReportExtra } from '../../api/checkV2'
 import { wonText } from '../../utils/checkReview'
 
 /** 받은 견적으로 만든 리포트인지·유지한 부품·서버가 계산한 합계를 읽는다. 다른 리포트면 source 가 recommendation 이다. */
@@ -18,7 +19,17 @@ export function useQuoteReportExtra(listId: string | undefined, revisionNo: numb
 
 /** 받은 견적 점검으로 만든 리포트의 "유지한 부품" — 견적에 적힌 그대로. 다른 리포트에서는 아무것도 그리지 않는다. */
 export default function QuoteReportSection({ extra, listId }: { extra: QuoteReportExtra | null; listId: string }) {
+  const navigate = useNavigate()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
   if (!extra || extra.source !== 'quote_check') return null
+  async function restart() {
+    setBusy(true); setError('')
+    try {
+      const fresh = await checkV2.restart(listId)
+      navigate(`/check/${fresh.draft_id}/parts`)
+    } catch (caught) { setError(errorMessage(caught, '새 점검을 시작하지 못했어요.')) } finally { setBusy(false) }
+  }
   return (
     <section>
       <div style={{ fontSize: 13, fontWeight: 700, padding: '14px 0 8px' }}>유지한 부품 (견적 그대로)</div>
@@ -34,8 +45,12 @@ export default function QuoteReportSection({ extra, listId }: { extra: QuoteRepo
           <span />
         </div>
       ))}
-      <div style={{ paddingTop: 8 }}><Link to={`/check2/${listId}/review`}>다른 견적과 비교</Link></div>
-      {extra.quote_check?.total_partial && <div className="pl-note">가격을 모르는 부품은 합계에 넣지 않았어요.</div>}
+      <div style={{ paddingTop: 8, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Link to={`/check/${listId}/review`}>다른 견적과 비교</Link>
+        <button type="button" disabled={busy} onClick={() => void restart()} style={{ background: 'none', border: 0, padding: 0, color: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}>이 구성으로 새 점검 시작</button>
+        {error && <span className="pl-note" role="alert">{error}</span>}
+      </div>
+      {extra.quote_check?.total_partial && <div className="pl-note">일부 가격 제외 — 가격을 모르는 부품은 합계에 넣지 않았어요.</div>}
     </section>
   )
 }

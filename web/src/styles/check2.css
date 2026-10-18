@@ -1,4 +1,4 @@
-/* 받은 견적 점검 새 화면(/check2/…) — 재기획. 기존 check.css 와 클래스가 겹치지 않게 c2- 접두를 쓴다. */
+/* 받은 견적 점검 새 화면(/check/…) — 재기획. 기존 check.css 와 클래스가 겹치지 않게 c2- 접두를 쓴다. */
 .c2-page { max-width: 880px; margin: 0 auto; padding: 16px 16px 48px; display: flex; flex-direction: column; gap: 14px; }
 .c2-steps { display: flex; flex-wrap: wrap; gap: 6px; }
 .c2-step { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line, #d8dde6); font-size: 13px; color: var(--muted, #6b7280); text-decoration: none; }

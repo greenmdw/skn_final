@@ -8,7 +8,7 @@ import { useDraft } from './useDraft'
 
 const REASON_CHIP: Record<MatchReason['code'], string> = {
   not_in_catalog: '카탈로그에 없음', variant_mismatch: '비슷하지만 다른 제품', ambiguous: '후보가 여러 개',
-  insufficient_info: '정보 부족', uncertain_reading: '글자가 흐림', low_quality_photo: '사진 품질',
+  insufficient_info: '정보 부족', uncertain_reading: '글자가 흐림', low_quality_photo: '글자가 흐림',     // 두 이유는 사용자에게 같은 말이라 칩은 합치고 설명 문구만 원인별로 다르다
 }
 
 function ItemRow({ item, draft, busy, onPick, onDelete, onLookup, lookup }: {
