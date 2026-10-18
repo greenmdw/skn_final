@@ -181,3 +181,10 @@ def test_text_quote_names_drop_the_category_prefix(client, monkeypatch, catalog)
     item = qds._make_item("GPU", "GPU: NVIDIA GeForce RTX 3050 (6GB) 308,800원", "s", catalog)
     assert not item["normalized_name"].startswith("GPU")
     assert "RTX 3050" in item["normalized_name"]
+
+
+def test_a_draft_says_whether_it_is_already_confirmed(client, monkeypatch, catalog):
+    base, version = _analyzed(client, monkeypatch, catalog)
+    assert client.get(base).json()["confirmed"] is False
+    assert client.post(f"{base}/confirm", json=_body(version)).status_code == 200
+    assert client.get(base).json()["confirmed"] is True

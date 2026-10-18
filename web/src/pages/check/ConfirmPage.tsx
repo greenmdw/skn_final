@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { errorMessage } from '../../api'
 import { checkV2, type ReplacementState } from '../../api/checkV2'
@@ -29,10 +29,12 @@ export default function ConfirmPage() {
   const replacedSlots = new Set((state?.replacements ?? []).map(row => row.slot))
   const unconfirmedKept = (draft?.items ?? []).filter(item => item.selected_for_analysis && item.match_status !== 'confirmed' && !replacedSlots.has(item.category)).length
 
+  const submitting = useRef(false)
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (!id || !draft || !name.trim()) return
+    if (!id || !draft || !name.trim() || submitting.current) return
     if (unconfirmedKept > 0 && !window.confirm(`확인하지 못한 부품 ${unconfirmedKept}개가 있어요. 그 부품은 견적에 적힌 대로만 저장돼요. 그대로 확정할까요?`)) return
+    submitting.current = true
     setBusy(true); setError(''); setNeedLogin(false)
     try {
       const body = {
@@ -46,7 +48,7 @@ export default function ConfirmPage() {
       if (code === 'AUTH_REQUIRED') setNeedLogin(true)
       else setError(errorMessage(caught, '확정하지 못했습니다.'))
       void reload()
-    } finally { setBusy(false) }
+    } finally { setBusy(false); submitting.current = false }
   }
 
   return (

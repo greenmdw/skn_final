@@ -39,7 +39,7 @@ export default function ReviewPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-  const { draft, setDraft, reload } = useDraft(id)
+  const { draft, setDraft, reload, loading: draftLoading } = useDraft(id)
   const [analysis, setAnalysis] = useState<Analysis | null>((location.state as { analysis?: Analysis } | null)?.analysis ?? null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -62,16 +62,21 @@ export default function ReviewPage() {
   }
 
   useEffect(() => {
-    if (!id || analysis) return
+    if (!id || analysis || draftLoading) return
     void (async () => {
       setBusy(true)
+      if (draft?.confirmed) {                       // 확정한 견적은 다시 분석하지 못한다 — 처음부터 저장된 결과만 읽는다(불필요한 409 요청을 만들지 않는다)
+        setConfirmed(true)
+        try { setAnalysis(await checkV2.getReview(id)) } catch (caught) { setError(errorMessage(caught, '저장된 점검 결과를 불러오지 못했습니다.')) } finally { setBusy(false) }
+        return
+      }
       try { setAnalysis(await checkV2.analyze(id)) } catch (caught) {
         // 이미 확정한 견적(리포트에서 들어온 경우)은 다시 분석하지 못한다 — 저장된 결과를 그대로 보여 준다.
         if (caught instanceof ApiError && caught.code === 'quote_already_confirmed') setConfirmed(true)
         try { setAnalysis(await checkV2.getReview(id)) } catch { setError(errorMessage(caught, '분석 결과를 불러오지 못했습니다.')) }
       } finally { setBusy(false) }
     })()
-  }, [id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [id, draftLoading]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function compareSaved() {
     const setup = savedSetups.find(item => item.id === pickedId)

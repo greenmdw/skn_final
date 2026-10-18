@@ -323,6 +323,12 @@ def get_draft(conn, list_id: UUID, principal: Principal) -> dict:
     return _revision_and_draft(conn, list_id, principal)[2]
 
 
+def get_draft_state(conn, list_id: UUID, principal: Principal) -> tuple[dict, bool]:
+    """(초안, 이미 확정한 견적인가) — 화면이 확정한 견적을 다시 분석하려 들지 않게 알려 준다."""
+    _repo, revision, draft = _revision_and_draft(conn, list_id, principal)
+    return draft, revision["state"] == "confirmed"
+
+
 def groups(draft: dict) -> list[dict]:
     """견적 묶음 — 올린 이미지(또는 텍스트) 하나가 견적 하나다. 서로 다른 견적(A안·B안)을 올렸을 때 묶음별로 분석·비교하는 단위.
     항목이 두 견적에 모두 있으면(같은 제품으로 합쳐진 경우) 두 묶음에 모두 들어간다. 저장하지 않고 항상 항목에서 계산한다."""
@@ -376,10 +382,10 @@ def analysis_stale(draft: dict) -> bool:
     return analyzed is not None and analyzed != (draft.get("conditions") or {})
 
 
-def draft_out(list_id: str, draft: dict) -> dict:
+def draft_out(list_id: str, draft: dict, confirmed: bool = False) -> dict:
     relation = source_relation(draft)
     return {"draft_id": list_id, **draft, "groups": groups(draft), "source_mode_hint": relation["mode"], "source_relation": relation,
-            "analysis_stale": analysis_stale(draft)}
+            "analysis_stale": analysis_stale(draft), "confirmed": confirmed}
 
 
 def update_conditions(conn, list_id: UUID, principal: Principal, expected_version: int, patch: dict[str, Any]) -> dict:

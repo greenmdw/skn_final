@@ -127,11 +127,11 @@ def quote_capabilities() -> schemas.QuoteCapabilitiesOut:
     return schemas.QuoteCapabilitiesOut(**quote_draft_service.capabilities())
 
 
-def _draft_response(list_id, draft: dict) -> schemas.QuoteDraftOut:
+def _draft_response(list_id, draft: dict, confirmed: bool = False) -> schemas.QuoteDraftOut:
     """초안 응답 — 저장소에 실시간 검색 값이 있는 항목을 표시해서 돌려준다(짧은 읽기 전용 연결)."""
     with get_conn() as conn:
         quote_draft_service.mark_live_values(conn, draft)
-    return schemas.QuoteDraftOut(**quote_draft_service.draft_out(str(list_id), draft))
+    return schemas.QuoteDraftOut(**quote_draft_service.draft_out(str(list_id), draft, confirmed))
 
 
 def _read_upload(upload: UploadFile) -> tuple[str, str | None, bytes]:
@@ -170,8 +170,8 @@ def create_quote_draft(
 @router.get("/review-drafts/{draft_id}", response_model=schemas.QuoteDraftOut)
 def get_quote_draft(draft_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.QuoteDraftOut:
     with get_conn() as conn:
-        draft = quote_draft_service.get_draft(conn, draft_id, principal)
-    return _draft_response(draft_id, draft)
+        draft, confirmed = quote_draft_service.get_draft_state(conn, draft_id, principal)
+    return _draft_response(draft_id, draft, confirmed)
 
 
 @router.patch("/review-drafts/{draft_id}/items", response_model=schemas.QuoteDraftOut)

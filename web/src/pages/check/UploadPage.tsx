@@ -86,7 +86,9 @@ export default function UploadPage() {
     })
   }
 
+  const submitting = useRef(false)
   async function recognize() {
+    if (submitting.current) return
     setError('')
     const useImages = tab === 'image'
     if (useImages && files.length === 0) { setError('견적 이미지를 먼저 추가해주세요.'); return }
@@ -103,6 +105,7 @@ export default function UploadPage() {
       budget_max: conditions.budgetMax,
     }
     form.append('conditions', JSON.stringify(Object.fromEntries(Object.entries(body).filter(([, value]) => value !== undefined))))
+    submitting.current = true
     setBusy(true)
     try {
       const draft = await checkV2.createDraft(form)
@@ -110,7 +113,7 @@ export default function UploadPage() {
       navigate(`${CHECK2}/${draft.draft_id}/parts`)
     } catch (caught) {
       setError(errorMessage(caught, '견적을 인식하지 못했습니다.'))
-    } finally { setBusy(false) }
+    } finally { setBusy(false); submitting.current = false }
   }
 
   const legacyDraft = search.get('draft')           // 예전 주소(/check?draft=…)로 들어와도 지난 점검을 연다

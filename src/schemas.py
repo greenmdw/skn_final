@@ -484,6 +484,7 @@ class QuoteDraftOut(BaseModel):
     source_mode_hint: Literal["single", "separate"] = "single"
     source_relation: SourceRelationOut | None = None
     analysis_stale: bool = False        # 분석한 뒤 조건이 바뀌었다 — 화면이 "다시 분석하기"를 권한다(분석한 적이 없으면 false)
+    confirmed: bool = False             # 이미 확정한 견적 — 고치거나 다시 분석할 수 없고 저장된 결과만 볼 수 있다
     created_at: str
 
 

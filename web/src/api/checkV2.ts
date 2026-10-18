@@ -41,6 +41,8 @@ export interface Draft {
   groups: { id: string; name: string; source_ids: string[]; item_ids: string[] }[]
   source_relation: SourceRelation | null
   analysis_stale: boolean
+  /** 이미 확정한 견적 — 다시 분석하거나 고칠 수 없다 */
+  confirmed?: boolean
 }
 
 export interface PriceView {
