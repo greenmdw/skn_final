@@ -197,7 +197,6 @@ class QuoteConditionsIn(BaseModel):
     priority: Literal["performance", "value", "quiet"] | None = None    # 안 주면 추천엔진 기본 가중치(우리 추천 비교용)
     games: list[str] = Field(default_factory=list, max_length=15)
     budget_max: int | None = Field(default=None, ge=0, le=100_000_000)
-    replace_budget: int | None = Field(default=None, ge=0, le=100_000_000)   # 부품을 바꾸는 데 쓸 수 있는 금액(총예산과 다르다). 비우면 후보를 가격 낮은 순으로
 
 
 class QuoteDraftConditionsPatchIn(BaseModel):
@@ -1323,7 +1322,6 @@ class QuoteConfirmIn(BaseModel):
     planned_purchase_at: Optional[str] = None
     target_amount: Optional[int] = Field(default=None, ge=0)
     memo: str = Field(default="", max_length=1000)
-    over_budget_ack: bool = False        # 교체 예산을 넘은 채로 확정하겠다는 확인(넘었는데 false 면 409 over_budget_unconfirmed)
 
 
 class ConfirmIn(BaseModel):
@@ -1611,7 +1609,6 @@ class ReplacementTargetOut(BaseModel):
 
 class ReplacementTargetsOut(BaseModel):
     conditions: dict[str, Any] = Field(default_factory=dict)
-    replace_budget: int | None = None
     counts: dict[str, int] = Field(default_factory=dict)
     targets: list[ReplacementTargetOut] = Field(default_factory=list)
     draft_version: int
@@ -1632,6 +1629,6 @@ class ReplacementStateOut(BaseModel):
     compat: dict[str, Any] = Field(default_factory=dict)                  # before/after 개수, new_issues, resolved_issues
     balance: dict[str, Any] = Field(default_factory=dict)
     games: list[dict[str, Any]] = Field(default_factory=list)
-    price: dict[str, Any] = Field(default_factory=dict)                   # delta_total, unpriced_slots, replace_budget, over_budget
+    price: dict[str, Any] = Field(default_factory=dict)                   # delta_total, unpriced_slots
     draft_version: int
     analysis_stale: bool = False

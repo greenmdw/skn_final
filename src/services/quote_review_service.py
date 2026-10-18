@@ -45,9 +45,9 @@ def _normalise(current_specs: dict) -> dict[str, str]:
 
 
 def normalise_conditions(conditions: dict | None) -> dict:
-    """용도·해상도·게임·예산(총예산 budget_max, 교체에 쓸 수 있는 금액 replace_budget)만 남기고 빈 값은 뺀다. 조건이 없으면 {} — 용도 대비 균형은 판단하지 않는다."""
+    """용도·해상도·게임·총예산(budget_max)만 남기고 빈 값은 뺀다. 조건이 없으면 {} — 용도 대비 균형은 판단하지 않는다."""
     out: dict = {}
-    for key in ("purpose", "resolution", "priority", "budget_max", "replace_budget"):
+    for key in ("purpose", "resolution", "priority", "budget_max"):
         value = (conditions or {}).get(key)
         if value not in (None, "", 0):
             out[key] = value

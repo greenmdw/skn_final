@@ -26,7 +26,7 @@ def test_questions_are_never_actions(text):
     ("다시 분석해줘", "reanalyze"), ("재분석 해 주세요", "reanalyze"),
     ("GPU 교체 목록에 담아줘", "add"), ("GPU를 RTX 5070 Ti로 바꿔줘", "add"),
     ("GPU 교체에서 빼줘", "remove"), ("교체 목록 전부 비워줘", "remove_all"),
-    ("교체 예산 30만원으로 해줘", "condition"), ("용도를 게임으로 바꿔줘", "condition"), ("해상도 QHD로 바꿔줘", "condition"),
+    ("총 예산 150만원으로 바꿔줘", "condition"), ("용도를 게임으로 바꿔줘", "condition"), ("해상도 QHD로 바꿔줘", "condition"),
     ("우선순위 가성비로 바꿔줘", "condition"), ("CPU 정보 찾아줘", "lookup"), ("CPU를 Ryzen 5 7500F로 정해줘", "fix"),
 ])
 def test_requests_become_actions(text, kind):
@@ -39,7 +39,7 @@ def test_before_analysis_a_swap_request_fixes_the_reading_and_after_it_adds_a_re
 
 
 def test_condition_values_are_parsed_into_the_patch():
-    assert _parse("교체 예산 30만원으로 해줘")["patch"] == {"replace_budget": 300_000}
+    assert _parse("교체 예산 30만원으로 해줘") is None or "replace_budget" not in (_parse("교체 예산 30만원으로 해줘") or {}).get("patch", {})   # 교체 예산은 없다
     assert _parse("용도를 사무로 바꿔줘")["patch"] == {"purpose": "office"}
     assert _parse("해상도 4K로 바꿔줘")["patch"] == {"resolution": "4K"}
     assert _parse("우선순위를 저소음으로 바꿔줘")["patch"] == {"priority": "quiet"}
@@ -108,9 +108,9 @@ def test_before_analysis_questions_get_a_notice_but_conditions_can_be_changed_by
     draft = _draft(client, monkeypatch, catalog)
     notice = _say(client, draft, "호환은 어때?")
     assert "분석" in notice["reply"] and notice["action"] is None
-    done = _say(client, draft, "교체 예산 30만원으로 해줘")
-    assert done["action"]["kind"] == "set_condition" and "300,000원" in done["reply"]
-    assert client.get(f"/pc/review-drafts/{draft['draft_id']}").json()["conditions"]["replace_budget"] == 300_000
+    done = _say(client, draft, "해상도 QHD로 바꿔줘")
+    assert done["action"]["kind"] == "set_condition" and "QHD" in done["reply"]
+    assert client.get(f"/pc/review-drafts/{draft['draft_id']}").json()["conditions"]["resolution"] == "QHD_165"
 
 
 @pytest.mark.db
@@ -158,9 +158,9 @@ def test_chat_reanalyze_and_a_stranger_cannot_act(client, monkeypatch, catalog):
     assert again["action"]["kind"] == "reanalyze" and "호환 통과" in again["reply"]
     assert client.get(base).json()["analysis_stale"] is False
     with TestClient(app) as stranger:
-        r = stranger.post(f"/pc/reviews/{draft['draft_id']}/messages", json={"text": "교체 예산 10만원으로 해줘"})
+        r = stranger.post(f"/pc/reviews/{draft['draft_id']}/messages", json={"text": "해상도 4K로 바꿔줘"})
         assert r.status_code == 404
-    assert client.get(base).json()["conditions"].get("replace_budget") is None
+    assert client.get(base).json()["conditions"].get("resolution") != "4K"
 
 
 @pytest.mark.db
@@ -187,25 +187,3 @@ def test_chat_asks_before_a_paid_lookup_and_searches_only_after_consent(client, 
     assert calls == ["정체불명 프로세서 ZX-1"] and "socket=AM5" not in again["reply"]
 
 
-@pytest.mark.db
-@pytest.mark.skipif(not DSN, reason="일회용 DB 필요")
-def test_over_budget_replacements_need_one_more_confirmation_to_confirm(monkeypatch, catalog):
-    client = TestClient(app)
-    signup = client.post("/auth/signup", json={"email": f"ob-{__import__('uuid').uuid4().hex[:10]}@example.test", "password": "abcd1234", "display_name": "초과",
-                                                "terms_agreed": True, "privacy_agreed": True, "marketing_agreed": False})
-    assert signup.status_code == 201, signup.text
-    draft = _draft(client, monkeypatch, catalog)
-    base = f"/pc/review-drafts/{draft['draft_id']}"
-    patched = client.patch(f"{base}/conditions", json={"expected_version": draft["version"], "conditions": {"replace_budget": 1000}})
-    assert patched.status_code == 200, patched.text
-    assert client.post(f"{base}/analysis").status_code == 200
-    weakest = _weakest_gpu(catalog)
-    pricier = next(c for c in catalog["GPU"] if c.product_id and c.price and c.price > weakest.price and c.specs.get("perf_tier", 0) >= weakest.specs["perf_tier"])
-    version = client.get(f"{base}/replacements").json()["draft_version"]
-    put = client.put(f"{base}/replacements/GPU", json={"expected_version": version, "candidate_product_id": pricier.product_id})
-    assert put.status_code == 200 and put.json()["price"]["over_budget"] is True, put.text            # 사용자가 직접 고른 제품은 예산을 넘을 수 있다 — 담을 때 경고
-    version = client.get(base).json()["version"]
-    blocked = client.post(f"{base}/confirm", json={"expected_version": version, "name": "초과"})
-    assert blocked.status_code == 409 and blocked.json()["error"]["code"] == "over_budget_unconfirmed"
-    ok = client.post(f"{base}/confirm", json={"expected_version": version, "name": "초과", "over_budget_ack": True})
-    assert ok.status_code == 200, ok.text

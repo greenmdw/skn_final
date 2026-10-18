@@ -6,7 +6,7 @@ import { signedWon, wonText } from '../../utils/checkReview'
 import CheckLayout, { CHECK2 } from './CheckLayout'
 
 const WARNING_TEXT: Record<string, string> = {
-  grade_lower: '현재 부품보다 성능이 낮아요', new_incompatible: '새 호환 문제가 생겨요', over_budget: '교체 예산을 넘어요',
+  grade_lower: '현재 부품보다 성능이 낮아요', new_incompatible: '새 호환 문제가 생겨요',
 }
 
 function CandidateRow({ cand, picked, busy, onPick, saving = false }: { cand: Candidate; picked: boolean; busy: boolean; onPick: () => void; saving?: boolean }) {
@@ -137,7 +137,6 @@ export default function ReplacePage() {
           </p>
           <p className="c2-sub">
             가격 차이 합계: {state.price.unpriced_slots.length > 0 ? `확인된 부품 기준 ${signedWon(state.price.delta_total)} (가격 정보 없는 ${state.price.unpriced_slots.join('·')} 제외)` : signedWon(state.price.delta_total)}
-            {state.price.over_budget && ' · 교체 예산을 넘었어요(확정할 때 한 번 더 확인해요)'}
           </p>
         </section>
       )}

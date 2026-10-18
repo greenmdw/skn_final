@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError, errorMessage } from '../../api'
 import { checkV2, LIVE_BATCH_MAX, liveLookupBatch, type Draft, type DraftItem, type MatchReason } from '../../api/checkV2'
-import { CATEGORY_ORDER, wonText } from '../../utils/checkReview'
+import { CATEGORY_ORDER, PURPOSE_LABEL, RESOLUTION_LABEL, wonText } from '../../utils/checkReview'
 import CheckLayout, { CHECK2 } from './CheckLayout'
 import { useDraft } from './useDraft'
 
@@ -17,6 +17,7 @@ function ItemRow({ item, draft, busy, onPick, onDelete, onLookup, lookup }: {
   lookup?: string
 }) {
   const [open, setOpen] = useState(false)
+  const [nameDraft, setNameDraft] = useState(item.normalized_name || item.raw_text)
   const confirmed = item.match_status === 'confirmed'
   const reason = item.match_reason
   const siblings = draft.items.filter(other => other.category === item.category).length
@@ -39,13 +40,13 @@ function ItemRow({ item, draft, busy, onPick, onDelete, onLookup, lookup }: {
           <button type="button" className="c2-link danger" disabled={busy} onClick={() => onDelete(item)}>삭제</button>
         </div>
       </div>
-      {open && reason && (
+      {open && (
         <div className="c2-detail">
-          <p>{reason.message}</p>
-          {reason.nearest?.name && (
+          {reason && <p>{reason.message}</p>}
+          {reason?.nearest?.name && (
             <p className="c2-sub">가장 가까운 제품: {reason.nearest.name}{reason.nearest.why_not ? ` — ${reason.nearest.why_not}` : ''}</p>
           )}
-          {reason.candidates.length > 0 && (
+          {(reason?.candidates.length ?? 0) > 0 && reason && (
             <ul className="c2-cands">
               {reason.candidates.map(cand => (
                 <li key={cand.name}>
@@ -55,11 +56,17 @@ function ItemRow({ item, draft, busy, onPick, onDelete, onLookup, lookup }: {
               ))}
             </ul>
           )}
-          {(reason.code === 'not_in_catalog' || reason.code === 'insufficient_info') && (
+          {(reason?.code === 'not_in_catalog' || reason?.code === 'insufficient_info') && (
             <div>
               <button type="button" className="c2-btn" disabled={busy} onClick={() => onLookup(item)}>정보 찾아보기</button>
             </div>
           )}
+          <form className="c2-rename" onSubmit={event => { event.preventDefault(); const value = nameDraft.trim(); if (value) onPick(item, value) }}>
+            <label className="c2-field">이름을 고쳐서 다시 찾기 <small>(오타나 모델명이 틀렸을 때)</small>
+              <input value={nameDraft} onChange={event => setNameDraft(event.target.value)} maxLength={120} />
+            </label>
+            <button type="submit" className="c2-btn" disabled={busy || !nameDraft.trim() || nameDraft.trim() === (item.normalized_name || item.raw_text)}>이 이름으로 다시 찾기</button>
+          </form>
         </div>
       )}
     </li>
@@ -143,6 +150,16 @@ export default function PartsPage() {
   const relation = draft.source_relation
   const unconfirmed = draft.items.filter(item => item.match_status !== 'confirmed')
   const lookupTargets = draft.items.filter(item => ['unmatched', 'inferred', 'candidate'].includes(item.match_status))
+  const conditions = draft.conditions as { purpose?: string; resolution?: string }
+  const needConditions = !conditions.purpose || (conditions.purpose === 'game' && !conditions.resolution)
+  const separateMode = Boolean(relation?.applies && relation.mode === 'separate')
+  const confirmedItems = draft.items.filter(item => item.match_status === 'confirmed')
+  // CPU·GPU 를 모르면 용도 점검과 게임 요구 비교가 거의 의미 없다 — 분석 전에 눈에 띄게 알린다
+  const coreUnknown = ['CPU', 'GPU'].filter(category => {
+    const rows = draft.items.filter(item => item.category === category)
+    return rows.length > 0 && rows.every(item => item.match_status !== 'confirmed')
+  })
+  const noBasis = confirmedItems.length === 0
   const blocked = Boolean(relation?.applies && relation.confidence === 'low' && !relation.confirmed)
   const rank = (category: string) => { const index = CATEGORY_ORDER.indexOf(category); return index === -1 ? 99 : index }
   const sorted = [...draft.items].sort((a, b) => rank(a.category) - rank(b.category))
@@ -155,26 +172,48 @@ export default function PartsPage() {
       {error && <p className="c2-error" role="alert">{error}</p>}
 
       {relation?.applies && (
-        <section className={`c2-card${blocked ? ' warn' : ''}`} aria-label="사진 관계">
-          {blocked ? (
-            <>
-              <strong>한 견적인지 서로 다른 견적인지 확실하지 않아요.</strong>
-              <p className="c2-sub">확인하기 전에는 분석할 수 없어요. {relation.doubts.join(' ')}</p>
-              <div className="c2-actions">
-                <button type="button" className="c2-btn" disabled={busy} onClick={() => void setRelation('separate')}>서로 다른 견적이에요</button>
-                <button type="button" className="c2-btn primary" disabled={busy} onClick={() => void setRelation('single')}>한 견적이에요(합치기)</button>
-              </div>
-            </>
-          ) : (
-            <>
-              <strong>{relation.mode === 'single' ? '사진을 한 견적을 나눠 찍은 것으로 읽었어요.' : '사진을 서로 다른 견적으로 읽었어요.'}</strong>
-              {relation.reasons.length > 0 && <p className="c2-sub">{relation.reasons.join(' ')}</p>}
-              <button type="button" className="c2-link" disabled={busy} onClick={() => void setRelation(relation.mode === 'single' ? 'separate' : 'single')}>
-                {relation.mode === 'single' ? '서로 다른 견적이에요' : '한 견적이에요'}
-              </button>
-              {relation.mode === 'separate' && <Link className="c2-link" to={`${CHECK2}/${id}/compare`}>두 견적 비교로</Link>}
-            </>
+        <section className={`c2-card c2-relation${blocked ? ' warn' : ''}`} aria-label="사진 관계">
+          <strong>
+            {blocked ? '한 견적인지 서로 다른 견적인지 확실하지 않아요.'
+              : relation.mode === 'single' ? '사진을 한 견적을 나눠 찍은 것으로 읽었어요.' : '사진을 서로 다른 견적으로 읽었어요.'}
+          </strong>
+          {blocked && <p className="c2-sub">확인하기 전에는 분석할 수 없어요.</p>}
+          {(blocked ? relation.doubts : relation.reasons).length > 0 && (
+            <ul className="c2-reasons">{(blocked ? relation.doubts : relation.reasons).map(text => <li key={text}>{text}</li>)}</ul>
           )}
+          {!blocked && relation.mode === 'separate' && <p className="c2-sub">서로 다른 견적은 한 번에 분석하지 않고 기준별로 비교해요.</p>}
+          <div className="c2-actions">
+            {blocked ? (
+              <>
+                <button type="button" className="c2-btn" disabled={busy} onClick={() => void setRelation('separate')}>서로 다른 견적이에요</button>
+                <button type="button" className="c2-btn" disabled={busy} onClick={() => void setRelation('single')}>한 견적이에요 (합치기)</button>
+              </>
+            ) : relation.mode === 'separate' ? (
+              <>
+                <Link className="c2-btn primary" to={`${CHECK2}/${id}/compare`}>두 견적 비교로</Link>
+                <button type="button" className="c2-btn" disabled={busy} onClick={() => void setRelation('single')}>한 견적이에요</button>
+              </>
+            ) : (
+              <button type="button" className="c2-btn" disabled={busy} onClick={() => void setRelation('separate')}>서로 다른 견적이에요</button>
+            )}
+          </div>
+        </section>
+      )}
+
+      {needConditions && (
+        <section className="c2-card warn" aria-label="평가 조건">
+          <strong>평가 조건을 골라 주세요</strong>
+          <p className="c2-sub">용도를 알아야 바꿀 부품을 추천할 수 있어요. 게임이면 해상도도 필요해요.</p>
+          <div className="c2-form">
+            <label>용도<select value={conditions.purpose ?? ''} onChange={event => void mutate(current => checkV2.patchConditions(current.draft_id, current.version, { purpose: event.target.value || null }))}>
+              <option value="" disabled>선택해 주세요</option>{Object.entries(PURPOSE_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select></label>
+            {conditions.purpose === 'game' && (
+              <label>해상도<select value={conditions.resolution ?? ''} onChange={event => void mutate(current => checkV2.patchConditions(current.draft_id, current.version, { resolution: event.target.value || null }))}>
+                <option value="" disabled>선택해 주세요</option>{Object.entries(RESOLUTION_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+              </select></label>
+            )}
+          </div>
         </section>
       )}
 
@@ -204,9 +243,18 @@ export default function PartsPage() {
         {ignored.length > 0 && <details><summary className="c2-sub">분석에서 뺀 줄 {ignored.length}개</summary><ul>{ignored.map((line, index) => <li key={index} className="c2-sub">{line}</li>)}</ul></details>}
       </section>
 
+      {coreUnknown.length > 0 && !noBasis && (
+        <section className="c2-card warn" role="status">
+          <strong>{coreUnknown.join('·')}을(를) 확인하지 못했어요.</strong>
+          <p className="c2-sub">용도 점검과 게임 요구 비교가 제한돼요. 이름을 고치거나 정보를 찾아보면 더 정확해져요. 그대로 분석할 수도 있어요.</p>
+        </section>
+      )}
+
       <div className="c2-actions end">
-        {unconfirmed.length > 0 && <span className="c2-sub">제품 확인이 남은 부품 {unconfirmed.length}개는 가진 정보로만 점검해요.</span>}
-        <button type="button" className="c2-btn primary" disabled={busy || blocked || draft.items.length === 0} onClick={() => void analyze()}>이대로 분석하기</button>
+        {noBasis && <span className="c2-sub">확인된 부품이 하나도 없어 분석할 수 없어요. 이름을 고치거나 정보를 찾아 주세요.</span>}
+        {!noBasis && unconfirmed.length > 0 && <span className="c2-sub">제품 확인이 남은 부품 {unconfirmed.length}개는 가진 정보로만 점검해요.</span>}
+        {separateMode && <span className="c2-sub">서로 다른 견적은 비교로 진행해요.</span>}
+        <button type="button" className="c2-btn primary" disabled={busy || blocked || separateMode || needConditions || noBasis || draft.items.length === 0} onClick={() => void analyze()}>이대로 분석하기</button>
       </div>
     </CheckLayout>
   )

@@ -86,6 +86,8 @@ export default function ReviewPage() {
 
   async function saveConditions() {
     if (!id || !draft) return
+    if (!form.purpose) { setError('용도를 골라 주세요.'); return }
+    if (form.purpose === 'game' && !form.resolution) { setError('게임 용도는 해상도도 골라 주세요.'); return }
     setBusy(true); setError('')
     try {
       setDraft(await checkV2.patchConditions(id, draft.version, form))
@@ -116,11 +118,9 @@ export default function ReviewPage() {
       {editing && (
         <section className="c2-card">
           <div className="c2-form">
-            <label>용도<select value={String(form.purpose ?? '')} onChange={e => setForm({ ...form, purpose: e.target.value || undefined })}><option value="">선택 안 함</option>{PURPOSES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
+            <label>용도<select value={String(form.purpose ?? '')} onChange={e => setForm({ ...form, purpose: e.target.value || undefined })}>{PURPOSES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
             <label>해상도<select value={String(form.resolution ?? '')} onChange={e => setForm({ ...form, resolution: e.target.value || undefined })}><option value="">선택 안 함</option>{RESOLUTIONS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
             <label>우선순위<select value={String(form.priority ?? '')} onChange={e => setForm({ ...form, priority: e.target.value || undefined })}><option value="">선택 안 함</option>{PRIORITIES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></label>
-            <label>교체 예산(만 원)<input type="number" min={0} step={5} value={form.replace_budget ? Number(form.replace_budget) / 10_000 : ''}
-              onChange={e => setForm({ ...form, replace_budget: e.target.value ? Math.round(Number(e.target.value) * 10_000) : null })} /></label>
           </div>
           <div className="c2-actions"><button type="button" className="c2-btn primary" disabled={busy} onClick={() => void saveConditions()}>저장</button></div>
         </section>

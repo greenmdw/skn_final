@@ -548,11 +548,11 @@ def test_conditions_are_patched_partially_and_null_clears_one(client, monkeypatc
     _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "Intel Core i5-14600K"}]})
     created = _upload(client, ["a"], conditions='{"purpose":"game","resolution":"QHD_165","budget_max":2500000}').json()
     assert created["conditions"] == {"purpose": "game", "resolution": "QHD_165", "budget_max": 2500000} and created["analysis_stale"] is False
-    patched = _patch_conditions(client, created["draft_id"], created["version"], {"resolution": "4K", "replace_budget": 800000, "priority": "performance"}).json()
-    assert patched["conditions"] == {"purpose": "game", "resolution": "4K", "budget_max": 2500000, "replace_budget": 800000, "priority": "performance"}
+    patched = _patch_conditions(client, created["draft_id"], created["version"], {"resolution": "4K", "priority": "performance"}).json()
+    assert patched["conditions"] == {"purpose": "game", "resolution": "4K", "budget_max": 2500000, "priority": "performance"}
     assert patched["version"] == created["version"] + 1
-    cleared = _patch_conditions(client, created["draft_id"], patched["version"], {"replace_budget": None, "games": []}).json()
-    assert "replace_budget" not in cleared["conditions"] and cleared["conditions"]["purpose"] == "game"
+    cleared = _patch_conditions(client, created["draft_id"], patched["version"], {"budget_max": None, "games": []}).json()
+    assert "budget_max" not in cleared["conditions"] and cleared["conditions"]["purpose"] == "game"
 
 
 def test_changing_conditions_after_an_analysis_marks_the_result_stale(client, monkeypatch):

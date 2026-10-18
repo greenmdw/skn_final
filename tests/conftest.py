@@ -228,3 +228,15 @@ def _session_check_no_cache(monkeypatch):
     session_check.reset_cache()
     yield
     session_check.reset_cache()
+
+
+@pytest.fixture(autouse=True)
+def _relax_quote_conditions(request, monkeypatch):
+    """받은 견적 분석은 용도가 있어야 하지만(`quote_draft_service.require_conditions`), 다른 것을 시험하는 수백 개 테스트가 조건 없이
+    초안을 분석한다 — 그 규칙 자체를 시험하는 테스트(`@pytest.mark.enforce_conditions`)만 실제 규칙을 쓴다."""
+    if request.node.get_closest_marker("enforce_conditions"):
+        yield
+        return
+    from src.services import quote_draft_service
+    monkeypatch.setattr(quote_draft_service, "require_conditions", lambda conditions: None)
+    yield

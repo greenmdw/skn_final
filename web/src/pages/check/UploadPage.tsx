@@ -26,7 +26,6 @@ export default function UploadPage() {
   const [question, setQuestion] = useState('')
   const [chips, setChips] = useState<string[]>([])
   const [conditions, setConditions] = useState<QuoteConditions>({})
-  const [replaceBudget, setReplaceBudget] = useState<number | undefined>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -92,13 +91,16 @@ export default function UploadPage() {
     const useImages = tab === 'image'
     if (useImages && files.length === 0) { setError('견적 이미지를 먼저 추가해주세요.'); return }
     if (!useImages && !text.trim()) { setError('견적 텍스트를 입력해주세요.'); return }
+    // 용도를 알아야 바꿀 부품을 추천할 수 있다 — 사진을 읽는 비용이 들기 전에 막는다(게임이면 해상도도)
+    if (!conditions.purpose) { setError('평가 조건에서 용도를 골라 주세요. 용도를 알아야 바꿀 부품을 추천할 수 있어요.'); return }
+    if (conditions.purpose === 'game' && !conditions.resolution) { setError('게임 용도는 해상도도 골라 주세요.'); return }
     const form = new FormData()
     if (useImages) files.forEach(entry => form.append('images', entry.file, entry.file.name))
     else form.append('text', text.trim())
     if (question.trim()) form.append('question', question.trim())
     const body: Record<string, unknown> = {
       purpose: conditions.purpose, resolution: conditions.resolution, priority: conditions.priority,
-      budget_max: conditions.budgetMax, replace_budget: replaceBudget,
+      budget_max: conditions.budgetMax,
     }
     form.append('conditions', JSON.stringify(Object.fromEntries(Object.entries(body).filter(([, value]) => value !== undefined))))
     setBusy(true)
@@ -127,11 +129,6 @@ export default function UploadPage() {
         activeChips={chips} onToggleChip={toggleChip} conditions={conditions} onConditions={setConditions} busy={busy} onRecognize={() => void recognize()}
       />
       <section className="c2-card">
-        <label className="c2-field">교체 예산(만 원, 선택)
-          <input type="number" min={0} max={10000} step={5} inputMode="numeric" value={replaceBudget ? replaceBudget / 10_000 : ''}
-            onChange={event => setReplaceBudget(event.target.value ? Math.round(Number(event.target.value) * 10_000) : undefined)} placeholder="비워 두면 가격 낮은 순으로 보여 줘요" />
-        </label>
-        <small>교체 예산은 부품을 바꾸는 데 더 쓸 수 있는 금액이에요. 총예산과는 별개입니다.</small>
         <p className="c2-note">사진을 여러 장 올리면 한 견적을 나눠 찍은 것인지 서로 다른 견적인지 읽은 뒤에 알려 드려요.</p>
       </section>
     </CheckLayout>

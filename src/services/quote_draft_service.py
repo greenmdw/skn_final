@@ -383,7 +383,7 @@ def draft_out(list_id: str, draft: dict) -> dict:
 
 
 def update_conditions(conn, list_id: UUID, principal: Principal, expected_version: int, patch: dict[str, Any]) -> dict:
-    """조건을 일부만 바꾼다(재기획: 폼·채팅·교체 예산이 같은 조건 하나를 쓴다). 분석은 돌리지 않는다 — 결과가 오래됐다고만 표시한다."""
+    """조건을 일부만 바꾼다(재기획: 폼·채팅이 같은 조건 하나를 쓴다). 분석은 돌리지 않는다 — 결과가 오래됐다고만 표시한다."""
     repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
     if draft["version"] != expected_version:
         raise StaleReviewVersion("초안이 다른 곳에서 바뀌었습니다. 새로 불러온 뒤 다시 시도해 주세요.", field="expected_version")
@@ -503,10 +503,21 @@ def add_item(conn, list_id: UUID, principal: Principal, expected_version: int, c
 
 
 # ── BE-07·08 ─────────────────────────────────────────────────────────────────
+def require_conditions(conditions: dict | None) -> None:
+    """분석(과 그 위의 교체 추천)에는 용도가 있어야 한다 — 용도가 없으면 용도 대비 균형을 판단하지 못해 "무엇을 바꿀지"가 나오지 않는다.
+    게임이면 해상도도 있어야 한다(해상도에 따라 요구 사양이 크게 달라진다). 해상도·우선순위·총예산은 선택이다."""
+    conditions = conditions or {}
+    if not conditions.get("purpose"):
+        raise ValidationFailed("용도를 먼저 골라 주세요. 용도를 알아야 바꿀 부품을 추천할 수 있어요.", field="conditions", code="purpose_required")
+    if conditions["purpose"] == "game" and not conditions.get("resolution"):
+        raise ValidationFailed("게임 용도는 해상도도 골라 주세요. 해상도에 따라 필요한 성능이 달라져요.", field="conditions", code="resolution_required")
+
+
 def analyze_selected(conn, list_id: UUID, principal: Principal, source_ids: list[str] | None = None) -> dict:
     """선택한 항목만 기존 점검에 넣어 분석하고 같은 세션에 저장한다. source_ids 를 주면 그 견적(이미지)의 항목만 —
     서로 다른 견적을 올렸을 때 한 견적을 골라 분석한다(안 주면 부품군마다 고른 기준 제품 전체)."""
     repo, revision, draft = _revision_and_draft(conn, list_id, principal, lock=True)
+    require_conditions(draft.get("conditions"))
     if not source_ids:         # 견적을 하나 고르지 않은 일반 분석은 사진들이 한 견적일 때만 — 서로 다른 견적을 합치면 결과가 섞인다
         relation = source_relation(draft)
         if relation["applies"] and not relation["confirmed"] and relation["confidence"] == "low":
@@ -695,7 +706,7 @@ def _replacement_map(draft: dict, by_slot: dict) -> dict[str, Any]:
 
 
 def replacement_state(conn, list_id: UUID, principal: Principal) -> dict:
-    """저장된 교체 목록과 그것을 적용했을 때의 점검 변화·경고·교체 예산 사용량."""
+    """저장된 교체 목록과 그것을 적용했을 때의 점검 변화·경고."""
     draft = get_draft(conn, list_id, principal)
     return _replacement_state(conn, list_id, principal, draft)
 

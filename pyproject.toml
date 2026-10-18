@@ -46,5 +46,6 @@ markers = [
     "unit: database-independent unit test",
     "db: test requiring the disposable PostgreSQL database",
     "integration: end-to-end application and database test",
+    "enforce_conditions: runs with the real purpose-required rule for quote analysis (other tests relax it)",
     "llm_live: calls a real LLM API (MOCK_MODE=0, costs money) — excluded from the default run; see docs/전체_테스트_시나리오_실행_기획.md §2.5",
 ]

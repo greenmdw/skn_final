@@ -13,7 +13,6 @@
 1. 현재 부품보다 성능이 같거나 높아야 한다(CPU·GPU 성능 등급, RAM·저장장치 용량, 파워 용량). 현재 값을 모르면 후보를 보이지 않는다.
 2. 견적의 나머지 부품과 새로 확정 비호환이 생기면 안 된다.
 3. 짚은 이유를 모두 해소해야 한다(해소하지 못하면 일부만 해소하는 후보를 따로 표시해 보인다).
-4. 교체 예산이 있으면 그 안(바꾼 부품의 가격 차이)이어야 한다.
 
 위 규칙으로 거른 뒤의 **순서**는 새 컴퓨터 본체 추천과 같은 점수(가격·성능·리뷰 세 축, 우선순위별 가중치)로 정한다."""
 from __future__ import annotations
@@ -139,7 +138,7 @@ def _recommend_scores(conn, slot: str, rows: list[dict], conditions: dict, ref_b
 
     if not rows or ref_budget <= 0:
         return None
-    values = {k: v for k, v in conditions.items() if v is not None and k not in ("replace_budget",)}
+    values = {k: v for k, v in conditions.items() if v is not None}
     try:
         pool = [row["_cand"].model_copy() for row in rows]               # 카탈로그 객체에 리뷰 점수를 붙이지 않게 복사본으로
         hf = HardFilterResult(slots={slot: pool})
@@ -185,7 +184,7 @@ def _reference_budget(conditions: dict, slot: str, current_price: int | None, pr
 
 
 def _candidates(slot: str, owned: dict[str, dict], reasons: list[dict], review: dict, by_slot: dict[str, list[Candidate]],
-                slots: list[str], base_incompat: set[str], replace_budget: int | None, limit: int,
+                slots: list[str], base_incompat: set[str], limit: int,
                 conn=None) -> tuple[list[dict], str | None]:
     from src.services.quote_alternatives import _spec_rows
 
@@ -221,8 +220,6 @@ def _candidates(slot: str, owned: dict[str, dict], reasons: list[dict], review: 
         if [a for a in result["incompatible"] if a not in base_incompat]:
             continue                                                  # 이 후보 때문에 새로 비호환이 생긴다
         cost = _cost(cand, current_price)
-        if replace_budget is not None and cost is not None and cost > replace_budget:
-            continue
         resolved = [r for r in needed if _is_resolved(r, slot, swapped, result, conditions)]
         if not resolved:
             continue
@@ -244,7 +241,7 @@ def _candidates(slot: str, owned: dict[str, dict], reasons: list[dict], review: 
         row.pop("_cand", None)
     notes = []
     if not rows:
-        notes.append("조건에 맞는 대안이 카탈로그에 없어요." + (" (교체 예산 안에서는 없어요.)" if replace_budget is not None else ""))
+        notes.append("조건에 맞는 대안이 카탈로그에 없어요.")
     else:
         if not any(r["resolves_all"] for r in rows):
             notes.append("이유를 모두 풀어 주는 후보는 없어서 일부만 풀어 주는 후보를 보여 드려요.")
@@ -307,8 +304,6 @@ def build_targets(review: dict, by_slot: dict[str, list[Candidate]], *, conn=Non
         cached_for_kept_parts(conn, owned, specs)
     reasons = _slot_reasons(review, owned, by_slot, slots)
     base_incompat = set(qrs.compat_for_quote(specs, by_slot, slots, owned)["incompatible"])
-    replace_budget = conditions.get("replace_budget")
-
     targets = []
     for slot in slots:
         if slot not in owned:
@@ -321,7 +316,7 @@ def build_targets(review: dict, by_slot: dict[str, list[Candidate]], *, conn=Non
         if kind == "keep" and conditions.get("priority") == "value" and any(r["code"] == "excess" for r in why):
             savings, savings_note = _saving_candidates(slot, owned, review, by_slot, slots, base_incompat)
         if kind == "replace":
-            candidates, note = _candidates(slot, owned, why, review, by_slot, slots, base_incompat, replace_budget, limit, conn=conn)
+            candidates, note = _candidates(slot, owned, why, review, by_slot, slots, base_incompat, limit, conn=conn)
         targets.append({
             "slot": slot, "current_name": info.get("name"), "current_confirmed": info.get("source") == "catalog", "kind": kind,
             "reasons": [{k: v for k, v in r.items() if k in ("code", "text")} for r in why if r["code"] != "excess" or kind == "keep"],
@@ -339,7 +334,7 @@ def build_targets(review: dict, by_slot: dict[str, list[Candidate]], *, conn=Non
         else:
             t["rank"] = None
     counts = {kind: sum(t["kind"] == kind for t in targets) for kind in ("replace", "verify", "keep")}
-    return {"conditions": conditions, "replace_budget": replace_budget, "counts": counts, "targets": targets}
+    return {"conditions": conditions, "counts": counts, "targets": targets}
 
 
 # ── 교체 후 점검 ──────────────────────────────────────────────────────────────
@@ -371,7 +366,7 @@ def build_state(review: dict, replacements: dict[str, Candidate], by_slot: dict[
     games_before, games_after = _game_summary(_game_rows(conditions, before)), _game_summary(_game_rows(conditions, after))
     new_fail = [a for a in compat_after["incompatible"] if a not in base_incompat]
 
-    items, replace_budget, spent, unpriced = [], conditions.get("replace_budget"), 0, []
+    items, spent, unpriced = [], 0, []
     for slot, cand in replacements.items():
         info = before.get(slot) or {}
         current_price = info.get("catalog_price") if info.get("source") == "catalog" else None
@@ -388,10 +383,6 @@ def build_state(review: dict, replacements: dict[str, Candidate], by_slot: dict[
         items.append({"slot": slot, "candidate": {"product_id": cand.product_id, "name": cand.name, "price": cand.price,
                                                   "perf_tier": (cand.specs or {}).get("perf_tier")},
                       "from": {"name": info.get("name"), "price": current_price}, "price_delta": delta, "warnings": warnings})
-    over = replace_budget is not None and spent > replace_budget
-    if over:
-        for item in items:
-            item["warnings"].append("over_budget")
     return {
         "replacements": items,
         "compat": {"before": _compat_counts(compat_before), "after": _compat_counts(compat_after), "new_issues": new_fail,
@@ -399,5 +390,5 @@ def build_state(review: dict, replacements: dict[str, Candidate], by_slot: dict[
         "balance": {"available": bool(balance_after.get("available")), "before": balance_before.get("summary") or {},
                     "after": balance_after.get("summary") or {}},
         "games": [{"game": game, "before": games_before.get(game), "after": games_after.get(game)} for game in games_after],
-        "price": {"delta_total": spent, "unpriced_slots": unpriced, "replace_budget": replace_budget, "over_budget": over},
+        "price": {"delta_total": spent, "unpriced_slots": unpriced},
     }

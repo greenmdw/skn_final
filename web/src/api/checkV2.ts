@@ -65,13 +65,13 @@ export interface Target {
   /** 과한 부품의 절감 후보(가성비 우선일 때만, 선택 사항) */
   savings: Candidate[]; savings_note: string | null
 }
-export interface Targets { replace_budget: number | null; counts: Record<string, number>; targets: Target[]; draft_version: number; analysis_stale: boolean }
+export interface Targets { counts: Record<string, number>; targets: Target[]; draft_version: number; analysis_stale: boolean }
 
 export interface ReplacementState {
   replacements: { slot: string; candidate: { product_id: string | null; name: string; price: number | null }; from: { name: string | null; price: number | null }; price_delta: number | null; warnings: string[] }[]
   compat: { before: Record<string, number>; after: Record<string, number>; new_issues: string[]; resolved_issues: string[] }
   games: { game: string; before: unknown; after: unknown }[]
-  price: { delta_total: number; unpriced_slots: string[]; replace_budget: number | null; over_budget: boolean }
+  price: { delta_total: number; unpriced_slots: string[] }
   draft_version: number; analysis_stale: boolean
 }
 
@@ -98,7 +98,7 @@ export const checkV2 = {
     request<ReplacementState>('PUT', `${base(id)}/replacements/${encodeURIComponent(slot)}`, { expected_version: version, candidate_product_id: productId }),
   removeReplacement: (id: string, version: number, slot: string) =>
     request<ReplacementState>('DELETE', `${base(id)}/replacements/${encodeURIComponent(slot)}`, { expected_version: version }),
-  confirm: (id: string, body: { expected_version: number; name: string; planned_purchase_at?: string | null; target_amount?: number | null; memo?: string; over_budget_ack?: boolean }) =>
+  confirm: (id: string, body: { expected_version: number; name: string; planned_purchase_at?: string | null; target_amount?: number | null; memo?: string }) =>
     request<Report>('POST', `${base(id)}/confirm`, body),
   /** 확정한 받은 견적 리포트의 구성으로 새 점검을 시작한다 — 새 draft_id 를 돌려준다 */
   restart: (id: string) => request<Draft>('POST', `${base(id)}/restart`),

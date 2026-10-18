@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ApiError, errorMessage } from '../../api'
+import { errorMessage } from '../../api'
 import { checkV2, type ReplacementState } from '../../api/checkV2'
 import { useSetups } from '../../state/SetupsContext'
 import { signedWon } from '../../utils/checkReview'
@@ -41,14 +41,7 @@ export default function ConfirmPage() {
         expected_version: draft.version, name: name.trim(), memo,
         planned_purchase_at: plannedAt || null, target_amount: target ? Math.round(Number(target) * 10_000) : null,
       }
-      let report
-      try {
-        report = await checkV2.confirm(id, body)
-      } catch (caught) {
-        // 교체 예산을 넘은 채로 확정하려면 한 번 더 확인받는다(담을 때는 경고만 했다)
-        if (!(caught instanceof ApiError && caught.code === 'over_budget_unconfirmed') || !window.confirm('교체 목록이 교체 예산을 넘었어요. 그래도 확정할까요?')) throw caught
-        report = await checkV2.confirm(id, { ...body, over_budget_ack: true })
-      }
+      const report = await checkV2.confirm(id, body)
       reloadSetups()   // 저장 목록에 새 견적서를 넣어야 리포트 화면이 찾는다
       navigate(`/report/${report.list_id}`,{ state: { plannerMode: 'check' } })
     } catch (caught) {

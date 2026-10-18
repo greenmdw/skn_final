@@ -87,15 +87,6 @@ def test_a_part_not_in_the_catalog_is_verify_first_and_gets_no_candidates(by_slo
     assert any(r["code"] == "unknown_info" for r in case["reasons"])
 
 
-def test_the_replace_budget_limits_the_candidates_by_how_much_they_add(by_slot):
-    review = _review(purpose="game", resolution="4K", replace_budget=1)
-    gpu = _by_slot(rp.build_targets(review, by_slot))["GPU"]
-    assert all(c["price_delta"] is None or c["price_delta"] <= 1 for c in gpu["candidates"])
-    review = _review(purpose="game", resolution="4K", replace_budget=1)
-    tiny = _by_slot(rp.build_targets({**review, "input": {**review["input"], "conditions": {**review["input"]["conditions"], "replace_budget": -10**9}}}, by_slot))["GPU"]
-    assert tiny["candidates"] == [] and "교체 예산 안에서는 없어요" in tiny["note"]
-
-
 def test_a_part_that_looks_fine_has_no_replace_reason(by_slot):
     out = rp.build_targets(_review(purpose="office"), by_slot)
     assert all(t["kind"] != "replace" for t in out["targets"]) and out["counts"]["replace"] == 0
@@ -111,11 +102,12 @@ def test_the_effect_of_a_replacement_is_computed_with_before_and_after_and_flags
     assert state["price"]["delta_total"] == cheaper.price - next(c for c in by_slot["GPU"] if c.name == "NVIDIA GeForce RTX 4060").price
 
 
-def test_a_replacement_over_the_replace_budget_is_warned_and_an_empty_list_changes_nothing(by_slot):
-    review = _review(purpose="game", resolution="4K", replace_budget=1)
+def test_an_empty_replacement_list_changes_nothing_and_the_price_shows_only_the_difference(by_slot):
+    review = _review(purpose="game", resolution="4K")
     pricey = next(c for c in by_slot["GPU"] if c.name == "NVIDIA GeForce RTX 4070 Ti SUPER")
     state = rp.build_state(review, {"GPU": pricey}, by_slot)
-    assert state["price"]["over_budget"] is True and "over_budget" in state["replacements"][0]["warnings"]
+    assert set(state["price"]) == {"delta_total", "unpriced_slots"}                  # 교체 예산을 뺐다 — 초과 판정·경고 없음
+    assert all("over_budget" not in row["warnings"] for row in state["replacements"])
     empty = rp.build_state(review, {}, by_slot)
     assert empty["replacements"] == [] and empty["compat"]["before"] == empty["compat"]["after"] and empty["price"]["delta_total"] == 0
 

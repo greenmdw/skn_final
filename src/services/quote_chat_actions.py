@@ -97,12 +97,8 @@ def parse(text: str, *, analyzed: bool, replaced: set[str]) -> dict[str, Any] | 
 
 def _parse_condition(text: str, low: str) -> dict[str, Any] | None:
     if "교체" in text and "예산" in text:
-        amount = _money(text)
-        if amount is not None:
-            return {"kind": "condition", "patch": {"replace_budget": amount}}
-        if re.search(r"(없애|지워|비워|해제)", text):
-            return {"kind": "condition", "patch": {"replace_budget": None}}
-    elif "예산" in text:
+        return None                    # 교체 예산은 없다 — 총예산으로 잘못 읽지 않는다
+    if "예산" in text:
         amount = _money(text)
         if amount is not None:
             return {"kind": "condition", "patch": {"budget_max": amount}}
@@ -135,8 +131,6 @@ def _replacement_sentence(state: dict, slot: str) -> str:
         parts.append(f"가격 차이 {_signed(delta)}" if delta is not None else "현재 부품 가격을 몰라 가격 차이는 알 수 없어요")
     before, after = state["compat"]["before"].get("fail", 0), state["compat"]["after"].get("fail", 0)
     parts.append(f"확정된 호환 문제 {before}개 → {after}개")
-    if state["price"]["over_budget"]:
-        parts.append("교체 예산을 넘었어요")
     return ", ".join(parts)
 
 
@@ -205,8 +199,6 @@ def _do_condition(conn, list_id, principal, draft, plan) -> tuple[str, dict | No
             pieces.append(f"해상도를 {_RESOLUTION_LABEL.get(value, value)}(으)로")
         elif key == "priority":
             pieces.append(f"우선순위를 {_PRIORITY_LABEL.get(value, value)}(으)로")
-        elif key == "replace_budget":
-            pieces.append(f"교체 예산을 {_won(value)}으로" if value else "교체 예산을 비웠어요, ")
         elif key == "budget_max":
             pieces.append(f"총예산을 {_won(value)}으로" if value else "총예산을 비웠어요, ")
     stale = qds.analysis_stale(updated)

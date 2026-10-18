@@ -37,7 +37,7 @@ def _freeze_summary(state: dict, kept_unpriced: list[str], total_partial: bool) 
 
 
 def confirm(conn, list_id: UUID, principal: Principal, *, expected_version: int, name: str,
-            planned_purchase_at: str | None, target_amount: int | None, memo: str, over_budget_ack: bool = False) -> dict:
+            planned_purchase_at: str | None, target_amount: int | None, memo: str) -> dict:
     user_id = list_service._require_login(conn, principal)
     repo = PlanRepo(conn)
     revision = _owned(repo, list_id, principal)
@@ -69,8 +69,6 @@ def confirm(conn, list_id: UUID, principal: Principal, *, expected_version: int,
     if not chosen:
         raise ValidationFailed("확정할 부품이 없습니다.", code="no_items_selected")
     state = quote_replacement_plan.build_state(review, replacements, by_slot)
-    if state["price"]["over_budget"] and not over_budget_ack:       # 결정 ⑩: 담을 때 경고하고, 확정할 때 한 번 더 확인한다
-        raise Conflict("교체 목록이 교체 예산을 넘었어요. 그대로 확정할지 확인해 주세요.", code="over_budget_unconfirmed")
 
     # 교체 부품은 판매 정보가 있어야 purchase_line 으로 얼린다 — 가격 관측이 없으면 확정하지 않는다(0원으로 얼리지 않는다).
     frozen_replacements = []

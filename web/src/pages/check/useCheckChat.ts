@@ -6,7 +6,7 @@ import { newClientId } from '../../utils/checkReview'
 
 const INTRO: ChatEntry = {
   id: 'intro', kind: 'bot',
-  text: '질문에 답하고, 말로도 바꿀 수 있어요. 예: "GPU 교체 목록에 담아줘", "교체 예산 30만원으로 해줘", "다시 분석해줘".',
+  text: '질문에 답하고, 말로도 바꿀 수 있어요. 예: "GPU 교체 목록에 담아줘", "해상도 QHD로 바꿔줘", "다시 분석해줘".',
 }
 export const CHAT_HINT = '"~해줘"처럼 요청하면 바로 바꿔요. 물어보기만 하면 바꾸지 않아요.'
 

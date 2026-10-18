@@ -216,7 +216,7 @@ def get_replacement_targets(draft_id: UUID, principal: Principal = Depends(optio
 
 @router.get("/review-drafts/{draft_id}/replacements", response_model=schemas.ReplacementStateOut)
 def get_replacements(draft_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.ReplacementStateOut:
-    """저장된 교체 목록과 적용했을 때의 점검 변화(호환·균형·게임)·가격 차이·교체 예산 사용량."""
+    """저장된 교체 목록과 적용했을 때의 점검 변화(호환·균형·게임)·가격 차이 사용량."""
     with get_conn() as conn:
         return schemas.ReplacementStateOut(**quote_draft_service.replacement_state(conn, draft_id, principal))
 
@@ -244,8 +244,7 @@ def confirm_review_draft(draft_id: UUID, body: schemas.QuoteConfirmIn, principal
     with get_conn() as conn:
         return schemas.ReportOut(**quote_confirm_service.confirm(
             conn, draft_id, principal, expected_version=body.expected_version, name=body.name,
-            planned_purchase_at=body.planned_purchase_at, target_amount=body.target_amount, memo=body.memo,
-            over_budget_ack=body.over_budget_ack))
+            planned_purchase_at=body.planned_purchase_at, target_amount=body.target_amount, memo=body.memo))
 
 
 @router.post("/review-drafts/{draft_id}/restart", response_model=schemas.QuoteDraftOut, status_code=201)
