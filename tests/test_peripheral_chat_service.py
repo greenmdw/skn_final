@@ -234,3 +234,108 @@ def test_db_is_not_opened_for_questions_that_need_no_result():
     _turn("스피커는 어떤 조건으로 나눌 수 있어?")      # _no_db 가 열리면 AssertionError
     _turn("래피드 트리거가 뭐야?", None, ["keyboard"])
     _turn("앵무새야?")
+
+
+# ── 언어 모델 경로: 예산 바꾸기(QA 10/16 #8 실측) ─────────────────────────────────
+def test_model_that_misses_the_amount_falls_back_to_the_word_reading(monkeypatch):
+    """모델이 "예산 20만원으로"를 빈 해석으로 냈다(2판 중 1판) — 금액은 낱말 규칙으로 읽는다."""
+    _fake_model(monkeypatch, Interpretation(kinds=["monitor"], purposes=["game"], budget={"monitor": 300000}))
+    first = _turn("게임용 모니터 30만원")
+    _fake_model(monkeypatch, Interpretation())
+    second = _turn("예산 20만원으로", _prev(first), ["monitor"])
+    assert second["interpretation"].budget == {"monitor": 200000}
+    assert [i["label"] for i in second["turn"]["new_conditions"]] == ["모니터 예산 200,000원"]
+
+
+def test_model_total_budget_in_a_one_kind_chat_replaces_that_kinds_budget(monkeypatch):
+    """모델은 종류 이름 없는 "아니 25만원"을 합계로 읽는다 — 합계로 두면 이전의 모니터 30만 원이 남아 계속 거른다."""
+    _fake_model(monkeypatch, Interpretation(kinds=["monitor"], budget={"monitor": 300000}))
+    first = _turn("모니터 30만원")
+    _fake_model(monkeypatch, Interpretation(budget_total=250000))
+    second = _turn("아니 25만원", _prev(first), ["monitor"])
+    assert second["interpretation"].budget == {"monitor": 250000} and second["interpretation"].budget_total is None
+
+    _fake_model(monkeypatch, Interpretation(kinds=["monitor", "mouse"], budget_total=400000))
+    both = _turn("모니터랑 마우스 40만원")      # 종류가 둘이면 합계 그대로
+    assert both["interpretation"].budget_total == 400000 and both["interpretation"].budget == {}
+
+
+def test_amount_the_model_also_left_unrecognized_is_not_reported_as_missed(monkeypatch):
+    _fake_model(monkeypatch, Interpretation(kinds=["monitor"], budget={"monitor": 300000}))
+    first = _turn("모니터 30만원")
+    _fake_model(monkeypatch, Interpretation(budget_total=250000, unrecognized=["25만원", "번쩍이는"]))
+    second = _turn("아니 25만원 번쩍이는", _prev(first), ["monitor"])
+    assert second["interpretation"].budget == {"monitor": 250000}
+    assert second["turn"]["not_reflected"] == ["“번쩍이는”: 아직 조건으로 고를 수 없어서 반영하지 못했어요."]
+
+
+def test_raising_the_budget_of_the_only_kind_drops_the_old_total():
+    previous = Interpretation(kinds=["monitor"], budget_total=200000).model_dump()
+    out = _turn("모니터 25만원", previous)
+    assert out["interpretation"].budget == {"monitor": 250000} and out["interpretation"].budget_total is None
+
+
+# ── 10/17 실측 ────────────────────────────────────────────────────────────
+def test_question_about_the_shown_product_does_not_change_conditions(monkeypatch):
+    """"이 모니터 4K 게임 돼?"는 보이는 제품에 대한 질문이다 — 게임·높은 해상도 조건으로 읽혀 추천이 바뀌었다."""
+    _fake_recommend(monkeypatch, ["monitor"])
+    first = _turn("QHD 모니터")
+    out = _turn("이 모니터 4K 게임 돼?", _prev(first), open_conn=_stub_recommend)
+    assert out["interpretation"].question.type == "spec"
+    assert out["interpretation"].purposes == [] and out["interpretation"].stated == {"monitor": ["qhd"]}
+
+
+def test_question_without_a_pointing_word_still_reads_conditions():
+    out = _turn("4K 모니터 있어?")
+    assert out["interpretation"].question is None and out["interpretation"].stated
+
+
+def test_negated_condition_is_not_read():
+    out = _turn("무선 말고 유선 마우스")
+    assert out["interpretation"].stated == {"mouse": ["wired"]}
+
+
+def test_unsupported_devices_are_named_and_not_read_as_kinds():
+    out = _turn("마우스패드랑 웹캠")
+    assert out["interpretation"].kinds == []
+    assert "웹캠·마우스패드 같은 기기는" in out["turn"]["reply"] and "헤드셋" not in out["turn"]["reply"]
+
+
+@pytest.mark.parametrize("text, kinds, hint", [
+    ("그냥 아무거나 괜찮은 걸로", None, "nothing_no_kind"),
+    ("잘 몰라요 추천해주세요", ["mouse"], "nothing_with_kind"),
+])
+def test_nothing_read_tells_how_to_go_on(text, kinds, hint):
+    out = _turn(text, None, kinds)
+    assert out["turn"]["reply"].endswith(chat_config(RULES)["answers"][hint])
+
+
+# ── 목적은 말할 때의 종류에 묶는다(10/17) ─────────────────────────────────────
+def _purposes_by_kind(out):
+    return {k: [p["code"] for p in v.purposes] for k, v in out["resolved"].items() if v}
+
+
+def test_purpose_said_for_one_kind_does_not_spread_to_a_kind_added_later():
+    """"fps용 무선 마우스" 뒤 "기계식 키보드"에 래피드 트리거·마그네틱·가벼운 키압이 붙었다."""
+    first = _turn("fps용 무선 마우스")
+    out = _turn("기계식 키보드 10만", _prev(first))
+    assert _purposes_by_kind(out) == {"keyboard": [], "mouse": ["fps"]}
+
+
+def test_purpose_said_with_several_kinds_or_before_any_kind_applies_to_all():
+    assert _purposes_by_kind(_turn("fps 게임용 마우스랑 키보드"))["keyboard"] == ["game", "fps"]
+    first = _turn("게임용으로")
+    assert _purposes_by_kind(_turn("마우스랑 키보드", _prev(first))) == {"keyboard": ["game"], "mouse": ["game"]}
+
+
+def test_purpose_without_a_kind_word_binds_to_the_conversation_kinds():
+    first = _turn("게임용 마우스")
+    out = _turn("fps용으로", _prev(first))
+    out = _turn("키보드도", _prev(out))
+    assert _purposes_by_kind(out) == {"keyboard": [], "mouse": ["game", "fps"]}
+
+
+def test_removing_a_negated_condition_still_works():
+    first = _turn("무선 마우스")
+    out = _turn("무선은 빼고", _prev(first))
+    assert out["interpretation"].stated == {} and out["turn"]["reply"] == "뺐어요: 무선"

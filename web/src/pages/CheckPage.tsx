@@ -91,7 +91,10 @@ export default function CheckPage() {
   const [pending, setPending] = useState<Record<string, PendingEdit>>({})
   const [filter, setFilter] = useState<ResultFilter>('all')
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [comparedOnce, setComparedOnce] = useState(false)
+  // 비교 창에서 분석 기준을 바꿨지만 아직 다시 분석하지 않은 부품(부품 → 고른 제품 이름). 종합 평가 위에 "다시 분석하기" 띠로 보인다.
+  const [staleBasis, setStaleBasis] = useState<Record<string, string>>({})
+  // 마지막 종합 평가가 대상으로 삼은 사진(source) 목록. 서로 다른 견적을 올렸을 때 첫 견적만 분석한 것을 다시 분석할 때 쓴다.
+  const analyzedSourceIds = useRef<string[] | undefined>(undefined)
   // 부품 비교·교체 목록
   const [compareCategory, setCompareCategory] = useState<string | null>(null)
   const [compareData, setCompareData] = useState<QuoteDraftComparison | null>(null)
@@ -149,7 +152,7 @@ export default function CheckPage() {
   }, [])
 
   const savedSetupPicked = useMemo(() => savedSetups.find(setup => setup.id === pickedSetupId) ?? null, [savedSetups, pickedSetupId])
-  const workflowStep = analysis && showAnalysis ? 4 : comparedOnce ? 3 : draft ? 2 : 1
+  const workflowStep = analysis && showAnalysis ? 3 : draft ? 2 : 1
 
   // ── 입력 ─────────────────────────────────────────────────────────────────
   function addFiles(incoming: File[]) {
@@ -214,7 +217,7 @@ export default function CheckPage() {
     setFilter('all')
     setAnalysis(null)
     setShowAnalysis(false)
-    setComparedOnce(false)
+    setStaleBasis({})
     setCart({}); setCartPreview(null)
     setLiveLookup({})
     setComparison(null); setSavedVisible(false); setAnswers([]); setOpenAnswerIds(new Set())
@@ -362,6 +365,8 @@ export default function CheckPage() {
   // ── 분석 ─────────────────────────────────────────────────────────────────
   async function runAnalysis(target: QuoteDraft, options: { sourceIds?: string[]; autoAsk?: boolean } = {}) {
     const result = await api.quoteDrafts.analyze(target.draftId, options.sourceIds)
+    analyzedSourceIds.current = options.sourceIds   // 종합 평가에서 다시 분석할 때 같은 견적(사진)만 대상으로 삼는다
+    setStaleBasis({})
     setAnalysis(result)
     setShowAnalysis(true)
     setComparison(null); setSavedVisible(false); setAnswers([]); setOpenAnswerIds(new Set())
@@ -423,6 +428,20 @@ export default function CheckPage() {
     } finally { setBusy(null) }
   }
 
+  /** 종합 평가에서 비교로 고른 분석 기준을 서버에 저장하고 평가를 다시 받는다 */
+  async function reanalyzeBasis() {
+    if (!draft) return
+    setBusy('analyze'); setError('')
+    try {
+      const saved = await persist()
+      if (!saved) return
+      await runAnalysis(saved, { sourceIds: analyzedSourceIds.current })
+      showToast('고른 제품 기준으로 종합 평가를 다시 계산했어요.')
+    } catch (caught) {
+      setError(errorMessage(caught, '견적을 다시 분석하지 못했습니다.'))
+    } finally { setBusy(null) }
+  }
+
   function backToResults() {
     setShowAnalysis(false)
     scrollTo('ck-results')
@@ -446,7 +465,6 @@ export default function CheckPage() {
   async function openCompare(category: string) {
     if (!draft) return
     setCompareCategory(category); setCompareData(null); setCompareError(''); setChoice(null); setCompareLoading(true)
-    setComparedOnce(true)
     try {
       const saved = await persist()
       if (!saved) { setCompareCategory(null); return }
@@ -467,9 +485,22 @@ export default function CheckPage() {
     if (!compareData || !choice || !compareCategory) return
     if (choice.kind === 'recognized') {
       const picked = choice.itemId
-      setSelection(previous => ({ ...previous, [compareCategory]: picked }))
       const item = draft?.items.find(entry => entry.id === picked)
-      showToast(`${compareCategory} 분석 기준을 “${item?.name ?? '선택한 제품'}”로 선택했어요.`)
+      const changed = selection[compareCategory] !== picked
+      setSelection(previous => ({ ...previous, [compareCategory]: picked }))
+      if (showAnalysis && analysis) {
+        // 평가가 이미 끝난 뒤에 고른 제품은 "다시 분석하기"를 눌러야 평가에 반영된다. 원래 제품으로 되돌리면 띠를 걷는다.
+        const original = draft?.selectedItemByCategory[compareCategory]
+        setStaleBasis(previous => {
+          const next = { ...previous }
+          if (changed && picked !== original) next[compareCategory] = item?.name ?? '선택한 제품'
+          else delete next[compareCategory]
+          return next
+        })
+        showToast(changed ? `${compareCategory} 분석 기준을 “${item?.name ?? '선택한 제품'}”로 골랐어요. 다시 분석하면 반영돼요.` : `${compareCategory} 분석 기준은 그대로예요.`)
+      } else {
+        showToast(`${compareCategory} 분석 기준을 “${item?.name ?? '선택한 제품'}”로 선택했어요.`)
+      }
     } else {
       const option = compareData.recommended.find(entry => entry.productId === choice.productId)
       if (option) {
@@ -505,7 +536,7 @@ export default function CheckPage() {
       setSelection(effectiveSelection(next, {}))
       setCart({}); setCartPreview(null)
       showToast(`${entries.length}개 부품을 한 번에 바꾸고 합계를 다시 계산했어요.`)
-      if (showAnalysis) await runAnalysis(next)
+      if (showAnalysis) await runAnalysis(next, { sourceIds: analyzedSourceIds.current })
     } catch (caught) {
       setError(errorMessage(caught, '교체 후보를 반영하지 못했습니다.'))
     } finally { setBusy(null) }
@@ -691,7 +722,7 @@ export default function CheckPage() {
           <>
             <section className="ck-card ck-workflow" aria-label="견적 점검 단계">
               {[
-                ['견적 올리기', '여러 장 한 번에'], ['인식 결과 확인', '제품명·가격 분리'], ['부품별 비교', '후보와 사양 비교'], ['종합 분석', '호환성·가격·용도'],
+                ['견적 올리기', '여러 장 한 번에'], ['인식 결과 확인', '제품명·가격 분리'], ['종합 분석', '호환성·가격·용도'], ['부품 비교·교체', '종합 분석에서 후보 비교'],
               ].map(([title, sub], index) => (
                 <div className={`ck-flow-step${workflowStep >= index + 1 ? ' active' : ''}`} key={title}>
                   <span className="ck-step-no">{index + 1}</span><div><b>{title}</b><small>{sub}</small></div>
@@ -736,7 +767,7 @@ export default function CheckPage() {
               <RecognitionResult
                 draft={draft} selection={selection} pending={pending} filter={filter} onFilter={setFilter}
                 onSelect={(category, itemId) => setSelection(previous => ({ ...previous, [category]: itemId }))}
-                onEdit={setEditingId} onQuantity={changeQuantity} onCompare={category => void openCompare(category)}
+                onEdit={setEditingId} onQuantity={changeQuantity}
                 cart={cart} cartPreview={cartPreview} cartPreviewBusy={cartPreviewBusy}
                 onClearCart={() => { setCart({}); showToast('교체 목록을 비웠어요.') }} onApplyCart={() => void applyCart()}
                 onCancelEdits={() => { setPending({}); setSelection(effectiveSelection(draft, selection)); showToast('아직 분석하지 않은 수정을 모두 취소했어요.') }}
@@ -756,6 +787,11 @@ export default function CheckPage() {
               onBack={backToResults} onOpenSaved={() => { setPickerError(''); setPickedSetupId(comparison ? pickedSetupId : null); setPickerOpen(true) }}
               savedOpen={Boolean(comparison && savedVisible)} onCart={() => void applyWholeQuote()} cartBusy={busy === 'apply'}
               savedPanel={savedPanel} liveLookup={liveLookup} onLiveLookup={item => void runLiveLookup(item)}
+              onCompare={category => void openCompare(category)} staleBasis={staleBasis} replacements={cart}
+              onReanalyze={() => void reanalyzeBasis()} reanalyzeBusy={busy === 'analyze'}
+              cartPreview={cartPreview} cartPreviewBusy={cartPreviewBusy}
+              onRecheck={() => void (Object.keys(cart).length > 0 ? applyCart() : reanalyzeBasis())}
+              recheckBusy={busy === 'cart' || busy === 'analyze'}
             />
           </div>
         )}

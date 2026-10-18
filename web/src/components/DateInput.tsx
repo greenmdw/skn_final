@@ -8,6 +8,8 @@ interface Props {
   value: string
   onChange: (iso: string, ok: boolean) => void
   ariaLabel?: string
+  /** 이 날짜(ISO, 포함)보다 앞선 날짜는 달력에서 고를 수 없고, 직접 입력해도 잘못된 값으로 본다 */
+  min?: string
 }
 
 /** 입력·붙여넣기 문자열 → 숫자 6자리(yymmdd). 2026-10-05·20261005 처럼 연도 4자리로 붙여넣어도 받는다 */
@@ -18,9 +20,10 @@ function toDigits(raw: string): string {
   return (digits.length > 6 && digits.startsWith('20') ? digits.slice(2) : digits).slice(0, 6)
 }
 
-export default function DateInput({ value, onChange, ariaLabel = '날짜' }: Props) {
+export default function DateInput({ value, onChange, ariaLabel = '날짜', min }: Props) {
   const [text, setText] = useState(isoToKo(value))
   const [touched, setTouched] = useState(false)
+  const [early, setEarly] = useState(false)   // 직접 입력한 날짜가 min 보다 앞서 거절됐는가
   const picker = useRef<HTMLInputElement>(null)
 
   // 부모가 값을 바꿔 주면(예: 달력으로 고름) 글자 칸도 따라간다. 타이핑 중인 미완성 값('')은 건드리지 않는다.
@@ -34,9 +37,12 @@ export default function DateInput({ value, onChange, ariaLabel = '날짜' }: Pro
     setText(next)
     if (digits.length === 0) { onChange('', true); return }
     const iso = digits.length === 6 ? koToIso(next) : null
-    onChange(iso ?? '', iso !== null)
+    const tooEarly = iso !== null && Boolean(min) && iso < (min as string)   // 지나간 날짜는 받지 않는다
+    setEarly(tooEarly)
+    onChange(iso ?? '', iso !== null && !tooEarly)
   }
   function onPicked(iso: string) {
+    setEarly(false)
     setText(isoToKo(iso))
     onChange(iso, true)
   }
@@ -55,8 +61,9 @@ export default function DateInput({ value, onChange, ariaLabel = '날짜' }: Pro
       <button type="button" className="pl-date-btn" onClick={openPicker} aria-label={`${ariaLabel} 달력으로 고르기`} title="달력으로 고르기">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M3 10h18M8 3v4M16 3v4" /></svg>
       </button>
-      <input ref={picker} type="date" className="pl-date-native" tabIndex={-1} aria-hidden="true" value={value} onChange={event => event.target.value && onPicked(event.target.value)} />
+      <input ref={picker} type="date" className="pl-date-native" tabIndex={-1} aria-hidden="true" min={min} value={value} onChange={event => event.target.value && onPicked(event.target.value)} />
       {invalid && <div className="pl-date-err" role="alert">YY/MM/DD 형식으로 입력해 주세요. 예: 26/10/05</div>}
+      {!invalid && early && <div className="pl-date-err" role="alert">오늘 이후 날짜를 입력해 주세요.</div>}
     </div>
   )
 }

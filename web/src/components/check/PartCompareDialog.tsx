@@ -1,6 +1,8 @@
 import { useEffect, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import type { QuoteDraft, QuoteDraftComparison, QuoteMatchStatus } from '../../api'
 import { itemStatus, signedWon, sourceBadge, wonText } from '../../utils/checkReview'
+import ProductThumb from '../ProductThumb'
+import { partKeyOf } from '../../utils/partIcon'
 
 export type CompareChoice = { kind: 'recognized'; itemId: string } | { kind: 'recommended'; productId: string }
 
@@ -70,8 +72,13 @@ export default function PartCompareDialog({ category, data, loading, error, draf
                   <div role="button" tabIndex={0} key={option.itemId} className={`ck-candidate${selected ? ' current' : ''}`} onClick={() => onChoice({ kind: 'recognized', itemId: option.itemId })} onKeyDown={pressToChoose(() => onChoice({ kind: 'recognized', itemId: option.itemId }))} aria-pressed={selected}>
                     <div className="ck-candidate-kicker"><span className={`ck-status ${status?.tone ?? 'ok'}`}>인식 제품 {index + 1}</span><b>{current ? '현재 분석 기준' : '인식된 비교안'}</b></div>
                     <div className="ck-candidate-source">{item ? `견적 이미지 ${sourceBadge(item, draft)}` : '받은 견적'} · {MATCH_LABEL[option.matchStatus]}</div>
-                    <h3>{option.name}{option.quantity > 1 ? ` × ${option.quantity}` : ''}</h3>
-                    <div className="ck-amount">{wonText(option.quoteLineTotal)}</div>
+                    <div className="ck-candidate-main">
+                      <span className="ck-candidate-thumb"><ProductThumb imageUrl={option.matchStatus === 'confirmed' ? option.imageUrl : null} partKey={partKeyOf(category)} name={option.name} /></span>
+                      <div>
+                        <h3>{option.name}{option.quantity > 1 ? ` × ${option.quantity}` : ''}</h3>
+                        <div className="ck-amount">{wonText(option.quoteLineTotal)}</div>
+                      </div>
+                    </div>
                     <div className="ck-candidate-specs">
                       {option.specs.slice(0, 4).map(spec => <span key={spec.key}>{spec.label}<b>{specText(spec.candidate, spec.unit)}</b></span>)}
                       {option.specs.length === 0 && <span>사양<b>확인된 정보 없음</b></span>}
@@ -90,8 +97,13 @@ export default function PartCompareDialog({ category, data, loading, error, draf
                   <div role="button" tabIndex={0} key={option.productId} className={`ck-candidate recommended${selected ? ' current' : ''}`} onClick={() => onChoice({ kind: 'recommended', productId: option.productId })} onKeyDown={pressToChoose(() => onChoice({ kind: 'recommended', productId: option.productId }))} aria-pressed={selected}>
                     <div className="ck-candidate-kicker"><span className="ck-status ok">추천 제품 {index + 1}</span><b>{delta == null ? '가격 차이 정보 없음' : delta === 0 ? '가격 같음' : `${Math.abs(delta).toLocaleString('ko-KR')}원 ${delta > 0 ? '높음' : '낮음'}`}</b></div>
                     <div className="ck-candidate-source">카탈로그·호환 규칙 기반</div>
-                    <h3>{option.name}</h3>
-                    <div className="ck-amount">{wonText(option.price)}</div>
+                    <div className="ck-candidate-main">
+                      <span className="ck-candidate-thumb"><ProductThumb imageUrl={option.imageUrl} partKey={partKeyOf(category)} name={option.name} /></span>
+                      <div>
+                        <h3>{option.name}</h3>
+                        <div className="ck-amount">{wonText(option.price)}</div>
+                      </div>
+                    </div>
                     <div className="ck-candidate-specs">
                       {option.specs.slice(0, 4).map(spec => <span key={spec.key}>{spec.label}<b>{specText(spec.candidate, spec.unit)}</b></span>)}
                       {option.specs.length === 0 && <span>사양<b>확인된 정보 없음</b></span>}

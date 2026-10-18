@@ -916,6 +916,8 @@ class PeripheralsRecommendIn(BaseModel):
     # 견적 입력(POST /peripherals/interpret 의 결과를 그대로 넘긴다). 목록에 없는 값은 오류 없이 무시하고
     # 응답의 ignored_inputs 로 알린다. 목적·상황에서 풀린 조건은 선호로만 쓰고, 거르는 것은 stated 뿐이다.
     purposes: list[str] = Field(default_factory=list)
+    # 목적 → 그 목적을 말할 때의 종류(해석의 purpose_kinds 를 그대로). 없는 목적은 모든 종류에 적용한다.
+    purpose_kinds: dict[str, list[str]] = Field(default_factory=dict)
     situations: list[str] = Field(default_factory=list)
     stated: dict[str, list[str]] = Field(default_factory=dict)       # 종류 → 직접 말한 스펙 조건 이름
     kind_budget: dict[str, int] = Field(default_factory=dict)        # 종류 → 예산 상한(원). 합산 예산은 budget_max
@@ -923,6 +925,8 @@ class PeripheralsRecommendIn(BaseModel):
     # 선호·기피 브랜드(종류 → 브랜드 이름). 선호는 브랜드 축에서 1점, 기피는 후보에서 뺀다.
     brand_like: dict[str, list[str]] = Field(default_factory=dict)
     brand_avoid: dict[str, list[str]] = Field(default_factory=dict)
+    # 뺄 제품(종류 → 제품 이름). 채팅의 "다른 걸로 바꿔줘"가 그때의 1위를 넣는다 — 후보에서 뺀다.
+    exclude: dict[str, list[str]] = Field(default_factory=dict)
     # 강조하는 축(종류 → 축 이름: 리뷰·가격·브랜드·무상AS 또는 그 종류의 스펙 기준 이름). 강조한 축 가중치 ×1.5.
     emphasis: dict[str, list[str]] = Field(default_factory=dict)
     # 손 크기(문장 해석의 hand_size 를 그대로 넘긴다). 체감 점수가 같은 손 크기 사용기 작성자를 묶는 데 쓴다(QA PQA-004).
@@ -1035,7 +1039,7 @@ class PeripheralAdjustChipOut(BaseModel):
 class PeripheralNoticeOut(BaseModel):
     """채팅으로 알릴 유의사항(QA PQA-001). 추천은 그대로 하고 주의할 점만 말한다 — 화면은 text 를 채팅에 그대로 보여 준다."""
     kind: str
-    code: str        # pc_unknown · gpu_4k · gpu_high_res · low_refresh
+    code: str        # pc_unknown · gpu_4k · gpu_high_res · low_refresh · over_budget(kind="budget")
     text: str
 
 
@@ -1106,6 +1110,11 @@ class PeripheralTurnOut(BaseModel):
     not_reflected: list[str] = Field(default_factory=list)       # 반영하지 못한 말과 이유
     notes: list[str] = Field(default_factory=list)               # 어떻게 읽었는지·함께 고를 수 없어 정리한 조건
     answer: PeripheralAnswerOut | None = None
+    # 결과 화면 명령(빼기·취소·다른 걸로·더 싸게·처음부터 — peripheral_commands). 화면은 removed_conditions 나 new_conditions 가
+    # 있으면 받은 interpretation 으로 추천을 다시 받고, reset 이면 결과를 지우고 첫 화면으로 돌아간다.
+    command: str | None = None                                   # reset · remove · swap · relative_budget · cheaper · None
+    removed_conditions: list[PeripheralNewConditionOut] = Field(default_factory=list)   # 이번 문장으로 뺀 것
+    reset: bool = False
     reply: str
     chips: list[str] = Field(default_factory=list)               # 이번 답 뒤에 보여 줄 질문 칩
     result_chips: list[str] = Field(default_factory=list)        # 추천 결과가 나온 뒤에 보여 줄 질문 칩
@@ -1113,6 +1122,21 @@ class PeripheralTurnOut(BaseModel):
 
 class PeripheralChatOut(PeripheralInterpretOut):
     turn: PeripheralTurnOut
+
+
+class PeripheralHistoryMessageOut(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str
+    at: str
+
+
+class PeripheralHistoryOut(BaseModel):
+    """GET /session/{id}/peripherals/messages — 저장된 주변기기 채팅과 마지막 상태(peripheral_history_service)."""
+    messages: list[PeripheralHistoryMessageOut] = Field(default_factory=list)
+    interpretation: PeripheralInterpretation
+    resolved: dict[str, PeripheralResolvedKind] = Field(default_factory=dict)
+    showing_results: bool = False          # 마지막으로 추천을 받은 상태였는가("처음부터 다시" 뒤면 False)
+    notices: list[str] = Field(default_factory=list)   # 마지막 추천 때 채팅에 말한 유의사항(다시 받을 때 되풀이하지 않게)
 
 
 class SwapIn(BaseModel):
@@ -1255,6 +1279,7 @@ class ListSummaryOut(BaseModel):
     name: str
     category: Optional[str] = None
     stage: Literal["category", "conditions", "results", "report"]   # 현재 revision 기준(새 견적서 작성 중이면 그 단계)
+    chat: Literal["computer", "peripheral"] = "computer"   # 주변기기 채팅 기록이 있는 목록이면 peripheral
     updated_at: datetime
     # 대화 목록(패널 "대화 내역")용 — 제목 대신 첫 사용자 말, 대화까지 포함한 마지막 활동, 조건 요약
     last_active_at: datetime | None = None
@@ -1326,6 +1351,8 @@ class ReportPeripheralOut(BaseModel):
 
     kind: PeripheralKind
     product: ReportProductOut
+    # 불러온 견적을 주변기기 화면에서 다시 담을 때 쓴다 — 없으면 화면이 담을 품목이 없다고 거른다(QA 10/16 #4).
+    variant_id: str
     price: int            # 단가 — 줄 금액은 price × qty, 참고가(reference_snapshot)
     qty: int = 1
 

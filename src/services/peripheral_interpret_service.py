@@ -61,9 +61,15 @@ def interpret(text: str, previous: dict[str, Any] | None = None, kinds: list[str
     if new is None:
         new, source = _read(sentence, key, rules, settings["cache_size"], hint)
 
-    new = _with_question(new, sentence, rules)
-
     base = peripheral_intent.sanitize(previous, rules) if previous else None
+    # 금액은 대화의 종류로 맞춘다. 규칙 해석도 이번 문장만 보므로 "30만원"처럼 종류 이름 없이 이어 말한 금액을 버렸다
+    # (10/17 확인) — 모델 해석과 같이 이전 해석의 종류를 문맥으로 준다.
+    new = peripheral_intent.reconcile_budget(new, sentence, [*(base.kinds if base else []), *hint], rules)
+    new = _with_question(new, sentence, rules)
+    # 이번 문장의 목적은 문장에 나온 종류, 없으면 지금 대화의 종류에 묶는다 — 나중에 고른 종류로 번지지 않게(10/17).
+    context = peripheral_intent.kinds_in_text(sentence) or peripheral_intent.kinds_all_order([*(base.kinds if base else []), *hint])
+    new = peripheral_intent.scope_purposes(new, context)
+
     merged = peripheral_intent.merge(base, new, rules)
     if kinds:      # 종류 카드로 고른 값 — 질문은 이번 문장의 것이므로 합치면서 지워지지 않게 되돌려 놓는다
         merged = peripheral_intent.merge(merged, peripheral_intent.sanitize({"kinds": kinds}, rules), rules)

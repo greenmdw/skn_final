@@ -92,7 +92,10 @@ class PlanRepo(Repo):
             "EXISTS(SELECT 1 FROM planning.plan_condition pc WHERE pc.revision_id=pr.id "
             "  AND pc.condition_key='category' AND pc.status='active') AS has_category, "
             "EXISTS(SELECT 1 FROM engine.recommendation_run rr WHERE rr.revision_id=pr.id "
-            "  AND rr.status='completed') AS has_result "
+            "  AND rr.status='completed') AS has_result, "
+            # 주변기기 화면이 만든 목록 — 그 대화에 주변기기 채팅 기록이 있다(peripheral_history_service)
+            "EXISTS(SELECT 1 FROM identity.message m WHERE m.conversation_id=p.conversation_id "
+            "  AND m.metadata->>'channel'='peripheral') AS has_peripheral_chat "
             "FROM planning.plan p "
             "JOIN planning.plan_revision pr ON pr.id=p.current_revision_id "
             "JOIN config.domain_version dv ON dv.id=pr.domain_version_id "
@@ -268,7 +271,10 @@ class PlanRepo(Repo):
             "EXISTS(SELECT 1 FROM planning.plan_condition pc WHERE pc.revision_id=pr.id "
             "  AND pc.condition_key='category' AND pc.status='active') AS has_category, "
             "EXISTS(SELECT 1 FROM engine.recommendation_run rr WHERE rr.revision_id=pr.id "
-            "  AND rr.status='completed') AS has_result "
+            "  AND rr.status='completed') AS has_result, "
+            # 주변기기 화면이 만든 목록 — 그 대화에 주변기기 채팅 기록이 있다(peripheral_history_service)
+            "EXISTS(SELECT 1 FROM identity.message m WHERE m.conversation_id=p.conversation_id "
+            "  AND m.metadata->>'channel'='peripheral') AS has_peripheral_chat "
             "FROM planning.plan p "
             "JOIN planning.plan_revision pr ON pr.id=p.current_revision_id "
             "JOIN config.domain_version dv ON dv.id=pr.domain_version_id "
@@ -335,7 +341,7 @@ class PlanRepo(Repo):
 
     def list_peripheral_lines(self, revision_id: UUID) -> list[dict]:
         return self._all(
-            "SELECT kind, pack_count, line_amount, snapshot FROM planning.peripheral_line "
+            "SELECT kind, variant_id, pack_count, line_amount, snapshot FROM planning.peripheral_line "
             "WHERE revision_id=%s ORDER BY created_at",
             (revision_id,),
         )

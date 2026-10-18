@@ -46,7 +46,6 @@
 .pf-chat .pl-input input::placeholder { color: color-mix(in srgb, var(--muted) 90%, white 10%); opacity: 1; }
 .pf-chat .pl-send:disabled { opacity: .6; }
 .pf-quick { margin-bottom: 0; }
-.pf-reflected { padding: 8px 10px; border-radius: 6px; background: rgba(61,220,151,.16); color: var(--ok); font-size: 11px; line-height: 1.5; }
 
 .pf-results-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .pf-results-heading > div:first-child { display: flex; flex-direction: column; gap: 8px; }
@@ -357,7 +356,7 @@
 .pr-understood > summary em { margin-left: auto; color: var(--mint); font-size: 13px; font-style: normal; font-weight: 800; }
 .pr-understood[open] > summary { margin-bottom: 12px; }
 .pr-understood .pf-adjust { margin-top: 12px; }
-.pr-tabs { display: flex; flex-wrap: nowrap; gap: 0; overflow-x: auto; scrollbar-width: thin; border-bottom: 2px solid var(--line); }
+.pr-tabs { display: flex; flex-wrap: wrap; gap: 0; border-bottom: 2px solid var(--line); }
 .pr-tab { position: relative; flex: 0 0 auto; display: flex; align-items: baseline; gap: 8px; margin-bottom: -2px; padding: 12px 26px 13px; border: 0; border-bottom: 3px solid transparent; background: none; color: var(--text); cursor: pointer; white-space: nowrap; transition: color .15s, border-color .15s, background .15s; }
 .pr-tab b { font-size: 17px; font-weight: 650; letter-spacing: -.01em; }
 .pr-tab span { color: var(--muted); font-size: 12px; font-weight: 500; }

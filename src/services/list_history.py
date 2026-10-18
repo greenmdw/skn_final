@@ -202,7 +202,8 @@ def build_events(conn, revision: dict) -> list[dict]:
     cat_def = load_category("computer")
 
     talk = [m for m in ConversationRepo(conn).messages(revision["conversation_id"])
-            if m["created_at"] >= start and (end is None or m["created_at"] <= end) and m["content"].strip()]
+            if m["created_at"] >= start and (end is None or m["created_at"] <= end) and m["content"].strip()
+            and (m.get("metadata") or {}).get("channel") != "peripheral"]      # 주변기기 채팅은 본체 여정이 아니다
     events: list[dict] = []
     claimed: set[int] = set()
     for index, m in enumerate(talk):

@@ -36,7 +36,7 @@ from datetime import datetime, timedelta
 from typing import Any, Iterable
 
 from src.dto import Candidate, FeelAttributeDetail, FeelDetail, FeelQuote
-from src.engine.peripheral_intent import Interpretation, ResolvedKind
+from src.engine.peripheral_intent import Interpretation, ResolvedKind, purposes_for
 from src.engine.peripheral_rules import feel_attributes, feel_config, load_peripheral_rules, situations
 
 
@@ -94,7 +94,7 @@ def _requester(kind: str, interp: Interpretation, resolved: ResolvedKind | None,
     attrs = feel_attributes(kind, rules)
     sit = situations(rules)
     grouping_situations = {s for s in interp.situations if sit.get(s, {}).get("same_condition_group")}
-    tags = frozenset({*interp.purposes, *grouping_situations})
+    tags = frozenset({*purposes_for(interp, kind), *grouping_situations})
     quiet_flags = frozenset(set(interp.situations) & {"quiet_place", "mic"})
     design = "design" in interp.situations
 

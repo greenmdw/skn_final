@@ -122,6 +122,7 @@ def _user_messages(conn, revision: dict) -> list[dict]:
     end = revision.get("confirmed_at")
     return _cur(conn).execute(
         "SELECT id, content, created_at FROM identity.message WHERE conversation_id=%s AND role='user' "
+        "AND NOT metadata @> '{\"channel\": \"peripheral\"}' "
         "AND (%s::timestamptz IS NULL OR created_at <= %s) ORDER BY created_at",
         (revision["conversation_id"], end, end),
     ).fetchall()
@@ -357,6 +358,7 @@ def _unhandled_asks(conn, revision: dict, runs: list[dict], rows: list[dict]) ->
     sources = {r["source_message_id"] for r in rows if r["source_message_id"]}
     said = _cur(conn).execute(
         "SELECT id, content, created_at FROM identity.message WHERE conversation_id=%s AND role='user' "
+        "AND NOT metadata @> '{\"channel\": \"peripheral\"}' "
         "AND created_at >= %s AND (%s::timestamptz IS NULL OR created_at <= %s) ORDER BY created_at, id",
         (revision["conversation_id"], start, end, end),
     ).fetchall()
