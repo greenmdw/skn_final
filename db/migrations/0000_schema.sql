@@ -66,13 +66,6 @@ CREATE SCHEMA identity;
 
 
 --
--- Name: notification; Type: SCHEMA; Schema: -; Owner: -
---
-
-CREATE SCHEMA notification;
-
-
---
 -- Name: planning; Type: SCHEMA; Schema: -; Owner: -
 --
 
@@ -1097,28 +1090,6 @@ CREATE TABLE identity.message (
     client_message_id text NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     CONSTRAINT message_role_check CHECK ((role = ANY (ARRAY['user'::text, 'assistant'::text, 'system'::text])))
-);
-
-
---
--- Name: price_watch; Type: TABLE; Schema: notification; Owner: -
---
-
-CREATE TABLE notification.price_watch (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    revision_id uuid NOT NULL,
-    purchase_line_id uuid,
-    target_amount numeric(18,2) NOT NULL,
-    currency character(3) DEFAULT 'KRW'::bpchar NOT NULL,
-    pricing_policy jsonb NOT NULL,
-    state text DEFAULT 'active'::text NOT NULL,
-    ends_at timestamp with time zone NOT NULL,
-    last_condition_state text DEFAULT 'unknown'::text NOT NULL,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    CONSTRAINT price_watch_last_condition_state_check CHECK ((last_condition_state = ANY (ARRAY['unknown'::text, 'above'::text, 'reached'::text]))),
-    CONSTRAINT price_watch_state_check CHECK ((state = ANY (ARRAY['active'::text, 'paused'::text, 'expired'::text]))),
-    CONSTRAINT price_watch_target_amount_check CHECK ((target_amount >= (0)::numeric))
 );
 
 

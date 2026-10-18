@@ -22,7 +22,7 @@ MIGRATIONS = ROOT / "db/migrations"
 # The compact migration chain creates only objects that survive in the final schema.
 EXPECTED_CHAIN = [
     "0000_schema.sql", "0001_constraints.sql", "0002_indexes.sql", "0003_triggers.sql",
-    "0004_notification_events.sql", "0005_preference_signal.sql", "0006_report_soft_delete.sql",
+    "0005_preference_signal.sql", "0006_report_soft_delete.sql",
     "0007_peripheral_line.sql", "0008_review_aspect.sql", "0009_live_spec_lookup_cache.sql",
     "0010_live_spec_lookup_store.sql", "0011_message_metadata.sql",
     "0012_review_embedding_invalidate.sql", "0013_community_post.sql", "0014_community_post_image.sql",
@@ -98,9 +98,6 @@ EXPECTED_TABLES = {
     "identity.conversation",
     "identity.message",
     "identity.preference_signal",
-    "notification.price_watch",
-    "notification.price_watch_evaluation",
-    "notification.notification_event",
     "planning.peripheral_line",
     "planning.plan",
     "planning.plan_extras",
@@ -111,15 +108,16 @@ EXPECTED_TABLES = {
     "planning.requirement",
 }
 # 제거된 저장 구조는 다시 생성하지 않는다.
-# notification.notification_event · notification.price_watch_evaluation 은 2026-09-12 팀 결정으로
-# 여기 있었으나, 2026-09-30 기획서(ACC-02)가 목표가 알림 판정 이력·발송 관리를 다시 요구해 팀 재확인
-# (2026-09-27) 뒤 0004_notification_events.sql 로 되살렸다 — EXPECTED_TABLES 로 옮김.
+# notification.price_watch_evaluation · notification.notification_event 는 2026-09-12 팀 결정으로 제거됐다가
+# 2026-09-30 기획서(ACC-02) 요구로 팀 재확인(2026-09-27) 뒤 0004_notification_events.sql 로 되살렸다.
+# 2026-10-18 목표가 알림 기능을 삭제하면서 notification.price_watch 와 함께 notification 스키마째 다시 제거했다.
 REMOVED_TABLES = [
     "planning.owned_item", "planning.fulfillment_allocation",
     "identity.user_preference", "catalog.product_category_membership",
     "engine.candidate_evidence", "engine.validation_target", "engine.validation_evidence",
+    "notification.price_watch", "notification.price_watch_evaluation", "notification.notification_event",
 ]
-REMOVED_SCHEMAS = ["rag", "dataset", "shared"]
+REMOVED_SCHEMAS = ["rag", "dataset", "shared", "notification"]
 # 통합 planning.item 모델은 현재 계약에 없다.
 NEVER_TABLES = ["planning.item"]
 

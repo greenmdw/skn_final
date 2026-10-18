@@ -16,7 +16,7 @@ Always set `TRUEFIT_REQUIRE_TEST_DB=1` for completion checks. It turns PostgreSQ
 At the start of a pytest session, the test harness automatically:
 
 1. Creates a unique `truefit_test_<UUID>` database on the running PostgreSQL server.
-2. Runs `db/setup_all.py` to apply the twenty baseline migrations and all seeds.
+2. Runs `db/setup_all.py` to apply the nineteen baseline migrations and all seeds.
 3. Runs the tests.
 4. Drops the temporary database with `DROP DATABASE ... WITH (FORCE)` when the session ends.
 
@@ -87,13 +87,11 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
 - If the default uv cache is read-only, keep `UV_CACHE_DIR=/tmp/uv-cache` in the command.
 - If Python raises `ModuleNotFoundError: src`, run from the repository root and set `PYTHONPATH=.`.
 - If database tests are skipped, rerun with `TRUEFIT_REQUIRE_TEST_DB=1` so the underlying setup problem is reported as an error.
-- The current database baseline must contain exactly these twenty files:
+- The current database baseline must contain exactly these nineteen files:
   - `db/migrations/0000_schema.sql`
   - `db/migrations/0001_constraints.sql`
   - `db/migrations/0002_indexes.sql`
   - `db/migrations/0003_triggers.sql`
-  - `db/migrations/0004_notification_events.sql` (added 2026-09-27, ACC-02: revives
-    `notification.price_watch_evaluation` / `notification.notification_event`, previously removed)
   - `db/migrations/0005_preference_signal.sql` (added 2026-09-30: adds
     `identity.preference_signal`, brand-level preference/aversion signals — see
     `docs/사용자_선호비선호_기록_설계.md`)

@@ -432,27 +432,6 @@ CREATE INDEX message_conv_created_idx ON identity.message USING btree (conversat
 
 
 
---
--- Name: price_watch_active_scope_key; Type: INDEX; Schema: notification; Owner: -
---
-
-CREATE UNIQUE INDEX price_watch_active_scope_key ON notification.price_watch USING btree (revision_id, purchase_line_id) NULLS NOT DISTINCT WHERE (state = 'active'::text);
-
-
-
---
--- Name: price_watch_revision_idx; Type: INDEX; Schema: notification; Owner: -
---
-
-CREATE INDEX price_watch_revision_idx ON notification.price_watch USING btree (revision_id);
-
-
-
---
--- Name: price_watch_state_ends_idx; Type: INDEX; Schema: notification; Owner: -
---
-
-CREATE INDEX price_watch_state_ends_idx ON notification.price_watch USING btree (state, ends_at);
 
 
 
