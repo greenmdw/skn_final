@@ -103,7 +103,8 @@ export function snapshotOf(item: PeripheralItem, chosenName: string | null, sess
   const views = candidateViews(item)
   const hero = views.find(view => view.name === chosenName) ?? views[0]
   return {
-    v: 1, rank: hero.rank, keySpecs: hero.keySpecs, requested: hero.requested, pricePosition: hero.pricePosition,
+    // 확정한 견적에서 불러온 카드를 다시 확정해도 처음 순위를 잃지 않는다(불러온 카드엔 다른 선택지가 없어 hero.rank 가 1이다)
+    v: 1, rank: hero.rank === 1 && item.savedRank ? item.savedRank : hero.rank, keySpecs: hero.keySpecs, requested: hero.requested, pricePosition: hero.pricePosition,
     scoreAxes: hero.scoreAxes, feel: hero.feel, reviewAspects: hero.reviewAspects,
     // 조건 충족 태그는 1위 카드에만 있다
     requirement: hero.rank === 1 ? item.requirement : [],
@@ -119,5 +120,6 @@ export function withSnapshot<T extends Pick<PeripheralItem, 'keySpecs' | 'reques
   return {
     ...item, keySpecs: view.keySpecs, requested: view.requested, pricePosition: view.pricePosition, scoreAxes: view.scoreAxes,
     feel: view.feel, reviewAspects: view.reviewAspects, requirement: view.requirement,
+    ...(view.rank > 1 ? { savedRank: view.rank } : {}),
   }
 }

@@ -148,17 +148,22 @@ export default function PeripheralResultSection({ item, chosenName, picked, onCh
   const assumedNotes = swapped ? [] : item.requirement.filter(row => row.key === 'resolution_assumed')
   const failedChecks = swapped ? [] : item.checks.filter(check => check.state === 'fail')
   const candidateCount = hero.pricePosition?.of ?? null
+  // 확정한 견적에서 불러온 카드: 다른 선택지가 없어 큰 카드가 1위처럼 보이므로, 저장해 둔 순위로 말한다
+  const savedRank = !swapped ? item.savedRank ?? null : null
+  const heroRank = savedRank ?? hero.rank
 
   return <section className="pf-kind-result pr-section">
     <div className="pf-kind-heading">
       <h2>{item.kindLabel}</h2>
-      <span>{candidateCount ? `조건에 맞는 후보 ${candidateCount}개 중 ${hero.rank}위` : '조건과 리뷰 근거에 가장 잘 맞는 제품'}</span>
+      <span>{candidateCount ? `조건에 맞는 후보 ${candidateCount}개 중 ${heroRank}위` :'조건과 리뷰 근거에 가장 잘 맞는 제품'}</span>
       <button type="button" className="pr-link-btn" onClick={onTogglePicked}>{picked ? '견적에서 빼기' : '견적에 다시 담기'}</button>
     </div>
 
     <article className={'pr-hero' + (swapped ? ' swapped' : '')} ref={heroRef}>
       <div className="pr-hero-side">
-        <span className={'pr-best' + (swapped ? ' chosen' : '')}>{swapped ? `직접 고른 제품 · 추천 ${hero.rank}위` : '가장 잘 맞아요'}</span>
+        <span className={'pr-best' + (swapped || savedRank ? ' chosen' : '')}>
+          {swapped ? `직접 고른 제품 · 추천 ${hero.rank}위` : savedRank ? `직접 고른 제품 · 추천 ${savedRank}위` : '가장 잘 맞아요'}
+        </span>
         <ProductImage url={hero.imageUrl} name={hero.name} brand={hero.brand} />
         <strong className="pr-price pl-mono">{wonFmt(hero.price)}</strong>
         {swapped && <span className="pr-rank-note">1위보다 {wonFmt(Math.abs(hero.price - item.price))} {hero.price < item.price ? '저렴' : hero.price > item.price ? '비쌈' : '같은 가격'}</span>}

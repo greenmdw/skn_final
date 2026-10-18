@@ -674,6 +674,8 @@ export interface PeripheralItem {
   pricePosition: PeripheralPricePosition | null
   /** 점수 축(사용자말 이름 포함) */
   scoreAxes: PeripheralScoreAxis[]
+  /** 확정한 견적에서 불러온 제품이 추천 때 몇 위였는지(1위가 아닐 때만). 불러온 카드는 다른 선택지가 없어 이 값으로 순위를 말한다 */
+  savedRank?: number
 }
 
 /** 체감 근거에 인용한 사용기 문장 하나. postId 로 커뮤니티 글을 연다 */
