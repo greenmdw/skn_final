@@ -1,6 +1,6 @@
 // 화면 모델(CurrentPlan · SavedSetup)과 백엔드 모델 사이의 순수 변환 함수 모음.
 // 프레임워크·네트워크에 기대지 않아 Node 로 바로 테스트한다(web/tests/mapping.test.mjs) — 그래서 타입만 import 한다.
-import type { BudgetNotice, BudgetWarning, ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, ContributionShare, CurrentPlan, DeskState, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
+import type { BudgetNotice, BudgetWarning, ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, ContributionShare, CurrentPlan, DeskState, PartKey, PeripheralSnapshot, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
 import type { AlternativeOption } from '../types'
 import type { WireAlternative, WireCompatCheck, WireConditionState, WireField, WireItem, WireNextQuestion, WireOwnedPartsPreviewRow, WireReport, WireReportItem, WireResult, WireReview, WireText } from './wire'
 
@@ -318,6 +318,19 @@ export function setupFromReport(report: WireReport, extras: SetupExtras | undefi
     peripherals: (report.peripherals ?? []).map(item => ({
       kind: item.kind, name: item.product.name, price: item.price, qty: item.qty, variantId: item.variant_id ?? null,
       imageUrl: item.product.image_url, productUrl: item.product.purchase_url,
+      view: snapshotFromWire(item.view),
     })),
+  }
+}
+
+/** 서버가 보관해 돌려주는 확정 때의 주변기기 설명. 모양이 맞지 않거나 모르는 버전이면 없는 것으로 본다. */
+function snapshotFromWire(raw: unknown): PeripheralSnapshot | null {
+  if (!raw || typeof raw !== 'object') return null
+  const view = raw as Partial<PeripheralSnapshot>
+  if (view.v !== 1 || !Array.isArray(view.keySpecs) || !Array.isArray(view.requested)) return null
+  return {
+    v: 1, rank: Number(view.rank) || 1, keySpecs: view.keySpecs, requested: view.requested, pricePosition: view.pricePosition ?? null,
+    scoreAxes: Array.isArray(view.scoreAxes) ? view.scoreAxes : [], feel: view.feel ?? null,
+    reviewAspects: Array.isArray(view.reviewAspects) ? view.reviewAspects : [], requirement: Array.isArray(view.requirement) ? view.requirement : [],
   }
 }

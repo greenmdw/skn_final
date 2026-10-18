@@ -11,6 +11,7 @@ import type { SetupPeripheral } from '../state/types'
 import { useToast } from '../state/ToastContext'
 import { wonFmt } from '../utils/format'
 import { Linkified } from '../utils/linkify'
+import { snapshotOf, withSnapshot } from '../utils/peripheralResult'
 import { rememberedPeripheralSession, rememberPeripheralSession } from '../utils/peripheralSession'
 import {
   EMPTY_INTERPRETATION, EMPTY_UNDERSTOOD, HAND_SIZE_LABEL, PERIPHERAL_KINDS as KINDS, QUICK_CONDITIONS, SITUATION_LABEL, applyAdjustChip,
@@ -42,14 +43,14 @@ function restoredResult(items: SetupPeripheral[], sessionId: string): Peripheral
     sessionId, status: 'ready', empty: [], ignoredInputs: [], adjustChips: [], notices: [],
     referencePrice: items.reduce((sum, item) => sum + item.price * item.qty, 0),
     priceNote: '확정한 견적에서 불러온 구성입니다.',
-    items: items.map(item => ({
+    items: items.map(item => withSnapshot({
       kind: item.kind, kindLabel: kindLabel(item.kind), name: item.name, brand: item.brand ?? '',
       variantId: item.variantId ?? null, productUrl: item.productUrl ?? null, imageUrl: item.imageUrl ?? null,
       price: item.price, priceNote: '확정한 견적에서 불러온 참고가입니다.', requirement: [], checks: [],
       reason: { status: 'restored', text: '저장된 견적에서 불러온 제품입니다.' },
       guide: { status: 'unavailable', text: null }, reviewAspects: [], reviewWeight: 0, reviewNote: '',
       alternatives: [], feel: null, feelNote: null, keySpecs: [], requested: [], pricePosition: null, scoreAxes: [],
-    })),
+    }, item.view)),
   }
 }
 
@@ -413,7 +414,12 @@ export default function PeripheralsPage() {
     }
     const items = result.items.filter(item => pickedKinds.has(item.kind) && chosenProduct(item, selection).variantId).map(item => {
       const product = chosenProduct(item, selection)
-      return { kind: item.kind, name: product.name, brand: product.brand, price: product.price, qty: 1, variantId: product.variantId, imageUrl: product.imageUrl, productUrl: product.productUrl }
+      return {
+        kind: item.kind, name: product.name, brand: product.brand, price: product.price, qty: 1, variantId: product.variantId,
+        imageUrl: product.imageUrl, productUrl: product.productUrl,
+        // 지금 화면에 보이는 설명을 함께 저장해 견적 수정하기로 다시 열 때 그대로 보여 준다(QA 10/16 #5)
+        view: snapshotOf(item, product.fromAlternative ? product.name : null),
+      }
     })
     if (!items.length) { setNotice('장바구니에 담을 수 있는 품목이 없어요.'); return }
     setPeripherals(items, plan ? undefined : result.sessionId)

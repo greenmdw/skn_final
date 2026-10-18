@@ -261,7 +261,7 @@ export interface WireReport {
   confirmed_at: string
   items: WireReportItem[]
   /** 확정할 때 같이 얼린 주변기기(없으면 빈 배열) */
-  peripherals?: { kind: 'monitor' | 'keyboard' | 'mouse' | 'speaker'; product: { product_key: string; name: string; image_url: string | null; purchase_url: string | null }; variant_id?: string | null; price: number; qty: number }[]
+  peripherals?: { kind: 'monitor' | 'keyboard' | 'mouse' | 'speaker'; product: { product_key: string; name: string; image_url: string | null; purchase_url: string | null }; variant_id?: string | null; price: number; qty: number; view?: unknown }[]
 }
 
 export interface WireReportSummary {

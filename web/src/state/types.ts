@@ -1,4 +1,7 @@
-import type { PeripheralKind, ReportSummary } from '../api/types'
+import type {
+  PeripheralFeel, PeripheralKeySpec, PeripheralKind, PeripheralPricePosition, PeripheralRequested, PeripheralReviewAspect,
+  PeripheralScoreAxis, ReportSummary,
+} from '../api/types'
 // 백엔드 추천이 내는 8개 슬롯(cpu·gpu·ram·board·ssd·psu·case·cooler)과 목업에만 있던 monitor.
 export type PartKey = 'cpu' | 'gpu' | 'ram' | 'ssd' | 'monitor' | 'board' | 'psu' | 'case' | 'cooler'
 
@@ -48,6 +51,24 @@ export interface EditingSheet {
 }
 
 /** 장바구니·확정 리포트에 함께 담는 주변기기 한 줄. variantId 가 있어야 확정에 보낼 수 있다(리포트에서 읽은 값에는 없다) */
+/**
+ * 견적을 확정할 때 화면에 보이던 주변기기 설명(스펙 한 줄·요청한 조건의 근거·점수 축·사용기). 확정할 때 그대로 저장해 두었다가
+ * 견적 수정하기로 다시 열 때 처음 보던 모습 그대로 보여 준다(가격·근거가 확정 시점 그대로). 서버는 내용을 해석하지 않고 보관만 한다.
+ */
+export interface PeripheralSnapshot {
+  /** 모양이 바뀌면 올린다 — 모르는 버전은 화면이 무시한다 */
+  v: 1
+  /** 서버 순위(1위 = 1). 다른 선택지를 골랐으면 그 순위 */
+  rank: number
+  keySpecs: PeripheralKeySpec[]
+  requested: PeripheralRequested[]
+  pricePosition: PeripheralPricePosition | null
+  scoreAxes: PeripheralScoreAxis[]
+  feel: PeripheralFeel | null
+  reviewAspects: PeripheralReviewAspect[]
+  requirement: { key: string; label: string; value: string }[]
+}
+
 export interface SetupPeripheral {
   kind: PeripheralKind
   name: string
@@ -58,6 +79,8 @@ export interface SetupPeripheral {
   variantId?: string | null
   imageUrl?: string | null
   productUrl?: string | null
+  /** 확정할 때 보이던 설명. 예전 견적서에는 없다 */
+  view?: PeripheralSnapshot | null
 }
 
 export interface PlanState {

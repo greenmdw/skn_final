@@ -103,7 +103,7 @@ export const setups: Api['setups'] = {
     try {
       report = await request<WireReport>('POST', '/lists/' + setup.id + '/confirm', {
         name: setup.title, planned_purchase_at: setup.date, target_amount: setup.target, memo: setup.memo,
-        peripherals: (setup.peripherals ?? []).flatMap(item => item.variantId ? [{ kind: item.kind, variant_id: item.variantId, qty: item.qty }] : []),
+        peripherals: (setup.peripherals ?? []).flatMap(item => item.variantId ? [{ kind: item.kind, variant_id: item.variantId, qty: item.qty, view: item.view ?? undefined }] : []),
       })
     } catch (error) { throw toConfirmError(error) }
     writeExtras({ ...readExtras(), [setup.id]: {
