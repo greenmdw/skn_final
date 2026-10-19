@@ -1472,12 +1472,32 @@ def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID,
     old_price = (int(current["price"]) if current["price"] is not None else 0) * old_qty
     new_price = (int(target["price"]) if target.get("price") is not None else 0) * new_qty
     delta = fmt_money(new_price - old_price, signed=True)
-    erepo.update_candidate_reason(item_id, (f"사용자 요청으로 교체한 부품입니다 — 자동 추천은 '{current['product_name']}'({fmt_money(old_price)})였고 "
-        f"이 후보는 {delta}입니다. 순위는 교체 전 구성 기준이고, 호환 점검은 교체 후 구성으로 다시 했습니다."))
+    # 처음 추천한 상품은 리뷰 snapshot 에 남아 있다. 두 번째 교체부터 "자동 추천은 …"에 직전에 바꿨던 상품을 적었고, 처음 추천한
+    # 상품으로 되돌려도 "교체한 부품"이라고 적혀 확정 리포트에 그대로 얼었다(QA 10/16 #33).
+    from src.services.recommendation_review_snapshot import cached_snapshot
+    snapshot = cached_snapshot(erepo, run["id"])
+    original_id = ((snapshot or {}).get("selected") or {}).get(current["slot"])
+    original = next((row for row in slot_variants if str(row["variant_id"]) == original_id), None)
+    if original is not None and original["variant_id"] == candidate_id:
+        ranked = (snapshot.get("candidates") or {}).get(original_id) or {}
+        if ranked.get("rank_score") is not None:
+            erepo.restore_candidate_score(item_id, score=round(ranked["rank_score"], 4),
+                                          score_method_version=ranked.get("score_method"))
+        reason = (f"처음 추천한 부품으로 되돌렸습니다 — 직접 바꿨던 '{current['product_name']}'({fmt_money(old_price)})보다 {delta}입니다. "
+                  "호환 점검은 되돌린 구성으로 다시 했습니다.")
+        note = f"※ 이후 {current['slot']}를 처음 추천한 '{target['name']}'(으)로 되돌렸습니다({delta})."
+    else:
+        if original is None or str(current["variant_id"]) == original_id:
+            before = f"자동 추천은 '{current['product_name']}'({fmt_money(old_price)})였고 이 후보는 {delta}입니다"
+        else:
+            before = (f"자동 추천은 '{original['name']}'였고, 직접 바꿨던 '{current['product_name']}'({fmt_money(old_price)})보다 "
+                      f"이 후보는 {delta}입니다")
+        reason = f"사용자 요청으로 교체한 부품입니다 — {before}. 순위는 교체 전 구성 기준이고, 호환 점검은 교체 후 구성으로 다시 했습니다."
+        note = f"※ 이후 {current['slot']}를 '{target['name']}'(으)로 교체했습니다({delta}). 이 요약은 교체 전 구성 기준입니다."
+    erepo.update_candidate_reason(item_id, reason)
     reverify_set(conn, revision_id, run)
     # 요약(explanation)도 교체 전 구성 기준이다. [5] 를 다시 돌릴 수 없으니 그 사실을 본문 끝에 적는다.
     if run.get("explanation_status") == "ready" and run.get("explanation_text"):
-        note = f"※ 이후 {current['slot']}를 '{target['name']}'(으)로 교체했습니다({delta}). 이 요약은 교체 전 구성 기준입니다."
         erepo.set_explanation(run["id"], headline=run.get("explanation_headline") or "",
                               text=run["explanation_text"].rstrip() + "\n\n" + note,
                               reasoning_log=erepo.get_run_trace(run["id"]))
