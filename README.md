@@ -152,6 +152,43 @@ PERIPHERAL_INTENT_AGENT=1
 - **1**: 새로 올라온 글을 분석합니다(하루 `PERIPHERAL_POST_DAILY_LIMIT`=200편, 글 하나당 모델 호출, 비용 발생). 사용기 분석을 직접 돌리는 담당자만 켭니다. `MOCK_MODE=0`·`OPENAI_API_KEY`·`LLM_MODEL`이 함께 있어야 하고, 절차는 `data/community_examples/README.md`에 있습니다.
 - 추천 화면의 "사용기 인용"이 비어 있다고 이 값을 켤 필요는 없습니다. 그 분석 결과 스냅샷을 아직 DB에 받지 않았거나 해당 제품에 사용기가 없는 경우가 대부분입니다.
 
+## 커뮤니티 사용기 구절 검색
+
+긴 사용기 전체를 문단·문장 기준으로 청킹하여 자유 질문의 근거 후보를 찾습니다. 기존 주변기기 속성 분석과 독립적으로 실행하며 추천 점수에는 반영하지 않습니다. 기본 청킹은 목표 600자·최대 1,000자·겹침 120자이고 기존 `text-embedding-3-small`(1536차원)을 사용합니다.
+
+`0022_community_review_search.sql`은 검색 문서/작업 상태 7개 컬럼과 청크 5개 컬럼으로 구성된 두 테이블을 추가합니다. 기존 환경에서는 먼저 `uv run python db/migrate.py up`으로 마이그레이션합니다. `.env`에 `COMMUNITY_REVIEW_SEARCH_ENABLED=1`을 설정하고 서버를 다시 시작합니다. worker와 API의 모델·MOCK 여부·청킹 설정은 같아야 합니다.
+
+```bash
+# 조사만 수행: DB 쓰기와 임베딩 호출 없음
+PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache uv run python -m src.workers.community_review_search_index --dry-run
+
+# 실제 색인: 테스트 DB 이외에서는 MOCK_MODE=0, OPENAI_API_KEY 필요(유료 호출)
+PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache uv run python -m src.workers.community_review_search_index --once
+
+# 변경을 주기적으로 처리하는 별도 프로세스
+PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache uv run python -m src.workers.community_review_search_index
+```
+
+worker는 `--post <uuid,...>`, `--rebuild`, `--include-examples`도 지원합니다. 예시 색인·검색에는 `COMMUNITY_REVIEW_SEARCH_ALLOW_EXAMPLES=1`이 추가로 필요합니다. 운영 검색은 실제 글만 사용하고 `corpus_mode=demo`는 예시 글만 검색합니다. 실행 한도와 재시도 설정은 `.env.example`에 있습니다.
+
+- 기존 요청: `GET /reviews/search?product_id=<uuid>&q=<질문>` — 기존 응답 유지.
+- 커뮤니티 검색: `GET /reviews/search?version=2&sources=community&product_id=<uuid>&q=<질문>`.
+- 함께 검색: `version=2`에서 `sources`를 생략하면 외부 리뷰·커뮤니티 결과를 출처별로 반환합니다.
+- 응답의 `citation_url`로 구절을 재조회할 수 있습니다. 글별 최고 관련 청크 하나를 반환하며, 문서 수와 청크 수를 구분합니다.
+
+수정 전 본문·비공개 글은 검색과 인용 조회에서 제외합니다. 수정·재구축 중인 글은 색인 완료까지 `not_indexed` 범위에 포함됩니다. 여러 제품이 연결된 글의 구절은 제품 귀속이 검증된 평가로 해석하지 않습니다. 현재 커뮤니티 유사도 하한 0.2는 초기 설정으로, 실제 의미 검색 품질은 사람의 정답 구간을 이용해 별도 평가해야 합니다.
+
+설계와 검증 범위: [커뮤니티 리뷰 청킹·임베딩 검색 계획](docs/커뮤니티_리뷰_청킹_임베딩_검색_구현계획_20261019.md).
+
+사람이 정답 구간을 표시한 JSON 질문 세트는 `scripts/eval_community_review_search.py`로 평가할 수 있습니다. 각 행은 `id`, `product_id`, `query`, `split`(`tune`/`test`), `relevant`(정답의 `post_id`·`start_char`·`end_char` 목록)를 갖습니다. 무관 질문의 정답 목록은 비워 둡니다. 조정용·최종 평가용 질문을 분리하고 자유 질문을 최소 50개 준비합니다.
+
+```bash
+# 기본은 질문 세트 검증만 수행하며 검색·유료 호출을 하지 않음
+PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/eval_community_review_search.py /private/questions.json
+# 실평가는 MOCK_MODE=0 환경에서 --execute를 명시해야 실행됨
+PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache uv run python scripts/eval_community_review_search.py /private/questions.json --execute --split test --output /tmp/community-search-eval.json
+```
+
 ## 테스트
 
 DB가 필요한 테스트는 테스트 전용 DB를 자동으로 만들고 끝나면 지웁니다. 개발 DB(`truefit`)에는 접속하지 않습니다.

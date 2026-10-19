@@ -1570,6 +1570,69 @@ class ReviewSearchOut(BaseModel):
     products: list[ReviewSearchProductOut]
 
 
+class ReviewEvidenceExternalHitOut(BaseModel):
+    source_type: Literal["external_review"] = "external_review"
+    document_id: str
+    text: str
+    posted_at: Optional[datetime] = None
+    similarity: float
+
+
+class ReviewEvidenceLinkedProductOut(BaseModel):
+    product_id: str
+    name: str
+    selected_option: Optional[str] = None
+
+
+class ReviewEvidenceCitationOut(BaseModel):
+    source_type: Literal["community"] = "community"
+    document_id: str
+    chunk_id: str
+    title: str
+    text: str
+    offset_basis: Literal["normalized_body"] = "normalized_body"
+    start_char: int
+    end_char: int
+    posted_at: Optional[datetime] = None
+    matched_product_id: Optional[str] = None
+    linked_products: list[ReviewEvidenceLinkedProductOut]
+    association_scope: Literal["post_link"] = "post_link"
+    product_attribution: Literal["unverified"] = "unverified"
+    is_example: bool
+    source_url: str
+    citation_url: str
+
+
+class ReviewEvidenceCommunityHitOut(ReviewEvidenceCitationOut):
+    similarity: float
+
+
+class ReviewEvidenceCoverageOut(BaseModel):
+    documents: int
+    indexed_documents: int
+    chunks: Optional[int] = None
+    index_complete: bool
+
+
+class ReviewEvidenceSourceOut(BaseModel):
+    status: Literal["ok", "no_match", "no_reviews", "not_indexed"]
+    min_similarity: float
+    coverage: ReviewEvidenceCoverageOut
+    hits: list[ReviewEvidenceExternalHitOut | ReviewEvidenceCommunityHitOut]
+
+
+class ReviewEvidenceProductOut(BaseModel):
+    product_id: str
+    sources: dict[Literal["external_review", "community"], ReviewEvidenceSourceOut]
+
+
+class ReviewEvidenceSearchOut(BaseModel):
+    schema_version: Literal[2] = 2
+    query: str
+    corpus_mode: Literal["real", "demo"]
+    products: list[ReviewEvidenceProductOut]
+
+
 # ── 재기획 2단계: 교체 대상 추천과 교체 목록 ─────────────────────────────────────────
 class ReplacementReasonOut(BaseModel):
     code: Literal["incompatible", "game_unmet", "balance_short", "unknown_info", "excess"]

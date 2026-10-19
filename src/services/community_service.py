@@ -58,6 +58,9 @@ def _notify_changed(conn, post_id: UUID, status: str) -> None:
     if status == "draft":
         return
     on_post_changed(post_id, store=DbIntakeStore(conn))
+    from src.services.community_review_search_index import notify_changed
+
+    notify_changed(conn, post_id)
 
 
 def _require_user(user_id: UUID | None) -> UUID:

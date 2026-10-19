@@ -11,12 +11,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request, status
 from uuid import UUID
+from typing import Literal
 
 from src import schemas
 from src.auth import ratelimit
 from src.config import REVIEW_SEARCH_DEFAULT_LIMIT, REVIEW_SEARCH_LIMIT_PER_MIN
-from src.errors import RateLimited
-from src.services import review_search, review_service
+from src.errors import RateLimited, ValidationFailed
+from src.services import review_evidence_search, review_search, review_service
 from src.auth.deps import current_user
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
@@ -29,13 +30,16 @@ def _check_search_limit(request: Request) -> None:
         raise RateLimited("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")
 
 
-@router.get("/search", response_model=schemas.ReviewSearchOut)
+@router.get("/search", response_model=schemas.ReviewSearchOut | schemas.ReviewEvidenceSearchOut)
 def search_reviews(
     request: Request,
     product_id: list[UUID] = Query(..., description="검색할 상품(catalog.product.id). 여러 개면 반복해서 준다"),
     q: str = Query(..., description="질문 — 예: 코일 소음 있나요"),
     limit: int = Query(REVIEW_SEARCH_DEFAULT_LIMIT, description="상품당 돌려줄 리뷰 수"),
-) -> schemas.ReviewSearchOut:
+    version: int = Query(1, ge=1, le=2),
+    sources: list[Literal["external_review", "community"]] | None = Query(None),
+    corpus_mode: Literal["real", "demo"] | None = Query(None),
+) -> schemas.ReviewSearchOut | schemas.ReviewEvidenceSearchOut:
     """상품별로 질문과 뜻이 가까운 실제 리뷰 — `?product_id=<uuid>&product_id=<uuid>&q=소음&limit=3`.
 
     상품마다 status(ok·no_match·no_reviews·not_indexed)와 coverage(실제 리뷰 수·검색 준비된 수)를 함께 낸다.
@@ -43,7 +47,17 @@ def search_reviews(
     벡터가 지금 설정과 다르게 만들어졌으면 503(review_search_unavailable·review_index_mismatch).
     """
     _check_search_limit(request)
+    if version == 2:
+        return schemas.ReviewEvidenceSearchOut(**review_evidence_search.search(
+            product_ids=product_id, query=q, limit=limit, sources=sources, corpus_mode=corpus_mode or "real"))
+    if sources is not None or corpus_mode is not None:
+        raise ValidationFailed("sources·corpus_mode를 사용하려면 version=2를 지정해 주세요.", field="version")
     return schemas.ReviewSearchOut(**review_search.search(product_ids=product_id, query=q, limit=limit))
+
+
+@router.get("/chunks/{chunk_id}", response_model=schemas.ReviewEvidenceCitationOut)
+def review_chunk(chunk_id: UUID, corpus_mode: Literal["real", "demo"] = "real"):
+    return review_evidence_search.citation(chunk_id, corpus_mode=corpus_mode)
 
 
 @router.get("/pending")

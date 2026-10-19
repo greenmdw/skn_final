@@ -16,7 +16,7 @@ Always set `TRUEFIT_REQUIRE_TEST_DB=1` for completion checks. It turns PostgreSQ
 At the start of a pytest session, the test harness automatically:
 
 1. Creates a unique `truefit_test_<UUID>` database on the running PostgreSQL server.
-2. Runs `db/setup_all.py` to apply the twenty-one baseline migrations and all seeds.
+2. Runs `db/setup_all.py` to apply the twenty-two baseline migrations and all seeds.
 3. Runs the tests.
 4. Drops the temporary database with `DROP DATABASE ... WITH (FORCE)` when the session ends.
 
@@ -87,7 +87,7 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
 - If the default uv cache is read-only, keep `UV_CACHE_DIR=/tmp/uv-cache` in the command.
 - If Python raises `ModuleNotFoundError: src`, run from the repository root and set `PYTHONPATH=.`.
 - If database tests are skipped, rerun with `TRUEFIT_REQUIRE_TEST_DB=1` so the underlying setup problem is reported as an error.
-- The current database baseline must contain exactly these twenty-one files:
+- The current database baseline must contain exactly these twenty-two files:
   - `db/migrations/0000_schema.sql`
   - `db/migrations/0001_constraints.sql`
   - `db/migrations/0002_indexes.sql`
@@ -141,3 +141,5 @@ TRUEFIT_AUTO_TEST_DB=0 PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
     received quote is confirmed with partial replacements; `purchase_line` holds only the replaced parts)
   - `db/migrations/0021_review_document_rating.sql` (added 2026-10-19: adds `evidence.review_document.rating` —
     source-site buyer star rating 1-5, unreviewed; see `docs/리뷰평점_적재_표시_계획_20261019.md`)
+  - `db/migrations/0022_community_review_search.sql` (added 2026-10-19: document/work state and full-body
+    chunks with embeddings for community review evidence search; two tables, twelve columns)
