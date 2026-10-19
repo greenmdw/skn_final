@@ -31,7 +31,7 @@ from uuid import UUID
 
 from src.agent.conditions_agent import SEARCH_PERMISSION_MARKER as _SEARCH_PERMISSION_MARKER
 from src.agent.conditions_agent import _model, is_search_confirmation
-from src.agent.text_guard import foreign_script
+from src.agent.text_guard import foreign_script, leaked_internals
 from src.clients.llm_guard import llm_call_slot
 from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, RESULT_AGENT
 from src.errors import NotFound, ServiceUnavailable, ValidationFailed
@@ -1242,7 +1242,8 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
         ok, outside = _reply_within(reply, [prompt, text, *session.outputs, *earlier,
                                             swap_arithmetic(session.result, session.outputs)])
         bad_words = (evaluative_words(reply, text) + swap_arithmetic_sign_errors(reply, session.result, session.outputs)
-                     + foreign_script(reply))      # 다른 언어 글자가 섞인 답("конкрет한 모델")도 코드 문장으로
+                     + foreign_script(reply)       # 다른 언어 글자가 섞인 답("конкрет한 모델")도 코드 문장으로
+                     + leaked_internals(reply))    # 도구 이름·프롬프트 문구를 그대로 말한 답도 코드 문장으로(U-07)
         if not ok or bad_words:
             log.warning("result agent reply rejected (numbers %s, words %s) — replaced: %r", sorted(outside), bad_words, reply[:120])
             guard = {"numbers": sorted(outside), "words": bad_words}
