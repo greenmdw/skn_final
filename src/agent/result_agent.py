@@ -117,6 +117,20 @@ class ResultSession:
         return next((e for e in self.result.get("omitted_slots") or []
                      if e["slot"].lower() == s or e.get("slot_label") == slot.strip()), None)
 
+    def _removed(self, it: dict) -> str | None:
+        """사용자가 '부품 빼기'로 뺀 부품(selected=False)이면 그 사실 문장. 뺀 부품을 그대로 교체하고 "바꿨습니다"라고 답했는데
+        총액에는 그 부품이 빠져 있었다(QA 10/16 #13, 실측 2/2) — 구성표의 '(빼둠)' 표시만으로는 모델이 알아채지 못했다."""
+        if it.get("selected", True):
+            return None
+        return (f"{it['slot']}은(는) 사용자가 구성에서 빼 둔 상태(빼둠)라 총액·확정에 들어 있지 않습니다"
+                f"(빼 둔 제품: {it['product']['name']}).")
+
+    def _refuse_removed(self, call: str, it: dict) -> str | None:
+        if (removed := self._removed(it)) is None:
+            return None
+        return self._record(call, f"바꾸지 않음: {removed} 지금 {it['slot']}이(가) 빠져 있다는 사실을 먼저 알리고, 다시 넣을지 물으세요. "
+                                  f"사용자가 원하면 remove_or_restore('{it['slot']}', 'true')로 다시 담은 뒤 바꿉니다.")
+
     def _no_slot(self, slot: str) -> str:
         """구성표에 없는 슬롯 오류 문장 — 일부러 뺀 슬롯이면 담는 방법을 알려 준다."""
         entry = self._omitted_slot(slot)
@@ -164,6 +178,8 @@ class ResultSession:
                          f" · 가장 비싼 것 {hi[0]}. {hi[1]['product']['name']} {_won(hi[1]['price'])}")
         if it["slot"] == "저장장치":
             lines.append(result_advice.STORAGE_CAPACITY_NOTE)
+        if (removed := self._removed(it)) is not None:
+            lines.append(f"⚠ {removed} 차액은 빼기 전 제품 기준입니다.")
         return self._record(call, "\n".join(lines))
 
     def swap(self, slot: str, candidate_id: str) -> str:
@@ -174,6 +190,8 @@ class ResultSession:
         it = self.item(slot)
         if it is None:
             return self._record(call, self._no_slot(slot))
+        if (refused := self._refuse_removed(call, it)) is not None:
+            return refused
         try:
             cid = UUID(self._seen_candidate_id(candidate_id.strip()))
         except ValueError:
@@ -204,6 +222,50 @@ class ResultSession:
             f" · 총액 {_won(t['selected_price'])} · 예산 잔여 {_won(t['budget_remaining'])}"
             + (" · ⚠ 예산 초과" if t["over_budget"] else "")
             + self._compat_note()))
+
+    def revert(self, slot: str = "") -> str:
+        """처음 추천한 부품으로 되돌린다. 처음 추천은 리뷰 snapshot 에 남아 있는데 모델이 그 candidate_id 를 얻을 길이 없어서
+        "원래대로 되돌려줘"에 "후보 목록에 없어 되돌릴 수 없다"고 답했다(QA 10/16 #34, 실측 0/6). 슬롯을 비우면 처음 추천과
+        다른 부품이 하나일 때만 그것을 되돌리고, 여럿이면 목록을 돌려준다(어느 것인지 묻게). 수량·빼기는 되돌리지 않는다."""
+        from src.services.recommendation_service import original_variants, swap_item
+        call = f"revert({slot!r})"
+        if (refused := self._refuse_write(call)) is not None:
+            return refused
+        original = original_variants(self.conn, self.revision_id)
+        changed = [it for it in self.result.get("items", [])
+                   if original.get(it["slot"]) and it["product"]["variant_id"] != original[it["slot"]]]
+        if slot.strip():
+            it = self.item(slot)
+            if it is None:
+                return self._record(call, self._no_slot(slot))
+            if not original.get(it["slot"]):
+                return self._record(call, f"오류: {it['slot']}의 처음 추천 기록이 없어 되돌릴 수 없습니다.")
+            if it not in changed:
+                return self._record(call, f"{it['slot']}은(는) 이미 처음 추천한 부품({it['product']['name']})입니다. 바꾼 것이 없습니다.")
+            targets = [it]
+        elif len(changed) == 1:
+            targets = changed
+        elif not changed:
+            return self._record(call, "처음 추천과 다른 부품이 없습니다 — 모든 부품이 처음 추천 그대로입니다(수량·빼기는 따로 봅니다).")
+        else:
+            return self._record(call, "처음 추천과 다른 부품이 여럿입니다. 어느 것을 되돌릴지 사용자에게 물으세요: "
+                                      + ", ".join(f"{it['slot']}(지금 {it['product']['name']})" for it in changed))
+        lines = []
+        for it in targets:
+            if (refused := self._refuse_removed(call, it)) is not None:
+                return refused
+            before = it["product"]["name"], it["price"]
+            try:
+                self.result = swap_item(self.conn, self.revision_id, UUID(it["item_id"]), UUID(original[it["slot"]]),
+                                        user_id=self.user_id)
+            except NotFound as exc:
+                return self._record(call, f"오류: {exc}")
+            self.changed = True
+            after = self.item(it["slot"])
+            lines.append(f"{it['slot']} 되돌림: {before[0]} {_won(before[1])} → 처음 추천 {after['product']['name']} {_won(after['price'])}")
+        t = self.result["totals"]
+        return self._record(call, " / ".join(lines) + f" · 총액 {_won(t['selected_price'])} · 예산 잔여 {_won(t['budget_remaining'])}"
+                            + (" · ⚠ 예산 초과" if t["over_budget"] else "") + self._compat_note())
 
     def _seen_candidate_id(self, candidate_id: str) -> str:
         """이번 턴 도구 결과에 나온 candidate_id 와 한두 글자만 다르면 그 id — 모델이 36자 id 를 옮기다 한 글자를 바꿨다
@@ -277,6 +339,8 @@ class ResultSession:
             q = int(qty)
         if sel is None and q is None:
             return self._record(call, "오류: 바꿀 값이 없습니다")
+        if q is not None and not sel and (refused := self._refuse_removed(call, it)) is not None:
+            return refused
         self.result = patch_item(self.conn, self.revision_id, UUID(it["item_id"]), selected=sel, qty=q, timing=None,
                                  user_id=self.user_id)
         self.changed = True
@@ -381,6 +445,8 @@ class ResultSession:
         it = self.item(slot)
         if it is None:
             return self._record(call, f"오류: '{slot}' 슬롯이 없습니다.")
+        if (removed := self._removed(it)) is not None:     # 계산은 담긴 부품만 본다 — "슬롯이 없다" 오류 대신 빼 둔 사실을
+            return self._record(call, f"확인하지 않음: {removed} 그 사실을 알리고, 다시 넣을지 물으세요.")
         return self._record(call, result_advice.preview_swap(self.conn, self.revision_id, it["slot"],
                                                              candidate_id.strip() or None, direction.strip().lower() or None))
 
@@ -519,6 +585,15 @@ def make_tools(s: ResultSession) -> list:
             candidate_id: list_alternatives 가 돌려준 candidate_id
         """
         return s.swap(slot, candidate_id)
+
+    @tool
+    def revert(slot: str = "") -> str:
+        """바꾼 부품을 처음 추천한 부품으로 되돌린다("원래대로 되돌려줘", "램은 원래 걸로"). 수량·빼기는 되돌리지 않는다.
+
+        Args:
+            slot: 슬롯 이름. 말하지 않았으면 "" — 처음 추천과 다른 부품이 하나면 그것을 되돌리고, 여럿이면 목록을 돌려준다
+        """
+        return s.revert(slot)
 
     @tool
     def set_qty(slot: str, qty: str) -> str:
@@ -664,7 +739,7 @@ def make_tools(s: ResultSession) -> list:
         """
         return s.search_unavailable_part(slot, product_text)
 
-    return [list_alternatives, swap, set_qty, remove_or_restore, explain,
+    return [list_alternatives, swap, revert, set_qty, remove_or_restore, explain,
             preview_swap, preview_qty, upgrade_options, budget_reason, savings_options, check_build, game_check,
             search_unavailable_part, omitted_options, add_omitted_part]
 
@@ -690,7 +765,7 @@ _WHY = ("왜", "이유", "근거", "괜찮", "믿을", "어때", "리뷰", "총�
 # "씨퓨 업글 해도 무방?")는 7개 중 1개만 걸렸다(2026-10-02) — 표현은 끝이 없어서 놓치면 구성표가 바뀐다.
 # 그래서 거꾸로, **바꾸라는 표시가 있을 때만** 바꾸는 도구를 연다(허용 목록). 놓쳤을 때의 피해가 "잘못 바뀜"에서
 # "한 번 더 물어봄"으로 줄어든다. 묻는 말 표시가 같이 있으면 묻는 말이 이긴다.
-_CHANGE_VERB = r"(?:바꾸|바꿔|바꿀|갈아|올리|올려|올릴|늘리|늘려|늘릴|업글|업그레이드|교체|변경|빼|뺄|넣|담|달아|달면|추가|꽂|장착|내리|내려|줄이|줄여|가면)"
+_CHANGE_VERB = r"(?:바꾸|바꿔|바꿀|갈아|올리|올려|올릴|늘리|늘려|늘릴|업글|업그레이드|교체|변경|빼|뺄|넣|담|달아|달면|추가|꽂|장착|내리|내려|줄이|줄여|가면|되돌|복구)"
 _ASK_RE = re.compile(
     r"도\s*(?:돼|되나|될까|되려나|되겠|되냐|되남|됨|괜찮|괜춘|문제|상관|무방|ok|ㄱㅊ)"
     r"|면\s*.{0,15}?(?:어때|어떨|어떻|괜찮|문제|될까|되나|돼\?|충분|부족)"
@@ -699,7 +774,8 @@ _ASK_RE = re.compile(
     r"|ㄱㄱ\s*\?"
 )
 _ASK_LOOSE_RE = re.compile(r"ㄱㅊ|괜찮음|괜춘|무방|어케\s*생각|어떻게\s*생각|어떰|어떨까|나을까|낫나|좋을까")
-_IMPERATIVE = (r"(?:바꿔|교체해|변경해|빼|넣어|담아|달아|추가해|꽂아|장착해|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해|로\s*해|로\s*가자|로\s*할게|로\s*갈게)"
+# 되돌려·돌려놔·복구해 — "원래대로 되돌려줘"가 바꾸라는 말로 안 잡혀 되돌리는 도구가 막혔다(QA 10/16 #34)
+_IMPERATIVE = (r"(?:바꿔|교체해|변경해|빼|넣어|담아|달아|추가해|꽂아|장착해|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해|되돌려|돌려\s*놔|복구해|로\s*해|로\s*가자|로\s*할게|로\s*갈게)"
                r"\s*(?:줘|주세요|줄래|주라|줄\s*수|주셈|주삼|주쇼|쥬|줭|봐|요|라)")
 _IMPERATIVE_RE = re.compile(_IMPERATIVE)
 _CLAUSE_SPLIT = re.compile(r"[,.!?\n]+")
@@ -718,7 +794,7 @@ _CHANGE_RE = re.compile(
     r"|ㄱㄱ(?!\s*\?)"
     # 반말 명령("GPU 바꿔", "그래픽카드 더 좋은 걸로 바꿔") — '줘'가 없어 other 로 빠져 "원하시면 '바꿔줘'라고 말씀해
     # 주세요"로 되묻던 것(10/8 팀 시연·회의). 말 끝에 올 때만 — "바꿔?"·"바꿔도 돼"는 묻는 말이다
-    r"|(?:바꿔|교체해|변경해|빼|넣어|담아|달아|추가해|꽂아|장착해|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해)\s*[.!~]*\s*$"
+    r"|(?:바꿔|교체해|변경해|빼|넣어|담아|달아|추가해|꽂아|장착해|올려|내려|늘려|줄여|적용해|진행해|업글해|업그레이드해|되돌려|돌려\s*놔|복구해)\s*[.!~]*\s*$"
 )
 
 
@@ -843,7 +919,7 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
                               else f"{len(history)}턴 전부(앞의 메시지들). 그 밖에 당신이 한 말이나 약속은 없습니다."),
         # 코드가 '바꾸라는 말이 아님'으로 판정해 바꾸는 도구를 막아도 모델은 그걸 모르고 "좋아 보이네"에 swap 을 불렀다
         # (10/12 시나리오 E 3/3 — 코드가 거절해 구성표는 그대로) — 판정을 프롬프트에도 알린다
-        *(["이번 말 판정(코드): 구성표를 바꾸라는 요청이 아닙니다 — swap·set_qty·remove_or_restore 는 거절됩니다. "
+        *(["이번 말 판정(코드): 구성표를 바꾸라는 요청이 아닙니다 — swap·revert·set_qty·remove_or_restore 는 거절됩니다. "
            "앞 답이 교체를 제안했고 사용자가 '좋아 보이네', '응 근데 …?'처럼 반응하거나 되물었다면 그 말에 답하고, "
            "바꿀지는 '바꿔 드릴까요?'로 다시 묻습니다."] if read_only else []),
         "",
@@ -855,7 +931,9 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "적어 주면 그것을 제안만 합니다 — 사용자가 원한다고 하기 전에는 빼지 않습니다.",
         "3. '빼줘/필요 없어' → remove_or_restore(false). '2개로' → set_qty. '하나 더 달아줘', 'SSD 1개 더 추가해줘'처럼 같은 부품을 더 달라는 말은 "
         "교체가 아니라 수량 추가라 set_qty(지금 수량 + 더할 개수) — swap 하지 않습니다. "
-        "한 문장에 부품 여러 개가 나오면 각 부품에 그 부품 앞뒤에 붙은 요청만 적용하고 도구를 따로 부릅니다.",
+        "한 문장에 부품 여러 개가 나오면 각 부품에 그 부품 앞뒤에 붙은 요청만 적용하고 도구를 따로 부릅니다. "
+        "'원래대로 되돌려줘', '램은 원래 걸로'처럼 처음 추천으로 돌아가자는 말은 revert(슬롯, 말하지 않았으면 '') — "
+        "list_alternatives 에서 처음 제품을 찾지 않습니다.",
         "4. '왜 이거?', '이유가 뭐야?', '이거 괜찮아?', '믿을 만해?' 처럼 지금 부품의 근거를 묻는 말에는 **반드시 explain 을 먼저 부르고** 그 내용만 전합니다. "
         "저장된 추천 이유가 없어도 explain 이 준 가격·예산 비중·검증 쟁점·리뷰 관측은 전합니다. "
         "'추천 당시 점수 근거'가 있으면 후보 중 순위와 리뷰에서 긍정·부정이 몇 건이었는지를 쉬운 말로 전하고(리뷰 문장은 짧게 하나), "
@@ -1076,7 +1154,7 @@ def _guarded_reply(session: ResultSession, prefetched: str) -> str:
     if session.changed:
         # 바꾼 도구의 결과만 — list_alternatives 의 후보 목록·내부 id 가 화면에 나가던 것(2026-10-02 실측)
         done = [x.split(" → ", 1)[1].split(" · ")[0] for x in session.trace
-                if x.startswith(("swap(", "set_item(")) and "오류" not in x and "거절:" not in x]
+                if x.startswith(("swap(", "revert(", "set_item(")) and "오류" not in x and "거절:" not in x and "바꾸지 않음" not in x]
         return ("적용된 변경: " + " / ".join(done) + f" · 총액 {_won(t.get('selected_price'))} · 예산 잔여 {_won(t.get('budget_remaining'))}"
                 + (" · ⚠ 예산 초과" if t.get("over_budget") else ""))
     # 묻는 말에 쓴 계산 도구의 결과가 있으면 그 원문(사실)을 그대로 — 화면에 내부 id 는 빼고

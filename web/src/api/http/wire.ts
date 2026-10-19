@@ -4,6 +4,10 @@ export interface WireText { status: 'pending' | 'ready' | 'failed'; text: string
 
 export interface WireReview {
   total_count: number | null
+  /** 수집처 구매자 별점 단순 평균. 평점이 없거나 옛 확정 리포트면 null·키 없음 */
+  rating_raw?: number | null
+  /** rating_raw 를 낸 평점 건수. 평균은 이 건수와 함께만 보여 준다 */
+  rating_count?: number | null
   rating_refined: number | null
 }
 
@@ -234,6 +238,7 @@ export interface WireReviewSummary {
   excluded_count?: number | null
   excluded_ratio?: number | null
   rating_raw?: number | null
+  rating_count?: number | null
   rating_refined?: number | null
   distribution_raw?: Record<string, number>
   distribution_refined?: Record<string, number>
@@ -255,14 +260,6 @@ export interface WirePreviousComparison {
   unchanged?: string[]
   reasons?: { slot: string; label: string; kind: 'requirement' | 'unexplained'; claim: string; evidence?: string[] }[]
   totals?: { before: number; after: number; diff: number } | null
-}
-
-export interface WirePriceWatch {
-  enabled: boolean
-  target_amount: number | null
-  status: 'waiting' | 'tracking' | 'reached'
-  latest_total: number | null
-  observed_at: string | null
 }
 
 export interface WireUser { user: { email: string; display_name: string; marketing_agreed?: boolean; created_at?: string } }

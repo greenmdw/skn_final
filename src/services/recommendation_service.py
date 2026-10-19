@@ -1020,7 +1020,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
     specs_by_variant = load_specs_by_variant(
         conn, [(row["product_type"], str(row["variant_id"])) for row in candidate_rows]
     )
-    review_counts = review_service.db_review_counts(conn, [row["product_id"] for row in candidate_rows])
+    review_stats = review_service.db_review_stats(conn, [row["product_id"] for row in candidate_rows])
     for row in candidate_rows:
         product_key = (pc_catalog_key(row["product_type"], row["brand"], row["product_key"])
                        if category == "computer" and row["product_type"] in PC_TYPE_TO_SLOT
@@ -1039,7 +1039,7 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
             "price": price, "price_source": "observed" if category == "computer" else "synthetic",
             "price_observed_at": row["observed_at"].isoformat() if row["observed_at"] else None,
             "qty": row["qty"], "selected": row["selected"], "timing": row["timing"], "budget_share": None,
-            "review": _review_with_db_count(review_service.review_brief(product_key, conn), review_counts.get(str(row["product_id"]))),
+            "review": _review_with_db_stats(review_service.review_brief(product_key, conn), review_stats.get(str(row["product_id"]))),
             "review_detail": review_for_candidate(
                 review_snapshot, variant_id=row["variant_id"], product_id=row["product_id"],
                 slot=row["slot"], selection_source="user_swap" if row["score"] is None else "automatic",
@@ -1106,11 +1106,27 @@ def get_stored_result(conn, revision_id: UUID) -> dict | None:
 
 # ── 결과 화면 상호작용 (§D-4-2: 담기/빼기·수량·구매시점 / 후보 교체 / 결과 대화) ──
 
-def _review_with_db_count(brief: dict | None, db_count: int | None) -> dict | None:
-    """화면의 '리뷰 N개' 는 순위가 읽는 DB 의 리뷰 문서 수로 채운다 — 파일 산출물에 상품이 없을 때만(U-12)."""
-    if brief is None or brief.get("total_count") is not None or not db_count:
+def _review_with_db_stats(brief: dict | None, stats: dict | None) -> dict | None:
+    """화면의 '리뷰 N개' 와 평균 별점은 순위가 읽는 DB 의 리뷰 문서로 채운다 — 파일 산출물에 값이 없을 때만(U-12).
+
+    stats = review_service.db_review_stats 의 한 상품 몫({"count", "rating_count", "rating_avg"}). 별점은 표시용일 뿐 순위에 쓰지 않는다."""
+    if brief is None or not stats:
         return brief
-    return {**brief, "total_count": db_count}
+    out = dict(brief)
+    if out.get("total_count") is None and stats.get("count"):
+        out["total_count"] = stats["count"]
+    if out.get("rating_raw") is None and stats.get("rating_avg") is not None:
+        out["rating_raw"], out["rating_count"] = stats["rating_avg"], stats["rating_count"]
+    return out
+
+
+def _alternative_review(stats: dict | None) -> dict | None:
+    """대안 후보의 리뷰 배지 — get_summary 를 부르지 않고 db_review_stats 한 번의 결과로 만든다. 리뷰가 없으면 None."""
+    if not stats or not stats.get("count"):
+        return None
+    return {"total_count": stats["count"], "rating_raw": stats.get("rating_avg"),
+            "rating_count": stats.get("rating_count") or None, "excluded_ratio": None, "rating_refined": None,
+            "signals": None, "cleansing_summary": None, "plain": None}
 
 
 def _require_done_run(conn, revision_id: UUID) -> tuple:
@@ -1193,7 +1209,7 @@ def _current_candidate_as_variant_row(current: dict) -> dict:
 
 
 def _alternative_out(row: dict, *, current: bool, current_price: int, slot: str, specs: dict | None = None,
-                     review_snapshot: dict | None = None) -> dict:
+                     review_snapshot: dict | None = None, review_stats: dict | None = None) -> dict:
     from src.repo.catalog_repo import PC_TYPE_TO_SLOT, pc_catalog_key
     from src.services.recommendation_review_snapshot import review_for_candidate
     price = int(row["price"]) if row.get("price") is not None else 0
@@ -1211,7 +1227,8 @@ def _alternative_out(row: dict, *, current: bool, current_price: int, slot: str,
             "spec_summary": _spec_summary(slot, specs),
             "image_url": row.get("image_url"), "purchase_url": row.get("purchase_url"),
         },
-        "price": price, "price_delta": delta, "review": None, "qty": int(row.get("qty") or 1),
+        "price": price, "price_delta": delta,
+        "review": _alternative_review((review_stats or {}).get(str(row.get("product_id")))), "qty": int(row.get("qty") or 1),
         "review_detail": review_for_candidate(
             review_snapshot, variant_id=row["variant_id"], product_id=row.get("product_id"),
             slot=slot, selection_source="alternative",
@@ -1358,6 +1375,7 @@ def _dedupe_alternatives_by_name(variants: list[dict]) -> list[dict]:
 
 
 def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
+    from src.services import review_service
     from src.repo.catalog_repo import load_specs_by_variant
     from src.repo.product_repo import ProductRepo
     erepo, run = _require_done_run(conn, revision_id)
@@ -1404,15 +1422,25 @@ def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
                   + sorted(pricier, key=_distance)[:_SIMILAR_TIER_ALTERNATIVES])
 
     current_row = {**_current_candidate_as_variant_row(current), "price": current_price, "qty": current_qty}
+    # 리뷰 통계는 후보 전체를 모아 쿼리 한 번으로 읽는다 — 후보마다 조회하지 않는다.
+    review_stats = review_service.db_review_stats(conn, [r.get("product_id") for r in [current_row, *others]])
     items = [_alternative_out(current_row, current=True, current_price=current_price,
                                slot=current["slot"], specs=specs_by_variant.get(str(current["variant_id"])),
-                               review_snapshot=review_snapshot)]
+                               review_snapshot=review_snapshot, review_stats=review_stats)]
     items += [
         _alternative_out(row, current=False, current_price=current_price, slot=current["slot"],
-                          specs=specs_by_variant.get(str(row["variant_id"])), review_snapshot=review_snapshot)
+                          specs=specs_by_variant.get(str(row["variant_id"])), review_snapshot=review_snapshot,
+                          review_stats=review_stats)
         for row in sorted(others, key=lambda r: r["price"] if r["price"] is not None else 0)
     ]
     return {"items": items}
+
+
+def original_variants(conn, revision_id: UUID) -> dict[str, str]:
+    """슬롯 → 엔진이 처음 고른 variant_id(리뷰 snapshot 의 selected). snapshot 이 없는 옛 실행이면 빈 dict."""
+    from src.services.recommendation_review_snapshot import cached_snapshot
+    erepo, run = _require_done_run(conn, revision_id)
+    return dict(((cached_snapshot(erepo, run["id"]) or {}).get("selected") or {}))
 
 
 def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID,
@@ -1451,12 +1479,32 @@ def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID,
     old_price = (int(current["price"]) if current["price"] is not None else 0) * old_qty
     new_price = (int(target["price"]) if target.get("price") is not None else 0) * new_qty
     delta = fmt_money(new_price - old_price, signed=True)
-    erepo.update_candidate_reason(item_id, (f"사용자 요청으로 교체한 부품입니다 — 자동 추천은 '{current['product_name']}'({fmt_money(old_price)})였고 "
-        f"이 후보는 {delta}입니다. 순위는 교체 전 구성 기준이고, 호환 점검은 교체 후 구성으로 다시 했습니다."))
+    # 처음 추천한 상품은 리뷰 snapshot 에 남아 있다. 두 번째 교체부터 "자동 추천은 …"에 직전에 바꿨던 상품을 적었고, 처음 추천한
+    # 상품으로 되돌려도 "교체한 부품"이라고 적혀 확정 리포트에 그대로 얼었다(QA 10/16 #33).
+    from src.services.recommendation_review_snapshot import cached_snapshot
+    snapshot = cached_snapshot(erepo, run["id"])
+    original_id = ((snapshot or {}).get("selected") or {}).get(current["slot"])
+    original = next((row for row in slot_variants if str(row["variant_id"]) == original_id), None)
+    if original is not None and original["variant_id"] == candidate_id:
+        ranked = (snapshot.get("candidates") or {}).get(original_id) or {}
+        if ranked.get("rank_score") is not None:
+            erepo.restore_candidate_score(item_id, score=round(ranked["rank_score"], 4),
+                                          score_method_version=ranked.get("score_method"))
+        reason = (f"처음 추천한 부품으로 되돌렸습니다 — 직접 바꿨던 '{current['product_name']}'({fmt_money(old_price)})보다 {delta}입니다. "
+                  "호환 점검은 되돌린 구성으로 다시 했습니다.")
+        note = f"※ 이후 {current['slot']}를 처음 추천한 '{target['name']}'(으)로 되돌렸습니다({delta})."
+    else:
+        if original is None or str(current["variant_id"]) == original_id:
+            before = f"자동 추천은 '{current['product_name']}'({fmt_money(old_price)})였고 이 후보는 {delta}입니다"
+        else:
+            before = (f"자동 추천은 '{original['name']}'였고, 직접 바꿨던 '{current['product_name']}'({fmt_money(old_price)})보다 "
+                      f"이 후보는 {delta}입니다")
+        reason = f"사용자 요청으로 교체한 부품입니다 — {before}. 순위는 교체 전 구성 기준이고, 호환 점검은 교체 후 구성으로 다시 했습니다."
+        note = f"※ 이후 {current['slot']}를 '{target['name']}'(으)로 교체했습니다({delta}). 이 요약은 교체 전 구성 기준입니다."
+    erepo.update_candidate_reason(item_id, reason)
     reverify_set(conn, revision_id, run)
     # 요약(explanation)도 교체 전 구성 기준이다. [5] 를 다시 돌릴 수 없으니 그 사실을 본문 끝에 적는다.
     if run.get("explanation_status") == "ready" and run.get("explanation_text"):
-        note = f"※ 이후 {current['slot']}를 '{target['name']}'(으)로 교체했습니다({delta}). 이 요약은 교체 전 구성 기준입니다."
         erepo.set_explanation(run["id"], headline=run.get("explanation_headline") or "",
                               text=run["explanation_text"].rstrip() + "\n\n" + note,
                               reasoning_log=erepo.get_run_trace(run["id"]))
@@ -1510,6 +1558,7 @@ def list_omitted_options(conn, revision_id: UUID, slot: str) -> dict:
     from src.engine.stage4_optimize import _pc_known_failures
     from src.repo.catalog_repo import load_candidates_by_slot_from_db, load_specs_by_variant
     from src.repo.product_repo import ProductRepo
+    from src.services import review_service
 
     erepo, run, cvals, stored, chosen, spec, step = _omitted_state(conn, revision_id, slot)
     target = _reinstated_spec(cvals, step, slot).targets.get(slot) or {}
@@ -1527,8 +1576,10 @@ def list_omitted_options(conn, revision_id: UUID, slot: str) -> dict:
         rows.append(row)
     rows = sorted(rows, key=lambda r: int(r["price"]))[:8]
     specs_by_variant = load_specs_by_variant(conn, [(r.get("product_type"), str(r["variant_id"])) for r in rows])
+    review_stats = review_service.db_review_stats(conn, [r.get("product_id") for r in rows])
     return {"items": [_alternative_out(r, current=False, current_price=0, slot=slot,
-                                        specs=specs_by_variant.get(str(r["variant_id"]))) for r in rows]}
+                                        specs=specs_by_variant.get(str(r["variant_id"])), review_stats=review_stats)
+                      for r in rows]}
 
 
 def add_omitted_item(conn, revision_id: UUID, slot: str, candidate_id: UUID, user_id: UUID | None = None) -> dict:
@@ -1722,6 +1773,11 @@ def _handle_result_message_inner(
     cheaper = direction == "cheaper"
 
     current = next(r for r in rows if r["slot"] == slot)
+    if current.get("selected") is False:
+        # 뺀 부품을 그대로 바꾸고 "바꿨어요"라고 하면 총액엔 여전히 빠져 있다(QA 10/16 #13) — 빼 둔 사실을 알린다
+        return {"reply": f"{slot}는 지금 견적에서 빼 둔 상태라 바꾸지 않았어요('{current['product_name']}'). "
+                          "아래 '제외됨'에서 다시 넣은 뒤 말씀해 주세요.",
+                "result": get_stored_result(conn, revision_id)}
     current_price = int(current["price"]) if current["price"] is not None else 0
     from src.repo.product_repo import ProductRepo
     slot_variants = ProductRepo(conn).candidates_by_slot().get(slot, [])

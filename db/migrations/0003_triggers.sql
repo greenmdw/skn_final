@@ -249,14 +249,6 @@ CREATE TRIGGER set_updated_at BEFORE UPDATE ON identity.app_user FOR EACH ROW EX
 
 
 --
--- Name: price_watch set_updated_at; Type: TRIGGER; Schema: notification; Owner: -
---
-
-CREATE TRIGGER set_updated_at BEFORE UPDATE ON notification.price_watch FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
-
-
-
---
 -- Name: plan set_updated_at; Type: TRIGGER; Schema: planning; Owner: -
 --
 

@@ -147,6 +147,36 @@ def test_result_alternative_swap_and_report_keep_same_run_snapshot():
 
 
 @pytest.mark.db
+def test_swapping_back_to_the_original_pick_is_recorded_as_a_revert():
+    """두 번째 교체부터 "자동 추천은 …"에 직전 상품을 적었고, 처음 추천으로 되돌려도 "교체한 부품"으로 리포트에 얼었다(QA 10/16 #33)."""
+    with TestClient(app) as client:
+        client.cookies.update(_signed_up().cookies)
+        list_id, _, result = _recommended_list(client)
+        item = next(i for i in result["items"] if i["alternatives_count"] >= 2)
+        original = item["product"]
+        choices = client.get(f"/session/{list_id}/items/{item['item_id']}/alternatives").json()["items"]
+        others = [a for a in choices if not a["current"] and a["product"]["name"] != original["name"]][:2]
+        assert len(others) == 2
+        for alternative in others:
+            response = client.post(f"/session/{list_id}/items/{item['item_id']}/swap", json={"candidate_id": alternative["candidate_id"]})
+            assert response.status_code == 200, response.text
+        second = next(i for i in response.json()["items"] if i["item_id"] == item["item_id"])
+        assert f"자동 추천은 '{original['name']}'" in second["reason"]["text"]
+        assert f"직접 바꿨던 '{others[0]['product']['name']}'" in second["reason"]["text"]
+
+        response = client.post(f"/session/{list_id}/items/{item['item_id']}/swap", json={"candidate_id": original["variant_id"]})
+        assert response.status_code == 200, response.text
+        back = next(i for i in response.json()["items"] if i["item_id"] == item["item_id"])
+        assert back["reason"]["text"].startswith("처음 추천한 부품으로 되돌렸습니다")
+        assert back["review_detail"]["selection_source"] == "automatic"
+        assert back["original_review_detail"] is None
+        confirmed = client.post(f"/lists/{list_id}/confirm", json={"name": "되돌린 견적"})
+        assert confirmed.status_code == 200, confirmed.text
+        report = next(i for i in confirmed.json()["items"] if i["slot"] == item["slot"])
+        assert report["evidence_text"].startswith("처음 추천한 부품으로 되돌렸습니다")
+
+
+@pytest.mark.db
 @pytest.mark.parametrize("explanation_status", ["failed", "pending"])
 def test_explanation_status_does_not_lose_calculated_review(monkeypatch, explanation_status):
     from src.engine import stage5_explain

@@ -584,14 +584,6 @@ ALTER TABLE ONLY identity.message
 
 
 
---
--- Name: price_watch price_watch_pkey; Type: CONSTRAINT; Schema: notification; Owner: -
---
-
-ALTER TABLE ONLY notification.price_watch
-    ADD CONSTRAINT price_watch_pkey PRIMARY KEY (id);
-
-
 
 --
 -- Name: plan_condition plan_condition_pkey; Type: CONSTRAINT; Schema: planning; Owner: -
@@ -1321,22 +1313,6 @@ ALTER TABLE ONLY identity.message
     ADD CONSTRAINT message_conversation_fk FOREIGN KEY (conversation_id) REFERENCES identity.conversation(id) ON DELETE RESTRICT;
 
 
-
---
--- Name: price_watch price_watch_purchase_line_fk; Type: FK CONSTRAINT; Schema: notification; Owner: -
---
-
-ALTER TABLE ONLY notification.price_watch
-    ADD CONSTRAINT price_watch_purchase_line_fk FOREIGN KEY (purchase_line_id) REFERENCES planning.purchase_line(id) ON DELETE RESTRICT;
-
-
-
---
--- Name: price_watch price_watch_revision_fk; Type: FK CONSTRAINT; Schema: notification; Owner: -
---
-
-ALTER TABLE ONLY notification.price_watch
-    ADD CONSTRAINT price_watch_revision_fk FOREIGN KEY (revision_id) REFERENCES planning.plan_revision(id) ON DELETE RESTRICT;
 
 
 

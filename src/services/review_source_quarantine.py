@@ -38,7 +38,8 @@ def compensate_source_conflicts(conn, manifest, decisions, provenance_root, *, a
                 raise ValueError('Conflicting exclusion tombstone')
             cur.execute('SELECT id::text,product_id::text,source_code,is_synthetic,body,posted_at FROM evidence.review_document WHERE id=%s', (doc_id,))
             existing = cur.fetchone()
-            if existing and existing != row['document']:
+            # rating은 삭제 대상 식별과 무관하므로 비교에서 뺀다(이전 manifest에는 키가 없다).
+            if existing and existing != {k: v for k, v in row['document'].items() if k != 'rating'}:
                 raise ValueError('Changed document cannot be compensated')
             cur.execute('SELECT count(*) AS n FROM evidence.review_aspect_observation WHERE document_id=%s', (doc_id,))
             if cur.fetchone()['n']:

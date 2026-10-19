@@ -10,6 +10,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from src.services.review_preparation import source_rating
+
 
 def _read(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
@@ -44,6 +46,8 @@ def build(source: Path, target: Path) -> dict:
                 "product_brand": product["brand"], "product_model": product["model"],
                 "is_synthetic": False, "body": doc["body"],
                 "source_code": doc["source_code"], "posted_at": doc.get("posted_at"),
+                # 수집처 구매자 별점(검수 전). 승인 원본 기록(record_sha256으로 고정)에서 읽는다.
+                "rating": source_rating(row["record"].get("rating"), doc["id"]),
             }
     excluded = sorted(audit["excluded_documents_absent"])
     if set(documents_by_id) & set(excluded):

@@ -196,6 +196,10 @@ class EngineRepo(Repo):
             (run_id, slot_order))
     def get_validations(self, run_id: UUID) -> list[dict]:
         return self._all("SELECT * FROM engine.validation_result WHERE run_id=%s ORDER BY created_at", (run_id,))
+    def restore_candidate_score(self, candidate_id: UUID, *, score: float, score_method_version: str | None) -> None:
+        """처음 추천한 상품으로 되돌렸을 때 그 상품의 추천 점수를 다시 적는다 — 교체가 지운 점수(update_candidate_variant)."""
+        self._exec("UPDATE engine.recommendation_candidate SET score=%s, score_method_version=%s WHERE id=%s",
+                   (score, score_method_version, candidate_id))
     def update_candidate_state(self, candidate_id: UUID, *, selected: bool | None = None,
                                 qty: int | None = None, timing: str | None = None) -> None:
         sets, params = [], []

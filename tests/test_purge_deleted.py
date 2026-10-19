@@ -41,16 +41,15 @@ def _rows(lid: str) -> dict[str, int]:
     }
 
 
-def _confirmed_with_alert(c):
+def _confirmed(c):
     lid, _rev, _data = _recommended_list(c)
     assert c.post(f"/lists/{lid}/confirm", json={"name": "지울 견적", "target_amount": 4_000_000}).status_code == 200
-    c.post(f"/lists/{lid}/alert", json={"enabled": True, "target_amount": 4_000_000})
     return lid
 
 
 def test_permanent_delete_removes_every_row_of_a_confirmed_list():
     c = _signed_up()
-    lid = _confirmed_with_alert(c)
+    lid = _confirmed(c)
     before = _rows(lid)
     assert before["plan"] == 1 and before["runs"] >= 1 and before["lines"] >= 1 and before["conditions"] >= 1, before
     assert c.delete(f"/lists/{lid}", params={"permanent": "true"}).status_code == 204
@@ -60,7 +59,7 @@ def test_permanent_delete_removes_every_row_of_a_confirmed_list():
 
 def test_a_plain_delete_only_marks_and_a_stranger_or_guest_cannot_delete_permanently():
     owner = _signed_up()
-    lid = _confirmed_with_alert(owner)
+    lid = _confirmed(owner)
     assert _signed_up().delete(f"/lists/{lid}", params={"permanent": "true"}).status_code == 404
     assert TestClient(app).delete(f"/lists/{lid}", params={"permanent": "true"}).status_code in (401, 404)
     assert _rows(lid)["plan"] == 1
@@ -85,7 +84,7 @@ def test_purge_expired_removes_only_items_past_the_retention_period():
     from src.services import purge_service
 
     c = _signed_up()
-    old, fresh, alive = _confirmed_with_alert(c), _confirmed_with_alert(c), _confirmed_with_alert(c)
+    old, fresh, alive = _confirmed(c), _confirmed(c), _confirmed(c)
     assert c.delete(f"/lists/{old}").status_code == 204 and c.delete(f"/lists/{fresh}").status_code == 204
     with _db() as conn:
         conn.execute("UPDATE planning.plan SET deleted_at = now() - interval '31 days' WHERE id=%s", (old,))

@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 ROOT_REPO=Path(__file__).resolve().parents[1]
 if str(ROOT_REPO) not in sys.path:
  sys.path.insert(0,str(ROOT_REPO))
-from src.services.review_preparation import (prepare_documents,catalog_snapshot,production_rules,preparation_plan,encoded,digest,RULE_NS,VERSION)
+from src.services.review_preparation import (prepare_documents,source_rating,catalog_snapshot,production_rules,preparation_plan,encoded,digest,RULE_NS,VERSION)
 from src.services.review_batch import prepare_batches,require_registered_input
 from psycopg.types.json import Jsonb
 
@@ -41,6 +41,13 @@ def read_bundle(root=BUNDLE):
  rules=json.loads((bundle/'rules.json').read_text(encoding='utf-8'))
  canonical=json.loads((bundle/'canonical_results.json').read_text(encoding='utf-8'))
  drafts=json.loads((bundle/'consolidated_observation_drafts.json').read_text(encoding='utf-8'))
+ # rating 키가 없는 옛 번들은 해시가 자체 일관적이라 위 검사를 통과한다. 원인을 바로 알리려고 여기서 막는다.
+ missing_rating=[r.get('document_id') for r in documents if 'rating' not in r]
+ if missing_rating:
+  raise ValueError(f"Review seed bundle is an old version: {len(missing_rating)} documents lack the 'rating' key. "
+                   "번들이 옛 버전입니다. 팀의 비공개 데이터 채널에서 새 번들(data/review_seed)을 다시 받으세요; see data/review_seed/README.md")
+ for r in documents:
+  source_rating(r['rating'],r.get('document_id'))
  if len(documents)!=manifest.get('documents') or len(rules)!=manifest.get('rules'):
   raise ValueError('Review seed bundle count mismatch')
  if len(drafts)!=manifest.get('observations'):
@@ -78,11 +85,14 @@ def load_bundle(conn, root=BUNDLE):
    if isinstance(posted_at,str):
     from datetime import datetime
     posted_at=datetime.fromisoformat(posted_at.replace('Z','+00:00'))
-   conn.execute('INSERT INTO evidence.review_document(id,product_id,source_code,is_synthetic,body,posted_at) '
-                'VALUES (%s,%s,%s,false,%s,%s) ON CONFLICT (id) DO NOTHING',
-                (row['document_id'],product_id,row['source_code'],row['body'],posted_at))
-   actual=conn.execute('SELECT product_id::text,source_code,is_synthetic,body,posted_at FROM evidence.review_document WHERE id=%s',(row['document_id'],)).fetchone()
-   if actual!=(product_id,row['source_code'],False,row['body'],posted_at):
+   rating=source_rating(row['rating'],row['document_id'])
+   # 이미 있는 행은 rating이 NULL일 때만 채운다(body를 건드리지 않으므로 0012 임베딩 무효화 트리거가 돌지 않는다).
+   conn.execute('INSERT INTO evidence.review_document(id,product_id,source_code,is_synthetic,body,posted_at,rating) '
+                'VALUES (%s,%s,%s,false,%s,%s,%s) ON CONFLICT (id) DO UPDATE SET rating=EXCLUDED.rating '
+                'WHERE evidence.review_document.rating IS NULL',
+                (row['document_id'],product_id,row['source_code'],row['body'],posted_at,rating))
+   actual=conn.execute('SELECT product_id::text,source_code,is_synthetic,body,posted_at,rating FROM evidence.review_document WHERE id=%s',(row['document_id'],)).fetchone()
+   if actual!=(product_id,row['source_code'],False,row['body'],posted_at,rating):
     raise ValueError('Existing review document conflicts with immutable bundle: '+row['document_id'])
   for row in rules:
    conn.execute('INSERT INTO evidence.review_aspect_rule(id,analysis_version,part_type,aspect_code,context_code,k,definition) '

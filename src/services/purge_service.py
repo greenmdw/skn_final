@@ -30,11 +30,6 @@ class PurgeRepo(Repo):
             counts[label] = self.conn.execute(sql, params).rowcount or 0
 
         rid = (revision_id,)
-        run("notification_event", "DELETE FROM notification.notification_event WHERE evaluation_id IN ("
-            "SELECT e.id FROM notification.price_watch_evaluation e JOIN notification.price_watch w ON w.id=e.watch_id WHERE w.revision_id=%s)", rid)
-        run("price_watch_evaluation", "DELETE FROM notification.price_watch_evaluation WHERE watch_id IN ("
-            "SELECT id FROM notification.price_watch WHERE revision_id=%s)", rid)
-        run("price_watch", "DELETE FROM notification.price_watch WHERE revision_id=%s", rid)
         runs = "SELECT id FROM engine.recommendation_run WHERE revision_id=%s"
         run("feedback_event", f"DELETE FROM engine.feedback_event WHERE revision_id=%s OR recommendation_run_id IN ({runs})", rid + rid)
         run("recommendation_candidate", f"DELETE FROM engine.recommendation_candidate WHERE run_id IN ({runs})", rid)

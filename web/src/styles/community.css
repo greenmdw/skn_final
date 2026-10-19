@@ -104,8 +104,8 @@
 .cm-intro-actions { display: flex; gap: 8px; flex: 0 0 auto; }
 .cm-btn { min-height: 39px; padding: 0 14px; border: 1px solid var(--line2); border-radius: 9px; background: var(--panel2); color: var(--text); font-size: 13px; font-weight: 800; cursor: pointer; }
 .cm-btn:hover { border-color: var(--mint); color: var(--mint); }
-.cm-btn.primary { border-color: transparent; background: var(--grad); color: #fff; box-shadow: 0 5px 12px rgba(49,87,255,.22); }
-.cm-btn.primary:hover { color: #fff; filter: brightness(1.07); }
+.cm-scroll :is(button, a.navigation-link).cm-btn.primary { border-color: transparent; background: var(--grad); color: #fff; box-shadow: 0 5px 12px rgba(49,87,255,.22); }
+.cm-scroll :is(button, a.navigation-link).cm-btn.primary:hover { color: #fff; filter: brightness(1.07); }
 .cm-btn.block { width: 100%; }
 
 .cm-feed { overflow: hidden; }

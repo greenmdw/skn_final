@@ -126,7 +126,8 @@ def _review_brief(product_key: str | None) -> dict | None:
     if not brief:
         return None
     plain = brief.get("plain") or {}
-    return {"total_count": brief.get("total_count"), "headline": plain.get("headline"), "points": plain.get("points") or [],
+    return {"total_count": brief.get("total_count"), "rating_raw": brief.get("rating_raw"),
+            "rating_count": brief.get("rating_count"), "headline": plain.get("headline"), "points": plain.get("points") or [],
             "reason": plain.get("reason")}
 
 

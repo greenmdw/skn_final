@@ -141,6 +141,8 @@ export interface AlternativeOption {
   /** 지금 고른 부품 대비 개당 가격 차이(+ 더 비쌈, - 더 쌈) */
   priceDelta: number
   rating: string
+  /** rating 평균을 낸 평점 건수. 평점이 없으면 null */
+  ratingCount: number | null
   reviews: string
 }
 /** qty 수량 · selected false 부품 빼기 / true 다시 넣기 */
@@ -593,6 +595,8 @@ export interface ReviewSummary {
   /** 모은 리뷰 수. 서버가 모르면 0 */
   totalCount: number
   ratingRaw: number | null
+  /** ratingRaw 를 낸 평점 건수. 평균은 이 건수와 함께만 보여 준다 */
+  ratingCount: number | null
   /** 검수 승인된 분석이 있을 때만 값이 있다 */
   ratingRefined: number | null
   excludedCount: number | null
@@ -639,20 +643,6 @@ export type PreviousComparison =
     reasons: PreviousComparisonReason[]
     totals: { before: number; after: number; diff: number }
   }
-
-// ---- 목표가 알림(확정한 견적서의 가격 추적) ----
-export interface PriceWatch {
-  /** 알림을 켜 둔 상태인가 */
-  enabled: boolean
-  /** 목표 총액(원). 한 번도 정하지 않았으면 확정할 때의 목표 금액이 올 수 있다 */
-  targetAmount: number | null
-  /** waiting 아직 가격을 확인하지 못함(또는 꺼짐) · tracking 추적 중 · reached 목표가에 닿음 */
-  status: 'waiting' | 'tracking' | 'reached'
-  /** 가장 최근에 확인한 지금 카탈로그 기준 총액(원). 확정 당시 가격과 다를 수 있다 */
-  latestTotal: number | null
-  /** 그 가격을 확인한 시각(ISO) */
-  observedAt: string | null
-}
 
 // ---- 저장한 구성 ----
 export interface SetupsListResult {
@@ -761,9 +751,5 @@ export interface Api {
     save(setup: SavedSetup): Promise<SavedSetup>
     /** permanent 이면 보관 기간 없이 바로 영구 삭제(로그인한 소유자만) */
     remove(id: string, permanent?: boolean): Promise<void>
-    /** 확정한 견적(가장 최근 견적서)의 목표가 알림 상태. 로그인한 소유자만 */
-    priceWatch(id: string): Promise<PriceWatch>
-    /** 목표가 알림을 켜거나 끄고 목표 금액을 바꾼다. 켤 때 금액을 안 주면 서버가 지난 값·확정 목표 금액을 쓴다 */
-    setPriceWatch(id: string, request: { enabled: boolean; targetAmount?: number }): Promise<PriceWatch>
   }
 }

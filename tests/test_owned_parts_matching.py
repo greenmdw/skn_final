@@ -123,3 +123,12 @@ def test_the_same_name_at_a_different_price_stays_ambiguous():
     from src.engine.owned_parts import _match_catalog
     pool = [_listing("NVIDIA GeForce RTX 3050 (6GB)", 308_800), _listing("NVIDIA GeForce RTX 3050 6GB", 320_000)]
     assert len(_match_catalog("NVIDIA GeForce RTX 3050 6GB", pool)) == 2
+
+
+def test_a_ram_kit_written_with_its_total_is_not_scaled_by_the_module_count_again():
+    from src.engine.owned_parts import _scale_ram_to_quote
+    catalog_single = {"capacity_gb": 32, "module_config": "32GB × 1"}
+    assert _scale_ram_to_quote(catalog_single, "KLEVV DDR5-5600 CL46 AMD (16Gx2) (32GB)")["capacity_gb"] == 32
+    assert _scale_ram_to_quote(catalog_single, "KLEVV DDR5-5600 CL46 AMD (16Gx2) (32GB)")["module_config"] == "16GB × 2"
+    # 낱개 16GB 카탈로그 상품을 "16GB x2"로 적은 견적은 여전히 32GB 로 늘린다
+    assert _scale_ram_to_quote({"capacity_gb": 16, "module_config": "16GB × 1"}, "DDR5 16GB x2")["capacity_gb"] == 32

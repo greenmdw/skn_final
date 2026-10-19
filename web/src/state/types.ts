@@ -20,6 +20,8 @@ export interface Part {
   /** 구매 전 확인 문장들(서버가 준 것). 목업·확정 리포트 항목에는 없다 */
   checks?: string[]
   rating: string
+  /** rating 평균을 낸 평점 건수. 모르거나 평점이 없으면 null(옛 저장본·받은 견적 점검에는 키가 없다) */
+  ratingCount?: number | null
   reviews: string
   label: string
   /** 서버 카탈로그의 제품 이미지 주소. 없으면 화면이 카테고리 아이콘을 보여 준다 */
