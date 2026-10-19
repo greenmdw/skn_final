@@ -13,19 +13,25 @@ import { useDraft } from './useDraft'
 interface Finding { key: string; tone: 'fail' | 'warn' | 'info'; title: string; detail: string; slot?: string; action?: 'replace' | 'lookup' }
 
 /** 진단 결과를 우선순위(확정 비호환 → 용도 부족 → 확인 못 함 → 과한 부품) 순의 "짚어 볼 점"으로 바꾼다. 교체 후보는 여기 없고 ④에서 본다. */
+/** 예산 비중 행은 "가격을 권장 배분보다 적게 썼다"는 참고 정보다 — 성능·용량이 모자란다는 뜻이 아니고 교체 사유도 아니다(교체 구성은 성능 등급·VRAM·용량 부족만 교체 대상으로 본다). */
+const isShare = (row: { aspect: string }) => row.aspect === '예산 비중'
+
 function findings(analysis: Analysis): Finding[] {
   const out: Finding[] = []
   for (const check of analysis.compat.checks) {
     if (check.state === 'fail') out.push({ key: `c-${check.axis}`, tone: 'fail', title: `${check.label} — 호환 문제`, detail: check.detail, action: 'replace' })
   }
   for (const row of analysis.balance?.rows ?? []) {
-    if (row.state === 'short') out.push({ key: `s-${row.part}-${row.aspect}`, tone: 'fail', title: `${row.part} — 용도 기준보다 부족`, detail: row.detail, slot: row.part, action: 'replace' })
+    if (row.state === 'short' && !isShare(row)) out.push({ key: `s-${row.part}-${row.aspect}`, tone: 'fail', title: `${row.part} — 용도 기준보다 부족`, detail: row.detail, slot: row.part, action: 'replace' })
   }
   for (const check of analysis.compat.checks) {
     if (check.state === 'unknown') out.push({ key: `u-${check.axis}`, tone: 'warn', title: `${check.label} — 확인 못 함`, detail: check.detail, action: 'lookup' })
   }
   for (const row of analysis.balance?.rows ?? []) {
     if (row.state === 'excess') out.push({ key: `e-${row.part}-${row.aspect}`, tone: 'info', title: `${row.part} — 기준보다 높아요`, detail: `${row.detail} 바꾸지 않아도 문제없어요.`, slot: row.part })
+  }
+  for (const row of analysis.balance?.rows ?? []) {
+    if (row.state === 'short' && isShare(row)) out.push({ key: `b-${row.part}`, tone: 'info', title: `${row.part} — 예산 배분이 권장보다 적어요`, detail: `${row.detail} 성능이나 용량이 모자란다는 뜻은 아니에요.`, slot: row.part })
   }
   return out
 }
@@ -103,7 +109,7 @@ export default function ReviewPage() {
   const items = analysis ? findings(analysis) : []
   const compat = analysis?.compat.summary ?? {}
   const balance = analysis?.balance
-  const short = balance?.rows.filter(row => row.state === 'short').length ?? 0
+  const short = balance?.rows.filter(row => row.state === 'short' && !isShare(row)).length ?? 0
   const conditions = (draft?.conditions ?? analysis?.input.conditions ?? {}) as Record<string, unknown>
   const tags = [PURPOSE_LABEL[String(conditions.purpose)], RESOLUTION_LABEL[String(conditions.resolution)], PRIORITY_LABEL[String(conditions.priority)]].filter(Boolean)
   const replaceCount = items.filter(item => item.action === 'replace').length
