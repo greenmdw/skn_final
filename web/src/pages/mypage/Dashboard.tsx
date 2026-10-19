@@ -1,3 +1,4 @@
+import NavigationLink from '../../components/NavigationLink'
 import { Link, useNavigate } from 'react-router-dom'
 import type { AuthUser } from '../../api'
 import { useSetups } from '../../state/SetupsContext'
@@ -12,11 +13,11 @@ function PcBanner({ myPc, onClick }: { myPc: MyPc | null; onClick: () => void })
     ? '등록된 구성: ' + PC_FIELDS.filter(([key]) => myPc.parts[key]).slice(0, 3).map(([key]) => myPc.parts[key]).join(' · ')
     : '지금 쓰는 PC를 등록하면 업그레이드 추천과 견적 점검이 더 정확해져요.'
   return (
-    <button className="pc-banner" type="button" onClick={onClick}>
+    <NavigationLink to={"/mypage?tab=mypc"} className="pc-banner"  onClick={onClick}>
       <span className="pc-banner-icon">🖥️</span>
       <span><strong>{myPc ? '내 현재 PC' : '내 현재 PC를 등록해 보세요'}</strong><small>{sub}</small></span>
       <b>{myPc ? '관리' : '등록하기'} ›</b>
-    </button>
+    </NavigationLink>
   )
 }
 
@@ -33,10 +34,9 @@ export default function Dashboard({ user, myPc, go, openConfig }: {
   const recent = setups[0]
   const consults = (conversations ?? []).slice(0, 3)
   const stat = (page: MyPageId, icon: React.ReactNode, label: string, value: string) => (
-    <div className="mp-stat" role="button" tabIndex={0} onClick={() => go(page)}
-      onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); go(page) } }}>
+    <NavigationLink className="mp-stat" to={`/mypage?tab=${page}`} onClick={() => go(page)}>
       <span>{icon}</span><div><small>{label}</small><strong>{value}</strong></div>
-    </div>
+    </NavigationLink>
   )
 
   return (
@@ -46,11 +46,11 @@ export default function Dashboard({ user, myPc, go, openConfig }: {
           <div className="mpx-avatar" aria-hidden="true">{user.name.slice(0, 1)}</div>
           <div><h1>{user.name}님, 어서오세요! 👋</h1><p> 나에게 딱 맞는 PC를 찾아보세요.</p></div>
         </div>
-        <button className="mpx-memory" type="button" onClick={() => navigate('/start')}>
+        <NavigationLink to={"/start"} className="mpx-memory"  onClick={() => navigate('/start')}>
           <span className="mpx-brain">🖥️</span>
           <span><strong>새 견적 받기</strong>용도와 예산을 알려주면 나에게 맞는 구성을 추천해 드려요.</span>
           <b>›</b>
-        </button>
+        </NavigationLink>
       </section>
 
       <div className="mp-stats mp-stats-click">
@@ -63,7 +63,7 @@ export default function Dashboard({ user, myPc, go, openConfig }: {
 
       <section className="mpx-grid">
         <article className="mp-section mpx-panel">
-          <div className="mp-section-head"><h2>최근 구성</h2><button className="mp-text-button" type="button" onClick={() => go('configs')}>전체보기 〉</button></div>
+          <div className="mp-section-head"><h2>최근 구성</h2><NavigationLink to={"/mypage?tab=configs"} className="mp-text-button"  onClick={() => go('configs')}>전체보기 〉</NavigationLink></div>
           {recent ? (
             <div className="mpx-config-card">
               <div className="mpx-photo"><div><span className="mpx-emoji">🖥️</span><small>MY PC</small></div></div>
@@ -80,13 +80,13 @@ export default function Dashboard({ user, myPc, go, openConfig }: {
           ) : <div className="mp-empty-card"><strong>{loading ? '불러오는 중이에요' : '아직 저장한 구성이 없어요'}</strong><span>견적을 확정하면 여기에 모여요.</span></div>}
         </article>
         <article className="mp-section mpx-panel">
-          <div className="mp-section-head"><h2>최근 AI 상담</h2><button className="mp-text-button" type="button" onClick={() => go('consults')}>전체보기 〉</button></div>
+          <div className="mp-section-head"><h2>최근 AI 상담</h2><NavigationLink to={"/mypage?tab=consults"} className="mp-text-button"  onClick={() => go('consults')}>전체보기 〉</NavigationLink></div>
           {consults.length > 0 ? (
             <div className="mpx-consult-list">
               {consults.map(item => (
-                <button key={item.listId} className="mpx-consult-row" type="button" onClick={() => void openConversation(item)}>
+                <NavigationLink key={item.listId} className="mpx-consult-row" to={`/conversation/${item.listId}`} onClick={() => void openConversation(item)}>
                   <span className="mpx-bubble">▣</span><span className="mpx-question">{conversationTitle(item)}</span><time>{dateText(item.lastActiveAt)}</time><span className="mpx-chev">›</span>
-                </button>
+                </NavigationLink>
               ))}
             </div>
           ) : <div className="mp-empty-card"><strong>{conversations ? '아직 상담 기록이 없어요' : '불러오는 중이에요'}</strong><span>대화로 견적을 받으면 여기에 남아요.</span></div>}
@@ -94,7 +94,7 @@ export default function Dashboard({ user, myPc, go, openConfig }: {
       </section>
 
       <section className="mp-section">
-        <div className="mp-section-head"><h2>추천 리포트</h2><button className="mp-text-button" type="button" onClick={() => go('reports')}>전체보기 〉</button></div>
+        <div className="mp-section-head"><h2>추천 리포트</h2><NavigationLink to={"/mypage?tab=reports"} className="mp-text-button"  onClick={() => go('reports')}>전체보기 〉</NavigationLink></div>
         {setups.length > 0 ? (
           <div className="mpx-report-list">
             {setups.slice(0, 2).map(setup => (

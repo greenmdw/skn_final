@@ -2,6 +2,7 @@ import type {
   PeripheralFeel, PeripheralFeelQuote, PeripheralItem, PeripheralKeySpec, PeripheralPricePosition, PeripheralRequested,
   PeripheralReviewAspect, PeripheralScoreAxis,
 } from '../api'
+import type { PeripheralSnapshot } from '../state/types'
 import { aspectLabel } from './peripherals'
 
 /**
@@ -95,4 +96,30 @@ export function requestedEvidence(view: CandidateView, requested: PeripheralRequ
   }
   if (!requested.specChecks.length && !quotes.length && !note && !external) return null
   return { label: requested.label, fromPc: requested.source === 'pc_purpose', specChecks: requested.specChecks, quotes, note, external }
+}
+
+/** 확정할 때 저장할 설명: 지금 큰 카드에 올린 제품(`chosenName`, null 이면 1위)이 화면에 보이던 그대로. */
+export function snapshotOf(item: PeripheralItem, chosenName: string | null, sessionId?: string | null): PeripheralSnapshot {
+  const views = candidateViews(item)
+  const hero = views.find(view => view.name === chosenName) ?? views[0]
+  return {
+    // 확정한 견적에서 불러온 카드를 다시 확정해도 처음 순위를 잃지 않는다(불러온 카드엔 다른 선택지가 없어 hero.rank 가 1이다)
+    v: 1, rank: hero.rank === 1 && item.savedRank ? item.savedRank : hero.rank, keySpecs: hero.keySpecs, requested: hero.requested, pricePosition: hero.pricePosition,
+    scoreAxes: hero.scoreAxes, feel: hero.feel, reviewAspects: hero.reviewAspects,
+    // 조건 충족 태그는 1위 카드에만 있다
+    requirement: hero.rank === 1 ? item.requirement : [],
+    ...(sessionId ? { sessionId } : {}),
+  }
+}
+
+/** 저장해 둔 설명으로 불러온 카드를 채운다. 설명이 없으면(예전 견적서) 이름·가격만 있는 카드 그대로다. */
+export function withSnapshot<T extends Pick<PeripheralItem, 'keySpecs' | 'requested' | 'pricePosition' | 'scoreAxes' | 'feel' | 'reviewAspects' | 'requirement'>>(
+  item: T, view: PeripheralSnapshot | null | undefined,
+): T {
+  if (!view) return item
+  return {
+    ...item, keySpecs: view.keySpecs, requested: view.requested, pricePosition: view.pricePosition, scoreAxes: view.scoreAxes,
+    feel: view.feel, reviewAspects: view.reviewAspects, requirement: view.requirement,
+    ...(view.rank > 1 ? { savedRank: view.rank } : {}),
+  }
 }

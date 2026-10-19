@@ -13,7 +13,7 @@ from src.engine.quote_price import line_quantity, parse_price, strip_price
 # 쇼핑몰 상품코드(다나와 pcode 등) — 6~10자리 숫자. 가격은 먼저 걷어 낸 뒤라 가격 숫자와 겹치지 않는다.
 _PRODUCT_CODE = re.compile(r"(?<![\d,.])(\d{6,10})(?![\d,.])")
 _DOLLAR_PRICE = re.compile(r"\$\s*\d[\d,]*(?:\.\d+)?")      # "$368.99" — 원 가격이 아니라 읽지 않고, 이름에도 남기지 않는다
-_COUNT_TOKEN = re.compile(r"(?<![\d.])\d{1,2}\s*(?:개|ea\b)|수량\s*:?\s*\d{1,2}", re.IGNORECASE)
+_COUNT_TOKEN = re.compile(r"(?:[x×*]\s*)?(?<![\d.])\d{1,2}\s*(?:개(?:\s*당)?|ea\b)|수량\s*:?\s*\d{1,2}", re.IGNORECASE)
 
 
 # 견적 표의 "고르지 않음" 칸 — 부품이 아니라 선택 안내 문구다. 이걸 부품으로 읽으면 대응 실패로 표시되고 실시간 검색까지 돈다.
@@ -56,7 +56,7 @@ def split_line(raw_text: str) -> dict[str, Any]:
             body = body[:code_match.start()]
         else:
             body = body[:code_match.start()] + " " + body[code_match.end():]
-    body = _COUNT_TOKEN.sub(" ", body)              # "2개"·"수량 2"는 수량 필드로 — 이름에서 뺀다("16GB x2"는 구성이라 둔다)
+    body = _COUNT_TOKEN.sub(" ", body)              # "× 2개당"도 기호·단위까지 뺀다. "16GB x2"는 구성이라 둔다.
     name = re.sub(r"\s{2,}", " ", body).strip(" \t-–—:/|,·")
     return {
         "normalized_name": name, "product_code": code, "quantity": quantity,

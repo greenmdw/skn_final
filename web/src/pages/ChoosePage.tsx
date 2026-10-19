@@ -1,4 +1,4 @@
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import MarketingHeader from '../components/MarketingHeader'
 import SiteFooter from '../components/SiteFooter'
 import '../styles/home.css'
@@ -48,7 +48,6 @@ const CARDS = [
 
 // 장바구니를 어떤 방식으로 시작할지 고르는 화면. 정적 안내와 일러스트뿐이고 서버 데이터는 쓰지 않는다.
 export default function ChoosePage() {
-  const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const cards = searchParams.get('mode') === 'computer' ? CARDS.slice(0, 2) : CARDS
   return (
@@ -61,13 +60,13 @@ export default function ChoosePage() {
         </div>
         <div className="tf-choice-grid">
           {cards.map((card, index) => (
-            <article className="tf-choice-card" key={card.to} onClick={() => navigate(card.to)}>
+            <Link className="tf-choice-card" key={card.to} to={card.to}>
               <div className="tf-choice-media tf-choice-media-pc" dangerouslySetInnerHTML={{ __html: CHOICE_ART[index] }} />
               <h2>{card.title}</h2>
               <p>{card.text}</p>
               <div className="tf-choice-tags">{card.tags.map(tag => <span key={tag}>{tag}</span>)}</div>
-              <button type="button">{card.cta}</button>
-            </article>
+              <span className="tf-choice-cta">{card.cta}</span>
+            </Link>
           ))}
         </div>
       </div>

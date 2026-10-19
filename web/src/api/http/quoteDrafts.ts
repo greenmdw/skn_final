@@ -1,11 +1,6 @@
 import type { Api, QuoteDraft, QuoteDraftItem, QuoteGuideRef, QuoteSavedComparison, QuoteVisual } from '../types'
 import { request, requestForm } from './client'
-import { quoteReviewFromWire } from './checks'
-import type {
-  WireLiveSpecLookup, WireQuoteCapabilities, WireQuoteChatHistoryRich, WireQuoteChatReply, WireQuoteDraft,
-  WireQuoteDraftAnalysis, WireQuoteDraftComparison, WireQuoteDraftItem, WireQuoteGuideRef, WireQuoteReplacementPreview,
-  WireQuoteSavedComparison,
-} from './wire'
+import type { WireQuoteCapabilities, WireQuoteChatHistoryRich, WireQuoteDraft, WireQuoteDraftItem, WireQuoteGuideRef, WireQuoteSavedComparison } from './wire'
 
 const base = (draftId: string) => `/pc/review-drafts/${encodeURIComponent(draftId)}`
 const reviewBase = (listId: string) => `/pc/reviews/${encodeURIComponent(listId)}`
@@ -124,83 +119,6 @@ export const quoteDrafts: Api['quoteDrafts'] = {
     }
     return draftFromWire(await requestForm<WireQuoteDraft>('/pc/review-drafts', form))
   },
-  async get(draftId) {
-    return draftFromWire(await request<WireQuoteDraft>('GET', base(draftId)))
-  },
-  async patchItems(draftId, expectedVersion, items, selectedItemByCategory) {
-    const body = {
-      expected_version: expectedVersion,
-      items: items.map(item => ({
-        id: item.id,
-        ...(item.delete ? { delete: true } : {}),
-        ...(item.name !== undefined ? { normalized_name: item.name } : {}),
-        ...(item.quantity !== undefined ? { quantity: item.quantity } : {}),
-        ...(item.lineTotal !== undefined ? { quote_line_total: item.lineTotal } : {}),
-      })),
-      ...(selectedItemByCategory ? { selected_item_by_category: selectedItemByCategory } : {}),
-    }
-    return draftFromWire(await request<WireQuoteDraft>('PATCH', `${base(draftId)}/items`, body))
-  },
-  async analyze(draftId, sourceIds) {
-    const result = await request<WireQuoteDraftAnalysis>('POST', `${base(draftId)}/analysis`, sourceIds?.length ? { source_ids: sourceIds } : {})
-    const requirement = (result.balance as { requirement?: { label?: unknown } } | null)?.requirement
-    return {
-      ...quoteReviewFromWire(result),
-      usedItems: result.used_items.map(itemFromWire),
-      question: result.question,
-      draftVersion: result.draft_version,
-      priceExcluded: result.price_excluded.map(row => ({ category: row.category, itemId: row.item_id, reason: row.reason })),
-      priceRows: result.price_rows.map(row => ({
-        category: row.category, itemId: row.item_id, quantity: row.quantity, quoteUnitPrice: row.quote_unit_price,
-        quoteLineTotal: row.quote_line_total, quotePriceType: row.quote_price_type, catalogUnitPrice: row.catalog_unit_price,
-        catalogLineTotal: row.catalog_line_total, catalogCheckedAt: row.catalog_checked_at, catalogStatus: row.catalog_status,
-        diffLineTotal: row.diff_line_total,
-      })),
-      requirementLabel: typeof requirement?.label === 'string' && requirement.label ? requirement.label : null,
-    }
-  },
-  async compareCategory(draftId, category, baselineItemId) {
-    const query = baselineItemId ? `?baseline_item_id=${encodeURIComponent(baselineItemId)}` : ''
-    const result = await request<WireQuoteDraftComparison>('GET', `${base(draftId)}/categories/${encodeURIComponent(category)}/comparison${query}`)
-    return {
-      category: result.category, baselineItemId: result.baseline_item_id, notes: result.notes ?? [],
-      recognized: result.recognized.map(option => ({
-        itemId: option.item_id, productId: option.product_id, name: option.name, imageUrl: option.image_url, quantity: option.quantity,
-        quoteLineTotal: option.quote_line_total, matchStatus: option.match_status,
-        specs: option.specs.map(spec => ({ key: spec.key, label: spec.label, unit: spec.unit, candidate: spec.candidate })),
-      })),
-      recommended: result.recommended.flatMap(option => option.product_id ? [{
-        productId: option.product_id, name: option.name, imageUrl: option.image_url, price: option.price, priceDelta: option.price_delta,
-        specs: option.specs, compatChanges: option.compat_changes, incompatible: option.incompatible,
-        additionalReplacements: option.additional_replacements, reason: option.reason,
-      }] : []),
-    }
-  },
-  async previewReplacements(draftId, replacements) {
-    const result = await request<WireQuoteReplacementPreview>('POST', `${base(draftId)}/replacements/preview`, {
-      replacements: replacements.map(row => ({ category: row.category, candidate_product_id: row.candidateProductId })),
-    })
-    return {
-      beforeTotal: result.before_total, afterTotal: result.after_total, totalDiff: result.total_diff,
-      newIssues: result.new_issues, resolvedIssues: result.resolved_issues, additionalReplacements: result.additional_replacements,
-      priceExcluded: result.price_excluded.map(row => ({ category: row.category, itemId: row.item_id, reason: row.reason })),
-    }
-  },
-  async applyReplacements(draftId, expectedVersion, replacements) {
-    const result = await request<WireQuoteDraft>('POST', `${base(draftId)}/replacements/apply`, {
-      expected_version: expectedVersion,
-      replacements: replacements.map(row => ({ category: row.category, candidate_product_id: row.candidateProductId })),
-    })
-    return draftFromWire(result)
-  },
-  async liveLookupItem(draftId, itemId) {
-    const result = await request<WireLiveSpecLookup>('POST', `${base(draftId)}/items/${encodeURIComponent(itemId)}/live-lookup`)
-    return {
-      slot: result.slot, query: result.query, relevant: result.relevant, supportedFields: result.supported_fields,
-      sourceUrl: result.source_url, fetchedAt: result.fetched_at, reviewStatus: result.status,
-      referencePrice: result.reference_price, referencePriceAt: result.reference_price_at,
-    }
-  },
   async compareSaved(listId, savedListId, savedRevisionNo) {
     const result = await request<WireQuoteSavedComparison>('POST', `${reviewBase(listId)}/saved-comparisons`, {
       saved_list_id: savedListId, ...(savedRevisionNo ? { saved_revision_no: savedRevisionNo } : {}),
@@ -210,21 +128,6 @@ export const quoteDrafts: Api['quoteDrafts'] = {
   async compareQuotes(draftId, aSourceIds, bSourceIds) {
     const result = await request<WireQuoteSavedComparison>('POST', `${base(draftId)}/quote-comparisons`, { a_source_ids: aSourceIds, b_source_ids: bSourceIds })
     return savedComparisonFromWire(result)
-  },
-  async getSavedComparison(listId, comparisonId) {
-    return savedComparisonFromWire(await request<WireQuoteSavedComparison>('GET', `${reviewBase(listId)}/saved-comparisons/${encodeURIComponent(comparisonId)}`))
-  },
-  async sendChat(listId, message, options) {
-    const result = await request<WireQuoteChatReply>('POST', `${reviewBase(listId)}/messages`, {
-      text: message,
-      ...(options?.clientMessageId ? { client_message_id: options.clientMessageId } : {}),
-      ...(options?.comparisonId ? { context: { type: 'saved_quote_comparison', comparison_id: options.comparisonId } } : {}),
-    })
-    return {
-      messageId: result.message_id, answerId: result.answer_id, reply: result.reply,
-      guideRefs: guideRefsFromWire(result.guide_refs), visuals: visualsFromWire(result.visuals),
-      displayTarget: result.display_target, duplicateOf: result.duplicate_of, via: result.via, createdAt: result.created_at,
-    }
   },
   async chatHistory(listId) {
     const result = await request<WireQuoteChatHistoryRich>('GET', `${reviewBase(listId)}/messages`)

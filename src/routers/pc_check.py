@@ -22,11 +22,10 @@ import re
 
 from uuid import UUID
 
-from typing import Literal
 
 import json
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Query, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, Response, UploadFile
 
 from src import schemas
 from src.agent import spec_extraction_agent
@@ -42,7 +41,7 @@ from src.engine.spec_text import parse_spec_text
 from src.engine.stage3_0_candidates import load_pc_catalog
 from src.errors import RateLimited, ServiceUnavailable, ValidationFailed
 from src.services import (
-    quote_apply, quote_chat_service, quote_comparison_service, quote_draft_service, quote_review_service, recommendation_runner,
+    quote_chat_service, quote_comparison_service, quote_confirm_service, quote_draft_service, quote_review_service,
 )
 
 
@@ -128,11 +127,11 @@ def quote_capabilities() -> schemas.QuoteCapabilitiesOut:
     return schemas.QuoteCapabilitiesOut(**quote_draft_service.capabilities())
 
 
-def _draft_response(list_id, draft: dict) -> schemas.QuoteDraftOut:
+def _draft_response(list_id, draft: dict, confirmed: bool = False) -> schemas.QuoteDraftOut:
     """초안 응답 — 저장소에 실시간 검색 값이 있는 항목을 표시해서 돌려준다(짧은 읽기 전용 연결)."""
     with get_conn() as conn:
         quote_draft_service.mark_live_values(conn, draft)
-    return schemas.QuoteDraftOut(**quote_draft_service.draft_out(str(list_id), draft))
+    return schemas.QuoteDraftOut(**quote_draft_service.draft_out(str(list_id), draft, confirmed))
 
 
 def _read_upload(upload: UploadFile) -> tuple[str, str | None, bytes]:
@@ -171,8 +170,8 @@ def create_quote_draft(
 @router.get("/review-drafts/{draft_id}", response_model=schemas.QuoteDraftOut)
 def get_quote_draft(draft_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.QuoteDraftOut:
     with get_conn() as conn:
-        draft = quote_draft_service.get_draft(conn, draft_id, principal)
-    return _draft_response(draft_id, draft)
+        draft, confirmed = quote_draft_service.get_draft_state(conn, draft_id, principal)
+    return _draft_response(draft_id, draft, confirmed)
 
 
 @router.patch("/review-drafts/{draft_id}/items", response_model=schemas.QuoteDraftOut)
@@ -185,6 +184,75 @@ def patch_quote_draft_items(
             conn, draft_id, principal, body.expected_version, [e.model_dump(exclude_unset=True) for e in body.items],
             body.selected_item_by_category)
     return _draft_response(draft_id, draft)
+
+
+@router.patch("/review-drafts/{draft_id}/conditions", response_model=schemas.QuoteDraftOut)
+def patch_quote_draft_conditions(
+    draft_id: UUID, body: schemas.QuoteDraftConditionsPatchIn, principal: Principal = Depends(optional_principal),
+) -> schemas.QuoteDraftOut:
+    """조건 일부 수정 — 보낸 키만 바뀌고 null 은 지운다. 분석은 돌리지 않고 결과가 오래됐는지(`analysis_stale`)만 알린다."""
+    with get_conn() as conn:
+        draft = quote_draft_service.update_conditions(
+            conn, draft_id, principal, body.expected_version, body.conditions.model_dump(exclude_unset=True))
+    return _draft_response(draft_id, draft)
+
+
+@router.patch("/review-drafts/{draft_id}/source-relation", response_model=schemas.QuoteDraftOut)
+def patch_quote_draft_source_relation(
+    draft_id: UUID, body: schemas.QuoteSourceRelationPatchIn, principal: Principal = Depends(optional_principal),
+) -> schemas.QuoteDraftOut:
+    """올린 사진이 한 견적인지 서로 다른 견적인지 사용자가 확인한다 — 자동 판정보다 우선하고 다시 바꿀 수 있다."""
+    with get_conn() as conn:
+        draft = quote_draft_service.set_source_relation(conn, draft_id, principal, body.expected_version, body.mode)
+    return _draft_response(draft_id, draft)
+
+
+@router.get("/review-drafts/{draft_id}/replacement-targets", response_model=schemas.ReplacementTargetsOut)
+def get_replacement_targets(draft_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.ReplacementTargetsOut:
+    """부품별로 먼저 바꿀 순서·이유·후보(재기획 교체 추천). 분석한 결과를 바탕으로 하므로 분석 전이면 409 analysis_required. 조회만 한다."""
+    with get_conn() as conn:
+        return schemas.ReplacementTargetsOut(**quote_draft_service.replacement_targets(conn, draft_id, principal))
+
+
+@router.get("/review-drafts/{draft_id}/replacements", response_model=schemas.ReplacementStateOut)
+def get_replacements(draft_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.ReplacementStateOut:
+    """저장된 교체 목록과 적용했을 때의 점검 변화(호환·균형·게임)·가격 차이 사용량."""
+    with get_conn() as conn:
+        return schemas.ReplacementStateOut(**quote_draft_service.replacement_state(conn, draft_id, principal))
+
+
+@router.put("/review-drafts/{draft_id}/replacements/{slot}", response_model=schemas.ReplacementStateOut)
+def put_replacement(draft_id: UUID, slot: str, body: schemas.ReplacementPutIn,
+                    principal: Principal = Depends(optional_principal)) -> schemas.ReplacementStateOut:
+    """교체 목록에 부품을 담는다(부품군마다 하나, 다시 담으면 바뀜). 성능이 낮거나 새 비호환이 생기면 막지 않고 warnings 로 알린다."""
+    with get_conn() as conn:
+        return schemas.ReplacementStateOut(**quote_draft_service.set_replacement(
+            conn, draft_id, principal, body.expected_version, slot, body.candidate_product_id))
+
+
+@router.delete("/review-drafts/{draft_id}/replacements/{slot}", response_model=schemas.ReplacementStateOut)
+def delete_replacement(draft_id: UUID, slot: str, body: schemas.ReplacementDeleteIn,
+                       principal: Principal = Depends(optional_principal)) -> schemas.ReplacementStateOut:
+    """교체 목록에서 부품을 뺀다(되돌리기)."""
+    with get_conn() as conn:
+        return schemas.ReplacementStateOut(**quote_draft_service.remove_replacement(conn, draft_id, principal, body.expected_version, slot))
+
+
+@router.post("/review-drafts/{draft_id}/confirm", response_model=schemas.ReportOut)
+def confirm_review_draft(draft_id: UUID, body: schemas.QuoteConfirmIn, principal: Principal = Depends(optional_principal)) -> schemas.ReportOut:
+    """분석한 견적을 서버에 담긴 교체 목록대로 확정한다 — 교체한 부품은 판매 정보와 함께, 유지한 부품은 견적에 적힌 그대로 얼린다. 로그인 필요."""
+    with get_conn() as conn:
+        return schemas.ReportOut(**quote_confirm_service.confirm(
+            conn, draft_id, principal, expected_version=body.expected_version, name=body.name,
+            planned_purchase_at=body.planned_purchase_at, target_amount=body.target_amount, memo=body.memo))
+
+
+@router.post("/review-drafts/{draft_id}/restart", response_model=schemas.QuoteDraftOut, status_code=201)
+def restart_review_draft(draft_id: UUID, revision: int | None = Query(default=None), principal: Principal = Depends(optional_principal)) -> schemas.QuoteDraftOut:
+    """확정한 받은 견적 리포트의 구성으로 새 점검을 시작한다 — 새 세션(새 draft_id)이 만들어지고 원래 리포트는 그대로다. 로그인한 소유자만."""
+    with get_conn() as conn:
+        new_id, draft = quote_confirm_service.restart_from_report(conn, draft_id, principal, revision)
+    return _draft_response(new_id, draft)
 
 
 @router.post("/review-drafts/{draft_id}/items", response_model=schemas.QuoteDraftOut, status_code=201)
@@ -220,40 +288,6 @@ def compare_draft_quotes(
     return schemas.QuoteSavedComparisonOut(**result)
 
 
-@router.get("/review-drafts/{draft_id}/categories/{category}/comparison", response_model=schemas.QuoteDraftComparisonOut)
-def compare_quote_draft_category(
-    draft_id: UUID, category: str, baseline_item_id: str | None = Query(default=None),
-    direction: Literal["cheaper", "better"] | None = Query(default=None),
-    target_product_id: list[str] = Query(default=[], max_length=4),
-    principal: Principal = Depends(optional_principal),
-) -> schemas.QuoteDraftComparisonOut:
-    """분석 전에 한 부품군의 인식 제품과 추천 제품을 나란히(BE-05). 조회만 한다."""
-    with get_conn() as conn:
-        result = quote_draft_service.comparison(conn, draft_id, principal, category, baseline_item_id, direction, target_product_id)
-    return schemas.QuoteDraftComparisonOut(**result)
-
-
-@router.post("/review-drafts/{draft_id}/replacements/preview", response_model=schemas.QuoteReplacementPreviewOut)
-def preview_quote_draft_replacements(
-    draft_id: UUID, body: schemas.QuoteReplacementsPreviewIn, principal: Principal = Depends(optional_principal),
-) -> schemas.QuoteReplacementPreviewOut:
-    """여러 교체 후보를 한꺼번에 적용했을 때의 합계·호환 변화(BE-06). 조회만 한다."""
-    with get_conn() as conn:
-        result = quote_draft_service.replacement_preview(conn, draft_id, principal, [r.model_dump() for r in body.replacements])
-    return schemas.QuoteReplacementPreviewOut(**result)
-
-
-@router.post("/review-drafts/{draft_id}/replacements/apply", response_model=schemas.QuoteDraftOut)
-def apply_quote_draft_replacements(
-    draft_id: UUID, body: schemas.QuoteReplacementsApplyIn, principal: Principal = Depends(optional_principal),
-) -> schemas.QuoteDraftOut:
-    """정확한 제품 ID로 초안의 항목을 교체한다(BE-06). 분석은 이어서 `/analysis`로 요청한다."""
-    with get_conn() as conn:
-        draft = quote_draft_service.replacement_apply(
-            conn, draft_id, principal, body.expected_version, [r.model_dump() for r in body.replacements])
-    return _draft_response(draft_id, draft)
-
-
 @router.post("/review-drafts/{draft_id}/items/{item_id}/live-lookup", response_model=schemas.LiveSpecLookupOut)
 def live_lookup_draft_item(
     draft_id: UUID, item_id: str, request: Request, principal: Principal = Depends(optional_principal),
@@ -266,35 +300,20 @@ def live_lookup_draft_item(
     return schemas.LiveSpecLookupOut(**result)
 
 
-@router.post("/reviews", response_model=schemas.QuoteReviewOut, status_code=201)
-def create_quote_review(
-    body: schemas.QuoteReviewIn, request: Request, response: Response,
-    principal: Principal = Depends(optional_principal),
-) -> schemas.QuoteReviewOut:
-    """견적(텍스트·이미지·슬롯별 입력)을 분석해 새 세션에 저장한다 — 매칭 표와 호환 검사(CHK-04·CHK-09)."""
-    _check_rate_limit(request)
-    current_specs = _resolve_current_specs(body)
+@router.post("/review-drafts/{draft_id}/live-lookup-batch", response_model=schemas.LiveLookupBatchOut)
+def live_lookup_draft_batch(
+    draft_id: UUID, body: schemas.LiveLookupBatchIn, request: Request, principal: Principal = Depends(optional_principal),
+    _slot: None = Depends(llm_request_slot),
+) -> schemas.LiveLookupBatchOut:
+    """확인하지 못한 제품을 한꺼번에 실시간 검색한다(최대 LIVE_LOOKUP_BATCH_MAX개). 요청 1번이 사용자 한도 1회이고,
+    항목별 결과(찾음·못 찾음·실패·건너뜀)를 한 번에 돌려준다. 저장소에 있는 값은 검색 없이 쓴다."""
+    _check_live_lookup_limit(request)
     with get_conn() as conn:
-        session, review = quote_review_service.create_review(
-            conn, principal, current_specs, body.conditions.model_dump() if body.conditions else None)
-    if session["browser_token"]:
-        response.set_cookie("truefit_guest", session["browser_token"],
-                            httponly=True, samesite="lax", max_age=60 * 60 * 24 * 180)
-    return _review_out(session["list_id"], review)
-
-
-@router.put("/reviews/{list_id}", response_model=schemas.QuoteReviewOut)
-def update_quote_review(
-    list_id: UUID, body: schemas.QuoteReviewIn, request: Request,
-    principal: Principal = Depends(optional_principal),
-) -> schemas.QuoteReviewOut:
-    """인식 결과를 고친 견적으로 같은 세션의 분석을 다시 계산해 저장한다."""
-    _check_rate_limit(request)
-    current_specs = _resolve_current_specs(body)
-    with get_conn() as conn:
-        review = quote_review_service.update_review(
-            conn, list_id, principal, current_specs, body.conditions.model_dump() if body.conditions else None)
-    return _review_out(str(list_id), review)
+        targets, skipped = quote_draft_service.prepare_live_batch(conn, draft_id, principal, body.item_ids)
+    results = quote_draft_service.run_live_batch(targets) + skipped          # 검색은 DB 연결을 잡지 않은 채 한다
+    count = lambda state: sum(1 for r in results if r["state"] == state)      # noqa: E731
+    return schemas.LiveLookupBatchOut(items=results, found=count("found"), not_found=count("not_found"),
+                                      failed=count("failed"), skipped=count("skipped"))
 
 
 @router.get("/reviews/{list_id}", response_model=schemas.QuoteReviewOut)
@@ -302,50 +321,6 @@ def get_quote_review(list_id: UUID, principal: Principal = Depends(optional_prin
     with get_conn() as conn:
         review = quote_review_service.get_review(conn, list_id, principal)
     return _review_out(str(list_id), review)
-
-
-@router.post("/reviews/{list_id}/apply", response_model=schemas.QuoteApplyOut, status_code=201)
-def apply_quote_alternative(
-    list_id: UUID, body: schemas.QuoteApplyIn, response: Response, background_tasks: BackgroundTasks,
-    principal: Principal = Depends(optional_principal),
-) -> schemas.QuoteApplyOut:
-    """비교 결과의 대안을 받아들여 새 계획을 만든다(CHK-08) — 고른 부품은 업그레이드 대상, 나머지는 견적 그대로 유지.
-    업그레이드 추천(mode=upgrade)을 재사용한다. 필수 조건이 다 있으면 바로 추천을 시작한다."""
-    with get_conn() as conn:
-        result = quote_apply.apply_alternative(conn, list_id, principal, body.slots)
-    if result["browser_token"]:
-        response.set_cookie("truefit_guest", result["browser_token"],
-                            httponly=True, samesite="lax", max_age=60 * 60 * 24 * 180)
-    if result["run_id"]:
-        background_tasks.add_task(recommendation_runner.dispatch, UUID(result["revision_id"]), UUID(result["run_id"]))
-    return schemas.QuoteApplyOut(list_id=result["list_id"], slots=result["slots"], missing=result["missing"],
-                                 run_id=result["run_id"])
-
-
-@router.get("/reviews/{list_id}/parts/{slot}/compare", response_model=schemas.QuotePartCompareOut)
-def compare_quote_part(
-    list_id: UUID, slot: str, target: list[str] = Query(default_factory=list, max_length=4),
-    direction: Literal["cheaper", "better"] | None = None, principal: Principal = Depends(optional_principal),
-) -> schemas.QuotePartCompareOut:
-    """견적 속 부품 하나를 같은 부품군의 다른 제품과 스펙·가격·리뷰로 나란히 비교한다(CHK-10). `target` 으로 비교할 제품을
-    직접 고르고, 안 주면 `direction`(더 저렴한/더 좋은)에 맞는 후보를 고른다. 조회만 한다."""
-    with get_conn() as conn:
-        result = quote_review_service.compare_part(conn, list_id, principal, slot, target, direction)
-    return schemas.QuotePartCompareOut(**result)
-
-
-@router.post("/reviews/{list_id}/parts/{slot}/live-lookup", response_model=schemas.LiveSpecLookupOut)
-def live_lookup_quote_part(
-    list_id: UUID, slot: str, request: Request, principal: Principal = Depends(optional_principal),
-    _slot: None = Depends(llm_request_slot),
-) -> schemas.LiveSpecLookupOut:
-    """카탈로그에 "대응 안 됨"으로 뜬 부품을 사용자가 버튼으로 눌렀을 때만 실시간 검색+검증한다
-    (docs/미보유부품_실시간스펙검색_설계.md §2 — 자동 실행 금지, PC_CHECK_LIMIT_PER_MIN보다
-    엄격한 전용 한도를 쓴다). 캐시 히트면 검색·LLM 호출 없이 바로 응답한다."""
-    _check_live_lookup_limit(request)
-    with get_conn() as conn:
-        result = quote_review_service.live_lookup_part(conn, list_id, principal, slot)
-    return schemas.LiveSpecLookupOut(**result)
 
 
 @router.post("/reviews/{list_id}/messages", response_model=schemas.QuoteChatOut)
@@ -377,6 +352,7 @@ def create_saved_comparison(
 def get_saved_comparison(
     list_id: UUID, comparison_id: UUID, principal: Principal = Depends(optional_principal),
 ) -> schemas.QuoteSavedComparisonOut:
+    """저장해 둔 비교 결과를 다시 읽는다(비교는 만들 때 한 번 계산해 저장한다)."""
     with get_conn() as conn:
         result = quote_comparison_service.get_comparison(conn, list_id, principal, str(comparison_id))
     return schemas.QuoteSavedComparisonOut(**result)

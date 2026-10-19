@@ -377,3 +377,22 @@
 .pr-meter i { display: block; height: 100%; flex-basis: 0; }
 .pr-meter .g { background: var(--ok); }
 .pr-meter .b { background: var(--bad); }
+
+/* 채팅 칩 줄: 한 줄로 두고 옆으로 넘긴다(스크롤바는 숨기고 끝은 흐리게) — 칩이 여러 줄이면 입력칸이 대화에서 멀어 보인다(QA 10/16 #15) */
+.pf-chat .pf-quick { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); padding-right: 24px; }
+.pf-chat .pf-quick::-webkit-scrollbar { display: none; }
+.pf-chat .pf-quick .pl-choice { flex: 0 0 auto; white-space: nowrap; }
+.pf-quick-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+/* 예산 초과 표시: 합계 옆 배지와 결과 맨 위 경고(예산 안·초과분 막대) */
+.pf-total.over strong { color: var(--bad); }
+.pr-over-badge { padding: 4px 11px; border-radius: 999px; background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad) !important; font-size: 13px !important; font-weight: 800; }
+.pr-budget-alert { display: flex; flex-direction: column; gap: 9px; padding: 14px 18px; border: 1.5px solid color-mix(in srgb, var(--bad) 45%, var(--line)); border-radius: 14px; background: color-mix(in srgb, var(--bad) 8%, var(--panel)); }
+.pr-budget-alert-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.pr-budget-alert-head b { color: var(--bad); font-size: 16px; }
+.pr-budget-alert-head span { color: var(--muted); font-size: 13px; }
+.pr-budget-bar { display: flex; height: 10px; overflow: hidden; border-radius: 99px; background: var(--ink, var(--panel2)); }
+.pr-budget-bar i { display: block; height: 100%; }
+.pr-budget-bar .ok { background: var(--ok); }
+.pr-budget-bar .over { background: var(--bad); }
+.pr-budget-alert small { color: var(--muted); font-size: 12.5px; line-height: 1.5; }

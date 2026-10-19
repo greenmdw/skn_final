@@ -1,6 +1,6 @@
 // 화면 모델(CurrentPlan · SavedSetup)과 백엔드 모델 사이의 순수 변환 함수 모음.
 // 프레임워크·네트워크에 기대지 않아 Node 로 바로 테스트한다(web/tests/mapping.test.mjs) — 그래서 타입만 import 한다.
-import type { BudgetNotice, BudgetWarning, ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, ContributionShare, CurrentPlan, DeskState, PartKey, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
+import type { BudgetNotice, BudgetWarning, ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, ContributionShare, CurrentPlan, DeskState, PartKey, PeripheralSnapshot, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
 import type { AlternativeOption } from '../types'
 import type { WireAlternative, WireCompatCheck, WireConditionState, WireField, WireItem, WireNextQuestion, WireOwnedPartsPreviewRow, WireReport, WireReportItem, WireResult, WireReview, WireText } from './wire'
 
@@ -226,7 +226,8 @@ export function checksFromWire(checks: WireItem['checks']): string[] {
 /** 세트 검증 쟁점 → 화면 안내. major(확정 문제)와 minor(확인 못 한 항목)로 나눈다. */
 export function compatFromWire(verification: WireResult['verification']): CompatNotice | undefined {
   if (!verification || verification.status !== 'ready') return undefined
-  const texts = (severity: 'major' | 'minor') => verification.issues.filter(issue => (issue.severity === 'major') === (severity === 'major')).map(issue => issue.text)
+  const texts = (severity: 'major' | 'minor') => verification.issues.filter(issue => (issue.severity === 'major') === (severity === 'major'))
+    .map(issue => issue.axis === 'budget' || issue.axis === '예산' ? '예산이 초과되었습니다.' : issue.text)
   return { problems: texts('major'), unchecked: texts('minor') }
 }
 
@@ -307,6 +308,17 @@ function reportItem(item: WireReportItem, index: number): PlanItem {
   }
 }
 
+function keptItem(part: NonNullable<WireReport['kept_parts']>[number], index: number): PlanItem {
+  const key = slotKey(part.slot)
+  return {
+    id: 'kept-' + part.slot + '-' + index, key, type: part.slot_label, name: part.name,
+    price: part.line_amount ?? 0, qty: part.qty, unitPrice: part.line_amount != null ? Math.round(part.line_amount / Math.max(part.qty, 1)) : undefined,
+    meta: part.slot_label, source: '견적에 적힌 그대로', score: '', fit: '', reasonTitle: '', tags: [], rating: '', reviews: '',
+    label: key ? SHORT_LABEL[key] : part.slot_label.slice(0, 4), imageUrl: part.image_url, purchaseUrl: null,
+    kept: true, noPrice: part.line_amount == null,
+  }
+}
+
 function dateOnly(value: string | null, fallbackIso: string): string {
   const source = value && /^\d{4}-\d{2}-\d{2}/.test(value) ? value : fallbackIso
   return source.slice(0, 10)
@@ -315,7 +327,7 @@ function dateOnly(value: string | null, fallbackIso: string): string {
 export function setupFromReport(report: WireReport, extras: SetupExtras | undefined): SavedSetup {
   const plan: CurrentPlan = {
     id: report.list_id, mode: extras?.mode ?? 'new',
-    items: report.items.map(reportItem),
+    items: [...report.items.map(reportItem), ...(report.kept_parts ?? []).map(keptItem)],
     budget: extras?.budget ?? null,
     conditions: extras?.conditions ?? { intent: '', performance: '', quiet: '' },
     checkSnapshot: extras?.checkSnapshot ?? null,
@@ -330,6 +342,20 @@ export function setupFromReport(report: WireReport, extras: SetupExtras | undefi
     peripherals: (report.peripherals ?? []).map(item => ({
       kind: item.kind, name: item.product.name, price: item.price, qty: item.qty, variantId: item.variant_id ?? null,
       imageUrl: item.product.image_url, productUrl: item.product.purchase_url,
+      view: snapshotFromWire(item.view),
     })),
+  }
+}
+
+/** 서버가 보관해 돌려주는 확정 때의 주변기기 설명. 모양이 맞지 않거나 모르는 버전이면 없는 것으로 본다. */
+function snapshotFromWire(raw: unknown): PeripheralSnapshot | null {
+  if (!raw || typeof raw !== 'object') return null
+  const view = raw as Partial<PeripheralSnapshot>
+  if (view.v !== 1 || !Array.isArray(view.keySpecs) || !Array.isArray(view.requested)) return null
+  return {
+    v: 1, rank: Number(view.rank) || 1, keySpecs: view.keySpecs, requested: view.requested, pricePosition: view.pricePosition ?? null,
+    scoreAxes: Array.isArray(view.scoreAxes) ? view.scoreAxes : [], feel: view.feel ?? null,
+    reviewAspects: Array.isArray(view.reviewAspects) ? view.reviewAspects : [], requirement: Array.isArray(view.requirement) ? view.requirement : [],
+    ...(typeof view.sessionId === 'string' ? { sessionId: view.sessionId } : {}),
   }
 }

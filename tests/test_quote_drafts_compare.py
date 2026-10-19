@@ -94,106 +94,6 @@ def test_analysis_returns_unit_and_line_prices_for_each_item(client, monkeypatch
     assert rows["CPU"]["diff_line_total"] is None
 
 
-# ── BE-05 ────────────────────────────────────────────────────────────────────
-
-def test_comparison_lists_recognized_items_and_recommended_products_with_ids_and_reasons(client, monkeypatch, catalog):
-    gpu, other = _cheapest_two(catalog, "GPU")
-    draft = _make_draft(client, monkeypatch, [{"category": "GPU", "raw_text": f"{gpu.name} {gpu.price:,}원"},
-                                              {"category": "GPU", "raw_text": f"{other.name} {other.price:,}원"}])
-    base, second = _by_cat(draft, "GPU")
-    r = client.get(f"/pc/review-drafts/{draft['draft_id']}/categories/GPU/comparison",
-                   params={"baseline_item_id": base["id"], "direction": "better"})
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["category"] == "GPU" and body["baseline_item_id"] == base["id"]
-    assert {c["item_id"] for c in body["recognized"]} == {base["id"], second["id"]}   # 인식한 제품은 모두 나온다
-    assert body["recommended"], "추천 후보가 있어야 한다"
-    for rec in body["recommended"]:
-        assert rec["product_id"] and rec["name"] and rec["reason"]
-        assert "image_url" in rec and isinstance(rec["specs"], list)
-
-
-def test_comparison_with_target_product_ids_returns_only_those(client, monkeypatch, catalog):
-    gpu, other = _cheapest_two(catalog, "GPU")
-    draft = _make_draft(client, monkeypatch, [{"category": "GPU", "raw_text": f"{gpu.name} {gpu.price:,}원"}])
-    r = client.get(f"/pc/review-drafts/{draft['draft_id']}/categories/GPU/comparison",
-                   params={"target_product_id": [other.product_id]})
-    assert r.status_code == 200, r.text
-    assert [c["product_id"] for c in r.json()["recommended"]] == [other.product_id]
-
-
-def test_comparison_rejects_unknown_product_too_many_targets_and_wrong_baseline(client, monkeypatch, catalog):
-    gpu, _ = _cheapest_two(catalog, "GPU")
-    draft = _make_draft(client, monkeypatch, [{"category": "GPU", "raw_text": f"{gpu.name} {gpu.price:,}원"},
-                                              {"category": "CPU", "raw_text": "AMD Ryzen 5 7500F"}])
-    url = f"/pc/review-drafts/{draft['draft_id']}/categories/GPU/comparison"
-    assert client.get(url, params={"target_product_id": ["not-a-product"]}).status_code == 422
-    assert client.get(url, params={"target_product_id": [str(i) for i in range(5)]}).status_code == 422
-    cpu_item = _by_cat(draft, "CPU")[0]["id"]
-    assert client.get(url, params={"baseline_item_id": cpu_item}).status_code == 422
-    assert client.get(f"/pc/review-drafts/{draft['draft_id']}/categories/케이스/comparison").status_code == 400
-
-
-# ── BE-06 ────────────────────────────────────────────────────────────────────
-
-def test_preview_reports_total_change_and_replaced_items_without_saving(client, monkeypatch, catalog):
-    gpu, other = _cheapest_two(catalog, "GPU")
-    draft = _make_draft(client, monkeypatch, [{"category": "GPU", "raw_text": f"{gpu.name} {gpu.price:,}원"}])
-    url = f"/pc/review-drafts/{draft['draft_id']}"
-    r = client.post(f"{url}/replacements/preview", json={"replacements": [{"category": "GPU", "candidate_product_id": other.product_id}]})
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["before_total"] == gpu.price and body["after_total"] == other.price
-    assert body["total_diff"] == other.price - gpu.price
-    assert body["replaced_items"][0]["candidate_product_id"] == other.product_id
-    assert client.get(url).json()["version"] == 1                          # 조회만 — 초안은 그대로
-
-
-def test_preview_flags_new_issue_and_the_other_part_that_must_change(client, monkeypatch, catalog):
-    cpu, board, other_cpu = _socket_pair(catalog)
-    draft = _make_draft(client, monkeypatch, [{"category": "CPU", "raw_text": f"{cpu.name} {cpu.price:,}원"},
-                                              {"category": "메인보드", "raw_text": f"{board.name} {board.price:,}원"}])
-    body = client.post(f"/pc/review-drafts/{draft['draft_id']}/replacements/preview",
-                       json={"replacements": [{"category": "CPU", "candidate_product_id": other_cpu.product_id}]}).json()
-    assert any(i["axis"] == "socket" for i in body["new_issues"])
-    assert any(r["category"] == "메인보드" for r in body["additional_replacements"])      # 소켓이 바뀌면 보드도 바꿔야 한다
-    assert "소켓" in " ".join(r["reason"] for r in body["additional_replacements"])
-
-
-def test_preview_validates_products_and_duplicate_categories(client, monkeypatch, catalog):
-    gpu, other = _cheapest_two(catalog, "GPU")
-    draft = _make_draft(client, monkeypatch, [{"category": "GPU", "raw_text": f"{gpu.name} {gpu.price:,}원"}])
-    url = f"/pc/review-drafts/{draft['draft_id']}/replacements/preview"
-    assert client.post(url, json={"replacements": [{"category": "GPU", "candidate_product_id": "nope"}]}).status_code == 422
-    dup = {"category": "GPU", "candidate_product_id": other.product_id}
-    assert client.post(url, json={"replacements": [dup, dup]}).status_code == 422
-    assert client.post(url, json={"replacements": []}).status_code == 422
-    # 다른 부품군의 제품 ID를 그 부품군 자리에 넣을 수 없다
-    cpu = catalog["CPU"][0]
-    assert client.post(url, json={"replacements": [{"category": "GPU", "candidate_product_id": cpu.product_id}]}).status_code == 422
-
-
-def test_apply_replaces_with_the_exact_product_and_analysis_uses_it(client, monkeypatch, catalog):
-    gpu, other = _cheapest_two(catalog, "GPU")
-    draft = _make_draft(client, monkeypatch, [{"category": "GPU", "raw_text": f"{gpu.name} {gpu.price:,}원"}])
-    url = f"/pc/review-drafts/{draft['draft_id']}"
-    r = client.post(f"{url}/replacements/apply", json={
-        "expected_version": 1, "replacements": [{"category": "GPU", "candidate_product_id": other.product_id}]})
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["version"] == 2
-    picked = next(i for i in body["items"] if i["id"] == body["selected_item_by_category"]["GPU"])
-    assert picked["matched_product_id"] == other.product_id and picked["match_status"] == "confirmed"
-    assert picked["quote_line_total"] == other.price and picked["user_edited"] is True
-    assert len(_by_cat(body, "GPU")) == 2                                   # 원래 항목도 남는다
-    assert body["sources"][-1]["type"] == "replacement"
-    analysis = client.post(f"{url}/analysis").json()
-    assert [i["matched_product_id"] for i in analysis["used_items"]] == [other.product_id]
-    stale = client.post(f"{url}/replacements/apply", json={
-        "expected_version": 1, "replacements": [{"category": "GPU", "candidate_product_id": gpu.product_id}]})
-    assert stale.status_code == 409 and stale.json()["error"]["code"] == "STALE_REVIEW_VERSION"
-
-
 # ── 항목 단위 실시간 검색 ─────────────────────────────────────────────────────
 
 def _fake_lookup(monkeypatch):
@@ -229,3 +129,65 @@ def test_item_live_lookup_is_503_when_the_feature_is_off(client, monkeypatch, ca
     monkeypatch.setattr(live_spec_lookup, "available", lambda: False)
     item = draft["items"][0]
     assert client.post(f"/pc/review-drafts/{draft['draft_id']}/items/{item['id']}/live-lookup").status_code == 503
+
+
+# ── 일괄 실시간 검색(재기획 6.8) ──────────────────────────────────────────────────
+def _batch_draft(client, monkeypatch, catalog, unknowns=3):
+    gpu, _ = _cheapest_two(catalog, "GPU")
+    items = [{"category": "GPU", "raw_text": f"{gpu.name} {gpu.price:,}원"}]
+    items += [{"category": "CPU", "raw_text": f"정체불명 프로세서 ZX-{n}"} for n in range(unknowns)]
+    return _make_draft(client, monkeypatch, items)
+
+
+def test_batch_lookup_returns_one_state_per_item_and_skips_confirmed_ones(client, monkeypatch, catalog):
+    draft = _batch_draft(client, monkeypatch, catalog)
+    _fake_lookup(monkeypatch)
+    confirmed = _by_cat(draft, "GPU")[0]
+    unknown = _by_cat(draft, "CPU")
+    ids = [confirmed["id"], "no-such-item"] + [u["id"] for u in unknown]
+    r = client.post(f"/pc/review-drafts/{draft['draft_id']}/live-lookup-batch", json={"item_ids": ids})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    states = {row["item_id"]: row["state"] for row in body["items"]}
+    assert states[confirmed["id"]] == "skipped" and states["no-such-item"] == "skipped"
+    assert all(states[u["id"]] == "found" for u in unknown)
+    assert (body["found"], body["skipped"], body["not_found"], body["failed"]) == (3, 2, 0, 0)
+    assert body["items"][0]["result"]["supported_fields"]["socket"] == "AM5" or any(row["result"] for row in body["items"])
+
+
+def test_batch_lookup_isolates_a_failing_item_and_reports_not_found(client, monkeypatch, catalog):
+    from src.errors import ServiceUnavailable
+    from src.services.live_spec_lookup import LiveSpecLookupResult, LookupOutcome
+
+    draft = _batch_draft(client, monkeypatch, catalog)
+    monkeypatch.setattr(live_spec_lookup, "available", lambda: True)
+
+    def fake(conn, text, *, slot=None, **kw):
+        if "ZX-0" in text:
+            raise ServiceUnavailable("지금 검색 요청이 몰려 있어요.", code="live_part_lookup_busy")
+        found = "ZX-1" in text
+        result = LiveSpecLookupResult.model_validate({"relevant": found, "supported_fields": {"socket": "AM5"} if found else {}})
+        return LookupOutcome(result=result, fetched_at=datetime(2026, 10, 5, tzinfo=timezone.utc), status="unreviewed", cached=False)
+
+    monkeypatch.setattr(live_spec_lookup, "lookup_with_meta", fake)
+    unknown = {u["normalized_name"][-4:]: u["id"] for u in _by_cat(draft, "CPU")}
+    r = client.post(f"/pc/review-drafts/{draft['draft_id']}/live-lookup-batch", json={"item_ids": list(unknown.values())})
+    assert r.status_code == 200, r.text
+    states = {row["item_id"]: row for row in r.json()["items"]}
+    assert states[unknown["ZX-0"]]["state"] == "failed" and states[unknown["ZX-0"]]["message"]
+    assert states[unknown["ZX-1"]]["state"] == "found" and states[unknown["ZX-2"]]["state"] == "not_found"
+
+
+def test_batch_lookup_enforces_the_item_cap_the_switch_and_ownership(client, monkeypatch, catalog):
+    from src.config import LIVE_LOOKUP_BATCH_MAX
+
+    draft = _batch_draft(client, monkeypatch, catalog, unknowns=1)
+    _fake_lookup(monkeypatch)
+    url = f"/pc/review-drafts/{draft['draft_id']}/live-lookup-batch"
+    too_many = client.post(url, json={"item_ids": [f"x{n}" for n in range(LIVE_LOOKUP_BATCH_MAX + 1)]})
+    assert too_many.status_code == 422 and too_many.json()["error"]["code"] == "batch_too_large"
+    assert client.post(url, json={"item_ids": []}).status_code == 422
+    with TestClient(app) as stranger:
+        assert stranger.post(url, json={"item_ids": ["x"]}).status_code == 404
+    monkeypatch.setattr(live_spec_lookup, "available", lambda: False)
+    assert client.post(url, json={"item_ids": ["x"]}).status_code == 503

@@ -18,6 +18,7 @@ _MAX_PIXELS = 12_000_000   # 키운 결과가 이보다 크면 키우지 않는�
 _TOO_SMALL_WIDTH = 640     # 이보다 좁으면 글씨를 읽기 어렵다
 _BLUR_VAR_MIN = 800.0      # 가로 800px 기준 윤곽선 분산이 이보다 낮으면 흐리다
 _BLUR_WIDTH = 800
+_MAX_PIXELS_TO_DECODE = 40_000_000   # 파일은 작아도 펼치면 거대한 사진(압축 폭탄)을 이 크기를 넘으면 열어 보지 않는다 — 원본 그대로 읽는다
 
 
 def prepare_for_reading(content_type: str, data: bytes) -> tuple[str, bytes]:
@@ -26,6 +27,8 @@ def prepare_for_reading(content_type: str, data: bytes) -> tuple[str, bytes]:
         from PIL import Image, ImageFilter, ImageOps
 
         with Image.open(io.BytesIO(data)) as opened:
+            if opened.size[0] * opened.size[1] > _MAX_PIXELS_TO_DECODE:
+                return content_type, data
             image = ImageOps.exif_transpose(opened)
             width, height = image.size
             if width >= MIN_WIDTH or width < 1 or height < 1:
@@ -49,6 +52,8 @@ def assess_quality(data: bytes) -> dict[str, Any]:
         from PIL import Image, ImageFilter, ImageOps, ImageStat
 
         with Image.open(io.BytesIO(data)) as opened:
+            if opened.size[0] * opened.size[1] > _MAX_PIXELS_TO_DECODE:
+                return {"low": False, "reason": None, "width": opened.size[0], "blur": None}      # 열어 보지 않는다 — 판단하지 않음
             image = ImageOps.exif_transpose(opened).convert("L")
             width, height = image.size
             if width < _TOO_SMALL_WIDTH:

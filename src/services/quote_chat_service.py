@@ -17,7 +17,7 @@ from uuid import UUID
 
 from src.auth.deps import Principal
 from src.engine.stage3_0_candidates import load_pc_catalog
-from src.errors import ValidationFailed
+from src.errors import NotFound, ValidationFailed
 from src.repo.user_repo import ConversationRepo
 from src.services import quote_alternatives, quote_comparison_service, quote_facts, session_service
 
@@ -355,7 +355,7 @@ def _payload(message_id: UUID | str, created_at: str, reply: str, meta: dict) ->
         "evidence": list(meta.get("evidence") or []), "guide_refs": list(meta.get("guide_refs") or []),
         "visuals": list(meta.get("visuals") or []), "via": meta.get("via") or "rules",
         "display_target": meta.get("display_target") or "chat", "duplicate_of": meta.get("duplicate_of"),
-        "created_at": created_at,
+        "action": meta.get("action"), "created_at": created_at,
     }
 
 
@@ -398,7 +398,8 @@ def chat(conn, list_id: UUID, principal: Principal, text: str, *, client_message
         raise ValidationFailed("질문을 입력해 주세요.", field="text")
     if len(text) > MAX_TEXT_CHARS:
         raise ValidationFailed(f"질문이 너무 깁니다({MAX_TEXT_CHARS:,}자 이하).", field="text")
-    revision, review = _stored_review(conn, list_id, principal)
+    from src.repo.plan_repo import PlanRepo
+    revision = session_service._owned(PlanRepo(conn), list_id, principal)
     conversations = ConversationRepo(conn)
     conversation_id = revision["conversation_id"]
 
@@ -408,6 +409,34 @@ def chat(conn, list_id: UUID, principal: Principal, text: str, *, client_message
             answer = conversations.assistant_after(conversation_id, sent["id"])
             if answer is not None:
                 return _payload(answer["id"], answer["created_at"].isoformat(timespec="seconds"), answer["content"], answer["metadata"] or {})
+
+    if not context:
+        # 직전 답이 "외부 검색을 진행해도 될까요?"였고 이번이 동의이면 그 제품을 검색한다 — 분석 전에도 된다.
+        searched = _answer_search_consent(conn, conversations.messages(conversation_id), text)
+        if searched is not None:
+            reply, meta = searched
+            conversations.add_message(conversation_id, "user", text, client_message_id=client_message_id, metadata={})
+            message_id = conversations.add_message(conversation_id, "assistant", reply, metadata=meta)
+            return _payload(message_id, _now_iso(), reply, meta)
+        # 말로 하는 동작(교체 담기·빼기, 조건 바꾸기, 제품 확정, 정보 찾기 제안, 다시 분석) — 요청 말투일 때만. 분석 전에도 된다.
+        from src.services import quote_chat_actions
+        acted = quote_chat_actions.try_action(conn, list_id, principal, text)
+        if acted is not None:
+            reply, action, extra = acted
+            meta = {"answer_id": str(uuid.uuid4()), "evidence": ["채팅 동작"] if action else [], "guide_refs": [], "visuals": [],
+                    "via": "rules", "display_target": "chat", "action": action, **extra}
+            conversations.add_message(conversation_id, "user", text, client_message_id=client_message_id, metadata={})
+            message_id = conversations.add_message(conversation_id, "assistant", reply, metadata=meta)
+            return _payload(message_id, _now_iso(), reply, meta)
+    try:
+        _, review = _stored_review(conn, list_id, principal)
+    except NotFound:
+        from src.repo.plan_repo import QUOTE_DRAFT_KEY
+        if PlanRepo(conn).active_condition(revision["id"], QUOTE_DRAFT_KEY) is None:
+            raise                                   # 견적 점검 세션이 아니다 — 예전처럼 404
+        # 분석 전에는 읽을 근거가 없다 — 동작이 아닌 질문에는 먼저 분석하라고 안내한다(저장하지 않는다).
+        notice = "아직 분석한 결과가 없어요. 읽은 부품을 확인하고 '이대로 분석하기'를 누르면 그 결과를 바탕으로 답해 드려요."
+        return _payload(str(uuid.uuid4()), _now_iso(), notice, {"evidence": [], "via": "rules"})
 
     comparison = None
     comparison_id = None
@@ -489,7 +518,8 @@ def chat(conn, list_id: UUID, principal: Principal, text: str, *, client_message
 
 def history(conn, list_id: UUID, principal: Principal) -> list[dict]:
     """저장한 견적 점검을 다시 열 때 복원할 대화(CHAT-08) — 시간순."""
-    revision, _ = _stored_review(conn, list_id, principal)
+    from src.repo.plan_repo import PlanRepo
+    revision = session_service._owned(PlanRepo(conn), list_id, principal)
     out = []
     for m in ConversationRepo(conn).messages(revision["conversation_id"]):
         meta = m.get("metadata") or {}
@@ -498,6 +528,7 @@ def history(conn, list_id: UUID, principal: Principal) -> list[dict]:
         if m["role"] == "assistant":
             row.update(answer_id=meta.get("answer_id"), evidence=list(meta.get("evidence") or []),
                        guide_refs=list(meta.get("guide_refs") or []), visuals=list(meta.get("visuals") or []),
-                       via=meta.get("via"), display_target=meta.get("display_target"), duplicate_of=meta.get("duplicate_of"))
+                       via=meta.get("via"), display_target=meta.get("display_target"), duplicate_of=meta.get("duplicate_of"),
+                       action=meta.get("action"))
         out.append(row)
     return out

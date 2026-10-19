@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from uuid import UUID
 
@@ -14,7 +15,7 @@ from src.auth.deps import Principal
 from src.engine.lang import fmt_money
 from src.errors import Conflict, NotFound, ValidationFailed
 from src.repo.engine_repo import EngineRepo
-from src.repo.plan_repo import PlanRepo
+from src.repo.plan_repo import QUOTE_CONFIRM_KEY, PlanRepo
 from src.repo.user_repo import UserRepo
 from src.services import auth_service, feedback_service, recommendation_service
 from src.services.session_service import _owned, _token_hash
@@ -104,6 +105,9 @@ def new_revision(conn, list_id: UUID, principal: Principal, *, from_revision_no:
 
     if from_revision_no is not None:
         source = _owned_confirmed_report(prepo, list_id, principal, from_revision_no, user_id)
+        if prepo.active_condition(source["id"], QUOTE_CONFIRM_KEY):
+            raise ValidationFailed("받은 견적으로 만든 견적서는 새 견적서의 바탕으로 쓸 수 없어요. 받은 견적 점검에서 다시 시작해 주세요.",
+                                   code="quote_report_not_editable")
         new_id = prepo.clone_revision(list_id, source["id"])
         prepo.set_current_revision(list_id, new_id)
         ConversationRepo(conn).add_message(
@@ -133,7 +137,7 @@ def _owned_confirmed_report(prepo: PlanRepo, list_id: UUID, principal: Principal
     return target
 
 
-def delete_report(conn, list_id: UUID, principal: Principal, revision_no: int) -> dict:
+def delete_report(conn, list_id: UUID, principal: Principal, revision_no: int, *, permanent: bool = False) -> dict:
     """견적서(확정된 revision) 하나만 지운다(개발요청 10번) — 대화·다른 견적서는 그대로 둔다.
 
     지금 작업 중인(current) revision이 바로 지우는 그 견적서면(확정 직후 "새 견적서 시작"을
@@ -156,6 +160,9 @@ def delete_report(conn, list_id: UUID, principal: Principal, revision_no: int) -
             prepo.set_current_revision(list_id, new_id)
 
     prepo.soft_delete_revision(target["id"])
+    if permanent:                       # 현재 작업 견적서는 위에서 다른 곳으로 옮겼으므로 바로 지워도 외래 키가 걸리지 않는다
+        from src.services import purge_service
+        purge_service.purge_revision(conn, target["id"])
     return session_service._state(conn, list_id, principal)
 
 
@@ -235,10 +242,33 @@ def rename(conn, list_id: UUID, principal: Principal, *, name: str) -> dict:
     }
 
 
-def delete(conn, list_id: UUID, principal: Principal) -> None:
+def delete(conn, list_id: UUID, principal: Principal, *, permanent: bool = False) -> None:
+    """대화를 지운다. 기본은 삭제 표시(보관 기간 뒤 정리 작업이 영구 삭제), permanent=True 면 바로 영구 삭제 — 로그인한 소유자만."""
     prepo = PlanRepo(conn)
-    _owned(prepo, list_id, principal)
+    revision = _owned(prepo, list_id, principal)
+    if permanent:
+        from src.services import purge_service
+        user_id = _require_login(conn, principal)
+        if revision["owner_user_id"] != user_id:
+            raise NotFound("목록을 찾을 수 없습니다.")
+        purge_service.purge_plan(conn, list_id)
+        return
     prepo.soft_delete(list_id)
+
+
+PERIPHERAL_VIEW_MAX_BYTES = 32 * 1024
+
+
+def _storable_view(view) -> dict | None:
+    """확정 때 화면이 보낸 주변기기 설명(`view`)을 저장해도 되는 모양으로 거른다. 서버는 내용을 해석하지 않는다 — dict 가 아니거나
+    JSON 이 32KB 를 넘으면 버린다(확정은 막지 않는다)."""
+    if not isinstance(view, dict):
+        return None
+    try:
+        size = len(json.dumps(view, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    except (TypeError, ValueError):
+        return None
+    return view if size <= PERIPHERAL_VIEW_MAX_BYTES else None
 
 
 def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_purchase_at: str | None,
@@ -275,6 +305,7 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
     # 개발요청 11번 — 가격은 클라이언트가 보낸 값을 안 믿고 variant_id로 카탈로그에서 다시 조회한다
     # (PC 쪽 stored가 서버에서 다시 읽는 것과 같은 원칙). 확정 전에 다 검증해, 실패하면 아무것도 안 남긴다.
     peripheral_picks: list[tuple[str, object, int]] = []
+    peripheral_views: list[dict | None] = []      # peripheral_picks 와 같은 순서
     if peripherals:
         from src.repo.catalog_repo import load_peripheral_candidates
         pool = load_peripheral_candidates(conn)
@@ -284,6 +315,7 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
             if cand is None:
                 raise ValidationFailed(f"주변기기 후보를 찾을 수 없습니다: {kind}", code="peripheral_not_found")
             peripheral_picks.append((kind, cand, qty))
+            peripheral_views.append(_storable_view(p.get("view")))
     peripheral_total = sum(c.price * qty for _, c, qty in peripheral_picks)
 
     purchase_at = None
@@ -335,7 +367,7 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
             pack_count=qty,
         )
 
-    for kind, cand, qty in peripheral_picks:
+    for (kind, cand, qty), view in zip(peripheral_picks, peripheral_views):
         snapshot = {
             "kind": kind,
             "product": {
@@ -343,6 +375,8 @@ def confirm(conn, list_id: UUID, principal: Principal, *, name: str, planned_pur
                 "image_url": cand.provenance.get("image_url"), "purchase_url": cand.provenance.get("product_url"),
             },
         }
+        if view is not None:
+            snapshot["view"] = view
         prepo.add_peripheral_line(
             revision["id"], kind, UUID(cand.variant_id), int(cand.price) * qty, snapshot, pack_count=qty,
         )
@@ -383,8 +417,25 @@ def get_report(conn, list_id: UUID, principal: Principal, revision_no: int | Non
             "product": snapshot.get("product") or {},
             "variant_id": str(line["variant_id"]),
             "price": int(line["line_amount"]) // max(int(line["pack_count"]), 1), "qty": int(line["pack_count"]),
+            "view": snapshot.get("view"),       # 확정 때 화면이 보낸 설명 그대로(없던 확정본은 None)
         })
+    kept_parts = []
+    for line in prepo.list_kept_part_lines(revision["id"]):
+        snapshot = line["snapshot"] or {}
+        kept_parts.append({
+            "slot": line["slot"], "slot_label": snapshot.get("slot_label") or line["slot"],
+            "source_text": line["source_text"], "name": snapshot.get("matched_name") or snapshot.get("display_name") or line["source_text"],
+            "match_status": snapshot.get("match_status"), "image_url": snapshot.get("image_url"),
+            "product_id": snapshot.get("product_id"), "product_key": snapshot.get("product_key"),
+            "qty": int(line["pack_count"]),
+            # 견적에 가격이 없던 부품은 None — 0원으로 보이지 않게 한다.
+            "line_amount": int(line["line_amount"]) if line["line_amount"] is not None else None,
+        })
+    quote_row = prepo.active_condition(revision["id"], QUOTE_CONFIRM_KEY)
     return {
+        "source": "quote_check" if quote_row else "recommendation",
+        "kept_parts": kept_parts,
+        "quote_check": quote_row["value"]["value"] if quote_row else None,
         "list_id": str(list_id),
         "revision_no": revision["revision_no"],
         # A confirmed report is a snapshot; later sidebar renames must not rewrite

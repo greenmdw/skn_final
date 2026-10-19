@@ -285,7 +285,7 @@ export default function PlanPage() {
           ) : (
             <>
               <Link className="pl-btn" style={{ textDecoration: 'none' }} to="/cart">장바구니에 담기</Link>
-              <Link className="pl-btn ghost" style={{ textDecoration: 'none' }} to="/start" onClick={() => { leavingForConditions.current = true; reopenConditions() }}>조건 바꾸기</Link>
+              <Link className="pl-btn ghost" style={{ textDecoration: 'none' }} to="/start" onClick={event => { if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return; leavingForConditions.current = true; reopenConditions() }}>조건 바꾸기</Link>
             </>
           )}
         </div>

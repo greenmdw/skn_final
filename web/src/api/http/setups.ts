@@ -88,7 +88,7 @@ export const setups: Api['setups'] = {
     try {
       report = await request<WireReport>('POST', '/lists/' + setup.id + '/confirm', {
         name: setup.title, planned_purchase_at: setup.date, target_amount: setup.target, memo: setup.memo,
-        peripherals: (setup.peripherals ?? []).flatMap(item => item.variantId ? [{ kind: item.kind, variant_id: item.variantId, qty: item.qty }] : []),
+        peripherals: (setup.peripherals ?? []).flatMap(item => item.variantId ? [{ kind: item.kind, variant_id: item.variantId, qty: item.qty, view: item.view ?? undefined }] : []),
       })
     } catch (error) { throw toConfirmError(error) }
     writeExtras({ ...readExtras(), [setup.id]: {
@@ -100,9 +100,9 @@ export const setups: Api['setups'] = {
     return { ...structuredClone(setup), revisionNo: saved.revisionNo, title: saved.title, date: saved.date, target: saved.target, memo: saved.memo, savedAt: saved.savedAt, peripherals: saved.peripherals }
   },
 
-  async remove(id) {
+  async remove(id, permanent) {
     try {
-      await request<void>('DELETE', '/lists/' + id)
+      await request<void>('DELETE', '/lists/' + id + (permanent ? '?permanent=true' : ''))
     } catch (error) {
       if (!(error instanceof ApiError && error.code === 'not_found')) throw error   // 이미 없으면 지운 것과 같다
     }

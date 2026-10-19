@@ -1,3 +1,4 @@
+import NavigationLink from '../../components/NavigationLink'
 import { useEffect, useMemo, useState, type DependencyList, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError } from '../../api/types'
@@ -105,16 +106,16 @@ function CategoryMenu({ current, counts, onSelect }: { current: CommunityBoard; 
       <section className="cm-card cm-side-menu">
         <h2>커뮤니티</h2>
         {boardOrder.map(board => (
-          <button key={board} type="button" className={'cm-side-link' + (current === board ? ' active' : '')} onClick={() => onSelect(board)}>
+          <NavigationLink to={`/community?view=board&board=${board}`} key={board}  className={'cm-side-link' + (current === board ? ' active' : '')} onClick={() => onSelect(board)}>
             <span>{boardInfo[board].label}</span>
             <small>{counts[board] ?? 0}</small>
-          </button>
+          </NavigationLink>
         ))}
       </section>
       <section className="cm-card cm-question-guide">
         <h2>처음 조립하시나요?</h2>
         <p>용도와 예산만 입력하면 AI가 나에게 딱 맞는 PC를 구성해 드려요.</p>
-        <button type="button" onClick={startFreshBuild}>AI PC구성 바로가기</button>
+        <NavigationLink to={"/start"}  onClick={startFreshBuild}>AI PC구성 바로가기</NavigationLink>
       </section>
     </aside>
   )
@@ -123,6 +124,7 @@ function CategoryMenu({ current, counts, onSelect }: { current: CommunityBoard; 
 function PostCard({ post, reaction, onOpen, onLike }: { post: CommunityPost; reaction: Reaction; onOpen: () => void; onLike: () => void }) {
   return (
     <article className="cm-post-row">
+      <NavigationLink className="cm-post-hit-area" to={`/community?view=post&post=${encodeURIComponent(post.id)}`} onClick={onOpen} aria-label={post.title} />
       <Avatar name={post.author} />
       <div className="cm-post-content">
         <div className="cm-post-head">
@@ -133,18 +135,18 @@ function PostCard({ post, reaction, onOpen, onLike }: { post: CommunityPost; rea
           </span>
         </div>
         <div className="cm-post-category">{post.boardLabel}</div>
-        <button type="button" className="cm-post-title" onClick={onOpen}>{post.title}</button>
+        <NavigationLink to={`/community?view=post&post=${encodeURIComponent(post.id)}`} className="cm-post-title" onClick={onOpen}>{post.title}</NavigationLink>
         <p>{post.excerpt}</p>
         {post.coverUrl && (
           <div className="cm-cover" style={{ position: 'relative' }}>
-            <img src={post.coverUrl} alt="" loading="lazy" onClick={onOpen} style={{ width: '100%', maxHeight: 320, objectFit: 'cover', borderRadius: 12, cursor: 'pointer', display: 'block' }} />
+            <img src={post.coverUrl} alt="" loading="lazy" style={{ width: '100%', maxHeight: 320, objectFit: 'cover', borderRadius: 12, cursor: 'pointer', display: 'block' }} />
             {!!post.mediaCount && post.mediaCount > 1 && <span className="cm-badge" style={{ position: 'absolute', right: 8, bottom: 8 }}>+{post.mediaCount - 1}</span>}
           </div>
         )}
         {post.specs && <div className="cm-spec-row">{post.specs.map(spec => <div key={spec.label}><small>{spec.label}</small><strong>{spec.value}</strong></div>)}</div>}
         {!!post.products?.length && <div className="cm-linked-products">{post.products.map((product, index) => <span key={product.name + index}>{product.kind} · {product.name}</span>)}</div>}
         <div className="cm-post-actions">
-          <button type="button" onClick={onOpen}>댓글 {post.comments}</button>
+          <NavigationLink to={`/community?view=post&post=${encodeURIComponent(post.id)}`} onClick={onOpen}>댓글 {post.comments}</NavigationLink>
           <button type="button" className={reaction.liked ? 'liked' : ''} onClick={onLike} aria-pressed={reaction.liked}>♡ 추천 {reaction.likes}</button>
           <span>조회 {post.views}</span>
         </div>
@@ -270,8 +272,8 @@ export default function CommunityPage() {
       <MarketingHeader />
       <div className="cm-subnav">
         <div>
-          <button type="button" className={view === 'home' ? 'active' : ''} onClick={() => navigate('home')}>홈</button>
-          <button type="button" className={view === 'board' && board === 'popular' ? 'active' : ''} onClick={() => openBoard('popular')}>인기</button>
+          <NavigationLink to={"/community"}  className={view === 'home' ? 'active' : ''} onClick={() => navigate('home')}>홈</NavigationLink>
+          <NavigationLink to={`/community?view=board&board=${'popular'}`}  className={view === 'board' && board === 'popular' ? 'active' : ''} onClick={() => openBoard('popular')}>인기</NavigationLink>
           <form className="cm-global-search" onSubmit={submitSearch}>
             <SearchIcon /><input value={searchText} onChange={event => setSearchText(event.target.value)} placeholder="게시글과 제품 검색" aria-label="커뮤니티 검색" />
           </form>
@@ -294,9 +296,9 @@ export default function CommunityPage() {
       </main>
       <SiteFooter />
       <nav className="cm-mobile-nav" aria-label="커뮤니티 모바일 메뉴">
-        <button type="button" className={view === 'home' ? 'active' : ''} onClick={() => navigate('home')}>⌂<span>홈</span></button>
-        <button type="button" className={view === 'board' ? 'active' : ''} onClick={() => openBoard('all')}>⌕<span>탐색</span></button>
-        <button type="button" className="write" onClick={() => navigate('write')}>＋<span>글쓰기</span></button>
+        <NavigationLink to={"/community"}  className={view === 'home' ? 'active' : ''} onClick={() => navigate('home')}>⌂<span>홈</span></NavigationLink>
+        <NavigationLink to={`/community?view=board&board=${'all'}`}  className={view === 'board' ? 'active' : ''} onClick={() => openBoard('all')}>⌕<span>탐색</span></NavigationLink>
+        <NavigationLink to={"/community?view=write"}  className="write" onClick={() => navigate('write')}>＋<span>글쓰기</span></NavigationLink>
         <Link to="/mypage">○<span>마이</span></Link>
       </nav>
     </div>
@@ -353,11 +355,11 @@ function HomeView({ counts, feedMode, feedPage, reactionOf, onFeedMode, onFeedPa
         <div className="cm-stack">
           <section className="cm-card cm-intro">
             <div><span>오늘의 커뮤니티</span><h1>고민은 짧게, 좋은 선택은 함께.</h1><p>실사용자의 경험을 한곳에서 확인하세요.</p></div>
-            <div className="cm-intro-actions"><button type="button" className="cm-btn" onClick={() => onBoard('popular')}>인기 글 보기</button></div>
+            <div className="cm-intro-actions"><NavigationLink to={`/community?view=board&board=${'popular'}`}  className="cm-btn" onClick={() => onBoard('popular')}>인기 글 보기</NavigationLink></div>
           </section>
           <section className="cm-card cm-feed">
             <div className="cm-feed-tabs"><button type="button" className={feedMode === 'latest' ? 'active' : ''} onClick={() => onFeedMode('latest')}>최신 글</button><button type="button" className={feedMode === 'popular' ? 'active' : ''} onClick={() => onFeedMode('popular')}>인기 글</button></div>
-            <button type="button" className="cm-composer" onClick={onWrite}><Avatar name="나" /><span>궁금한 점이나 사용 경험을 공유해보세요.</span><b>글쓰기</b></button>
+            <NavigationLink to={"/community?view=write"}  className="cm-composer" onClick={onWrite}><Avatar name="나" /><span>궁금한 점이나 사용 경험을 공유해보세요.</span><b>글쓰기</b></NavigationLink>
             {feed.error && <p className="cm-empty">{feed.error}</p>}
             {!feed.error && !feed.loading && posts.length === 0 && <p className="cm-empty">아직 게시글이 없습니다. 첫 글을 남겨보세요.</p>}
             {!feed.error && feed.loading && posts.length === 0 && <p className="cm-empty">불러오는 중…</p>}
@@ -388,17 +390,17 @@ function BoardView({ counts, board, query, page, onQuery, onPage, onBoard, onPos
   const pageCount = Math.max(1, list.data?.total_pages ?? 1)
   return (
     <>
-      <header className="cm-page-head"><div><span>Community Board</span><h1>{boardInfo[board].label}</h1><p>{boardInfo[board].description}</p></div><div><button type="button" className="cm-btn" onClick={() => onBoard('all')}>전체 피드</button><button type="button" className="cm-btn primary" onClick={onWrite}>글쓰기</button></div></header>
-      <div className="cm-mobile-chips">{boardOrder.map(value => <button key={value} type="button" className={board === value ? 'active' : ''} onClick={() => onBoard(value)}>{boardInfo[value].label}</button>)}</div>
+      <header className="cm-page-head"><div><span>Community Board</span><h1>{boardInfo[board].label}</h1><p>{boardInfo[board].description}</p></div><div><NavigationLink to={`/community?view=board&board=${'all'}`}  className="cm-btn" onClick={() => onBoard('all')}>전체 피드</NavigationLink><NavigationLink to={"/community?view=write"}  className="cm-btn primary" onClick={onWrite}>글쓰기</NavigationLink></div></header>
+      <div className="cm-mobile-chips">{boardOrder.map(value => <NavigationLink to={`/community?view=board&board=${value}`} key={value}  className={board === value ? 'active' : ''} onClick={() => onBoard(value)}>{boardInfo[value].label}</NavigationLink>)}</div>
       <div className="cm-layout cm-board-layout">
         <CategoryMenu current={board} counts={counts} onSelect={onBoard} />
         <section className="cm-card cm-board-card">
           <div className="cm-filter"><strong>{boardInfo[board].label} <small>{total}개</small></strong><div className="cm-filter-tools"><label><SearchIcon /><input value={query} onChange={event => { onQuery(event.target.value); onPage(1) }} placeholder="게시판 내 검색" /></label><select aria-label="게시글 정렬" value={sort} onChange={event => { setSort(event.target.value as typeof sort); onPage(1) }}><option value="latest">등록일 순</option><option value="views">조회 순</option><option value="recommend">추천 순</option></select></div></div>
           <div className="cm-table-head"><span>분류</span><span>제목</span><span>작성자</span><span>조회</span><span>추천</span></div>
-          {list.error ? <p className="cm-empty">{list.error}</p> : rows.length ? rows.map(post => <button type="button" className="cm-board-row" key={post.id} onClick={() => onPost(post.id)}><span>{post.boardLabel}</span><span><span className="cm-board-title-line"><strong>{post.title}</strong>{post.is_example && <span className="cm-badge example">예시</span>}</span><small>{post.excerpt}</small></span><span>{post.author}</span><span>{post.views}</span><span>{post.likes}</span></button>) : <p className="cm-empty">{list.loading ? '불러오는 중…' : '검색 결과가 없습니다.'}</p>}
+          {list.error ? <p className="cm-empty">{list.error}</p> : rows.length ? rows.map(post => <NavigationLink to={`/community?view=post&post=${encodeURIComponent(post.id)}`}  className="cm-board-row" key={post.id} onClick={() => onPost(post.id)}><span>{post.boardLabel}</span><span><span className="cm-board-title-line"><strong>{post.title}</strong>{post.is_example && <span className="cm-badge example">예시</span>}</span><small>{post.excerpt}</small></span><span>{post.author}</span><span>{post.views}</span><span>{post.likes}</span></NavigationLink>) : <p className="cm-empty">{list.loading ? '불러오는 중…' : '검색 결과가 없습니다.'}</p>}
           <Pagination page={Math.min(page, pageCount)} pageCount={pageCount} onPage={onPage} />
         </section>
-        <aside className="cm-right-rail"><section className="cm-card cm-card-pad"><div className="cm-card-head"><h2>게시판 안내</h2></div><p>{boardInfo[board].description}</p><button type="button" className="cm-btn primary block" onClick={onWrite}>새 글 작성</button></section></aside>
+        <aside className="cm-right-rail"><section className="cm-card cm-card-pad"><div className="cm-card-head"><h2>게시판 안내</h2></div><p>{boardInfo[board].description}</p><NavigationLink to={"/community?view=write"}  className="cm-btn primary block" onClick={onWrite}>새 글 작성</NavigationLink></section></aside>
       </div>
     </>
   )
@@ -485,7 +487,7 @@ function PostView({ postId, quote, user, reactionOf, onBack, onBoard, onPost, on
   if (!wire || !post) {
     return (
       <>
-        <header className="cm-page-head"><div><span>Community</span><h1>게시글 상세</h1></div><div><button type="button" className="cm-btn" onClick={onBack}>목록으로</button></div></header>
+        <header className="cm-page-head"><div><span>Community</span><h1>게시글 상세</h1></div><div><NavigationLink to={"/community?view=board&board=all"}  className="cm-btn" onClick={onBack}>목록으로</NavigationLink></div></header>
         <p className="cm-empty">{detail.error ?? '불러오는 중…'}</p>
       </>
     )
@@ -505,7 +507,7 @@ function PostView({ postId, quote, user, reactionOf, onBack, onBoard, onPost, on
   )
   return (
     <>
-      <header className="cm-page-head"><div><span>{post.boardLabel}</span><h1>게시글 상세</h1><p>본문과 댓글에 집중하는 읽기 화면입니다.</p></div><div><button type="button" className="cm-btn" onClick={onBack}>목록으로</button><button type="button" className="cm-btn primary" onClick={onWrite}>글쓰기</button></div></header>
+      <header className="cm-page-head"><div><span>{post.boardLabel}</span><h1>게시글 상세</h1><p>본문과 댓글에 집중하는 읽기 화면입니다.</p></div><div><NavigationLink to={"/community?view=board&board=all"}  className="cm-btn" onClick={onBack}>목록으로</NavigationLink><NavigationLink to={"/community?view=write"}  className="cm-btn primary" onClick={onWrite}>글쓰기</NavigationLink></div></header>
       <div className="cm-detail-grid">
         <div className="cm-stack">
           <article className="cm-card cm-article">
@@ -516,7 +518,7 @@ function PostView({ postId, quote, user, reactionOf, onBack, onBoard, onPost, on
             <div className="cm-article-body">
               <MarkdownBody key={wire.id} body={wire.body} images={wire.images} quoteSentence={quote.sentence} />
             </div>
-            <div className="cm-article-actions"><button type="button" className={reaction.liked ? 'active' : ''} onClick={() => onLike(post)}>♡ 추천 {reaction.likes}</button><button type="button" className={saved ? 'active' : ''} aria-pressed={saved} disabled={savingPost} onClick={() => toggleSave(saved)}>{saved ? '★ 저장됨' : '☆ 저장'}</button><button type="button" onClick={copyLink}>공유</button>{wire.can_edit && <button type="button" onClick={onEdit}>수정</button>}{wire.can_delete && <button type="button" onClick={removePost}>삭제</button>}</div>
+            <div className="cm-article-actions"><button type="button" className={reaction.liked ? 'active' : ''} onClick={() => onLike(post)}>♡ 추천 {reaction.likes}</button><button type="button" className={saved ? 'active' : ''} aria-pressed={saved} disabled={savingPost} onClick={() => toggleSave(saved)}>{saved ? '★ 저장됨' : '☆ 저장'}</button><button type="button" onClick={copyLink}>공유</button>{wire.can_edit && <NavigationLink to={`/community?view=write&edit=${encodeURIComponent(postId)}`}  onClick={onEdit}>수정</NavigationLink>}{wire.can_delete && <button type="button" onClick={removePost}>삭제</button>}</div>
           </article>
           <section className="cm-card cm-comments">
             <h2>댓글 <span>{commentTotal}</span></h2>
@@ -544,10 +546,10 @@ function PostBoardList({ currentPostId, initialBoard, onPost, onBoard, onWrite }
   return (
     <section className="cm-card cm-post-board">
       <div className="cm-post-board-tabs">{tabs.map(tab => <button type="button" key={tab.key} className={activeBoard === tab.key ? 'active' : ''} onClick={() => { setActiveBoard(tab.key); setPage(1); setQuery(''); setDraftQuery('') }}>{tab.label}</button>)}</div>
-      <div className="cm-post-board-head"><div><h2>{boardInfo[activeBoard].label} 글 목록</h2><p>{boardInfo[activeBoard].description}</p></div><button type="button" className="cm-btn" onClick={() => onBoard(activeBoard)}>전체 목록</button></div>
+      <div className="cm-post-board-head"><div><h2>{boardInfo[activeBoard].label} 글 목록</h2><p>{boardInfo[activeBoard].description}</p></div><NavigationLink to={`/community?view=board&board=${activeBoard}`}  className="cm-btn" onClick={() => onBoard(activeBoard)}>전체 목록</NavigationLink></div>
       <div className="cm-table-head"><span>분류</span><span>제목</span><span>작성자</span><span>조회</span><span>추천</span></div>
-      {list.error ? <p className="cm-empty">{list.error}</p> : pageRows.length ? pageRows.map(item => <button type="button" key={item.id} className={'cm-board-row' + (item.id === currentPostId ? ' current' : '')} onClick={() => onPost(item.id)}><span>{item.boardLabel}</span><span><span className="cm-board-title-line"><strong>{item.title}</strong>{item.is_example && <span className="cm-badge example">예시</span>}</span><small>댓글 [{item.comments}]</small></span><span>{item.author}</span><span>{item.views}</span><span>{item.likes}</span></button>) : <p className="cm-empty">{list.loading ? '불러오는 중…' : '검색 결과가 없습니다.'}</p>}
-      <div className="cm-post-board-tools"><select value={sort} onChange={event => { setSort(event.target.value as typeof sort); setPage(1) }}><option value="latest">등록일 순</option><option value="views">조회 순</option><option value="recommend">추천 순</option></select><button type="button" className="cm-btn primary" onClick={onWrite}>✎ 글쓰기</button></div>
+      {list.error ? <p className="cm-empty">{list.error}</p> : pageRows.length ? pageRows.map(item => <NavigationLink to={`/community?view=post&post=${encodeURIComponent(item.id)}`}  key={item.id} className={'cm-board-row' + (item.id === currentPostId ? ' current' : '')} onClick={() => onPost(item.id)}><span>{item.boardLabel}</span><span><span className="cm-board-title-line"><strong>{item.title}</strong>{item.is_example && <span className="cm-badge example">예시</span>}</span><small>댓글 [{item.comments}]</small></span><span>{item.author}</span><span>{item.views}</span><span>{item.likes}</span></NavigationLink>) : <p className="cm-empty">{list.loading ? '불러오는 중…' : '검색 결과가 없습니다.'}</p>}
+      <div className="cm-post-board-tools"><select value={sort} onChange={event => { setSort(event.target.value as typeof sort); setPage(1) }}><option value="latest">등록일 순</option><option value="views">조회 순</option><option value="recommend">추천 순</option></select><NavigationLink to={"/community?view=write"}  className="cm-btn primary" onClick={onWrite}>✎ 글쓰기</NavigationLink></div>
       <div className="cm-post-board-footer"><Pagination page={currentPage} pageCount={pageCount} onPage={setPage} /><form onSubmit={event => { event.preventDefault(); setQuery(draftQuery.trim()); setPage(1) }}><input value={draftQuery} onChange={event => setDraftQuery(event.target.value)} placeholder="제목·내용·작성자 검색" /><button type="submit" className="cm-btn">검색</button></form></div>
     </section>
   )
@@ -691,6 +693,6 @@ function SearchView({ keyword, onPost, onHome }: { keyword: string; onPost: (id:
   const results = useMemo<CommunityPost[]>(() => search.data?.items.map(mapCommunityItem) ?? [], [search.data])
   const total = search.data?.total ?? 0
   return (
-    <><header className="cm-page-head"><div><span>Search</span><h1>통합 검색</h1><p>커뮤니티 게시글을 제목, 내용, 작성자, 태그, 연결 제품으로 찾습니다.</p></div></header><section className="cm-card cm-search-results"><h2>‘{keyword || '검색어'}’ 검색 결과 <small>{total}개</small></h2>{search.error ? <p className="cm-empty">{search.error}</p> : results.length ? results.map(post => <button type="button" key={post.id} onClick={() => onPost(post.id)}><span>{post.boardLabel}</span><strong>{post.title}</strong><small>{post.excerpt}</small></button>) : search.loading ? <p className="cm-empty">불러오는 중…</p> : <div className="cm-empty"><b>검색 결과가 없습니다.</b><p>다른 키워드로 다시 검색해보세요.</p><button type="button" className="cm-btn primary" onClick={onHome}>홈으로 돌아가기</button></div>}</section></>
+    <><header className="cm-page-head"><div><span>Search</span><h1>통합 검색</h1><p>커뮤니티 게시글을 제목, 내용, 작성자, 태그, 연결 제품으로 찾습니다.</p></div></header><section className="cm-card cm-search-results"><h2>‘{keyword || '검색어'}’ 검색 결과 <small>{total}개</small></h2>{search.error ? <p className="cm-empty">{search.error}</p> : results.length ? results.map(post => <NavigationLink to={`/community?view=post&post=${encodeURIComponent(post.id)}`}  key={post.id} onClick={() => onPost(post.id)}><span>{post.boardLabel}</span><strong>{post.title}</strong><small>{post.excerpt}</small></NavigationLink>) : search.loading ? <p className="cm-empty">불러오는 중…</p> : <div className="cm-empty"><b>검색 결과가 없습니다.</b><p>다른 키워드로 다시 검색해보세요.</p><NavigationLink to={"/community"}  className="cm-btn primary" onClick={onHome}>홈으로 돌아가기</NavigationLink></div>}</section></>
   )
 }

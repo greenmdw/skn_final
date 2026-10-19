@@ -150,9 +150,12 @@ def test_the_comparison_is_saved_with_the_review_and_priority_is_validated():
     from src.api import app
 
     with TestClient(app) as client:
-        body = {"current_specs": QUOTE, "conditions": {**GAME, "priority": "value"}}
-        created = client.post("/pc/reviews", json=body).json()
+        import json
+        from tests.quote_review_helpers import create_review
+
+        created = create_review(client, QUOTE, {**GAME, "priority": "value"})
         assert created["compare"]["available"] is True and created["input"]["conditions"]["priority"] == "value"
         assert client.get(f"/pc/reviews/{created['list_id']}").json()["compare"] == created["compare"]
-        bad = client.post("/pc/reviews", json={**body, "conditions": {**GAME, "priority": "가성비"}})
+        text = "\n".join(f"{slot}: {value}" for slot, value in QUOTE.items())
+        bad = client.post("/pc/review-drafts", data={"text": text, "conditions": json.dumps({**GAME, "priority": "가성비"})})
         assert bad.status_code == 422

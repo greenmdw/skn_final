@@ -69,8 +69,8 @@ def test_pc_check_review_create_is_rate_limited_per_ip():
     from src.config import PC_CHECK_LIMIT_PER_MIN
 
     c = TestClient(app)  # 비로그인 — pc_check는 로그인 없이도 호출 가능하다
-    body = {"current_specs_text": "CPU: i5-14400F"}
-    codes = [c.post("/pc/reviews", json=body).status_code for _ in range(PC_CHECK_LIMIT_PER_MIN + 3)]
+    data = {"text": "CPU: i5-14400F"}
+    codes = [c.post("/pc/review-drafts", data=data).status_code for _ in range(PC_CHECK_LIMIT_PER_MIN + 3)]
     assert codes[:PC_CHECK_LIMIT_PER_MIN].count(429) == 0, codes  # 한도 안에서는 429가 섞이면 안 됨
     assert all(code == 429 for code in codes[PC_CHECK_LIMIT_PER_MIN:]), codes  # 한도 넘으면 전부 429
 
@@ -83,6 +83,6 @@ def test_pc_check_ratelimit_is_per_ip_not_global():
 
     c = TestClient(app)
     for i in range(PC_CHECK_LIMIT_PER_MIN):
-        c.post("/pc/reviews", json={"current_specs_text": f"CPU: 테스트{i}"})
-    r = c.post("/pc/reviews", json={"current_specs_text": "CPU: 전혀 다른 내용"})
+        c.post("/pc/review-drafts", data={"text": f"CPU: 테스트{i}"})
+    r = c.post("/pc/review-drafts", data={"text": "CPU: 전혀 다른 내용"})
     assert r.status_code == 429, r.text

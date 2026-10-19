@@ -145,6 +145,19 @@ def test_verification_issue_payload_severity_minor_for_info():
 
 
 # ── 추가 작업 A: 예산 이중 감점 정리 ───────────────────────────────────────
+@pytest.mark.parametrize("link_check,used_pct", [({"budget": "fail"}, 105.0), ({"budget": "fail"}, 115.0), ({}, 115.0)])
+def test_budget_excess_has_explicit_message_without_llm(monkeypatch, link_check, used_pct):
+    def unexpected_sentence(*args):
+        pytest.fail("예산 초과 안내에는 LLM 쟁점 문장을 사용하지 않는다")
+
+    monkeypatch.setattr(s3c, "_issue_sentence", unexpected_sentence)
+    build = BuildResult(list_id="t", link_check=link_check,
+                        budget={"max": 1_000_000, "used": int(used_pct * 10_000), "used_pct": used_pct})
+    issues = s3c.verify_build(build, "computer", _noop).targets[0].issues
+    assert len(issues) == 1
+    assert issues[0].text == "예산이 초과되었습니다."
+
+
 def test_budget_link_check_fail_only_penalizes_20_axis_budget():
     """link_check["budget"]="fail" 만 있고 110% 는 안 넘음 — 옛 동작 그대로 축 budget, 판정 위반, 감점 20."""
     build = BuildResult(list_id="t", link_check={"budget": "fail"},

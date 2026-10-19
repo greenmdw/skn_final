@@ -156,7 +156,8 @@ def test_the_price_comparison_is_saved_with_the_review_and_read_back(monkeypatch
 
     monkeypatch.setenv("CATALOG_SOURCE", "mock")
     with TestClient(app) as client:
-        created = client.post("/pc/reviews", json={"current_specs": {"CPU": "i5-14400F 250,000원"}}).json()
+        from tests.quote_review_helpers import create_review
+        created = create_review(client, {"CPU": "i5-14400F 250,000원"})
         assert created["prices"]["available"] is True
         assert created["prices"]["rows"][0]["quoted"] == 250_000
         assert client.get(f"/pc/reviews/{created['list_id']}").json()["prices"] == created["prices"]
