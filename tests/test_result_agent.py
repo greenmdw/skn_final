@@ -159,7 +159,7 @@ def test_system_prompt_says_whether_there_was_an_earlier_conversation():
 def test_strands_registers_change_and_question_tools():
     tools = ra.make_tools(_session())
     assert [t.tool_name for t in tools] == [
-        "list_alternatives", "swap", "set_qty", "remove_or_restore", "explain",
+        "list_alternatives", "swap", "revert", "set_qty", "remove_or_restore", "explain",
         "preview_swap", "preview_qty", "upgrade_options", "budget_reason", "savings_options", "check_build", "game_check",
         "search_unavailable_part", "omitted_options", "add_omitted_part"]
     swap_spec = next(t for t in tools if t.tool_name == "swap").tool_spec
@@ -298,6 +298,8 @@ _ASK = ("CPU 더 성능 좋은 걸로 바꿔도 문제없을까?", "램 32기가
         "파워 바꾸는거 ㄱㅊ?", "씨퓨 업글 해도 무방?", "SSD 1테라 더 달아도 됨", "SSD 하나 더 달아도 돼?",
         "SSD 추가하면 어때?")
 _CHANGE = ("CPU 한 단계 좋은 걸로 바꿔줘", "그래픽카드도 바꿔줘", "SSD 2개로", "SSD 2개로 해줘", "쿨러 빼줘",
+           # 처음 추천으로 되돌리기(QA 10/16 #34 — 바꾸라는 말로 안 잡혀 되돌리는 도구가 막혔다)
+           "원래대로 되돌려줘", "램은 원래 걸로 되돌려줘", "그래픽카드 원래대로 돌려놔줘", "원래대로 복구해줘", "다시 되돌려",
            "그래픽카드 더 싼 걸로 바꿔줄래?", "응 그걸로 바꿔줘", "ㅇㅇ", "응", "네", "7600X로", "그걸로 ㄱㄱ",
            "예산 200만원으로 늘려줘", "그래픽카드 더 저렴한 걸로", "글카 4060ti로 바꿔주세요", "글카 한단계 위로 바꿔주셈",
            # 10/3 리허설 대본 (P1-5 여러 턴 회귀 — 앞 턴 제안을 받는 말, 방향만 말하는 교체)
@@ -362,6 +364,37 @@ def test_read_only_turn_refuses_writes_without_touching_db():
     assert not s.changed and len(s.outputs) == 2
     # 수량 변경을 거절당하면 교체 가정(preview_swap)으로 넘어가 "하나 더 달기"를 교체로 답했다(10/12 평가 시트 3/3)
     assert "preview_qty" in s.outputs[0] and "preview_qty" not in s.outputs[1]
+
+
+def test_removed_part_is_not_swapped_or_requantified_without_touching_db():
+    """뺀 부품을 그대로 교체하고 "바꿨습니다"라고 답했는데 총액엔 그 부품이 빠져 있었다(QA 10/16 #13) — 빼 둔 사실을 돌려준다."""
+    s = _session()                            # 케이스는 selected=False, conn=None — DB 에 닿으면 터진다
+    out = s.swap("케이스", str(uuid4()))
+    assert out.startswith("바꾸지 않음") and "빼 둔 상태" in out and "remove_or_restore('케이스', 'true')" in out
+    assert s.set_item("케이스", qty="2").startswith("바꾸지 않음")
+    assert not s.changed and len(s.outputs) == 2
+
+
+def test_revert_picks_the_one_changed_part_or_asks_which(monkeypatch):
+    """"원래대로 되돌려줘"에 처음 추천의 candidate_id 를 얻을 길이 없어 "후보 목록에 없다"고 답했다(QA 10/16 #34) — 처음 추천은
+    snapshot 에서 읽고, 슬롯을 말하지 않았을 때 바뀐 부품이 여럿이면 고르지 않고 묻게 한다."""
+    from src.services import recommendation_service as rs
+    s = _session()                                    # conn=None — 되돌리기 전 판단까지만 본다
+    items = {it["slot"]: it for it in s.result["items"]}
+    for it in items.values():
+        it["product"]["variant_id"] = str(uuid4())
+    original = {slot: it["product"]["variant_id"] for slot, it in items.items()}
+    monkeypatch.setattr(rs, "original_variants", lambda conn, rid: original)
+    assert s.revert("").startswith("처음 추천과 다른 부품이 없습니다")
+    assert s.revert("CPU").startswith("CPU은(는) 이미 처음 추천한 부품")
+    original["CPU"], original["GPU"] = str(uuid4()), str(uuid4())
+    asked = s.revert("")
+    assert asked.startswith("처음 추천과 다른 부품이 여럿입니다") and "CPU(지금 Intel Core Ultra 7 265K)" in asked
+    original["케이스"] = str(uuid4())
+    assert s.revert("케이스").startswith("바꾸지 않음")      # 빼 둔 부품은 되돌리지 않는다
+    s.read_only = True
+    assert s.revert("GPU").startswith("거절")
+    assert not s.changed
 
 
 def test_whatif_question_skips_why_prefetch(monkeypatch):
