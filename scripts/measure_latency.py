@@ -119,17 +119,19 @@ def one_run(p: Probe, index: int) -> None:
                                                json={"kinds": ["monitor", "keyboard", "mouse", "speaker"]}))
 
     # 3. 받은 견적 점검
-    r, _ = p.timed("견적 점검 만들기(분석 포함)", lambda: http.post("/pc/reviews", json={
-        "current_specs": QUOTE_SPECS, "conditions": {"purpose": "game", "resolution": "QHD_165", "budget_max": 3_000_000}}))
+    r, _ = p.timed("견적 점검 만들기(인식, 텍스트)", lambda: http.post("/pc/review-drafts", data={
+        "text": QUOTE_TEXT, "conditions": json.dumps({"purpose": "game", "resolution": "QHD_165", "budget_max": 3_000_000})}))
     if r is not None and r.status_code == 201:
-        lid = r.json()["list_id"]
+        lid = r.json()["draft_id"]
+        p.timed("견적 점검 분석", lambda: http.post(f"/pc/review-drafts/{lid}/analysis", json={}))
         p.timed("견적 점검 되묻기: 호환(LLM)", lambda: http.post(f"/pc/reviews/{lid}/messages", json={"text": "호환은 문제없어?"}))
         p.timed("견적 점검 되묻기: 제품 비교(LLM)", lambda: http.post(f"/pc/reviews/{lid}/messages", json={"text": "RTX 5080이랑 비교해줘"}))
         p.timed("견적 점검 되묻기: 시리즈 되묻기(규칙)", lambda: http.post(f"/pc/reviews/{lid}/messages", json={"text": "라이젠 9000이랑 비교해줘"}))
 
     # 4. 견적 초안(텍스트) + 실시간 검색
     product = OBSCURE_PRODUCTS[index % len(OBSCURE_PRODUCTS)]
-    r, _ = p.timed("견적 초안 만들기(텍스트)", lambda: http.post("/pc/review-drafts", data={"text": f"쿨러: {product}\n" + QUOTE_TEXT}))
+    r, _ = p.timed("견적 초안 만들기(텍스트)", lambda: http.post("/pc/review-drafts", data={"text": f"쿨러: {product}\n" + QUOTE_TEXT,
+                                                                                     "conditions": json.dumps({"purpose": "game", "resolution": "QHD_165"})}))
     if r is not None and r.status_code == 201:
         draft = r.json()
         p.timed("견적 초안 분석", lambda: http.post(f"/pc/review-drafts/{draft['draft_id']}/analysis", json={}))
