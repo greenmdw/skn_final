@@ -170,8 +170,10 @@ def _set_reason(item: dict[str, Any], by_slot: dict, *, uncertain: bool = False,
 
 
 def _make_item(category: str, raw_text: str, source_id: str, by_slot: dict, uncertain: bool = False,
-               low_quality: bool = False) -> dict[str, Any]:
+               low_quality: bool = False, drop_price: bool = False) -> dict[str, Any]:
     parts = split_line(raw_text)
+    if drop_price:        # 흐린 사진의 가격은 끝자리를 확신 있게 틀리게 읽는다(U-09) — 이름은 두고 가격만 쓰지 않는다
+        parts = {**parts, "quote_unit_price": None, "quote_line_total": None, "quote_price_type": "unknown"}
     item = {"id": str(uuid.uuid4()), "category": category, "raw_text": raw_text, **parts,
             "image_url": None, "source_ids": [source_id], "selected_for_analysis": False, "user_edited": False}
     # 텍스트 견적의 "GPU: NVIDIA …" 같은 부품군 머리말은 이름이 아니다 — 화면·리포트·교체 문구에 "GPU: "가 붙어 나오지 않게 뺀다.
@@ -192,6 +194,7 @@ def recognize(files: list[tuple[str, str | None, bytes]], text: str | None, by_s
     """(sources, items). 파일별 결과를 따로 거둔다 — 하나가 실패해도 나머지는 유지."""
     sources: list[dict] = []
     jobs: list[tuple[int, str, bytes]] = []
+    blurry: set[int] = set()          # 흐림으로 판정된 사진(인덱스) — 가격을 쓰지 않는다
     for order, (name, content_type, data) in enumerate(files, start=1):
         sources.append({"id": f"source-{order}", "type": "image", "file_name": name, "sort_order": order,
                         "status": "completed", "error_code": None})
@@ -199,6 +202,9 @@ def recognize(files: list[tuple[str, str | None, bytes]], text: str | None, by_s
         quality = image_prep.assess_quality(data)
         if quality["low"]:           # 작거나 흐린 사진 — 분석은 하되 읽은 부품을 자동으로 확정하지 않고, 화면이 다시 올리기를 안내한다
             sources[-1]["quality_warning"] = image_prep.WARNINGS[quality["reason"]]
+            if quality["reason"] == "blurry":
+                blurry.add(order - 1)
+                sources[-1]["quality_warning"] += image_prep.PRICE_DROPPED_NOTE
     raw_by_source: dict[int, list[dict]] = {}
     if jobs:
         if not spec_extraction_agent.available():
@@ -220,7 +226,7 @@ def recognize(files: list[tuple[str, str | None, bytes]], text: str | None, by_s
     items: list[dict] = []
     for index, found in raw_by_source.items():
         total = getattr(found, "quote_total", None)         # 사진에 적힌 견적 총액(있을 때만) — 부품별 가격이 없는 견적의 가격 안내에 쓴다
-        if total:
+        if total and index not in blurry:
             sources[index]["quote_total"] = int(total)
         if image_prep.reading_is_unreliable(bool(sources[index].get("quality_warning")), list(found)):
             sources[index]["quality_warning"] += image_prep.NOT_CONFIRMED_NOTE
@@ -234,7 +240,7 @@ def recognize(files: list[tuple[str, str | None, bytes]], text: str | None, by_s
                 sources[index].setdefault("ignored_lines", []).append(entry["raw_text"])
                 continue
             items.append(_make_item(entry["category"], entry["raw_text"], sources[index]["id"], by_slot,
-                                    uncertain=bool(entry.get("uncertain")), low_quality=low_quality))
+                                    uncertain=bool(entry.get("uncertain")), low_quality=low_quality, drop_price=index in blurry))
     if text and text.strip():
         sources.append({"id": "source-text", "type": "text", "file_name": None, "sort_order": len(sources) + 1,
                         "status": "completed", "error_code": None})

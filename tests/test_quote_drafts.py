@@ -517,6 +517,33 @@ def test_a_blurry_photo_that_was_read_clearly_keeps_its_warning_but_may_still_be
     assert "흐려" in source["quality_warning"] and "자동으로 확정하지 않고" not in source["quality_warning"]
 
 
+def test_a_blurry_photo_keeps_the_part_names_but_not_the_prices(client, monkeypatch):
+    """U-09 — 흐린 사진에서 모델은 가격 끝자리를 확신 있게 틀리게 읽는다(89,990 → 89,900). 이름은 두고 가격은 쓰지 않고 그렇게 안내한다."""
+    from src.engine import image_prep
+    monkeypatch.setattr(image_prep, "assess_quality", lambda data: {"low": True, "reason": "blurry", "width": 1000, "blur": 300.0})
+    full = [{"category": c, "raw_text": t} for c, t in (("CPU", "AMD Ryzen 5 7500F 238,000원"), ("GPU", "RTX 4060 438,000원"), ("RAM", "DDR5 16GB 90,000원"),
+                                                        ("파워", "600W 59,900원"), ("케이스", "빈 케이스 49,000원"))]
+    _fake_extraction(monkeypatch, {"a": full})
+    body = _upload(client, ["a"]).json()
+    assert len(body["items"]) == 5
+    assert all(i["quote_unit_price"] is None and i["quote_line_total"] is None and i["quote_price_type"] == "unknown" for i in body["items"])
+    assert "가격은 쓰지 않았어요" in body["sources"][0]["quality_warning"]
+    assert "quote_total" not in body["sources"][0] or body["sources"][0]["quote_total"] is None
+
+
+def test_a_small_but_not_blurry_photo_and_a_sharp_photo_keep_their_prices(client, monkeypatch):
+    """가격을 버리는 것은 흐림으로 판정된 사진뿐이다 — 작은 사진·선명한 사진·텍스트는 그대로 읽는다."""
+    from src.engine import image_prep
+    line = [{"category": "CPU", "raw_text": "AMD Ryzen 5 7500F 238,000원"}]
+    _fake_extraction(monkeypatch, {"a": line})
+    monkeypatch.setattr(image_prep, "assess_quality", lambda data: {"low": True, "reason": "small", "width": 400, "blur": None})
+    small = _upload(client, ["a"]).json()
+    assert _items(small, "CPU")[0]["quote_line_total"] == 238_000 and "가격은 쓰지 않았어요" not in small["sources"][0]["quality_warning"]
+    monkeypatch.setattr(image_prep, "assess_quality", lambda data: {"low": False, "reason": None, "width": 1000, "blur": 2000.0})
+    sharp = _upload(client, ["a"]).json()
+    assert _items(sharp, "CPU")[0]["quote_line_total"] == 238_000 and sharp["sources"][0]["quality_warning"] is None
+
+
 def test_each_item_carries_the_reason_it_was_not_confirmed(client, monkeypatch):
     """확정된 항목은 이유가 없고, 카탈로그에 없는 항목은 not_in_catalog 로 이유가 붙는다. 사용자가 이름을 고치면 이유도 다시 계산한다."""
     _fake_extraction(monkeypatch, {"a": [{"category": "CPU", "raw_text": "Intel Core i5-14600K"},
