@@ -1,31 +1,27 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ApiError, api, type ReviewSummary } from '../api'
 
 const stars = (value: number) => value.toFixed(2).replace(/0$/, '')
 
-// 부품 하나의 리뷰 요약(제품 키로 서버에서 읽는다). 펼칠 때 한 번만 부른다.
+// 부품 하나의 리뷰 요약(제품 키로 서버에서 읽는다). 카드가 보이면 바로 불러와 항상 표시한다.
 // 실제로 모은 값(리뷰 수·평점·제외한 리뷰·관측 사실)만 보여 준다. 서버의 합성 데모 블록은 "실사용자 노출 금지" 값이라 읽지 않는다.
 export default function ReviewSummaryPanel({ productKey }: { productKey: string }) {
-  const [open, setOpen] = useState(false)
-  const [state, setState] = useState<{ status: 'idle' | 'loading' | 'ready' | 'missing' | 'error'; data?: ReviewSummary }>({ status: 'idle' })
+  const [state, setState] = useState<{ status: 'loading' | 'ready' | 'missing' | 'error'; data?: ReviewSummary }>({ status: 'loading' })
 
-  function toggle() {
-    const next = !open
-    setOpen(next)
-    if (!next || state.status === 'loading' || state.status === 'ready' || state.status === 'missing') return
+  useEffect(() => {
+    let active = true
     setState({ status: 'loading' })
     api.reviews.summary(productKey)
-      .then(data => setState({ status: 'ready', data }))
-      .catch(caught => setState({ status: caught instanceof ApiError && caught.code === 'not_found' ? 'missing' : 'error' }))
-  }
+      .then(data => { if (active) setState({ status: 'ready', data }) })
+      .catch(caught => { if (active) setState({ status: caught instanceof ApiError && caught.code === 'not_found' ? 'missing' : 'error' }) })
+    return () => { active = false }
+  }, [productKey])
 
   const data = state.data
   const hasNumbers = data && (data.totalCount > 0 || (data.ratingRaw !== null && data.ratingCount !== null) || data.ratingRefined !== null)
   return (
     <div className="pl-revsum">
-      <button type="button" className="pl-revsum-toggle" aria-expanded={open} onClick={toggle}>리뷰 요약 {open ? '접기 ▲' : '보기 ▼'}</button>
-      {open && (
-        <div className="pl-revsum-body" role="status">
+      <div className="pl-revsum-body" role="status" aria-label="리뷰 요약">
           {state.status === 'loading' && <span className="pl-note">리뷰 요약을 불러오는 중이에요…</span>}
           {state.status === 'missing' && <span className="pl-note">이 제품의 리뷰 요약은 아직 없어요.</span>}
           {state.status === 'error' && <span className="pl-note">리뷰 요약을 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.</span>}
@@ -48,8 +44,7 @@ export default function ReviewSummaryPanel({ productKey }: { productKey: string 
               {data.dataNotice && <small className="pl-revsum-notice">{data.dataNotice}</small>}
             </>
           )}
-        </div>
-      )}
+      </div>
     </div>
   )
 }
