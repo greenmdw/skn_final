@@ -792,7 +792,7 @@ class ReviewBriefOut(BaseModel):
     # 검수 후 평점·제외 비율은 판정기가 없어 못 낸다(docs/decisions/0001) — 항상 null. 수집처 평균 별점(rating_raw)만 낸다.
     excluded_ratio: float | None = None
     rating_refined: float | None = None
-    # 수집처(다나와) 구매자 별점의 단순 평균과 그 평점 건수 — 검수 전 값이다. 건수가 적어도 평균을 내므로 늘 건수와 같이 읽는다.
+    # 수집처 구매자 별점의 단순 평균과 그 평점 건수 — 검수 전 값이다. 건수가 적어도 평균을 내므로 늘 건수와 같이 읽는다.
     rating_raw: float | None = None
     rating_count: int | None = None
     signals: ReviewSignalsOut | None = None

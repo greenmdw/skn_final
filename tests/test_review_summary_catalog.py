@@ -42,7 +42,7 @@ def test_a_catalog_part_with_reviews_gets_its_review_count_and_aspect_counts():
     assert j["status"] == "ready" and j["total_count"] == n > 0
     assert j["aspect_facts"] and all("좋다는 리뷰" in line and "아쉽다는 리뷰" in line for line in j["aspect_facts"])
     assert not any("_" in line for line in j["aspect_facts"])                 # 속성 코드가 아니라 사용자 말
-    # 수집처(다나와) 구매자 별점의 단순 평균 — 검수 후 평점·제외 건수는 계속 비운다.
+    # 수집처 구매자 별점의 단순 평균 — 검수 후 평점·제외 건수는 계속 비운다.
     with psycopg.connect(DSN) as conn:
         rn, ra = conn.execute("SELECT count(d.rating), avg(d.rating) FROM evidence.review_document d "
                               "JOIN catalog.product p ON p.id = d.product_id WHERE NOT d.is_synthetic AND "
@@ -50,7 +50,9 @@ def test_a_catalog_part_with_reviews_gets_its_review_count_and_aspect_counts():
     assert rn > 0
     assert j["rating_raw"] == round(float(ra), 2) and j["rating_count"] == rn
     assert j["rating_refined"] is None and j["excluded_count"] is None and j["excluded_ratio"] is None
-    assert f"{n:,}건" in j["data_notice"] and f"다나와 구매자 별점 {rn:,}건" in j["data_notice"]
+    assert f"{n:,}건" in j["data_notice"]
+    # 리뷰 수와 별점 수가 같으면 건수를 두 번 쓰지 않는다
+    assert ("구매자 별점의 단순 평균" in j["data_notice"]) if rn == n else (f"별점이 있는 리뷰 {rn:,}건" in j["data_notice"])
 
 
 def test_a_catalog_part_summary_does_not_depend_on_the_database_url_env_var(monkeypatch):
@@ -110,7 +112,7 @@ def test_a_single_rated_review_still_gives_an_average_with_its_count():
     with _inserted_docs(pid, [(4, False)]):
         j = _summary(pid).json()
     assert j["rating_raw"] == 4.0 and j["rating_count"] == 1 and j["total_count"] == 1
-    assert "별점 1건" in j["data_notice"]
+    assert "수집한 리뷰 1건" in j["data_notice"] and "구매자 별점의 단순 평균" in j["data_notice"]
 
 
 def test_synthetic_reviews_do_not_change_the_rating_average_or_count():
@@ -118,6 +120,7 @@ def test_synthetic_reviews_do_not_change_the_rating_average_or_count():
     with _inserted_docs(pid, [(5, False), (1, True)]):
         j = _summary(pid).json()
     assert j["rating_raw"] == 5.0 and j["rating_count"] == 1
+    assert "별점이 있는 리뷰 1건" in j["data_notice"]            # 리뷰 수(2건)와 다르면 별점 건수를 따로 쓴다
 
 
 def test_unrated_reviews_give_no_average_and_say_so():

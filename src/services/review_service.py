@@ -104,22 +104,19 @@ def _catalog_review_facts(product_key: str, conn=None) -> dict | None:
     def _read(c):
         row = c.execute(
             "SELECT p.id, (SELECT count(*) FROM evidence.review_document d WHERE d.product_id = p.id) AS n, "
-            # 평점은 합성 리뷰를 빼고 센다(D2: 건수 문턱 없음). 출처가 PC 부품 리뷰(전부 다나와 구매자 별점)인지도 같이 본다(안내 문구용).
+            # 평점은 합성 리뷰를 빼고 센다(D2: 건수 문턱 없음).
             "(SELECT count(d.rating) FROM evidence.review_document d "
             " WHERE d.product_id = p.id AND NOT d.is_synthetic) AS rn, "
             "(SELECT avg(d.rating) FROM evidence.review_document d "
-            " WHERE d.product_id = p.id AND NOT d.is_synthetic) AS ra, "
-            "(SELECT coalesce(bool_and(d.source_code = 'processed-jsonl-v1:computer'), false) "
-            " FROM evidence.review_document d "
-            " WHERE d.product_id = p.id AND NOT d.is_synthetic AND d.rating IS NOT NULL) AS danawa "
+            " WHERE d.product_id = p.id AND NOT d.is_synthetic) AS ra "
             "FROM catalog.product p WHERE lower(replace(p.product_type || ':' || p.brand || ':' || p.model, ' ', '-')) = %s",
             (product_key.strip().lower(),)).fetchone()
         if row is None:
             return None
         if isinstance(row, dict):
-            product_id, count, rating_count, rating_avg, danawa = row["id"], row["n"], row["rn"], row["ra"], row["danawa"]
+            product_id, count, rating_count, rating_avg = row["id"], row["n"], row["rn"], row["ra"]
         else:
-            product_id, count, rating_count, rating_avg, danawa = row
+            product_id, count, rating_count, rating_avg = row
         aspects = c.execute(
             "SELECT r.aspect_code, sum(a.p) AS p, sum(a.n) AS n, sum(a.mixed) AS mixed "
             "FROM evidence.review_aspect_aggregate a JOIN evidence.review_aspect_rule r ON r.id = a.rule_id "
@@ -132,8 +129,7 @@ def _catalog_review_facts(product_key: str, conn=None) -> dict | None:
             lines.append(line + (f" · 엇갈린 리뷰 {mixed}건" if mixed else ""))
         rating_count = int(rating_count or 0)
         return ({"count": int(count), "lines": lines, "rating_count": rating_count,
-                 "rating_avg": round(float(rating_avg), 2) if rating_count and rating_avg is not None else None,
-                 "rating_source": "다나와" if danawa else "수집처"}
+                 "rating_avg": round(float(rating_avg), 2) if rating_count and rating_avg is not None else None}
                 if count or lines else None)
 
     try:
@@ -172,8 +168,11 @@ def get_summary(product_key: str, conn=None) -> ReviewSummaryOut:
     if catalog is None and facts is None and d is None and db is None:
         raise NotFound(f"리뷰 요약 없음: {product_key}", field="product_key")
     if catalog is not None:
-        if catalog["rating_count"]:
-            tail = (f"평점은 {catalog['rating_source']} 구매자 별점 {catalog['rating_count']:,}건의 단순 평균이고, "
+        # 리뷰 수는 앞 문장에 이미 있다 — 별점이 있는 리뷰 수가 그와 다를 때만 건수를 다시 쓴다.
+        if catalog["rating_count"] == catalog["count"]:
+            tail = "평점은 구매자 별점의 단순 평균이고, 리뷰 진위는 따로 판단하지 않았어요."
+        elif catalog["rating_count"]:
+            tail = (f"평점은 별점이 있는 리뷰 {catalog['rating_count']:,}건의 단순 평균이고, "
                     "리뷰 진위는 따로 판단하지 않았어요.")
         else:
             tail = "이 제품은 구매자 별점을 수집하지 못했고, 리뷰 진위는 따로 판단하지 않았어요."
@@ -327,7 +326,7 @@ def review_brief(product_key: str, conn=None) -> dict | None:
         return {"total_count": None, "rating_raw": None, "rating_count": None,
                 "excluded_ratio": None, "rating_refined": None,
                 "signals": None, "cleansing_summary": _cleansing_summary(), "plain": plain}
-    # rating_raw 는 수집처(다나와) 구매자 별점의 단순 평균이다 — 검수 후 평점(rating_refined)이 아니다.
+    # rating_raw 는 수집처 구매자 별점의 단순 평균이다 — 검수 후 평점(rating_refined)이 아니다.
     return {"total_count": summary.total_count or None, "rating_raw": summary.rating_raw,
             "rating_count": summary.rating_count, "excluded_ratio": None, "rating_refined": None,
             "signals": _review_signals(product_key), "cleansing_summary": _cleansing_summary(), "plain": plain}
