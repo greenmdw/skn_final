@@ -275,6 +275,9 @@ def test_verify_build_shares_one_issue_sentence_deadline_across_its_issues(monke
                         budget={"max": 100, "used": 150, "used_pct": 150.0})
     result = stage3c_verify.verify_build(build, "computer")
 
-    assert len(result.targets[0].issues) == 3 and len(seen) == 3
-    assert len(set(seen)) == 1                                  # 세 쟁점이 같은 예산을 나눠 쓴다
+    issues = result.targets[0].issues
+    # 예산 초과 쟁점은 고정 문장이라 LLM 을 부르지 않는다(98783e1a) — 모델 문장은 소켓·전원 두 건이다.
+    assert len(issues) == 3 and len(seen) == 2
+    assert next(i for i in issues if i.axis == "budget").text == "예산이 초과되었습니다."
+    assert len(set(seen)) == 1                                  # 두 쟁점이 같은 예산을 나눠 쓴다
     assert before < seen[0] <= time.monotonic() + ISSUE_SENTENCE_DEADLINE_S
