@@ -261,7 +261,7 @@ def verify_build(
     """DB 경로([추천 실행])의 세트 검증 — 규칙 judge + 쟁점 문장화.
 
     qty(슬롯별 구매 수량)는 결과 화면에서 수량을 바꾼 뒤 다시 점검할 때 — M.2 SSD·RAM 개수 검사가 수량을 보고,
-    그 검사의 쟁점 문장은 코드가 쓴 비교("M.2 SSD 2개 > 메인보드 M.2 슬롯 1개")로 한다.
+    그 검사의 쟁점 문장은 코드가 쓴 문장("M.2 SSD를 2개 담았는데 메인보드 M.2 슬롯은 1개뿐이라 …")으로 한다.
 
     chosen/spec/rules 를 주면(E5) `stage4_optimize.pc_compat_details`를 다시 돌려 각 쟁점의
     inputs 를 후보 provenance 와 엮어 Issue.evidence(카탈로그 출처)를 만든다 — 문서 검색(RAG) 연결은
@@ -279,8 +279,9 @@ def verify_build(
     if have_provenance:
         from src.engine.stage4_optimize import pc_compat_details
         rows_by_axis = {row["axis"]: row for row in pc_compat_details(chosen, spec, rules, qty)}
-    # 수량 때문에 걸린 검사는 근거(부품 스펙)만으로는 문장이 이유를 못 댄다 — 슬롯 수만 보고 "M.2 슬롯이 없다"고 쓸 수 있다
-    counted = {"m2": "저장장치", "ram_slots": "RAM"}
+    # 개수를 세는 검사는 근거(부품 스펙)만으로는 문장이 이유를 못 댄다 — 슬롯 수만 보고 "M.2 슬롯이 없다"고 쓸 수 있다.
+    # 이 둘은 pc_compat_details 가 화면에 그대로 낼 문장(무엇이 몇 개 넘는지·어떻게 바꾸면 되는지)을 쓴다(QA 10/16 #22)
+    counted = ("m2", "ram_slots")
 
     issues: list[Issue] = []
     penalty = 0
@@ -291,12 +292,14 @@ def verify_build(
         s = str(state).lower()
         if elig.is_fail_state(state):
             ev = _catalog_evidence(rows_by_axis.get(axis), chosen) if have_provenance else []
-            detail = ((rows_by_axis.get(axis) or {}).get("detail")
-                      if axis in counted and int((qty or {}).get(counted[axis]) or 1) > 1 else None)
-            # 수량 때문에 걸린 검사는 코드가 쓴 비교 문장을 그대로 — 모델에 넘기면 "관측값은 fail이며 … 점검 내용에는"처럼
-            # 입력 이름을 옮겨 적었고, 교체·수량 변경 답이 그 호출만큼 늦어졌다(10/12 실측 7~11초)
-            issues.append(Issue(axis=axis, text=f"{axis_label(axis)}: {detail}" if detail
-                                else _issue_sentence(axis, state, ev, deadline),
+            row_detail = (rows_by_axis.get(axis) or {}).get("detail")
+            # 개수 검사는 코드가 쓴 문장을 그대로 — 모델에 넘기면 "관측값은 fail이며 … 점검 내용에는"처럼
+            # 입력 이름을 옮겨 적었고, 교체·수량 변경 답이 그 호출만큼 늦어졌다(10/12 실측 7~11초).
+            # 근거가 빈 위반도 같다 — 모델이 받는 것은 "관측값: fail" 뿐이라 "관측값은 'fail'로 기록되어 있으며, 제공된 근거는
+            # 없습니다"만 썼다(QA 10/16 #21, 예산 쟁점에서). 검사가 쓴 비교 문장이 있으면 그것을 낸다
+            detail = (row_detail if axis in counted
+                      else f"{axis_label(axis)}: {row_detail}" if row_detail and not ev else None)
+            issues.append(Issue(axis=axis, text=detail or _issue_sentence(axis, state, ev, deadline),
                                 tool_result=state, evidence=ev, judge="위반", penalty=_FAIL_ISSUE_PENALTY))
             penalty += _FAIL_ISSUE_PENALTY
         elif "pending" in s or "근사" in s:

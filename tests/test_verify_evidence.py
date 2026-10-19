@@ -68,6 +68,8 @@ def test_gpu_len_issue_gets_no_evidence_when_sources_absent():
     issue, target = _verify_gpu_len(with_provenance=False)
     assert issue.evidence == []
     assert s3c.axis_label("gpu_len") in target.gray_axes
+    # 근거 없이 모델에 넘기면 "관측값은 'fail'로 기록되어 있으며, 제공된 근거는 없습니다"만 썼다(QA 10/16 #21) — 검사 문장을 낸다
+    assert issue.text.startswith(f"{s3c.axis_label('gpu_len')}: ") and "400" in issue.text and "300" in issue.text, issue.text
 
 
 # ── specs 키 집합 불변(데이터 결손 감점 회귀 없음) ───────────────────────
@@ -156,6 +158,26 @@ def test_budget_excess_has_explicit_message_without_llm(monkeypatch, link_check,
     issues = s3c.verify_build(build, "computer", _noop).targets[0].issues
     assert len(issues) == 1
     assert issues[0].text == "예산이 초과되었습니다."
+
+
+def test_count_check_failure_uses_the_plain_code_sentence_without_llm(monkeypatch):
+    """RAM 키트 하나(모듈 4개)를 슬롯 2개 메인보드에 — 수량을 바꾸지 않아도 걸린다. 이 쟁점은 "확정된 호환 문제"에
+    그대로 나가므로 모델에 맡기지 않고("관측값은 'fail'…" 같은 문장, QA 10/16 #21), 비교식 대신 풀어 쓴다(#22)."""
+    def unexpected_sentence(*args):
+        pytest.fail("개수 검사 쟁점에는 LLM 쟁점 문장을 사용하지 않는다")
+
+    monkeypatch.setattr(s3c, "_issue_sentence", unexpected_sentence)
+    chosen = {"RAM": Candidate(product_key="ram", slot="RAM", name="RAM", price=1,
+                               specs={"module_config": "16GB × 4", "capacity_gb": 64}),
+              "메인보드": Candidate(product_key="mb", slot="메인보드", name="MB", price=1,
+                                specs={"dimm_slots": 2, "max_memory_gb": 128})}
+    spec = _spec()
+    link_check = pc_link_check(chosen, spec, RULES)
+    assert link_check.get("ram_slots") == "fail"
+    build = BuildResult(list_id="t", link_check=link_check, budget={})
+    issues = {i.axis: i for i in s3c.verify_build(build, "computer", _noop, chosen=chosen, spec=spec, rules=RULES).targets[0].issues}
+    assert issues["ram_slots"].text == ("RAM 모듈 4개를 꽂아야 하는데 메인보드 RAM 슬롯은 2개뿐입니다. "
+                                        "모듈 수·용량이 맞는 RAM으로 바꾸거나 RAM을 더 받는 메인보드로 바꿔 주세요.")
 
 
 def test_budget_link_check_fail_only_penalizes_20_axis_budget():

@@ -231,7 +231,7 @@ def test_m2_ssds_beyond_the_board_slots_fail_only_when_qty_says_so():
     one = {r["axis"]: r for r in pc_compat_details(chosen, _spec(), RULES)}["m2"]
     assert one["state"] == "ok" and one["detail"].startswith("M.2 SSD 1개 ≤ 메인보드 M.2 슬롯 1개"), one
     two = {r["axis"]: r for r in pc_compat_details(chosen, _spec(), RULES, {"저장장치": 2})}["m2"]
-    assert two["state"] == "fail" and "M.2 SSD 2개 > 메인보드 M.2 슬롯 1개" in two["detail"], two
+    assert two["state"] == "fail" and "M.2 SSD를 2개 담았는데 메인보드 M.2 슬롯은 1개뿐" in two["detail"], two
     assert pc_link_check(chosen, _spec(), RULES, {"저장장치": 2})["m2"] == "fail"
 
 
@@ -244,3 +244,6 @@ def test_ram_qty_multiplies_modules_and_capacity():
     chosen["RAM"] = ram_config.with_purchase_qty(RAM_1X16, 3)
     row = {r["axis"]: r for r in pc_compat_details(chosen, _spec(), RULES, {"RAM": 3})}["ram_slots"]
     assert row["state"] == "fail", row
+    # 화면의 "확정된 호환 문제"에 그대로 나가는 문장 — 비교식이 아니라 어긴 쪽과 바꿀 방법만(QA 10/16 #22)
+    assert row["detail"] == ("RAM 모듈 3개(제품 3개)를 꽂아야 하는데 메인보드 RAM 슬롯은 2개뿐입니다. "
+                             "RAM 수량을 줄이거나 RAM을 더 받는 메인보드로 바꿔 주세요."), row

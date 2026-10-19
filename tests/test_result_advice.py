@@ -430,7 +430,7 @@ def test_preview_qty_adds_the_same_part_and_checks_m2_slots_without_saving(conn)
     out = result_advice.preview_qty(conn, revision_id, "저장장치", slots + 1)
     assert out.startswith("(가정 계산 — 구성표는 그대로)") and "교체가 아님" in out, out
     assert f"차액 +{int(row['price']) * slots:,}원" in out, out
-    assert f"M.2 SSD {slots + 1}개 > 메인보드 M.2 슬롯 {slots}개" in out and "⚠ 호환 점검 문제" in out, out
+    assert f"M.2 SSD를 {slots + 1}개 담았는데 메인보드 M.2 슬롯은 {slots}개뿐" in out and "⚠ 호환 점검 문제" in out, out
     assert "몇 TB가 늘어나는지는 알 수 없음" in out
     assert _snapshot(conn, revision_id) == before
     assert "지금도" in result_advice.preview_qty(conn, revision_id, "저장장치", 1)
@@ -438,7 +438,8 @@ def test_preview_qty_adds_the_same_part_and_checks_m2_slots_without_saving(conn)
 
 def test_qty_past_the_m2_slots_is_flagged_after_the_change(conn):
     """화면·채팅에서 수량을 바꾸면 다시 돌린 세트 점검이 M.2 슬롯 초과를 쟁점으로 남긴다. 쟁점 문장은 코드가 쓴
-    개수 비교다 — 부품 스펙 근거만 받은 모델은 "관측값은 fail이며"처럼 입력 이름을 옮겨 적었다(10/12 실측)."""
+    문장이다 — 부품 스펙 근거만 받은 모델은 "관측값은 fail이며"처럼 입력 이름을 옮겨 적었다(10/12 실측).
+    "M.2 SSD 2개 > 메인보드 M.2 슬롯 1개" 같은 비교식은 딱딱하다는 QA(10/16 #22)라 풀어 쓰고 바꿀 방법을 붙인다."""
     revision_id = _build(conn)
     ctx = result_advice._context(conn, revision_id)
     slots = ctx.chosen()["메인보드"].specs.get("m2_slots")
@@ -448,7 +449,9 @@ def test_qty_past_the_m2_slots_is_flagged_after_the_change(conn):
     m2 = next(r for r in result["compat_checks"] if r["axis"] == "m2")
     assert m2["state"] == "fail", m2
     issue = next(i for i in result["verification"]["issues"] if i["axis"] == "m2")
-    assert issue["text"].startswith(f"M.2 SSD와 메인보드 슬롯: M.2 SSD {slots + 1}개 > 메인보드 M.2 슬롯 {slots}개"), issue
+    assert issue["text"] == (f"M.2 SSD를 {slots + 1}개 담았는데 메인보드 M.2 슬롯은 {slots}개뿐이라 1개는 꽂을 자리가 없습니다. "
+                             f"SSD를 {slots}개로 줄이거나 M.2 슬롯이 더 많은 메인보드로 바꿔 주세요."), issue
+    assert ">" not in issue["text"] and "관측값" not in issue["text"], issue
 
 
 def test_no_cheaper_cooler_says_why_and_offers_the_box_cooler(conn):

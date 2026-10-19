@@ -1094,11 +1094,19 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
                         ("RAM", r["ram_capacity_spec"], capacity),
                         ("메인보드", r["board_slots_spec"], dimm),
                         ("메인보드", r["board_max_capacity_spec"], max_capacity))
-    if module_known and capacity_known:
-        add("ram_slots", ("RAM", "메인보드"), "fail" if bad else "ok", " · ".join(parts), inputs=ram_slots_inputs)
-    elif bad:
+    if bad:
         # 한쪽만 알아도 이미 어긴 것이 확인되면 확정 비호환이다(나머지 조건을 몰라도 뒤집히지 않는다).
-        add("ram_slots", ("RAM", "메인보드"), "fail", " · ".join(parts), inputs=ram_slots_inputs)
+        # 이 문장은 "확정된 호환 문제"에 그대로 나간다 — 비교식("4개 > 2개")은 딱딱하다는 QA(10/16 #22)라 어긴 쪽만 풀어 쓴다.
+        plain = []
+        if module_known and modules > dimm:
+            plain.append(f"RAM 모듈 {modules}개{f'(제품 {n_ram}개)' if n_ram > 1 else ''}를 꽂아야 하는데 메인보드 RAM 슬롯은 {dimm}개뿐입니다.")
+        if capacity_known and capacity > max_capacity:
+            plain.append(f"RAM 총 {capacity}GB는 이 메인보드가 지원하는 최대 {max_capacity}GB보다 많습니다.")
+        plain.append(("RAM 수량을 줄이거나" if n_ram > 1 else "모듈 수·용량이 맞는 RAM으로 바꾸거나")
+                     + " RAM을 더 받는 메인보드로 바꿔 주세요.")
+        add("ram_slots", ("RAM", "메인보드"), "fail", " ".join(plain), inputs=ram_slots_inputs)
+    elif module_known and capacity_known:
+        add("ram_slots", ("RAM", "메인보드"), "ok", " · ".join(parts), inputs=ram_slots_inputs)
     else:
         # 두 하위 조건(모듈 수·총용량)을 모두 알아야 ok 다. 아는 쪽은 문장에 남기고, 모르는 쪽의 값을 가진 슬롯이 누락 슬롯이다.
         unknown_pairs = ([] if module_known else [("RAM", modules), ("메인보드", dimm)]) + \
@@ -1140,11 +1148,15 @@ def pc_compat_details(chosen: dict[str, Candidate], spec: RequirementSpec, rules
         add("m2", ("저장장치", "메인보드"), "unknown", missing(("SSD 폼팩터", ssd_form or None), ("메인보드 M.2 슬롯", m2_slots)), data_missing=True,
             missing_slots=absent(("저장장치", ssd_form or None), ("메인보드", m2_slots)), inputs=m2_inputs)
     elif m2_slots == 0 and "SATA" not in ssd_form.upper():
-        add("m2", ("저장장치", "메인보드"), "fail", f"M.2 SSD({ssd_form})인데 메인보드에 M.2 슬롯이 없습니다.", inputs=m2_inputs)
+        add("m2", ("저장장치", "메인보드"), "fail",
+            f"이 메인보드에는 M.2 슬롯이 없어 M.2 SSD({ssd_form})를 꽂을 수 없습니다. "
+            "M.2 슬롯이 있는 메인보드나 SATA SSD로 바꿔 주세요.", inputs=m2_inputs)
     elif count("저장장치") > m2_slots:
         # "SSD 하나 더 달아줘" — 슬롯 1개짜리 메인보드에 M.2 SSD 2개를 담아도 '통과'로 나왔다(10/12 평가 시트)
+        n_ssd = count("저장장치")
         add("m2", ("저장장치", "메인보드"), "fail",
-            f"M.2 SSD {count('저장장치')}개 > 메인보드 M.2 슬롯 {m2_slots}개 — 남는 SSD를 꽂을 자리가 없습니다.", inputs=m2_inputs)
+            f"M.2 SSD를 {n_ssd}개 담았는데 메인보드 M.2 슬롯은 {m2_slots}개뿐이라 {n_ssd - m2_slots}개는 꽂을 자리가 없습니다. "
+            f"SSD를 {m2_slots}개로 줄이거나 M.2 슬롯이 더 많은 메인보드로 바꿔 주세요.", inputs=m2_inputs)
     else:
         ssd_gens = parse_pcie_gens(ssd_iface)
         if ssd_gens and board_gens and max(board_gens) < max(ssd_gens):
