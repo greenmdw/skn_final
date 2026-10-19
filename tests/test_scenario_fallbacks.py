@@ -228,6 +228,23 @@ def test_result_chat_without_agent_uses_rules_and_never_errors(monkeypatch):
     assert r.json()["reply"]
 
 
+def test_rule_path_does_not_swap_a_removed_part(monkeypatch):
+    """뺀 부품을 "더 저렴한 걸로 바꿔줘"로 바꾸고 "바꿨어요"라고 하면 총액엔 여전히 빠져 있다(QA 10/16 #13) — 빼 둔 사실을 알린다."""
+    from src.agent import result_agent
+
+    monkeypatch.setattr(result_agent, "available", lambda: False)
+    c = _client()
+    lid = _ready_session(c)
+    assert c.post(f"/session/{lid}/recommend").status_code == 202
+    cpu = next(i for i in c.get(f"/session/{lid}/result").json()["items"] if i["slot"] == "CPU")
+    assert c.patch(f"/session/{lid}/items/{cpu['item_id']}", json={"selected": False}).status_code == 200
+    r = c.post(f"/session/{lid}/result-message", json={"text": "CPU를 더 저렴한 걸로 바꿔줘"})
+    assert r.status_code == 200, r.text
+    assert "빼 둔 상태" in r.json()["reply"]
+    after = next(i for i in r.json()["result"]["items"] if i["slot"] == "CPU")
+    assert (after["product"]["variant_id"], after["selected"]) == (cpu["product"]["variant_id"], False)
+
+
 # ── 2번 ML 연동: 이미지 전용 모델 분리 ─────────────────────────────────────────
 
 def test_image_extraction_calls_the_separate_image_model_with_temperature_zero(monkeypatch):

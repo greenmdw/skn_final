@@ -364,6 +364,15 @@ def test_read_only_turn_refuses_writes_without_touching_db():
     assert "preview_qty" in s.outputs[0] and "preview_qty" not in s.outputs[1]
 
 
+def test_removed_part_is_not_swapped_or_requantified_without_touching_db():
+    """뺀 부품을 그대로 교체하고 "바꿨습니다"라고 답했는데 총액엔 그 부품이 빠져 있었다(QA 10/16 #13) — 빼 둔 사실을 돌려준다."""
+    s = _session()                            # 케이스는 selected=False, conn=None — DB 에 닿으면 터진다
+    out = s.swap("케이스", str(uuid4()))
+    assert out.startswith("바꾸지 않음") and "빼 둔 상태" in out and "remove_or_restore('케이스', 'true')" in out
+    assert s.set_item("케이스", qty="2").startswith("바꾸지 않음")
+    assert not s.changed and len(s.outputs) == 2
+
+
 def test_whatif_question_skips_why_prefetch(monkeypatch):
     s = _session()
     monkeypatch.setattr(ra.ResultSession, "explain", lambda self, slot: f"EXPLAIN[{slot}]")

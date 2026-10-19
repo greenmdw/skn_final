@@ -117,6 +117,20 @@ class ResultSession:
         return next((e for e in self.result.get("omitted_slots") or []
                      if e["slot"].lower() == s or e.get("slot_label") == slot.strip()), None)
 
+    def _removed(self, it: dict) -> str | None:
+        """사용자가 '부품 빼기'로 뺀 부품(selected=False)이면 그 사실 문장. 뺀 부품을 그대로 교체하고 "바꿨습니다"라고 답했는데
+        총액에는 그 부품이 빠져 있었다(QA 10/16 #13, 실측 2/2) — 구성표의 '(빼둠)' 표시만으로는 모델이 알아채지 못했다."""
+        if it.get("selected", True):
+            return None
+        return (f"{it['slot']}은(는) 사용자가 구성에서 빼 둔 상태(빼둠)라 총액·확정에 들어 있지 않습니다"
+                f"(빼 둔 제품: {it['product']['name']}).")
+
+    def _refuse_removed(self, call: str, it: dict) -> str | None:
+        if (removed := self._removed(it)) is None:
+            return None
+        return self._record(call, f"바꾸지 않음: {removed} 지금 {it['slot']}이(가) 빠져 있다는 사실을 먼저 알리고, 다시 넣을지 물으세요. "
+                                  f"사용자가 원하면 remove_or_restore('{it['slot']}', 'true')로 다시 담은 뒤 바꿉니다.")
+
     def _no_slot(self, slot: str) -> str:
         """구성표에 없는 슬롯 오류 문장 — 일부러 뺀 슬롯이면 담는 방법을 알려 준다."""
         entry = self._omitted_slot(slot)
@@ -164,6 +178,8 @@ class ResultSession:
                          f" · 가장 비싼 것 {hi[0]}. {hi[1]['product']['name']} {_won(hi[1]['price'])}")
         if it["slot"] == "저장장치":
             lines.append(result_advice.STORAGE_CAPACITY_NOTE)
+        if (removed := self._removed(it)) is not None:
+            lines.append(f"⚠ {removed} 차액은 빼기 전 제품 기준입니다.")
         return self._record(call, "\n".join(lines))
 
     def swap(self, slot: str, candidate_id: str) -> str:
@@ -174,6 +190,8 @@ class ResultSession:
         it = self.item(slot)
         if it is None:
             return self._record(call, self._no_slot(slot))
+        if (refused := self._refuse_removed(call, it)) is not None:
+            return refused
         try:
             cid = UUID(self._seen_candidate_id(candidate_id.strip()))
         except ValueError:
@@ -277,6 +295,8 @@ class ResultSession:
             q = int(qty)
         if sel is None and q is None:
             return self._record(call, "오류: 바꿀 값이 없습니다")
+        if q is not None and not sel and (refused := self._refuse_removed(call, it)) is not None:
+            return refused
         self.result = patch_item(self.conn, self.revision_id, UUID(it["item_id"]), selected=sel, qty=q, timing=None,
                                  user_id=self.user_id)
         self.changed = True
@@ -381,6 +401,8 @@ class ResultSession:
         it = self.item(slot)
         if it is None:
             return self._record(call, f"오류: '{slot}' 슬롯이 없습니다.")
+        if (removed := self._removed(it)) is not None:     # 계산은 담긴 부품만 본다 — "슬롯이 없다" 오류 대신 빼 둔 사실을
+            return self._record(call, f"확인하지 않음: {removed} 그 사실을 알리고, 다시 넣을지 물으세요.")
         return self._record(call, result_advice.preview_swap(self.conn, self.revision_id, it["slot"],
                                                              candidate_id.strip() or None, direction.strip().lower() or None))
 

@@ -1746,6 +1746,11 @@ def _handle_result_message_inner(
     cheaper = direction == "cheaper"
 
     current = next(r for r in rows if r["slot"] == slot)
+    if current.get("selected") is False:
+        # 뺀 부품을 그대로 바꾸고 "바꿨어요"라고 하면 총액엔 여전히 빠져 있다(QA 10/16 #13) — 빼 둔 사실을 알린다
+        return {"reply": f"{slot}는 지금 견적에서 빼 둔 상태라 바꾸지 않았어요('{current['product_name']}'). "
+                          "아래 '제외됨'에서 다시 넣은 뒤 말씀해 주세요.",
+                "result": get_stored_result(conn, revision_id)}
     current_price = int(current["price"]) if current["price"] is not None else 0
     from src.repo.product_repo import ProductRepo
     slot_variants = ProductRepo(conn).candidates_by_slot().get(slot, [])
