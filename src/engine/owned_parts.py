@@ -327,6 +327,10 @@ def _scale_ram_to_quote(specs: dict[str, Any], text: str) -> dict[str, Any]:
     per = parse_module_count(specs.get("module_config")) or 1
     wanted = line_quantity(text)
     capacity = specs.get("capacity_gb")
+    kit = _RAM_KIT.search(text)
+    if kit and isinstance(capacity, (int, float)) and int(kit.group(1)) * int(kit.group(2)) == capacity:
+        # 글이 "16Gx2 (32GB)"처럼 구성을 적었고 카탈로그 용량이 그 합계와 같으면 이미 키트 하나의 용량이다 — 장수를 또 곱하지 않는다
+        return {**specs, "module_config": f"{kit.group(1)}GB × {kit.group(2)}"}
     if wanted == per or not isinstance(capacity, (int, float)) or not per:
         return specs
     each = capacity / per
