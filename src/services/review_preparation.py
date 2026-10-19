@@ -27,6 +27,19 @@ def encoded(value):
 def digest(value):
     return hashlib.sha256(encoded(value).encode()).hexdigest()
 
+def source_rating(value, document_id=None):
+    """수집처 별점을 review_document.rating(NULL 또는 1~5)에 넣을 값으로 바꾼다."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f'Invalid rating {value!r} for document {document_id}')
+    # 수집처가 별점 없음을 0으로 적은 경우(speaker_review.csv 48행, G마켓 앱 리뷰)라 NULL로 둔다.
+    if value == 0:
+        return None
+    if not 1 <= value <= 5:
+        raise ValueError(f'Invalid rating {value!r} for document {document_id}')
+    return value
+
 def normalized(value):
     return ' '.join(str(value).casefold().split())
 
@@ -92,12 +105,12 @@ def prepare_documents(paths, catalog):
                     row['product_id']=match['candidate_ids'][0]
                     row['document']={'id':row['document_id'],'product_id':row['product_id'],
                         'source_code':'processed-jsonl-v1:'+default,'is_synthetic':False,
-                        'body':record['text'],'posted_at':None}
+                        'body':record['text'],'posted_at':None,'rating':source_rating(record.get('rating'),row['document_id'])}
             rows.append(row)
     counts.update(r['status'] for r in rows)
     return {'manifest_version':'review-source-v1','database_import_allowed':False,'source_hashes':file_hashes,
             'catalog_sha256':digest(catalog),'counts':dict(counts),'rows':rows,
-            'provenance_policy':'Full original normalized record/metadata retained in immutable external ledger, no added DB columns. Date-only/unknown-zone dates retained externally; posted_at NULL. Missing external IDs use frozen file-row identity; source reorder requires explicit reconciliation.'}
+            'provenance_policy':'Full original normalized record/metadata retained in immutable external ledger, source star rating stored in review_document.rating (unreviewed). Date-only/unknown-zone dates retained externally; posted_at NULL. Missing external IDs use frozen file-row identity; source reorder requires explicit reconciliation.'}
 
 def production_rules(pilot_rules, *, k=None):
     if k is not None and (not math.isfinite(float(k)) or float(k)<=0):raise ValueError('k must be finite and positive')
@@ -123,6 +136,12 @@ def validate_manifest_sources(manifest):
             identity=Path(row['source_file']).name+(':external:'+str(external) if external else ':row:'+str(row['source_line']))
             if row['source_identity']!=identity or doc['id']!=str(uuid5(DOCUMENT_NS,identity)):raise ValueError('Production document namespace/identity mismatch')
 
+def _comparable(existing, doc):
+    """rating 키가 없는 이전 manifest 문서는 rating을 빼고, 있으면 포함해 DB 행과 비교한다."""
+    if existing is None or 'rating' in doc:
+        return doc
+    return {**doc, 'rating': existing['rating']}
+
 def preparation_plan(conn, manifest, rules, provenance_root:Path, *, apply=False):
     """One DB transaction, no UPDATE/DELETE. Immutable provenance is staged first.
 
@@ -141,7 +160,7 @@ def preparation_plan(conn, manifest, rules, provenance_root:Path, *, apply=False
         for row in docs:
             if (provenance_root/(row['document_id']+'.excluded.json')).exists():
                 conflicts.append({'document_id':row['document_id'],'reason':'source_identity_quarantined_never_reload'});continue
-            doc=row['document'];cur.execute('SELECT id::text,product_id::text,source_code,is_synthetic,body,posted_at FROM evidence.review_document WHERE id=%s',(doc['id'],));existing=cur.fetchone()
+            doc=row['document'];cur.execute('SELECT id::text,product_id::text,source_code,is_synthetic,body,posted_at,rating FROM evidence.review_document WHERE id=%s',(doc['id'],));existing=cur.fetchone()
             cur.execute('SELECT id::text,name,brand,model,product_type,attributes FROM catalog.product WHERE id=%s',(doc['product_id'],));product=cur.fetchone()
             match=exact_match(row['record'],row['part_type'],current_catalog)
             if not product or match['status']!='matched' or match['candidate_ids']!=[doc['product_id']]:conflicts.append({'document_id':doc['id'],'reason':'catalog_changed'});continue
@@ -150,7 +169,7 @@ def preparation_plan(conn, manifest, rules, provenance_root:Path, *, apply=False
             ledger=provenance_root/(doc['id']+'.json');payload={'source_identity':row['source_identity'],'record':row['record'],'document':doc,'part_type':row['part_type']}
             if ledger.exists() and json.loads(ledger.read_text())!=payload:conflicts.append({'document_id':doc['id'],'reason':'provenance_changed_rebuild_required'});continue
             if existing:
-                if existing!=doc:conflicts.append({'document_id':doc['id'],'reason':'document_changed_rebuild_required'})
+                if existing!=_comparable(existing,doc):conflicts.append({'document_id':doc['id'],'reason':'document_changed_rebuild_required'})
                 elif not ledger.exists():conflicts.append({'document_id':doc['id'],'reason':'missing_immutable_provenance'})
                 else:same_docs+=1
             else:new_docs.append((doc,ledger,payload))
@@ -178,8 +197,8 @@ def preparation_plan(conn, manifest, rules, provenance_root:Path, *, apply=False
                 if not ledger.exists():
                     with ledger.open('x') as f:f.write(text)
                 elif json.loads(ledger.read_text())!=payload:raise ValueError('Concurrent provenance change')
-                cur.execute('INSERT INTO evidence.review_document(id,product_id,source_code,is_synthetic,body,posted_at) VALUES (%s,%s,%s,%s,%s,%s)',tuple(doc[k] for k in ['id','product_id','source_code','is_synthetic','body','posted_at']))
-                cur.execute('SELECT id::text,product_id::text,source_code,is_synthetic,body,posted_at FROM evidence.review_document WHERE id=%s',(doc['id'],));assert cur.fetchone()==doc
+                cur.execute('INSERT INTO evidence.review_document(id,product_id,source_code,is_synthetic,body,posted_at,rating) VALUES (%s,%s,%s,%s,%s,%s,%s)',tuple(doc.get(k) for k in ['id','product_id','source_code','is_synthetic','body','posted_at','rating']))
+                cur.execute('SELECT id::text,product_id::text,source_code,is_synthetic,body,posted_at,rating FROM evidence.review_document WHERE id=%s',(doc['id'],));got=cur.fetchone();assert got==_comparable(got,doc)
             for rule in new_rules:
                 cur.execute('INSERT INTO evidence.review_aspect_rule(id,analysis_version,part_type,aspect_code,context_code,k,definition) VALUES (%s,%s,%s,%s,%s,%s,%s)',tuple(rule[k] for k in ['id','analysis_version','part_type','aspect_code','context_code','k'])+(Jsonb(rule['definition']),))
                 cur.execute('SELECT id::text,analysis_version,part_type,aspect_code,context_code,k,definition FROM evidence.review_aspect_rule WHERE id=%s',(rule['id'],));assert cur.fetchone()==rule

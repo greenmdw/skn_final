@@ -5,6 +5,7 @@
 일회용 테스트 DB(setup_all 이 리뷰 시드 번들을 넣는다)가 필요하다."""
 from __future__ import annotations
 
+import contextlib
 import os
 
 import pytest
@@ -41,8 +42,15 @@ def test_a_catalog_part_with_reviews_gets_its_review_count_and_aspect_counts():
     assert j["status"] == "ready" and j["total_count"] == n > 0
     assert j["aspect_facts"] and all("좋다는 리뷰" in line and "아쉽다는 리뷰" in line for line in j["aspect_facts"])
     assert not any("_" in line for line in j["aspect_facts"])                 # 속성 코드가 아니라 사용자 말
-    assert j["rating_raw"] is None and j["excluded_count"] is None              # 모으지 않은 값은 비운다
-    assert f"{n:,}건" in j["data_notice"]
+    # 수집처(다나와) 구매자 별점의 단순 평균 — 검수 후 평점·제외 건수는 계속 비운다.
+    with psycopg.connect(DSN) as conn:
+        rn, ra = conn.execute("SELECT count(d.rating), avg(d.rating) FROM evidence.review_document d "
+                              "JOIN catalog.product p ON p.id = d.product_id WHERE NOT d.is_synthetic AND "
+                              "lower(replace(p.product_type||':'||p.brand||':'||p.model,' ','-')) = %s", (key,)).fetchone()
+    assert rn > 0
+    assert j["rating_raw"] == round(float(ra), 2) and j["rating_count"] == rn
+    assert j["rating_refined"] is None and j["excluded_count"] is None and j["excluded_ratio"] is None
+    assert f"{n:,}건" in j["data_notice"] and f"다나와 구매자 별점 {rn:,}건" in j["data_notice"]
 
 
 def test_a_catalog_part_summary_does_not_depend_on_the_database_url_env_var(monkeypatch):
@@ -61,3 +69,60 @@ def test_a_catalog_part_without_reviews_is_still_404():
                   "(SELECT 1 FROM evidence.review_document d WHERE d.product_id = p.id)")
     r = TestClient(app).get(f"/reviews/summary/{key}")
     assert r.status_code == 404, r.text
+
+
+def _product_id(where: str):
+    with psycopg.connect(DSN) as conn:
+        row = conn.execute("SELECT p.id FROM catalog.product p WHERE " + where + " ORDER BY p.id LIMIT 1").fetchone()
+        assert row is not None, where
+        return row[0]
+
+
+@contextlib.contextmanager
+def _inserted_docs(product_id, docs):
+    """앱이 다른 연결로 읽으므로 커밋해 넣고, 끝나면 지운다(일회용 테스트 DB)."""
+    ids = []
+    with psycopg.connect(DSN) as conn:
+        for rating, synthetic in docs:
+            ids.append(conn.execute(
+                "INSERT INTO evidence.review_document (product_id, source_code, is_synthetic, body, rating) "
+                "VALUES (%s, 'processed-jsonl-v1:computer', %s, '테스트 리뷰', %s) RETURNING id",
+                (product_id, synthetic, rating)).fetchone()[0])
+    try:
+        yield
+    finally:
+        with psycopg.connect(DSN) as conn:
+            conn.execute("DELETE FROM evidence.review_document WHERE id = ANY(%s)", (ids,))
+
+
+def _summary(product_id):
+    with psycopg.connect(DSN) as conn:
+        p = conn.execute("SELECT product_type, brand, model FROM catalog.product WHERE id = %s", (product_id,)).fetchone()
+    return TestClient(app).get(f"/reviews/summary/{pc_catalog_key(*p)}")
+
+
+_NO_REVIEW = ("p.product_type IN ('cpu','gpu','motherboard','psu','case','cooler','ram','ssd') AND NOT EXISTS "
+              "(SELECT 1 FROM evidence.review_document d WHERE d.product_id = p.id)")
+
+
+def test_a_single_rated_review_still_gives_an_average_with_its_count():
+    pid = _product_id(_NO_REVIEW)
+    with _inserted_docs(pid, [(4, False)]):
+        j = _summary(pid).json()
+    assert j["rating_raw"] == 4.0 and j["rating_count"] == 1 and j["total_count"] == 1
+    assert "별점 1건" in j["data_notice"]
+
+
+def test_synthetic_reviews_do_not_change_the_rating_average_or_count():
+    pid = _product_id(_NO_REVIEW)
+    with _inserted_docs(pid, [(5, False), (1, True)]):
+        j = _summary(pid).json()
+    assert j["rating_raw"] == 5.0 and j["rating_count"] == 1
+
+
+def test_unrated_reviews_give_no_average_and_say_so():
+    pid = _product_id(_NO_REVIEW)
+    with _inserted_docs(pid, [(None, False)]):
+        j = _summary(pid).json()
+    assert j["rating_raw"] is None and j["rating_count"] is None and j["total_count"] == 1
+    assert "수집하지 못했" in j["data_notice"]

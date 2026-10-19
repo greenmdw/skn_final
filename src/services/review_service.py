@@ -103,12 +103,23 @@ def _catalog_review_facts(product_key: str, conn=None) -> dict | None:
 
     def _read(c):
         row = c.execute(
-            "SELECT p.id, (SELECT count(*) FROM evidence.review_document d WHERE d.product_id = p.id) AS n "
+            "SELECT p.id, (SELECT count(*) FROM evidence.review_document d WHERE d.product_id = p.id) AS n, "
+            # 평점은 합성 리뷰를 빼고 센다(D2: 건수 문턱 없음). 출처가 PC 부품 리뷰(전부 다나와 구매자 별점)인지도 같이 본다(안내 문구용).
+            "(SELECT count(d.rating) FROM evidence.review_document d "
+            " WHERE d.product_id = p.id AND NOT d.is_synthetic) AS rn, "
+            "(SELECT avg(d.rating) FROM evidence.review_document d "
+            " WHERE d.product_id = p.id AND NOT d.is_synthetic) AS ra, "
+            "(SELECT coalesce(bool_and(d.source_code = 'processed-jsonl-v1:computer'), false) "
+            " FROM evidence.review_document d "
+            " WHERE d.product_id = p.id AND NOT d.is_synthetic AND d.rating IS NOT NULL) AS danawa "
             "FROM catalog.product p WHERE lower(replace(p.product_type || ':' || p.brand || ':' || p.model, ' ', '-')) = %s",
             (product_key.strip().lower(),)).fetchone()
         if row is None:
             return None
-        product_id, count = (row["id"], row["n"]) if isinstance(row, dict) else row
+        if isinstance(row, dict):
+            product_id, count, rating_count, rating_avg, danawa = row["id"], row["n"], row["rn"], row["ra"], row["danawa"]
+        else:
+            product_id, count, rating_count, rating_avg, danawa = row
         aspects = c.execute(
             "SELECT r.aspect_code, sum(a.p) AS p, sum(a.n) AS n, sum(a.mixed) AS mixed "
             "FROM evidence.review_aspect_aggregate a JOIN evidence.review_aspect_rule r ON r.id = a.rule_id "
@@ -119,7 +130,11 @@ def _catalog_review_facts(product_key: str, conn=None) -> dict | None:
             code, pos, neg, mixed = (a["aspect_code"], a["p"], a["n"], a["mixed"]) if isinstance(a, dict) else a
             line = f"{ASPECT_LABEL.get(code, code)} — 좋다는 리뷰 {pos}건 · 아쉽다는 리뷰 {neg}건"
             lines.append(line + (f" · 엇갈린 리뷰 {mixed}건" if mixed else ""))
-        return {"count": int(count), "lines": lines} if count or lines else None
+        rating_count = int(rating_count or 0)
+        return ({"count": int(count), "lines": lines, "rating_count": rating_count,
+                 "rating_avg": round(float(rating_avg), 2) if rating_count and rating_avg is not None else None,
+                 "rating_source": "다나와" if danawa else "수집처"}
+                if count or lines else None)
 
     try:
         if conn is not None:
@@ -157,10 +172,15 @@ def get_summary(product_key: str, conn=None) -> ReviewSummaryOut:
     if catalog is None and facts is None and d is None and db is None:
         raise NotFound(f"리뷰 요약 없음: {product_key}", field="product_key")
     if catalog is not None:
-        note = (f"수집한 리뷰 {catalog['count']:,}건에서 항목별로 좋다·아쉽다고 말한 리뷰 수를 센 것이에요. "
-                "평점과 리뷰 진위는 따로 판단하지 않았어요.")
+        if catalog["rating_count"]:
+            tail = (f"평점은 {catalog['rating_source']} 구매자 별점 {catalog['rating_count']:,}건의 단순 평균이고, "
+                    "리뷰 진위는 따로 판단하지 않았어요.")
+        else:
+            tail = "이 제품은 구매자 별점을 수집하지 못했고, 리뷰 진위는 따로 판단하지 않았어요."
+        note = f"수집한 리뷰 {catalog['count']:,}건에서 항목별로 좋다·아쉽다고 말한 리뷰 수를 센 것이에요. {tail}"
         return ReviewSummaryOut(
-            product_key=product_key, total_count=catalog["count"], rating_raw=None,
+            product_key=product_key, total_count=catalog["count"],
+            rating_raw=catalog["rating_avg"], rating_count=catalog["rating_count"] or None,
             aspect_facts=catalog["lines"],
             data_notice=note, status="ready", product_manipulation_risk=ProductRiskOut(evidence=[], reliable_range=None))
 
@@ -304,23 +324,37 @@ def review_brief(product_key: str, conn=None) -> dict | None:
     try:
         summary = get_summary(product_key, conn)
     except NotFound:
-        return {"total_count": None, "excluded_ratio": None, "rating_refined": None,
+        return {"total_count": None, "rating_raw": None, "rating_count": None,
+                "excluded_ratio": None, "rating_refined": None,
                 "signals": None, "cleansing_summary": _cleansing_summary(), "plain": plain}
-    return {"total_count": summary.total_count or None, "excluded_ratio": None, "rating_refined": None,
+    # rating_raw 는 수집처(다나와) 구매자 별점의 단순 평균이다 — 검수 후 평점(rating_refined)이 아니다.
+    return {"total_count": summary.total_count or None, "rating_raw": summary.rating_raw,
+            "rating_count": summary.rating_count, "excluded_ratio": None, "rating_refined": None,
             "signals": _review_signals(product_key), "cleansing_summary": _cleansing_summary(), "plain": plain}
 
 
-def db_review_counts(conn, product_ids) -> dict[str, int]:
-    """상품별 리뷰 문서 수(evidence.review_document) — 추천 순위의 리뷰 점수가 읽는 DB 의 건수다.
-    review_brief 의 total_count 는 아마존 파일 산출물이라 우리 카탈로그 상품과 겹치지 않아 항상 비었다(U-12)."""
+def db_review_stats(conn, product_ids) -> dict[str, dict]:
+    """상품별 리뷰 통계 `{product_id: {"count", "rating_count", "rating_avg"}}` — 쿼리 한 번.
+
+    count 는 evidence.review_document 의 전체 문서 수(추천 순위의 리뷰 점수가 읽는 건수, 예전 db_review_counts 와 같다).
+    review_brief 의 total_count 는 아마존 파일 산출물이라 우리 카탈로그 상품과 겹치지 않아 항상 비었다(U-12).
+    rating_* 는 합성 리뷰를 뺀 수집처 별점의 건수·평균(소수 둘째 자리, 평점이 없으면 None)이다."""
     ids = [str(p) for p in product_ids if p]
     if not ids:
         return {}
     rows = conn.execute(
-        "SELECT product_id::text AS product_id, count(*) AS n FROM evidence.review_document "
-        "WHERE product_id::text = ANY(%s) GROUP BY product_id", (ids,)).fetchall()
-    # 연결의 행 형식이 호출 경로마다 다르다(튜플 / dict) — 둘 다 읽는다.
-    return {str(r["product_id"] if isinstance(r, dict) else r[0]): int(r["n"] if isinstance(r, dict) else r[1]) for r in rows}
+        "SELECT product_id::text AS product_id, count(*) AS n, "
+        "count(rating) FILTER (WHERE NOT is_synthetic) AS rn, "
+        "avg(rating) FILTER (WHERE NOT is_synthetic) AS ra "
+        "FROM evidence.review_document WHERE product_id::text = ANY(%s) GROUP BY product_id", (ids,)).fetchall()
+    out: dict[str, dict] = {}
+    for r in rows:
+        # 연결의 행 형식이 호출 경로마다 다르다(튜플 / dict) — 둘 다 읽는다.
+        pid, n, rn, ra = (r["product_id"], r["n"], r["rn"], r["ra"]) if isinstance(r, dict) else r
+        rn = int(rn or 0)
+        out[str(pid)] = {"count": int(n), "rating_count": rn,
+                         "rating_avg": round(float(ra), 2) if rn and ra is not None else None}
+    return out
 
 
 def usage_context_with_telemetry(usage_context: dict | None, telemetry: ReviewTelemetry | None) -> dict:

@@ -20,6 +20,8 @@ database setup or the required database tests. The build writes counts and SHA-2
 `bundle_manifest.json`, excludes the two quarantined source identities, and checks the finalized
 document/rule/observation totals. Do not manually edit the generated files.
 
+`documents.json` rows carry `rating` (수집처 구매자 별점 1~5, 검수 전, 없으면 null; 수집처가 0으로 적은 값도 null).
+
 The Docker image already copies `data/`; therefore provide this directory in the Docker build
 context before building. The resulting image contains the private review bundle and must be
 stored and distributed as a private artifact. For environments where images must not contain

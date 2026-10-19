@@ -2,7 +2,7 @@ import copy,json,os
 from uuid import uuid4
 import psycopg
 import pytest
-from src.services.review_preparation import (exact_match,prepare_documents,catalog_snapshot,production_rules,preparation_plan)
+from src.services.review_preparation import (exact_match,prepare_documents,catalog_snapshot,production_rules,preparation_plan,source_rating)
 
 
 def test_exact_mapping_never_strips_sku_or_picks_ambiguous():
@@ -157,3 +157,31 @@ def test_literal_samsung_seed_image_alias_rejects_other_model_code():
     assert exact_match(dict(manufacturer='Samsung',model='LS32DG800SNXZA'),'monitor',[p])['status']=='matched'
     assert exact_match(dict(manufacturer='Samsung',model='LS27DG500ENXZA'),'monitor',[p])['status']=='unmatched'
     assert exact_match(dict(manufacturer='LG',model='LS32DG800SNXZA'),'monitor',[p])['status']=='unmatched'
+
+
+@pytest.mark.parametrize('value,expected',[(None,None),(0,None),(1,1),(5,5)])
+def test_source_rating_accepts_null_zero_and_1_to_5(value,expected):
+    assert source_rating(value,'doc')==expected
+
+
+@pytest.mark.parametrize('value',[6,-1,True,False,4.0,'5'])
+def test_source_rating_rejects_other_values_naming_document(value):
+    with pytest.raises(ValueError,match='doc-1'):
+        source_rating(value,'doc-1')
+
+
+@pytest.mark.db
+def test_legacy_manifest_without_rating_ignores_db_rating(prepared):
+    conn,m,r,ledger=prepared
+    m=json.loads(json.dumps(m,sort_keys=True))
+    doc=m['rows'][0]['document'];assert 'rating' in doc and doc['rating'] is None
+    preparation_plan(conn,m,r,ledger,apply=True)
+    # 이후 적재 단계가 평점을 채운 DB 행을 흉내 낸다. 평점 키가 없는 옛 manifest는 충돌이 아니다.
+    conn.execute('UPDATE evidence.review_document SET rating=4 WHERE id=%s',(doc['id'],))
+    legacy=copy.deepcopy(m);del legacy['rows'][0]['document']['rating']
+    ledger_file=ledger/(doc['id']+'.json');payload=json.loads(ledger_file.read_text())
+    del payload['document']['rating'];ledger_file.write_text(json.dumps(payload,ensure_ascii=False,sort_keys=True,separators=(',',':'))+'\n')
+    assert preparation_plan(conn,legacy,r,ledger)['documents']['same']==1
+    # rating 키가 있는 manifest는 값이 다르면 충돌이다.
+    changed=copy.deepcopy(m);changed['rows'][0]['document']['rating']=3
+    assert preparation_plan(conn,changed,r,ledger)['conflicts']

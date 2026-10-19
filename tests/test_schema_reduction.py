@@ -27,6 +27,7 @@ EXPECTED_CHAIN = [
     "0010_live_spec_lookup_store.sql", "0011_message_metadata.sql",
     "0012_review_embedding_invalidate.sql", "0013_community_post.sql", "0014_community_post_image.sql",
     "0015_peripheral_post_evidence.sql", "0016_peripheral_spec_columns.sql", "0017_community_activity.sql", "0018_user_data.sql", "0019_session_revocation.sql",
+    "0020_review_document_rating.sql",
 ]
 # 현재 baseline의 명시적 계약. 같은 개수의 다른 테이블로 바뀌어도 실패해야 한다.
 EXPECTED_TABLES = {
@@ -212,6 +213,7 @@ def test_real_db_has_exact_current_table_set():
     ("catalog", "product", "category_id", "uuid", "YES", None),
     ("engine", "recommendation_candidate", "evidence_refs", "jsonb", "NO", "'[]'::jsonb"),
     ("engine", "validation_result", "issues", "jsonb", "NO", "'[]'::jsonb"),
+    ("evidence", "review_document", "rating", "smallint", "YES", None),
 ])
 def test_reduced_storage_columns(schema, table, column, data_type, nullable, default):
     with psycopg.connect(DSN) as conn:

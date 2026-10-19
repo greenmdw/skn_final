@@ -789,9 +789,12 @@ class ReviewPlainOut(BaseModel):
 
 class ReviewBriefOut(BaseModel):
     total_count: int | None = None       # 관측 산출물에 없는 상품은 모르는 값 — None (표시용 추정값을 넣지 않는다)
-    # 정제 전/후 비교는 판정기가 없어 못 낸다(docs/decisions/0001) — 항상 null.
+    # 검수 후 평점·제외 비율은 판정기가 없어 못 낸다(docs/decisions/0001) — 항상 null. 수집처 평균 별점(rating_raw)만 낸다.
     excluded_ratio: float | None = None
     rating_refined: float | None = None
+    # 수집처(다나와) 구매자 별점의 단순 평균과 그 평점 건수 — 검수 전 값이다. 건수가 적어도 평균을 내므로 늘 건수와 같이 읽는다.
+    rating_raw: float | None = None
+    rating_count: int | None = None
     signals: ReviewSignalsOut | None = None
     cleansing_summary: TextStatusOut | None = None
     plain: ReviewPlainOut | None = None
@@ -1462,6 +1465,9 @@ class SyntheticDemoOut(BaseModel):
 class ReviewSummaryOut(BaseModel):
     """S5 리뷰 상세 — 프론트 계약(`docs/frontend_외부수정요청.md` §D-4-2 `ReviewSummary`) 의 이름을 따른다.
 
+    평점은 수집처 평균 별점(`rating_raw`, 건수 `rating_count`)만 낸다. 검수 후 평점(`rating_refined`)은
+    판정기가 없어 못 낸다.
+
     **못 내는 값도 이름을 바꾸지 않고 null 로 둔다.** 전에는 이름을 달리 지었는데(`total_reviews`·
     `orig_rating`), 화면이 계약 이름을 읽으므로 실제로 낼 수 있는 리뷰 건수까지 **"리뷰 0건"** 으로
     나갔다. 없는 값을 0 으로 단정하는 것이 빈 칸보다 나쁘다.
@@ -1490,6 +1496,7 @@ class ReviewSummaryOut(BaseModel):
     excluded_count: Optional[int] = None
     excluded_ratio: Optional[float] = None
     rating_raw: Optional[float] = None
+    rating_count: Optional[int] = None   # rating_raw 를 낸 구매자 별점 건수(합성 제외)
     rating_refined: Optional[float] = None
     distribution_raw: dict[str, float] = {}
     distribution_refined: dict[str, float] = {}
