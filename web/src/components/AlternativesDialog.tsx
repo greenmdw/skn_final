@@ -74,7 +74,9 @@ export default function AlternativesDialog({ item, onClose }: { item: PlanItem; 
                   )}
                 </div>
                 <div className="pl-note">
-                  {option.rating !== '-' || option.reviews !== '없음' ? `★ ${option.rating} · 리뷰 ${option.reviews}` : '리뷰 관측 없음'}
+                  {option.rating !== '-' && option.ratingCount != null
+                    ? `★ ${option.rating} · 평점 ${option.ratingCount.toLocaleString('ko-KR')}건` + (option.reviews !== '없음' ? ` · 리뷰 ${option.reviews}` : '')
+                    : option.reviews !== '없음' ? `리뷰 ${option.reviews}` : '리뷰 관측 없음'}
                 </div>
                 {option.current
                   ? <button type="button" className="pl-btn ghost" style={{ padding: '9px 14px', fontSize: 13 }} disabled>선택됨</button>

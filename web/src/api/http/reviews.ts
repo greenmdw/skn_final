@@ -10,6 +10,7 @@ export const reviews: Api['reviews'] = {
       productName: wire.product_name ?? null,
       totalCount: wire.total_count ?? 0,
       ratingRaw: wire.rating_raw ?? null,
+      ratingCount: wire.rating_count ?? null,
       ratingRefined: wire.rating_refined ?? null,
       excludedCount: wire.excluded_count ?? null,
       excludedRatio: wire.excluded_ratio ?? null,

@@ -141,6 +141,8 @@ export interface AlternativeOption {
   /** 지금 고른 부품 대비 개당 가격 차이(+ 더 비쌈, - 더 쌈) */
   priceDelta: number
   rating: string
+  /** rating 평균을 낸 평점 건수. 평점이 없으면 null */
+  ratingCount: number | null
   reviews: string
 }
 /** qty 수량 · selected false 부품 빼기 / true 다시 넣기 */
@@ -743,6 +745,8 @@ export interface ReviewSummary {
   /** 모은 리뷰 수. 서버가 모르면 0 */
   totalCount: number
   ratingRaw: number | null
+  /** ratingRaw 를 낸 평점 건수. 평균은 이 건수와 함께만 보여 준다 */
+  ratingCount: number | null
   /** 검수 승인된 분석이 있을 때만 값이 있다 */
   ratingRefined: number | null
   excludedCount: number | null

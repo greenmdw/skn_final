@@ -151,8 +151,16 @@ function reasonText(reason: WireText): string {
   return '추천 이유를 정리하고 있습니다.'
 }
 
+// 평균은 평점 건수와 함께만 보여 준다(건수 없는 평균은 얼마나 믿을지 알 수 없다). 건수가 없으면 '-'로 둔다.
+// rating_refined 는 건수가 rating_count 와 다르지만, 서버가 아직 null 로만 내므로 예비 값으로만 읽는다.
 function ratingText(review: WireReview | null): string {
-  return review?.rating_refined != null ? review.rating_refined.toFixed(1) : '-'
+  if (review?.rating_count == null) return '-'
+  const value = review.rating_raw ?? review.rating_refined
+  return value != null ? value.toFixed(1) : '-'
+}
+
+function ratingCountOf(review: WireReview | null): number | null {
+  return review?.rating_count ?? null
 }
 
 // 리뷰 관측이 없는 상품은 "없음"이지 0건이 아니다 — 모르는 값을 지어내지 않는다.
@@ -179,7 +187,7 @@ export function itemFromWire(item: WireItem): PlanItem {
     fitPending: item.reason.status === 'pending',
     reasonTitle: item.slot_label + ' 추천 이유',
     tags, checks: checksFromWire(item.checks),
-    rating: ratingText(item.review), reviews: reviewsText(item.review),
+    rating: ratingText(item.review), ratingCount: ratingCountOf(item.review), reviews: reviewsText(item.review),
     label: key ? SHORT_LABEL[key] : item.slot_label.slice(0, 4),
     imageUrl: item.product.image_url ?? null, purchaseUrl: item.product.purchase_url ?? null,
   }
@@ -191,7 +199,7 @@ export function alternativesFromWire(items: WireAlternative[]): AlternativeOptio
     candidateId: a.candidate_id, label: a.label, current: a.current,
     name: a.product.name, brand: a.product.brand, specSummary: a.product.spec_summary ?? null, imageUrl: a.product.image_url ?? null,
     price: a.price, priceDelta: a.price_delta,
-    rating: ratingText(a.review), reviews: reviewsText(a.review),
+    rating: ratingText(a.review), ratingCount: ratingCountOf(a.review), reviews: reviewsText(a.review),
   }))
 }
 
@@ -289,7 +297,7 @@ function reportItem(item: WireReportItem, index: number): PlanItem {
     price: item.price * item.qty, qty: item.qty, unitPrice: item.price,
     meta: item.slot_label, source: '확정 시점 가격',
     score: '', fit: item.evidence_text ?? '', reasonTitle: item.slot_label + ' 추천 이유', tags: [],
-    rating: ratingText(item.review), reviews: reviewsText(item.review),
+    rating: ratingText(item.review), ratingCount: ratingCountOf(item.review), reviews: reviewsText(item.review),
     label: key ? SHORT_LABEL[key] : item.slot_label.slice(0, 4),
     imageUrl: item.product.image_url ?? null, purchaseUrl: item.product.purchase_url ?? null,
   }
