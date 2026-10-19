@@ -152,11 +152,15 @@ function reasonText(reason: WireText): string {
 }
 
 // 평균은 평점 건수와 함께만 보여 준다(건수 없는 평균은 얼마나 믿을지 알 수 없다). 건수가 없으면 '-'로 둔다.
+// 화면은 "★ 4.9 · 리뷰 27건" 처럼 리뷰 수를 함께 쓰므로, 별점이 있는 리뷰 수가 리뷰 수와 다를 때만 "(별점 25건)" 을 붙인다.
 // rating_refined 는 건수가 rating_count 와 다르지만, 서버가 아직 null 로만 내므로 예비 값으로만 읽는다.
 function ratingText(review: WireReview | null): string {
   if (review?.rating_count == null) return '-'
   const value = review.rating_raw ?? review.rating_refined
-  return value != null ? value.toFixed(1) : '-'
+  if (value == null) return '-'
+  return review.rating_count === review.total_count
+    ? value.toFixed(1)
+    : `${value.toFixed(1)} (별점 ${review.rating_count.toLocaleString('ko-KR')}건)`
 }
 
 function ratingCountOf(review: WireReview | null): number | null {
@@ -165,7 +169,7 @@ function ratingCountOf(review: WireReview | null): number | null {
 
 // 리뷰 관측이 없는 상품은 "없음"이지 0건이 아니다 — 모르는 값을 지어내지 않는다.
 function reviewsText(review: WireReview | null): string {
-  return review?.total_count != null ? review.total_count.toLocaleString('ko-KR') + '개' : '없음'
+  return review?.total_count != null ? review.total_count.toLocaleString('ko-KR') + '건' : '없음'
 }
 
 function priceSourceText(item: WireItem): string {

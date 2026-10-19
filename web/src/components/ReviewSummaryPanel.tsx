@@ -34,7 +34,7 @@ export default function ReviewSummaryPanel({ productKey }: { productKey: string 
               {hasNumbers ? (
                 <div className="pl-revsum-nums">
                   {data.totalCount > 0 && <span><small>수집한 리뷰</small><b className="pl-mono">{data.totalCount.toLocaleString('ko-KR')}건</b></span>}
-                  {data.ratingRaw !== null && data.ratingCount !== null && <span><small>다나와 별점 평균</small><b className="pl-mono">★ {stars(data.ratingRaw)} · 평점 {data.ratingCount.toLocaleString('ko-KR')}건</b></span>}
+                  {data.ratingRaw !== null && data.ratingCount !== null && <span><small>평균 별점</small><b className="pl-mono">★ {stars(data.ratingRaw)}{data.ratingCount !== data.totalCount ? ` · 별점 ${data.ratingCount.toLocaleString('ko-KR')}건` : ''}</b></span>}
                   {data.ratingRefined !== null && <span><small>검수 후 평점</small><b className="pl-mono">★ {stars(data.ratingRefined)}</b></span>}
                   {data.excludedCount !== null && <span><small>검수에서 제외</small><b className="pl-mono">{data.excludedCount.toLocaleString('ko-KR')}건{data.excludedRatio !== null ? ` · ${Math.round(data.excludedRatio * 100)}%` : ''}</b></span>}
                 </div>

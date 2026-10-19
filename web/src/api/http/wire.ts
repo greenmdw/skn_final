@@ -4,7 +4,7 @@ export interface WireText { status: 'pending' | 'ready' | 'failed'; text: string
 
 export interface WireReview {
   total_count: number | null
-  /** 구매자 별점 단순 평균(PC 부품은 다나와). 평점이 없거나 옛 확정 리포트면 null·키 없음 */
+  /** 수집처 구매자 별점 단순 평균. 평점이 없거나 옛 확정 리포트면 null·키 없음 */
   rating_raw?: number | null
   /** rating_raw 를 낸 평점 건수. 평균은 이 건수와 함께만 보여 준다 */
   rating_count?: number | null

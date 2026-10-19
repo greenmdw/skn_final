@@ -111,10 +111,7 @@ function PartRow({ item, open, busy, excluded, readOnly, confirming, lastOne, on
           <div className="pl-box">
             <h4>리뷰</h4>
             {item.rating !== '-' && item.ratingCount != null
-              ? <>
-                <p><b style={{ fontSize: 20 }}>★ {item.rating} · 평점 {item.ratingCount.toLocaleString('ko-KR')}건</b>{item.reviews !== '없음' && <span style={{ marginLeft: 8 }}>리뷰 {item.reviews}</span>}</p>
-                <p className="pl-note">다나와 구매자 별점 평균</p>
-              </>
+              ? <p><b style={{ fontSize: 20 }}>★ {item.rating}</b>{item.reviews !== '없음' && <span style={{ marginLeft: 8, whiteSpace: 'nowrap' }}>리뷰 {item.reviews}</span>}</p>
               : item.reviews !== '없음'
               ? <p>리뷰 {item.reviews}</p>
               : <p style={{ color: 'var(--muted)' }}>이 제품의 리뷰 관측이 아직 없어요.</p>}
