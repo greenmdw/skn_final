@@ -1436,6 +1436,13 @@ def list_alternatives(conn, revision_id: UUID, item_id: UUID) -> dict:
     return {"items": items}
 
 
+def original_variants(conn, revision_id: UUID) -> dict[str, str]:
+    """슬롯 → 엔진이 처음 고른 variant_id(리뷰 snapshot 의 selected). snapshot 이 없는 옛 실행이면 빈 dict."""
+    from src.services.recommendation_review_snapshot import cached_snapshot
+    erepo, run = _require_done_run(conn, revision_id)
+    return dict(((cached_snapshot(erepo, run["id"]) or {}).get("selected") or {}))
+
+
 def swap_item(conn, revision_id: UUID, item_id: UUID, candidate_id: UUID,
               user_id: UUID | None = None) -> dict:
     """candidate_id는 alternatives가 돌려준 variant_id다. item_id(행 자체)는 그대로 두고
