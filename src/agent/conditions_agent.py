@@ -22,7 +22,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from src.engine.brands import canonical_slot, cpu_brand_pref
-from src.config import CONDITIONS_AGENT, LLM_MODEL, LLM_PROVIDER, LLM_TIMEOUT_SECONDS, MOCK_MODE, OPENAI_API_KEY
+from src.config import (CONDITIONS_AGENT, LLM_AGENT_MAX_RETRIES, LLM_MODEL, LLM_PROVIDER, LLM_TIMEOUT_SECONDS, MOCK_MODE,
+                        OPENAI_API_KEY)
 from src.engine.slot_rules import BUDGET_RANGE_MESSAGE, _parse_won, extract_computer, normalize_budget, parse_bare_manwon
 from src.clients.llm_guard import llm_call_slot
 from src.agent.text_guard import final_answer, foreign_script, leaked_internals
@@ -614,7 +615,9 @@ def _model():
         params = {"reasoning_effort": "none"}
     else:
         params = {"temperature": 0.2}
-    return OpenAIModel(client_args={"api_key": OPENAI_API_KEY, "timeout": LLM_TIMEOUT_SECONDS}, model_id=LLM_MODEL, params=params)
+    # max_retries: SDK 기본 2회를 그대로 두면 시간 초과 한 번이 최악 3배가 된다(U-16) — 재시도 없이 규칙 경로로 넘긴다
+    return OpenAIModel(client_args={"api_key": OPENAI_API_KEY, "timeout": LLM_TIMEOUT_SECONDS, "max_retries": LLM_AGENT_MAX_RETRIES},
+                       model_id=LLM_MODEL, params=params)
 
 
 def run_turn(category: str, cat_def: dict, values: dict, history: list[dict], text: str,
