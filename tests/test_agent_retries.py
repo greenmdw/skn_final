@@ -62,9 +62,8 @@ def _one_turn_against(base_url: str, monkeypatch, retries: int) -> float:
 
 def test_one_timed_out_agent_call_is_one_request_not_three(hanging_server, monkeypatch):
     base_url, hits = hanging_server
-    elapsed = _one_turn_against(base_url, monkeypatch, retries=0)
-    assert len(hits) == 1
-    assert elapsed < 3          # 시간 제한(1초) + 여유 — 재시도했다면 4초 이상
+    _one_turn_against(base_url, monkeypatch, retries=0)
+    assert len(hits) == 1       # 재시도했다면 3번 — 시간(초)으로는 가르지 않는다(전체 테스트가 CPU 를 쓰는 중에는 흔들린다)
 
 
 def test_the_retry_setting_really_controls_the_number_of_requests(hanging_server, monkeypatch):
