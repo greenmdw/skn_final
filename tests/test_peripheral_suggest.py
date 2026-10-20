@@ -107,3 +107,61 @@ def test_invalid_adjust_chips_are_rejected(tmp_path, mutate, match):
     mutate(rules)
     with pytest.raises(pr.PeripheralRuleError, match=match):
         pr.load_peripheral_rules(_write(tmp_path, rules))
+
+
+# ── 칩 시험을 그 종류만 다시 돌려도 결과가 같다(성능 개선의 근거) ───────────────────────────────────
+# 2026-10-19 부하 시험에서 주변기기 추천이 느려진 원인: 칩 11개를 시험할 때마다 네 종류를 전부 다시 계산했다. 전체 예산이 없으면 한 종류의
+# 순위는 다른 종류와 무관해 그 종류만 돌려도 같아야 한다 — 전 종류를 돌리는 기준 경로(restrict_trials=False)와 칩 목록이 같은지 비교한다.
+_SCENARIOS = [
+    (["keyboard"], {}), (["mouse"], {}), (["monitor"], {}), (["speaker"], {}), (_ALL, {}),
+    (_ALL, {"situations": ["quiet_place"]}), (_ALL, {"situations": ["small_desk", "trending"]}), (_ALL, {"situations": ["design"]}),
+    (["keyboard", "mouse"], {"purposes": ["game"]}), (["keyboard", "mouse"], {"purposes": ["office"]}),
+    (["monitor", "speaker"], {"purposes": ["game"], "situations": ["portable"]}),
+    (_ALL, {"purposes": ["fps", "wrist"]}),
+]
+
+
+@pytest.mark.parametrize("kinds, raw", _SCENARIOS, ids=[f"{'+'.join(k)}:{sorted(r)}" for k, r in _SCENARIOS])
+def test_restricted_trials_give_the_same_chips_as_running_every_kind(candidates, kinds, raw):
+    interp, values, base = _run(candidates, kinds, **raw)
+    fast = suggest_chips(values, interp, candidates, base, restrict_trials=True)
+    reference = suggest_chips(values, interp, candidates, base, restrict_trials=False)
+    assert fast == reference
+
+
+def test_restricted_trials_keep_the_same_chips_with_a_pc_context_and_per_kind_budgets(candidates):
+    interp, values, base = _run(candidates, _ALL)
+    ctx = {"resolution": "QHD_165", "gpu_specs": None}
+    values = {**values, "peripheral_kind_budget": {"mouse": 80_000, "keyboard": 150_000}}
+    base = run_peripherals(values, candidates, _NOLOG, pc_context=ctx)
+    assert (suggest_chips(values, interp, candidates, base, pc_context=ctx, restrict_trials=True)
+            == suggest_chips(values, interp, candidates, base, pc_context=ctx, restrict_trials=False))
+
+
+def test_with_a_total_budget_every_kind_is_still_rerun_because_picks_depend_on_each_other(candidates, monkeypatch):
+    """전체 예산이 있으면 종류끼리 엮이므로(조합 선택) 빠른 경로를 쓰지 않는다 — 시험마다 후보 사전이 통째로 넘어간다."""
+    from src.engine import peripheral_suggest as ps
+    interp, values, _base = _run(candidates, _ALL)
+    values = {**values, "peripheral_budget_max": 600_000}
+    base = run_peripherals(values, candidates, _NOLOG)
+    seen: list[set[str]] = []
+    real = ps.run_peripherals
+
+    def spy(v, cands, *a, **kw):
+        seen.append(set(cands))
+        return real(v, cands, *a, **kw)
+
+    monkeypatch.setattr(ps, "run_peripherals", spy)
+    assert (suggest_chips(values, interp, candidates, base, restrict_trials=True)
+            == suggest_chips(values, interp, candidates, base, restrict_trials=False))
+    assert seen and all(kinds == set(candidates) for kinds in seen)
+
+
+def test_without_a_budget_each_trial_runs_only_its_own_kind(candidates, monkeypatch):
+    from src.engine import peripheral_suggest as ps
+    interp, values, base = _run(candidates, _ALL)
+    seen: list[set[str]] = []
+    real = ps.run_peripherals
+    monkeypatch.setattr(ps, "run_peripherals", lambda v, cands, *a, **kw: (seen.append(set(cands)), real(v, cands, *a, **kw))[1])
+    ps.suggest_chips(values, interp, candidates, base)
+    assert seen and all(len(kinds) == 1 for kinds in seen)
