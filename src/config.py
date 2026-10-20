@@ -119,6 +119,10 @@ DB_POOL_TIMEOUT: float = float(os.getenv("DB_POOL_TIMEOUT", "5"))
 # · LLM_REQUEST_MAX: LLM 을 기다리며 DB 연결을 쥐는 요청(조건 대화·결과 대화·견적 점검 되묻기·실시간 검색 등)의 동시 수.
 #   풀의 절반 아래로 묶어 두어야 나머지 요청(목록·리포트·결과 폴링)이 풀 고갈로 막히지 않는다.
 LLM_TIMEOUT_SECONDS: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "45"))
+# 에이전트(조건·결과·견적 점검 대화, Strands)의 모델 호출 자동 재시도 횟수. OpenAI SDK 기본은 2회라 시간 초과(45초) 한 번이 최악 3배로
+# 늘어난다(2026-10-19 재현: 응답 없는 서버에 1번이 3번 호출, 부하 시험의 50~77초 꼬리 지연과 같은 모양). 0 이면 한 번 시간 초과에서
+# 바로 규칙 경로로 넘어간다. 빠른 일시 오류(429·5xx)까지 재시도하려면 1 로 올린다 — 대신 최악 지연이 길어진다.
+LLM_AGENT_MAX_RETRIES: int = max(0, int(os.getenv("LLM_AGENT_MAX_RETRIES", "0")))
 LLM_VISION_TIMEOUT_SECONDS: float = float(os.getenv("LLM_VISION_TIMEOUT_SECONDS", "90"))
 LLM_SEARCH_TIMEOUT_SECONDS: float = float(os.getenv("LLM_SEARCH_TIMEOUT_SECONDS", "60"))
 LLM_MAX_CONCURRENCY: int = int(os.getenv("LLM_MAX_CONCURRENCY", "12"))

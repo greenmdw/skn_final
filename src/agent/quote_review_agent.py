@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from src.agent.conditions_agent import _model
+from src.agent.text_guard import leaked_internals
 from src.clients.llm_guard import llm_call_slot
 from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, QUOTE_REVIEW_AGENT
 
@@ -292,7 +293,7 @@ def reply_is_grounded(reply: str, sources: list[str]) -> tuple[bool, set[str], l
         allowed |= _numbers(src)
     allowed |= _equivalent_forms(sources, allowed)
     outside = _numbers(reply) - allowed
-    bad = [w for w in _EVALUATIVE if w in reply]
+    bad = [w for w in _EVALUATIVE if w in reply] + leaked_internals(reply)      # 평가어 + 도구 이름·프롬프트 문구(U-07)
     return (not outside and not bad), outside, bad
 
 

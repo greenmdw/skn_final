@@ -22,10 +22,11 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from src.engine.brands import canonical_slot, cpu_brand_pref
-from src.config import CONDITIONS_AGENT, LLM_MODEL, LLM_PROVIDER, LLM_TIMEOUT_SECONDS, MOCK_MODE, OPENAI_API_KEY
+from src.config import (CONDITIONS_AGENT, LLM_AGENT_MAX_RETRIES, LLM_MODEL, LLM_PROVIDER, LLM_TIMEOUT_SECONDS, MOCK_MODE,
+                        OPENAI_API_KEY)
 from src.engine.slot_rules import BUDGET_RANGE_MESSAGE, _parse_won, extract_computer, normalize_budget, parse_bare_manwon
 from src.clients.llm_guard import llm_call_slot
-from src.agent.text_guard import final_answer, foreign_script
+from src.agent.text_guard import final_answer, foreign_script, leaked_internals
 from src.errors import ServiceUnavailable
 
 log = logging.getLogger(__name__)
@@ -614,7 +615,9 @@ def _model():
         params = {"reasoning_effort": "none"}
     else:
         params = {"temperature": 0.2}
-    return OpenAIModel(client_args={"api_key": OPENAI_API_KEY, "timeout": LLM_TIMEOUT_SECONDS}, model_id=LLM_MODEL, params=params)
+    # max_retries: SDK 기본 2회를 그대로 두면 시간 초과 한 번이 최악 3배가 된다(U-16) — 재시도 없이 규칙 경로로 넘긴다
+    return OpenAIModel(client_args={"api_key": OPENAI_API_KEY, "timeout": LLM_TIMEOUT_SECONDS, "max_retries": LLM_AGENT_MAX_RETRIES},
+                       model_id=LLM_MODEL, params=params)
 
 
 def run_turn(category: str, cat_def: dict, values: dict, history: list[dict], text: str,
@@ -649,10 +652,10 @@ def run_turn(category: str, cat_def: dict, values: dict, history: list[dict], te
     reply = final_answer(raw)            # 초안을 두 번 쓰거나 내부 생각·형식 태그를 흘린 답 → 마지막 한국어 답만
     if reply != raw:
         log.warning("conditions agent reply trimmed (draft or leaked text): %r", raw[:200])
-    foreign = foreign_script(reply)
+    foreign = foreign_script(reply) + leaked_internals(reply)
     if not reply or foreign:
-        # 다른 언어 글자가 섞인 답(10/15 QA #40 "日博 -vesm")은 버리고 코드 문장으로. 도구가 반영한 조건은 검사를 거친 값이라 둔다.
-        log.warning("conditions agent reply rejected (foreign script %s) — replaced: %r", foreign, reply[:120])
+        # 다른 언어 글자가 섞인 답(10/15 QA #40 "日博 -vesm")이나 도구 이름·프롬프트 문구가 샌 답(U-07)은 버리고 코드 문장으로. 도구가 반영한 조건은 검사를 거친 값이라 둔다.
+        log.warning("conditions agent reply rejected (foreign script / leaked internals %s) — replaced: %r", foreign, reply[:120])
         reply = _fallback_reply(draft)
     elif not _changed(draft) and _CLAIM.search(reply):
         # 바꾼 조건이 없는데 "기록했습니다"·"취소했습니다"(비어 있던 조건) — 10/15 QA #36·#64
