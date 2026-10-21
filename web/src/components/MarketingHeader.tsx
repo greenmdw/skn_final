@@ -16,8 +16,8 @@ export default function MarketingHeader() {
         <Brand />
       </Link>
       <nav className="tf-home-nav" aria-label="주요 메뉴">
-        <NavLink to="/start">새 컴퓨터 본체</NavLink>
         <NavLink to="/check">받은 견적 점검</NavLink>
+        <NavLink to="/start">새 컴퓨터 본체</NavLink>
         <NavLink to="/peripherals">주변기기 견적</NavLink>
         <NavLink to="/community">커뮤니티</NavLink>
       </nav>
