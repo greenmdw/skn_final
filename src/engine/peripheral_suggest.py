@@ -50,10 +50,15 @@ def _with_chip(interp: Interpretation, kind: str, add: dict[str, Any], rules: di
 def suggest_chips(
     values: dict, interp: Interpretation, candidates: dict[str, list[Candidate]], base: PeripheralResult,
     rules: dict | None = None, *, pc_context: dict | None = None, limit: int = CHIP_LIMIT,
-    require_review_details: bool = False,
+    require_review_details: bool = False, restrict_trials: bool = True,
 ) -> list[dict[str, Any]]:
     """`base` 는 같은 입력으로 이미 돌린 결과다. 반환: [{kind, id, label, add, moved}] — `add` 는 화면이 입력에
-    그대로 더하면 되는 모양({purposes, situations, stated: {kind: [...]}}), `moved` 는 바뀌는 자리 수다."""
+    그대로 더하면 되는 모양({purposes, situations, stated: {kind: [...]}}), `moved` 는 바뀌는 자리 수다.
+
+    restrict_trials: 칩 하나를 시험할 때 그 칩의 종류만 다시 돌린다(전체 예산이 없을 때). 종류끼리 순위가 엮이는 곳은 전체 예산으로
+    조합을 고르는 `choose` 뿐이라, 예산이 없으면 한 종류의 순위는 다른 종류와 무관하다. 전에는 칩 11개마다 네 종류를 전부 다시
+    계산해 한 번의 추천이 1.5~2초 걸렸다(2026-10-19 프로파일: 체감 점수 계산 44번 중 33번이 헛수고). False 면 전 종류를 돌린다 —
+    결과가 같음을 확인하는 기준 경로다(tests/test_peripheral_suggest.py)."""
     rules = rules or load_peripheral_rules()
     if base.status != "ready":
         return []
@@ -69,8 +74,9 @@ def suggest_chips(
             trial = _with_chip(interp, kind, chip["add"], rules)
             trial_values = {**values, "peripheral_intent": trial,
                             "peripheral_resolved": peripheral_intent.resolve(trial, rules)}
-            result = run_peripherals(trial_values, candidates, lambda *_: None, pc_context=pc_context,
-                                     require_review_details=require_review_details)
+            only_this_kind = restrict_trials and values.get("peripheral_budget_max") is None
+            result = run_peripherals(trial_values, {kind: candidates.get(kind, [])} if only_this_kind else candidates,
+                                     lambda *_: None, pc_context=pc_context, require_review_details=require_review_details)
             after = next((p for p in result.picks if p.kind == kind), None)
             if after is None:
                 continue

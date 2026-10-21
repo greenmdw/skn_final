@@ -63,7 +63,7 @@
 
 /* 대화 한 줄: 접기/펼치기(▶) · 견적서 수 */
 .sp-conv { flex-direction: row; align-items: center; gap: 4px; padding: 2px 6px 2px 2px; }
-.sp-conv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; border: 0; background: transparent; color: inherit; text-align: left; padding: 6px 4px; cursor: pointer; font: inherit; }
+.sp-conv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 2px; border: 0; background: transparent; color: inherit; text-align: left; padding: 6px 4px; cursor: pointer; font: inherit; }
 .sp-chev { flex: none; width: 22px; height: 28px; border: 0; background: transparent; color: var(--muted); font-size: 9px; cursor: pointer; transition: transform .15s; }
 .sp-chev.open { transform: rotate(90deg); }
 .sp-chev.none { visibility: hidden; cursor: default; }

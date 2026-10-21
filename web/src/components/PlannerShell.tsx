@@ -31,8 +31,8 @@ export default function PlannerShell({ chatTitle, placeholder, sidebar, children
       <header className="pl-top">
         <Link className="pl-brand" to="/" aria-label="TrueFit 홈"><Brand /></Link>
         <nav className="pl-nav" aria-label="주요 메뉴">
-          <NavLink to="/start" className={navClass('computer')}>새 컴퓨터 본체</NavLink>
           <NavLink to="/check" className={navClass('check')}>받은 견적 점검</NavLink>
+          <NavLink to="/start" className={navClass('computer')}>새 컴퓨터 본체</NavLink>
           <NavLink to="/peripherals" className={navClass('peripherals')}>주변기기 견적</NavLink>
           <NavLink to="/community" className={navClass('community')}>커뮤니티</NavLink>
         </nav>
