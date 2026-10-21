@@ -1,151 +1,157 @@
-# db/ — 스키마 마이그레이션 (Truefit)
+# db/ — 스키마 마이그레이션과 시드 (TrueFit)
 
-[테이블_명세서 v6](../docs/db/table_spec.md)에서 축소된 최종 51개 테이블(9개 애플리케이션 스키마) DDL. **RDS / Aurora PostgreSQL 16 호환** 을 전제로 작성.
+PostgreSQL 16 + **pgvector** 확장을 쓴다. 마이그레이션 21개가 8개 스키마(`assets`·`catalog`·`community`·`config`·`engine`·`evidence`·`identity`·`planning`)에 테이블 77개를 만든다. 로컬은 Docker, 배포는 AWS RDS PostgreSQL에서 같은 파일·같은 러너로 적용한다.
 
-## 사전 준비 — Docker 필수 아님
+## 1. 준비
 
-로컬 PostgreSQL을 띄우는 방법은 둘 다 동등합니다. DB 엔진은 PostgreSQL 16이며 별도 확장에 의존하지 않습니다. AWS 배포(RDS)는 관리형 서비스라 로컬을 Docker로 했는지 conda로 했는지와 무관합니다.
+로컬 DB는 Docker로 띄운다. 저장소의 `docker-compose.yml`이 pgvector가 들어 있는 이미지(`pgvector/pgvector:pg16`)를 쓴다.
 
-**방법 A — conda (Docker Desktop 설치 불필요, 추천)**
 ```bash
-conda create -p ./pgenv -c conda-forge postgresql=16 -y
-./pgenv/Library/bin/pg_ctl -D ./pgdata initdb
-./pgenv/Library/bin/pg_ctl -D ./pgdata -o "-p 5432" start
+docker compose up -d db          # 사용자·비밀번호·DB 이름 모두 truefit, 포트 5432
 ```
 
-**방법 B — Docker**
-- Docker Desktop 설치 + WSL2 엔진 활성화, 설치 후 IDE 재시작 후 `docker version`으로 확인.
-- 기본 포트 5432가 사용 중이면 점유 프로세스를 중지하거나 `docker-compose.yml`의 호스트 포트를 바꾸고 `DATABASE_URL`에도 같은 포트를 사용.
+- Docker 없이 로컬 PostgreSQL 16을 쓰려면 pgvector 확장을 따로 설치해야 한다. `0008_review_aspect.sql`이 `CREATE EXTENSION IF NOT EXISTS vector`를 실행한다.
+- 5432 포트가 이미 쓰이고 있으면 `docker-compose.yml`의 호스트 포트를 바꾸고 `DATABASE_URL`도 같은 포트로 맞춘다.
+- 공용 개발 DB는 두지 않는다. 각자 로컬 DB에 같은 마이그레이션과 멱등 시드를 적용해 같은 데이터를 재현한다.
 
-공용 개발 DB는 두지 않는다 — 각자 로컬 DB에 마이그레이션을 적용한 뒤 동일한 멱등 적재 스크립트로 데이터를 재현한다.
+### 시드 입력 파일
 
-## 실행
+| 파일 | Git | 쓰는 스크립트 |
+|---|:---:|---|
+| `data/parts_list_modify.xlsx` | 포함 | `seed_pc_parts_specs.py` |
+| `config/danawa_product_pcode.json` | 포함 | `seed_pc_parts_specs.py` (다나와 상품 코드 매핑) |
+| `config/categories/*.yaml` | 포함 | `seed.py` |
+| `data/peripherals/{mouse,monitor,speaker,keyboard}_processed.csv` | 미포함 | `seed_peripherals.py` |
+| `data/review_seed/` (`bundle_manifest.json`, `documents.json`, `rules.json`, `canonical_results.json`, `consolidated_observation_drafts.json`) | 미포함 | `seed_review_corpus.py`, `import_review_corpus_all_observations.py` |
 
-`data/parts_list_modify.xlsx`와 `data/peripherals/{mouse,monitor,speaker,keyboard}_processed.csv`는
-팀 전달 원본이므로 Git에 포함하지 않습니다. PC·부속기기 시더나 `setup_all.py`를 실행하기 전에
-해당 파일을 로컬의 위 경로에 별도로 준비해야 합니다. 파일이 없는 새 체크아웃에서
-`setup_all.py`는 카탈로그 적재 단계에서 완료되지 않습니다.
+Git에 없는 파일은 저장소 README의 "10. 설치 및 실행 → 처음 실행할 때 → 1. 시드 데이터 받기"에서 받는다. 하나라도 없으면 `setup_all.py`가 그 단계에서 멈춘다.
 
-**한 번에 (추천)** — 마이그레이션 + 기준 데이터 + PC/부속기기 카탈로그 + 실제 리뷰 원문·규칙·관측·집계를 순서대로 적용:
+## 2. 실행
+
+**한 번에 (권장)** — 아래 7단계를 순서대로 실행하고, 실패하면 그 단계에서 멈춘다. 모든 단계가 멱등이라 다시 실행해도 된다.
+
 ```bash
 DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/setup_all.py
 ```
 
-리뷰 데이터는 비공개 원문 번들 `data/review_seed/`가 필요합니다. 저장소에는 리뷰 내용을
-포함하지 않으므로 팀의 승인된 비공개 전달 경로로 전체 디렉터리를 받아야 합니다. 묶음 생성,
-필수 파일, 해시 검사와 Docker 이미지 준비는 [비공개 리뷰 시드 안내](../data/review_seed/README.md)를
-참고하세요. `setup_all.py`는 원문·분석 규칙을 적재한 뒤 canonical 관측을 넣고 해당 분석 버전의
-집계/member를 다시 계산합니다. 같은 번들을 재적용해도 기존 행과 집계가 유지됩니다.
+| 순서 | 단계 | 명령 |
+|---|---|---|
+| 1 | 스키마 마이그레이션 | `python db/migrate.py up` |
+| 2 | 기준 데이터(카테고리 정의 → `config.domain`·`domain_version`) | `python db/seed.py` |
+| 3 | PC 부품 8종 카탈로그 | `python db/seed_pc_parts_specs.py` |
+| 4 | 주변기기 4종 카탈로그 | `python db/seed_peripherals.py` |
+| 5 | 리뷰 원문·관점 규칙 | `python db/seed_review_corpus.py --load-bundle --apply` |
+| 6 | 리뷰 관점 관측 | `python db/import_review_corpus_all_observations.py --apply` |
+| 7 | 리뷰 관점 집계 | `python db/rebuild_review_aspect_aggregates.py --analysis-version review-aspect-v6-prod-20261002 --apply` |
 
-**단계별로 직접**:
+단계별로 직접 돌릴 때도 각 명령 앞에 같은 `DATABASE_URL`을 붙인다.
+
+**마이그레이션 러너** (`migrate.py`) — `db/migrations/*.sql`을 파일명 순서로 적용하고 `_migrations.schema_migrations`에 버전과 체크섬을 기록한다. 앞으로만 적용한다(forward-only).
+
 ```bash
-# 방법 B(Docker)라면 먼저: docker compose up -d
-DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/migrate.py up
-DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed.py
-DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed_pc_parts_specs.py
-DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed_peripherals.py
-DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/seed_review_corpus.py --load-bundle --apply
-DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/import_review_corpus_all_observations.py --root data/review_seed --apply
-DATABASE_URL=postgresql://truefit:truefit@localhost:5432/truefit python db/rebuild_review_aspect_aggregates.py --analysis-version review-aspect-v6-prod-20261002 --apply
-
-# 현황
-python db/migrate.py status
-# RDS/Aurora 에 적용: DATABASE_URL 만 네트워크 DSN 으로 교체 (같은 파일, 같은 러너)
+python db/migrate.py up        # 아직 적용하지 않은 파일 전부 적용 (기본)
+python db/migrate.py status    # 적용 현황
+python db/migrate.py dry-run   # 적용할 파일만 출력
 ```
 
-## 파일 (phase 순서)
+코드를 새로 받은 뒤에는 `python db/migrate.py up`으로 새 파일만 적용한다. RDS에 적용할 때는 `DATABASE_URL`만 RDS 주소로 바꾼다.
+
+## 3. 마이그레이션 파일
 
 | 파일 | 내용 |
 |---|---|
-| `0000_schema.sql` | 최종 스키마 9개 · 함수 · 51개 테이블과 최종 컬럼·CHECK |
-| `0001_constraints.sql` | PK · UNIQUE · 모든 FK |
+| `0000_schema.sql` | 기본 스키마 8개, 공용 함수, 기본 테이블 50개와 컬럼·CHECK |
+| `0001_constraints.sql` | PK · UNIQUE · FK |
 | `0002_indexes.sql` | 부분 UNIQUE와 성능 인덱스 |
 | `0003_triggers.sql` | `updated_at` 자동 갱신 트리거 |
-| `0005_preference_signal.sql` | 사용자 브랜드 선호·비선호 신호 테이블(`identity.preference_signal`). 설계는 `docs/사용자_선호비선호_기록_설계.md` |
-| `0006_report_soft_delete.sql` | 견적서 하나만 삭제하기 위한 `planning.plan_revision.deleted_at` 컬럼(개발요청 10번) |
-| `0007_peripheral_line.sql` | 확정 견적서에 같이 저장하는 주변기기 줄 `planning.peripheral_line`(개발요청 11번) |
-| `0008_review_aspect.sql` | 리뷰 원문·속성 규칙·관측·집계와 근거 member, 임베딩 및 `engine.review_requirement_profile` |
+| `0005_preference_signal.sql` | `identity.preference_signal` — 사용자 브랜드 선호·비선호 신호 |
+| `0006_report_soft_delete.sql` | `planning.plan_revision.deleted_at` — 확정 리포트 하나만 삭제 표시 |
+| `0007_peripheral_line.sql` | `planning.peripheral_line` — 확정 리포트에 함께 얼리는 주변기기 줄 |
+| `0008_review_aspect.sql` | `vector` 확장, `evidence.review_document`·`review_embedding`(1536차원)·`review_aspect_rule`·`review_aspect_observation`·`review_aspect_aggregate(_member)`, `engine.review_requirement_profile` |
+| `0009_live_spec_lookup_cache.sql` | `catalog.live_spec_lookup_cache` — DB에 없는 부품의 실시간 스펙 검색 결과 |
+| `0010_live_spec_lookup_store.sql` | 위 테이블을 임시 부품 저장소로 전환 — 정규화 키 `lookup_key`, 검토 상태 `status`, 참고 가격 컬럼 |
+| `0011_message_metadata.sql` | `identity.message.metadata` — 대화 메시지별 부가 정보(견적 점검 비교 id, 근거 등) |
+| `0012_review_embedding_invalidate.sql` | 리뷰 본문이 바뀌면 그 리뷰의 임베딩을 지우는 트리거 |
+| `0013_community_post.sql` | `community.post`·`post_product`·`post_comment`·`post_like`·`post_view` — 커뮤니티 게시판 |
+| `0014_community_post_image.sql` | `community.post_image` — 게시글 첨부 이미지 메타데이터(파일은 `COMMUNITY_UPLOAD_DIR`) |
+| `0015_peripheral_post_evidence.sql` | `engine.peripheral_post_intake`·`peripheral_post_analysis_log`·`peripheral_post_evidence`·`peripheral_post_evidence_embedding` — 사용기 분석 대기열·로그·체감 근거·임베딩 |
+| `0016_peripheral_spec_columns.sql` | `catalog.gpu_spec`의 HDMI·DP 버전·USB-C 영상 출력, `catalog.keyboard_spec`의 키압 최소·최대 |
+| `0017_community_activity.sql` | `community.post_save`(저장), `community.notification`(댓글·답글 알림) |
+| `0018_user_data.sql` | `identity.user_pc`(내 PC), `identity.user_data`(사용자별 JSON 문서), `planning.plan_extras`(견적별 JSON) |
+| `0019_session_revocation.sql` | `identity.revoked_session`(로그아웃한 토큰), `identity.app_user.sessions_revoked_at`(모든 기기 로그아웃) |
+| `0020_kept_part_line.sql` | `planning.kept_part_line` — 받은 견적을 일부 교체해 확정할 때 그대로 둔 부품 |
+| `0021_review_document_rating.sql` | `evidence.review_document.rating` — 수집처 구매자 별점(1~5) |
 
-이미 만들어 둔 로컬 DB는 pull 뒤 `python db/migrate.py up`으로 새 파일만 적용합니다(`status`로 pending 확인).
+`0004`는 비어 있는 번호다. 스키마 사이에 순환 참조가 있어 "테이블 전부 → 제약 전부 → 인덱스 전부" 순서로 나눴다.
 
-phase 방식(테이블 전부 → 제약 전부 → 인덱스 전부)을 쓴 이유는 스키마 간 순환 참조가 있기 때문이다.
+## 4. db/ 스크립트
 
-## 리뷰 속성 집계 미리보기·재생성
+| 스크립트 | 하는 일 |
+|---|---|
+| `setup_all.py` | 2장의 7단계를 순서대로 실행 |
+| `migrate.py` | 마이그레이션 러너 |
+| `seed.py` | `config/categories/*.yaml`을 `config.domain_version`에 적재(컴퓨터 카테고리는 게시 상태) |
+| `seed_pc_parts_specs.py` | `parts_list_modify.xlsx` 8개 시트 → `catalog.product`·카테고리별 스펙 테이블·`offer`·`offer_observation`. 중복 행 3개는 제외 |
+| `seed_peripherals.py` | 주변기기 CSV 4종 → `catalog.product`·종류별 스펙 테이블·`peripheral_price_snapshot`(판매처·관측일 없는 참고가). `--dry-run`으로 검증만 |
+| `seed_review_corpus.py --load-bundle --apply` | 리뷰 시드 번들의 해시를 확인하고 리뷰 원문·관점 규칙 적재 |
+| `import_review_corpus_all_observations.py --apply` | 번들의 관점 관측 적재 |
+| `rebuild_review_aspect_aggregates.py` | 한 분석 버전의 관점 집계 미리보기(기본) 또는 재생성(`--apply`) |
+| `seed_community_examples.py` | 예시 사용기 글(`data/community_examples/`)을 `community.post`에 적재(기본은 점검만, `--apply`로 적재) |
+| `community_examples_snapshot.py` | 예시 글·이미지·분석 결과·벡터를 스냅샷으로 내보내기(`export`)·복원(`restore`) |
+| `community_examples_from_json.py` | 담당자가 JSON으로 낸 예시 글을 마크다운 파일로 변환 |
+| `review_live_lookup.py` | 임시 부품 저장소의 검색 결과를 사람이 검토(`list`·`confirm`·`reject`·`reset`) |
+| `seed_catalog.py` | 옛 데모용 카탈로그 적재(`data/parts_list.csv`). `setup_all.py`에서는 쓰지 않음 |
+| 그 밖의 `*review_corpus*`·`*review_observations*`·`validate_review_batch.py` 등 | 리뷰 시드 번들을 만들 때 쓴 준비·검증 도구. 번들을 받아 적재만 할 때는 쓰지 않음 |
 
-`review_aspect_aggregate`는 선택한 분석 버전의 등록 규칙 k와 현재 구조적으로 유효한 관측을 사용합니다. 기본 실행은 읽기 전용 미리보기이며, 쓰기는 `--apply`를 명시해야 합니다.
+## 5. 리뷰 관점 집계 다시 만들기
+
+`review_aspect_aggregate`는 한 분석 버전에 등록된 관점 규칙(규칙마다 k값)과 유효한 관측으로 계산한다. 기본 실행은 읽기 전용 미리보기이고, 쓰려면 `--apply`를 붙인다.
 
 ```bash
-PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
-  uv run python db/rebuild_review_aspect_aggregates.py \
-  --analysis-version review-aspect-v6-prod-20261002
+# 미리보기 (쓰기 없음)
+PYTHONPATH=. uv run python db/rebuild_review_aspect_aggregates.py --analysis-version review-aspect-v6-prod-20261002
 
-# 쓰기 동작은 격리 테스트 DB에서만 검증
-DATABASE_URL=postgresql://truefit:truefit@127.0.0.1:5432/truefit_test \
-PYTHONPATH=. UV_CACHE_DIR=/tmp/uv-cache \
-  uv run python db/rebuild_review_aspect_aggregates.py \
-  --analysis-version test-version --apply
+# 재생성
+PYTHONPATH=. uv run python db/rebuild_review_aspect_aggregates.py --analysis-version review-aspect-v6-prod-20261002 --apply
 ```
 
-`--apply`는 원문·규칙·관측·집계·member 쓰기를 멈춘 유지보수 구간에 실행합니다. importer와 같은 순서로 원본/집계 테이블 잠금을 얻고 한 트랜잭션에서 집계 ID를 유지하며 member를 교체합니다. 다른 분석 버전은 수정하지 않습니다. 프로세스가 커밋 뒤 별도 읽기 스냅샷의 감사에서 실패했다고 보고하면 변경은 이미 커밋됐을 수 있으므로, 이를 rollback으로 해석하지 말고 대상 버전의 집계 상태를 읽어 확인해야 합니다.
+- `--apply`는 한 트랜잭션에서 그 분석 버전의 집계와 member만 바꾸고, 다른 분석 버전은 건드리지 않는다. 리뷰 원문·관측을 쓰는 작업과 동시에 돌리지 않는다.
+- 추천은 요청 후보의 규칙·집계·근거를 한 번의 조회 스냅샷으로 읽는다(`src/repo/review_aspect_repo.py`). 그 분석 버전의 집계가 아예 없거나 요청 후보의 관측과 집계가 맞지 않으면 추천을 실패시키고, 빈 결과를 가짜(mock) 데이터로 바꿔 넣지 않는다.
+- 사용한 분석 버전은 `engine.recommendation_run.engine_versions`와 `engine.review_requirement_profile`에 남는다.
 
-추천 요청용 `review_aspect_repo`는 규칙·집계·member·근거를 하나의 SQL 문장 snapshot으로 함께 읽고, 요청 후보 상품/규칙의 원본 관측 수와 member를 대조합니다. 버전 전체에 집계 행이 없거나 요청 범위 원본 관측에 대응하는 집계/member가 없으면 준비되지 않은 상태로 오류를 냅니다. 현 스키마에는 전역 완료 manifest가 없으므로, 이 조회는 요청에 포함되지 않은 다른 상품까지 포함한 버전 전체 완전성을 증명하지 않습니다. snapshot 결과도 이 범위를 `global_completeness_verified=false`로 표시하며, 후속 엔진 연결은 이를 일반적인 무관측 중립 결과로 취급하지 않아야 합니다.
+## 6. DB가 강제하는 것과 앱이 맡는 것
 
-Stage 4 PC 랭킹은 요청 후보 전체의 등록 규칙과 관측/member 커버리지를 snapshot 안에서 검증한 뒤 R을 주입합니다. DB 경로는 aggregate가 버전 전체에 전혀 없거나 요청 범위가 불일치하면 추천을 실패시키고, scoped 검증을 통과해도 전역 완전성 미확인을 실행 로그와 저장 프로필 진단에 남깁니다. 지금은 전체 manifest를 추가하지 않으므로, 이 경로가 보장하는 범위는 요청 후보뿐입니다. API는 실제 DB 경로를 강제하며 프로필/분석 버전을 `engine.review_requirement_profile`과 `recommendation_run.engine_versions`에 기록합니다. 로컬 시나리오 데모는 `run_from_scenario`에서 명시적으로 mock source를 선택하고, 다른 호출자는 `CATALOG_SOURCE=mock`을 설정해야만 중립 리뷰 상세를 쓸 수 있습니다. DB 카탈로그 오류나 빈 결과를 mock/CSV로 자동 대체하지 않습니다.
+**DB (마이그레이션)**
+- 모든 PK · FK · 단순/복합/부분 UNIQUE
+- 한 행 안의 CHECK(열거값, 범위, 둘 중 하나만 채우기, 상태별 필수 컬럼)
+- 복합 FK로 같은 소속 강제(예: 견적 ↔ 리비전, 상품 ↔ 변형, 오퍼 ↔ 가격 관측)
+- 트리거: `updated_at` 자동 갱신, 리뷰 본문 변경 시 임베딩 삭제
 
-`stage3b_rank.run`은 DB를 직접 열지 않는 순수 랭커입니다. 런타임 오케스트레이션은 `require_review_details=True`로 호출해 모든 후보의 주입 누락을 거부합니다. 순수 점수 단위 테스트에서만 상세 미주입 시 중립값을 쓸 수 있습니다. Stage 5는 rank에 보존된 동일 snapshot에서 요청 프로필, R/Q/α, 관측 수와 실제 member ID를 설명·trace에 전달하며 DB를 재조회하지 않습니다. 균형 관측, 혼합 관측만 있음, 관측 없음, 선택 규칙 없음, 식별자 없음은 별도 상태로 표시합니다. 주변기기 요청도 요청 종류의 후보만 공통 scorer에 전달하고 R과 근거를 선택품 및 대안에 보존하지만 외부 리뷰 가중치는 0이며 프로필을 run에 따로 저장하지 않습니다. 전역 완전성 manifest 부재에 따른 readiness 범위 제한은 계속 적용됩니다.
+**앱 (`src/repo/`, `src/services/`)**
+- 소유권 확인, 상태 전이, 확정 리포트 불변, JSONB 안의 키·자료형 검증
+- 화면 단계·예산 비율·합계는 저장하지 않고 저장된 값으로 계산
 
-Stage 6은 격리된 자동 test DB에서 문서·관측 fixture를 넣고 실제 집계 rebuild → 단일 snapshot 조회 → PC 공통 랭킹 → Stage 5 설명·trace까지 연결해 검증합니다. 별도 주변기기 케이스는 seeded DB 후보의 fixture 관측을 공통 scorer·랭킹·typed payload에 연결해 확인합니다. fixture는 고유 분석 버전/ID를 쓰며 rule 기준 cleanup을 수행하고, 개발 DB `truefit`에는 fixture를 쓰거나 실제 집계를 적용하지 않습니다.
+## 7. AWS(RDS) 호환
 
-Stage 7의 유지보수 적용과 read-only 실데이터 감사 및 GPU/주변기기/full-PC smoke 결과는 [리뷰점수 실데이터 검증 결과](../docs/리뷰점수_실데이터_검증결과.md)에 기록했습니다. Stage 6의 격리 test DB 검증과 구분해 실제 대상 DB에는 선택 버전의 집계/member만 생성했으며, 원문·관측·규칙·catalog·추천 실행 데이터는 변경하지 않았습니다.
+- `vector` 확장은 RDS PostgreSQL이 지원한다. 그 밖의 확장은 쓰지 않는다(`gen_random_uuid()`는 PostgreSQL 13+ 기본 함수).
+- 슈퍼유저 전용 구문(커스텀 tablespace, DDL 이벤트 트리거, `COPY FROM PROGRAM`)을 쓰지 않는다.
+- 시간은 `timestamptz`(UTC)로 저장하고 표시할 때만 Asia/Seoul로 바꾼다.
+- 세션 상태에 의존하지 않아 커넥션 풀(PgBouncer·RDS Proxy) 뒤에서도 동작한다.
 
-## AWS 호환 원칙 (반영됨)
+## 8. 테스트용 일회용 DB
 
-- `gen_random_uuid()` = PG13+ 코어 → `pgcrypto` 불필요
-- PostgreSQL 확장에 의존하지 않음
-- 슈퍼유저 전용 구문 없음: 커스텀 tablespace ✕, DDL 이벤트 트리거 ✕, `COPY FROM PROGRAM` ✕
-- `updated_at`·(이후) 업무규칙 트리거는 일반 트리거 → RDS OK
-- `timestamptz` = UTC 저장, 표시만 앱에서 Asia/Seoul
-- 대용량 테이블(`offer_observation`·`feedback_event`)은
-  **파티션 키를 PK 에 포함하지 않았으나 시간 컬럼이 있음** — 최종에서 `pg_partman` 으로 월 range 파티션 (무중단)
-- 커넥션 풀(PgBouncer/RDS Proxy) 전제: 세션 상태 의존 없음. 트랜잭션 내 `SET LOCAL` 만 사용할 것
-
-## DB 로 강제하는 것 vs 앱/트리거로 미루는 것
-
-**DB (이 마이그레이션에 포함)**
-- 모든 PK / FK(RESTRICT) / 단순·복합·부분 UNIQUE
-- 단일 행 CHECK (enum, 범위, `num_nonnulls` XOR, 상태별 필수 컬럼)
-- 복합 FK 로 같은 소속 강제: C01(plan↔revision) C02(node/req↔revision) C03(parent node)
-  C04(observation↔offer) C05(variant↔product) C06(material current)
-  C10(pc_build↔version) C12(review↔revision)
-- `updated_at` 트리거
-
-`identity.conversation`은 `created_at`만 저장하므로 갱신 트리거 대상이 아니다.
-`config.domain_version`에는 게시 완료된 버전만 적재하며 게시 전 초안은 버전 관리 저장소에서 관리한다.
-UI 표시 설정과 알림 수신 설정은 `identity.app_user`의 JSON 컬럼에 저장한다.
-
-프론트 외부 수정 요청은 새 테이블 없이 기존 책임에 맞춰 반영한다. `app_user`는 단일 로컬 인증 수단, `plan`은 리스트 수명주기, `plan_revision`은 확정 스냅샷, `recommendation_run/candidate`는 비동기 설명 상태를 맡는다. 화면 `stage`, `budget_share`, 합계는 저장하지 않고 기존 상태와 관계형 금액으로 계산한다. `requirement.id`를 결과의 안정적인 `item_id`로 사용하며 수량·구매 시점·후보 교체에는 기존 `purchase_line`, `requirement`, `recommendation_candidate`를 사용한다.
-
-**앱 트랜잭션 / 업무규칙 트리거 (여기 미포함 — 다음 작업)**
-- C03 깊이 제한(최상위 group→slot / 최상위 slot 만), C07 접근 필터, C09 근거 출처 일치,
-  C11 소유권, C13 이중 집계 방지, **C14 게시/확정 불변성**, **C15 낙관적 잠금(lock_version)**,
-  C16 통화 일관성
-- 상태 전이 제한 (명세서 §9)
-- JSONB 키·자료형·단위 검증 (명세서 §7)
-
-→ 이 항목들은 `src/repo/` 저장 서비스 계층 + 소수의 가드 트리거로 구현. 별도 마이그레이션(`0006_guard_triggers.sql` 등)으로 추가.
-
-## 테스트용 일회용 DB (자동 생성·삭제)
-
-`pytest`는 기본적으로 `truefit_test_<UUID>` DB를 만들고 현재 baseline과 시드를 적용한 뒤 테스트 종료 시 삭제한다.
-PostgreSQL 서버는 실행 중이어야 하며 개발 DB(`truefit`)에는 테스트 데이터를 기록하지 않는다.
+`pytest`는 실행 중인 PostgreSQL에 `truefit_test_<UUID>` DB를 만들고 `setup_all.py`로 마이그레이션·시드를 적용한 뒤, 끝나면 `DROP DATABASE ... WITH (FORCE)`로 지운다. 개발 DB(`truefit`)에는 쓰지 않는다.
 
 ```bash
-# Docker PostgreSQL만 실행하면 pytest가 DB 준비와 삭제를 담당한다.
 docker compose up -d db
-TRUEFIT_REQUIRE_TEST_DB=1 uv run pytest
+PYTHONPATH=. TRUEFIT_REQUIRE_TEST_DB=1 uv run pytest -q -m "not llm_live"
 ```
 
-- 준비된 테스트 DB를 직접 쓰려면 `TEST_DATABASE_URL`을 지정한다.
-- 자동 생성을 끄려면 `TRUEFIT_AUTO_TEST_DB=0`을 지정한다.
-- 보호를 끄려면 `TRUEFIT_ALLOW_ANY_DB=1` (개발 DB에 테스트 데이터가 쌓인다).
-- 테스트는 `MOCK_MODE=1`(LLM 실호출 없음)과 `PGCONNECT_TIMEOUT=3`(DB가 꺼져 있어도 몇 초 안에 실패)이 기본이다.
+| 환경변수 | 뜻 |
+|---|---|
+| `TRUEFIT_REQUIRE_TEST_DB=1` | DB 준비 실패를 skip이 아니라 오류로 낸다 |
+| `TEST_DATABASE_URL` | 이미 준비된 테스트 DB를 쓴다(이름에 `test`가 있어야 함) |
+| `TRUEFIT_AUTO_TEST_DB=0` | 자동 생성을 끈다 |
+| `TRUEFIT_ALLOW_ANY_DB=1` | 이름에 `test`가 없는 DB 접속 차단을 푼다(개발 DB에 테스트 데이터가 쌓임) |
+
+테스트는 기본으로 `MOCK_MODE=1`(실제 LLM 호출 없음), `PGCONNECT_TIMEOUT=3`(DB가 꺼져 있으면 몇 초 안에 실패)으로 돈다. 실제 LLM을 부르는 `llm_live` 테스트는 비용이 들어 기본 실행에서 뺀다.

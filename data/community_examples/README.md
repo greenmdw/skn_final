@@ -1,21 +1,22 @@
 # 예시 사용기 글 — 적재 런북
 
 커뮤니티 시작용 예시 글(200편, 이미지 111장)을 로컬 DB에 넣고, 체감 문장 분석·벡터 저장까지 끝내서 팀이 같은 결과를 쓰게 하는 절차다.
-글 형식은 `docs/개발요청_커뮤니티_본문_이미지_배치.md` 5장(예시 글 작성 형식)을 따른다.
+글 형식(머리말 YAML + 마크다운 본문, 글 한 편 = 파일 하나)은 `db/seed_community_examples.py` 맨 위 설명과 2장 규칙을 따른다.
 
-## 0. 현재 상태 (2026-10-14)
+## 0. 현재 상태 (2026-10-21)
 
-| 묶음 | 글 | 이미지 | DB 적재(담당 DB) | 분석 |
-|---|---|---|---|---|
-| A 마우스 | 48 | 48 | 완료 | 완료 |
-| B 키보드 | 40 | 10 | 완료 | 완료 |
-| C 모니터 | 36 | 9 | 완료 | **미분석** |
-| D 스피커 | 36 | 10 | 완료 | **미분석** |
-| E 여러 제품 | 24 | 28 | 완료 | **미분석** |
-| F 근거 아님 | 16 | 6 | 완료 | **미분석** |
+| 묶음 | 글 | 이미지 | DB 적재 | 분석 | 체감 근거 |
+|---|---:|---:|---|---|---:|
+| A 마우스 | 48 | 48 | 완료 | 완료 | 740 |
+| B 키보드 | 40 | 10 | 완료 | 완료 | 506 |
+| C 모니터 | 36 | 9 | 완료 | 완료 | 590 |
+| D 스피커 | 36 | 10 | 완료 | 완료 | 682 |
+| E 여러 제품 | 24 | 28 | 완료 | 완료 | 357 |
+| F 근거 아님 | 16 | 6 | 완료 | 완료 | 0 (대조군이라 근거가 없어야 정상) |
+| **합계** | **200** | **111** | | | **2,875** |
 
-- 스냅샷(`dump/`)은 분석이 끝난 뒤에 내보낸다. C~F 분석 전의 스냅샷은 근거가 A·B만 들어 있다.
-- 글 수·이미지 수는 `ls`와 `db/seed_community_examples.py` 점검(①)으로 직접 확인할 수 있다.
+- 스냅샷(`dump/`, 2026-10-14 내보냄)에는 200편 전체의 글·이미지·분석 대기 기록과 체감 근거 2,875개·임베딩 2,875개가 들어 있다(`dump/manifest.json`의 `counts`).
+- 글 수·이미지 수는 `ls`와 `db/seed_community_examples.py` 점검(①)으로, 분석 상태는 ⑤의 SQL로 직접 확인할 수 있다.
 
 ## 1. 한눈에 보기
 
@@ -81,7 +82,7 @@ data/community_examples/
 ```bash
 git pull origin develop
 docker compose up -d db
-PYTHONPATH=. uv run python db/migrate.py up            # 마이그레이션을 0019 까지 적용 (또는 신규 DB 는 db/setup_all.py)
+PYTHONPATH=. uv run python db/migrate.py up            # 마이그레이션을 끝까지 적용 (또는 신규 DB 는 db/setup_all.py)
 PYTHONPATH=. uv run python db/seed_peripherals.py      # 주변기기 카탈로그(data/peripherals/*.csv 필요, 키압 값 포함)
 ```
 
@@ -195,7 +196,7 @@ with get_conn() as c: print(e.backfill(c, OpenAIEmbedder()))"
 **먼저 결과를 확인한다.**
 
 ```sql
--- 제품별 근거 수와 방향 (기획 문서 7장 정답표와 비교)
+-- 제품별 근거 수와 방향 (정답표 expectations.yaml 과 비교)
 SELECT p.brand, p.model, e.attribute, e.direction, count(*)
 FROM engine.peripheral_post_evidence e JOIN catalog.product p ON p.id = e.product_id
 WHERE e.is_example GROUP BY 1,2,3,4 ORDER BY 1,2,3,4;
@@ -208,7 +209,7 @@ SELECT count(*) FROM engine.peripheral_post_evidence e
 LEFT JOIN engine.peripheral_post_evidence_embedding m ON m.evidence_id = e.id WHERE m.evidence_id IS NULL;   -- 0 이어야 한다
 ```
 
-**정답표 자동 점검**(읽기 전용): 기획 문서 표를 속성 코드로 옮긴 정답표와 비교한다.
+**정답표 자동 점검**(읽기 전용): 글마다 나와야 하는 속성을 속성 코드로 적어 둔 정답표(`expectations.yaml`)와 비교한다.
 
 ```bash
 PYTHONPATH=. uv run python scripts/check_example_expectations.py            # A 묶음(expectations.yaml)
@@ -224,7 +225,7 @@ PYTHONPATH=. uv run python scripts/check_example_expectations.py --expectations 
 - 추출 정확도를 사람 정답으로 정식 평가하는 도구와 절차는 9장.
 
 확인할 것: F 묶음 글은 근거가 없어야 한다(F10은 `other`만 나올 수 있다) · 같은 글은 한 번만 세어진다(E21~E24) ·
-F12는 수정본 적재 뒤 원글 근거가 사라진다 · 제품별 최근 3개월 글 수가 기획표(`최근에 몰림` 8종, `예전에 몰림` 8종)와 같다.
+F12는 수정본 적재 뒤 원글 근거가 사라진다 · 제품별 최근 3개월 글 수가 예시 글 작성 때 정한 분포(`최근에 몰림` 8종, `예전에 몰림` 8종)와 같다.
 
 문제가 없으면 내보낸다.
 
@@ -238,7 +239,7 @@ PYTHONPATH=. uv run python db/community_examples_snapshot.py export data/communi
 
 **분석 결과까지 받을 때(⑥ 복원)**
 
-1. 저장소를 받고 3장 준비를 마친다(마이그레이션 0019까지, 카탈로그 제품이 들어 있어야 한다).
+1. 저장소를 받고 3장 준비를 마친다(마이그레이션을 끝까지 적용하고, 카탈로그 제품이 들어 있어야 한다).
 2. 전달받은 `dump/` 폴더를 `data/community_examples/dump/`에 둔다.
 3. 복원한다.
 
