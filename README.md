@@ -412,7 +412,7 @@ AWS 서버 배포는 [배포 안내](deploy/README.md)를 따릅니다.
 |---|---|---|---|
 | 시스템 | [시스템 아키텍처 상세](docs/readme/시스템_아키텍처_상세.md) | `docs/readme/` | 본체 추천·받은 견적 점검·주변기기 추천의 처리 흐름(도식), 엔진 단계, 검색 경로 |
 | 시스템 | [주요 API](docs/readme/주요_API.md) | `docs/readme/` | 영역별 주요 엔드포인트 (전체 목록은 서버의 `/docs`) |
-| 검증 | [테스트와 평가](docs/readme/테스트와_평가.md) | `docs/readme/` | 테스트 실행과 평가 결과 (작성 예정) |
+| 검증 | [테스트와 평가](docs/readme/테스트와_평가.md) | `docs/readme/테스트와_평가.md` | 테스트 실행과 평가 결과 |
 | 데이터 | [데이터 수집 및 전처리](docs/readme/데이터_수집_및_전처리.md) | `docs/readme/` | 데이터별 전처리 규칙과 시스템에서 쓰이는 곳 (출처·수집 방법은 작성 예정) |
 | 데이터 | [커뮤니티 예시 사용기 적재 런북](data/community_examples/README.md) | `data/community_examples/` | 예시 사용기 200편 적재 → 체감 문장 분석 → 임베딩 → 스냅샷 내보내기·복원 절차 |
 | DB | [DB 안내](db/README.md) | `db/` | 마이그레이션 실행(`migrate.py`), 시드 적재 단계, 리뷰 속성 집계 재생성, 테스트용 일회용 DB |
