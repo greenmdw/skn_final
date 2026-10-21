@@ -1,0 +1,1106 @@
+{
+  "summary": {
+    "generated_at": "2026-10-21T07:20:11.045915+00:00",
+    "input_hashes_unchanged": true,
+    "total_engine_executions": 480,
+    "repeat": {
+      "unique_requests": 72,
+      "repetitions": 5,
+      "executions": 360,
+      "stable_full_result_requests": 72,
+      "stable_rankings_requests": 72,
+      "errors": [],
+      "engine_ms": {
+        "n": 360,
+        "p50": 212.126009,
+        "p95": 783.3350209000005,
+        "max": 2756.982785,
+        "mean": 320.6587798,
+        "population_std": 418.57310294988616
+      },
+      "search_ms": {
+        "n": 360,
+        "p50": 4.039814,
+        "p95": 627.9035612000001,
+        "max": 2542.668653,
+        "mean": 130.76639327777778,
+        "population_std": 411.3378206289512
+      },
+      "stage4_ms": {
+        "n": 360,
+        "p50": 38.5624705,
+        "p95": 639.6948653500001,
+        "max": 2617.701477,
+        "mean": 152.22830386666666,
+        "population_std": 412.645871987524
+      },
+      "per_input_engine_time_std_ms": {
+        "n": 72,
+        "p50": 26.730623498708354,
+        "p95": 63.16511227858011,
+        "max": 368.1284277880934,
+        "mean": 35.576883272089354,
+        "population_std": 41.73996929228291
+      },
+      "per_input_search_time_std_ms": {
+        "n": 72,
+        "p50": 0.3788986855900259,
+        "p95": 48.767754486026945,
+        "max": 204.60034746383138,
+        "mean": 8.910502160054508,
+        "population_std": 28.32048088275637
+      }
+    },
+    "timing_cells": [
+      {
+        "purpose": "game",
+        "budget": 1000000,
+        "executions": 40,
+        "engine_ms": {
+          "n": 40,
+          "p50": 243.636889,
+          "p95": 264.6878023999999,
+          "max": 341.322897,
+          "mean": 235.881329675,
+          "population_std": 30.01529861601705
+        },
+        "search_ms": {
+          "n": 40,
+          "p50": 31.338645,
+          "p95": 32.39210275,
+          "max": 56.674882,
+          "mean": 32.094030475,
+          "population_std": 3.9564287926277144
+        }
+      },
+      {
+        "purpose": "game",
+        "budget": 2000000,
+        "executions": 40,
+        "engine_ms": {
+          "n": 40,
+          "p50": 213.14781449999998,
+          "p95": 682.2211908999999,
+          "max": 762.464316,
+          "mean": 299.606989425,
+          "population_std": 196.88708828177872
+        },
+        "search_ms": {
+          "n": 40,
+          "p50": 3.349701,
+          "p95": 496.186226,
+          "max": 544.011616,
+          "mean": 115.614247175,
+          "population_std": 196.13492489736603
+        }
+      },
+      {
+        "purpose": "game",
+        "budget": 3500000,
+        "executions": 40,
+        "engine_ms": {
+          "n": 40,
+          "p50": 191.0557115,
+          "p95": 233.20600775,
+          "max": 272.495601,
+          "mean": 190.683846,
+          "population_std": 29.73679379839851
+        },
+        "search_ms": {
+          "n": 40,
+          "p50": 3.3944315,
+          "p95": 3.9114174499999983,
+          "max": 5.449682,
+          "mean": 3.48787495,
+          "population_std": 0.3824231349676658
+        }
+      },
+      {
+        "purpose": "office",
+        "budget": 1000000,
+        "executions": 40,
+        "engine_ms": {
+          "n": 40,
+          "p50": 186.511388,
+          "p95": 292.4241982,
+          "max": 305.977005,
+          "mean": 189.79110255,
+          "population_std": 47.54341132622016
+        },
+        "search_ms": {
+          "n": 40,
+          "p50": 3.1448625000000003,
+          "p95": 90.30800845,
+          "max": 92.066464,
+          "mean": 13.98790165,
+          "population_std": 29.046954964129903
+        }
+      },
+      {
+        "purpose": "office",
+        "budget": 2000000,
+        "executions": 40,
+        "engine_ms": {
+          "n": 40,
+          "p50": 191.1849995,
+          "p95": 329.38882885,
+          "max": 388.130645,
+          "mean": 202.543100275,
+          "population_std": 65.28488160688862
+        },
+        "search_ms": {
+          "n": 40,
+          "p50": 3.083642,
+          "p95": 100.33288965,
+          "max": 151.495306,
+          "mean": 16.4845924,
+          "population_std": 36.19687061672587
+        }
+      },
+      {
+        "purpose": "office",
+        "budget": 3500000,
+        "executions": 40,
+        "engine_ms": {
+          "n": 40,
+          "p50": 232.0195025,
+          "p95": 354.19249694999996,
+          "max": 372.908002,
+          "mean": 231.86525855,
+          "population_std": 71.98016573300791
+        },
+        "search_ms": {
+          "n": 40,
+          "p50": 45.270593,
+          "p95": 158.585181,
+          "max": 194.671671,
+          "mean": 58.5245808,
+          "population_std": 59.896791310305076
+        }
+      },
+      {
+        "purpose": "creation",
+        "budget": 1000000,
+        "executions": 40,
+        "engine_ms": {
+          "n": 40,
+          "p50": 239.07932849999997,
+          "p95": 262.97633875,
+          "max": 265.401569,
+          "mean": 229.752538425,
+          "population_std": 25.216965385078634
+        },
+        "search_ms": {
+          "n": 40,
+          "p50": 32.258554000000004,
+          "p95": 33.71829115,
+          "max": 33.862418,
+          "mean": 32.381643775,
+          "population_std": 0.5343797187492466
+        }
+      },
+      {
+        "purpose": "creation",
+        "budget": 2000000,
+        "executions": 40,
+        "engine_ms": {
+          "n": 40,
+          "p50": 759.8022249999999,
+          "p95": 2604.8200293,
+          "max": 2756.982785,
+          "mean": 1107.929080575,
+          "population_std": 903.3976855270241
+        },
+        "search_ms": {
+          "n": 40,
+          "p50": 559.0076395000001,
+          "p95": 2428.1022519999997,
+          "max": 2542.668653,
+          "mean": 900.053248125,
+          "population_std": 896.0999549120585
+        }
+      },
+      {
+        "purpose": "creation",
+        "budget": 3500000,
+        "executions": 40,
+        "engine_ms": {
+          "n": 40,
+          "p50": 193.2712565,
+          "p95": 250.92187065,
+          "max": 276.120393,
+          "mean": 197.875772725,
+          "population_std": 34.55987552832601
+        },
+        "search_ms": {
+          "n": 40,
+          "p50": 3.9354535,
+          "p95": 4.702005499999992,
+          "max": 12.838231,
+          "mean": 4.26942015,
+          "population_std": 1.4692388140818966
+        }
+      }
+    ],
+    "price_baseline": {
+      "paired_recommendable_requests": 56,
+      "paired_ids": [
+        "creation|none|noise=0|2000000",
+        "creation|none|noise=0|3500000",
+        "creation|none|noise=1|2000000",
+        "creation|none|noise=1|3500000",
+        "creation|performance|noise=0|2000000",
+        "creation|performance|noise=0|3500000",
+        "creation|performance|noise=1|2000000",
+        "creation|performance|noise=1|3500000",
+        "creation|quiet|noise=0|2000000",
+        "creation|quiet|noise=0|3500000",
+        "creation|quiet|noise=1|2000000",
+        "creation|quiet|noise=1|3500000",
+        "creation|value|noise=0|2000000",
+        "creation|value|noise=0|3500000",
+        "creation|value|noise=1|2000000",
+        "creation|value|noise=1|3500000",
+        "game|none|noise=0|2000000",
+        "game|none|noise=0|3500000",
+        "game|none|noise=1|2000000",
+        "game|none|noise=1|3500000",
+        "game|performance|noise=0|2000000",
+        "game|performance|noise=0|3500000",
+        "game|performance|noise=1|2000000",
+        "game|performance|noise=1|3500000",
+        "game|quiet|noise=0|2000000",
+        "game|quiet|noise=0|3500000",
+        "game|quiet|noise=1|2000000",
+        "game|quiet|noise=1|3500000",
+        "game|value|noise=0|2000000",
+        "game|value|noise=0|3500000",
+        "game|value|noise=1|2000000",
+        "game|value|noise=1|3500000",
+        "office|none|noise=0|1000000",
+        "office|none|noise=0|2000000",
+        "office|none|noise=0|3500000",
+        "office|none|noise=1|1000000",
+        "office|none|noise=1|2000000",
+        "office|none|noise=1|3500000",
+        "office|performance|noise=0|1000000",
+        "office|performance|noise=0|2000000",
+        "office|performance|noise=0|3500000",
+        "office|performance|noise=1|1000000",
+        "office|performance|noise=1|2000000",
+        "office|performance|noise=1|3500000",
+        "office|quiet|noise=0|1000000",
+        "office|quiet|noise=0|2000000",
+        "office|quiet|noise=0|3500000",
+        "office|quiet|noise=1|1000000",
+        "office|quiet|noise=1|2000000",
+        "office|quiet|noise=1|3500000",
+        "office|value|noise=0|1000000",
+        "office|value|noise=0|2000000",
+        "office|value|noise=0|3500000",
+        "office|value|noise=1|1000000",
+        "office|value|noise=1|2000000",
+        "office|value|noise=1|3500000"
+      ],
+      "price_minimum_proven_requests": 72,
+      "executions": 72,
+      "service": {
+        "paired_recommendable_requests": 56,
+        "changed_builds": 56,
+        "slots_changed": {
+          "CPU": 28,
+          "RAM": 29,
+          "메인보드": 1,
+          "케이스": 2,
+          "파워": 24,
+          "쿨러": 0,
+          "GPU": 18,
+          "저장장치": 56
+        },
+        "mean_price": 1417567.5357142857,
+        "performance_index_mean_baseline_100": 130.90027606077896,
+        "performance_per_price_index_mean_baseline_100": 109.24575203172749,
+        "baseline_weighted_fit_score_mean": 0.6020330436028838,
+        "review_axis_mean": 0.5499459068740531
+      },
+      "cheapest": {
+        "paired_recommendable_requests": 56,
+        "changed_builds": 0,
+        "slots_changed": {
+          "CPU": 0,
+          "RAM": 0,
+          "메인보드": 0,
+          "케이스": 0,
+          "파워": 0,
+          "쿨러": 0,
+          "GPU": 0,
+          "저장장치": 0
+        },
+        "mean_price": 1186996.0357142857,
+        "performance_index_mean_baseline_100": 100.0,
+        "performance_per_price_index_mean_baseline_100": 100.0,
+        "baseline_weighted_fit_score_mean": 0.5854860548917353,
+        "review_axis_mean": 0.5190792741760003
+      },
+      "minimum_pass": 72,
+      "recommendable": 56,
+      "errors": []
+    },
+    "extreme": [
+      {
+        "purpose": "game",
+        "budget": -1,
+        "executions": 2,
+        "outcomes": {
+          "ScoreInputError": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 91.6175675,
+          "p95": 94.31303105,
+          "max": 94.612527,
+          "mean": 91.6175675,
+          "population_std": 2.9949595
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0,
+          "mean": 0.0,
+          "population_std": 0.0
+        },
+        "prices": [],
+        "minimum_pass": 0,
+        "search_caps": 0
+      },
+      {
+        "purpose": "game",
+        "budget": 0,
+        "executions": 2,
+        "outcomes": {
+          "ScoreInputError": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 90.80111550000001,
+          "p95": 93.29072295,
+          "max": 93.567346,
+          "mean": 90.80111550000001,
+          "population_std": 2.766230499999999
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0,
+          "mean": 0.0,
+          "population_std": 0.0
+        },
+        "prices": [],
+        "minimum_pass": 0,
+        "search_caps": 0
+      },
+      {
+        "purpose": "game",
+        "budget": 1,
+        "executions": 2,
+        "outcomes": {
+          "not_recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 313.44680900000003,
+          "p95": 320.2161581,
+          "max": 320.968308,
+          "mean": 313.44680900000003,
+          "population_std": 7.521498999999977
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 42.6171485,
+          "p95": 48.10526975,
+          "max": 48.715061,
+          "mean": 42.6171485,
+          "population_std": 6.0979125
+        },
+        "prices": [
+          1330298,
+          1330298
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "game",
+        "budget": 50000,
+        "executions": 2,
+        "outcomes": {
+          "not_recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 270.154807,
+          "p95": 301.7055211,
+          "max": 305.211156,
+          "mean": 270.154807,
+          "population_std": 35.05634900000001
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 31.865923000000002,
+          "p95": 31.939785099999998,
+          "max": 31.947992,
+          "mean": 31.865923000000002,
+          "population_std": 0.08206899999999884
+        },
+        "prices": [
+          1330298,
+          1330298
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "game",
+        "budget": 100000,
+        "executions": 2,
+        "outcomes": {
+          "not_recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 326.01495550000004,
+          "p95": 346.46048275000004,
+          "max": 348.732208,
+          "mean": 326.01495550000004,
+          "population_std": 22.7172525
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 33.0180405,
+          "p95": 33.28720485,
+          "max": 33.317112,
+          "mean": 33.0180405,
+          "population_std": 0.29907150000000016
+        },
+        "prices": [
+          1330298,
+          1330298
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "game",
+        "budget": 500000,
+        "executions": 2,
+        "outcomes": {
+          "not_recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 285.141502,
+          "p95": 328.0679902,
+          "max": 332.8376,
+          "mean": 285.141502,
+          "population_std": 47.696098000000006
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 42.894223,
+          "p95": 53.2159441,
+          "max": 54.362802,
+          "mean": 42.894223,
+          "population_std": 11.468579000000002
+        },
+        "prices": [
+          1330298,
+          1330298
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "game",
+        "budget": 10000000,
+        "executions": 2,
+        "outcomes": {
+          "recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 276.12991,
+          "p95": 337.0021552,
+          "max": 343.765738,
+          "mean": 276.12991,
+          "population_std": 67.635828
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 4.1573015,
+          "p95": 4.2117717500000005,
+          "max": 4.217824,
+          "mean": 4.1573015,
+          "population_std": 0.06052250000000026
+        },
+        "prices": [
+          2342448,
+          2342448
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "game",
+        "budget": 100000000,
+        "executions": 2,
+        "outcomes": {
+          "recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 494.03582700000004,
+          "p95": 740.0689053,
+          "max": 767.405914,
+          "mean": 494.03582700000004,
+          "population_std": 273.370087
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 8.7033155,
+          "p95": 12.29264375,
+          "max": 12.691458,
+          "mean": 8.7033155,
+          "population_std": 3.9881425000000004
+        },
+        "prices": [
+          4019310,
+          4019310
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "office",
+        "budget": -1,
+        "executions": 2,
+        "outcomes": {
+          "ScoreInputError": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 254.78537899999998,
+          "p95": 295.822706,
+          "max": 300.382409,
+          "mean": 254.78537899999998,
+          "population_std": 45.597030000000004
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0,
+          "mean": 0.0,
+          "population_std": 0.0
+        },
+        "prices": [],
+        "minimum_pass": 0,
+        "search_caps": 0
+      },
+      {
+        "purpose": "office",
+        "budget": 0,
+        "executions": 2,
+        "outcomes": {
+          "ScoreInputError": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 250.05095749999998,
+          "p95": 326.14757794999997,
+          "max": 334.602758,
+          "mean": 250.05095749999998,
+          "population_std": 84.5518005
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0,
+          "mean": 0.0,
+          "population_std": 0.0
+        },
+        "prices": [],
+        "minimum_pass": 0,
+        "search_caps": 0
+      },
+      {
+        "purpose": "office",
+        "budget": 1,
+        "executions": 2,
+        "outcomes": {
+          "not_recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 337.844659,
+          "p95": 378.8102956,
+          "max": 383.362033,
+          "mean": 337.844659,
+          "population_std": 45.51737399999999
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 72.062176,
+          "p95": 100.02778239999999,
+          "max": 103.135072,
+          "mean": 72.062176,
+          "population_std": 31.072895999999997
+        },
+        "prices": [
+          709648,
+          669518
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "office",
+        "budget": 50000,
+        "executions": 2,
+        "outcomes": {
+          "not_recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 353.3623695,
+          "p95": 404.96444415,
+          "max": 410.698008,
+          "mean": 353.3623695,
+          "population_std": 57.335638500000016
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 55.991316499999996,
+          "p95": 77.13002555,
+          "max": 79.478771,
+          "mean": 55.991316499999996,
+          "population_std": 23.4874545
+        },
+        "prices": [
+          709648,
+          669518
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "office",
+        "budget": 100000,
+        "executions": 2,
+        "outcomes": {
+          "not_recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 292.5410675,
+          "p95": 366.94320125,
+          "max": 375.210105,
+          "mean": 292.5410675,
+          "population_std": 82.6690375
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 53.24852249999999,
+          "p95": 71.60320485,
+          "max": 73.642614,
+          "mean": 53.24852249999999,
+          "population_std": 20.3940915
+        },
+        "prices": [
+          709648,
+          669518
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "office",
+        "budget": 500000,
+        "executions": 2,
+        "outcomes": {
+          "not_recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 348.748292,
+          "p95": 363.0924407,
+          "max": 364.686235,
+          "mean": 348.748292,
+          "population_std": 15.937943000000018
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 73.1339705,
+          "p95": 93.87735005,
+          "max": 96.18217,
+          "mean": 73.1339705,
+          "population_std": 23.0481995
+        },
+        "prices": [
+          709648,
+          669518
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "office",
+        "budget": 10000000,
+        "executions": 2,
+        "outcomes": {
+          "recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 390.27872,
+          "p95": 405.2376839,
+          "max": 406.899791,
+          "mean": 390.27872,
+          "population_std": 16.621071
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 150.78185,
+          "p95": 158.57629369999998,
+          "max": 159.442343,
+          "mean": 150.78185,
+          "population_std": 8.660493000000002
+        },
+        "prices": [
+          1122650,
+          1130330
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "office",
+        "budget": 100000000,
+        "executions": 2,
+        "outcomes": {
+          "recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 193.5306315,
+          "p95": 237.29759865,
+          "max": 242.160595,
+          "mean": 193.5306315,
+          "population_std": 48.6299635
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 4.5949595,
+          "p95": 6.058404049999999,
+          "max": 6.221009,
+          "mean": 4.5949595,
+          "population_std": 1.6260494999999997
+        },
+        "prices": [
+          2502580,
+          2972620
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "creation",
+        "budget": -1,
+        "executions": 2,
+        "outcomes": {
+          "ScoreInputError": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 86.217226,
+          "p95": 86.4749041,
+          "max": 86.503535,
+          "mean": 86.217226,
+          "population_std": 0.2863090000000028
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0,
+          "mean": 0.0,
+          "population_std": 0.0
+        },
+        "prices": [],
+        "minimum_pass": 0,
+        "search_caps": 0
+      },
+      {
+        "purpose": "creation",
+        "budget": 0,
+        "executions": 2,
+        "outcomes": {
+          "ScoreInputError": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 117.06326200000001,
+          "p95": 145.2613699,
+          "max": 148.394493,
+          "mean": 117.06326200000001,
+          "population_std": 31.331231000000002
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 0.0,
+          "p95": 0.0,
+          "max": 0.0,
+          "mean": 0.0,
+          "population_std": 0.0
+        },
+        "prices": [],
+        "minimum_pass": 0,
+        "search_caps": 0
+      },
+      {
+        "purpose": "creation",
+        "budget": 1,
+        "executions": 2,
+        "outcomes": {
+          "not_recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 200.2845775,
+          "p95": 200.76948355,
+          "max": 200.823362,
+          "mean": 200.2845775,
+          "population_std": 0.5387845000000056
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 32.2926535,
+          "p95": 32.414218749999996,
+          "max": 32.427726,
+          "mean": 32.2926535,
+          "population_std": 0.1350724999999997
+        },
+        "prices": [
+          1797338,
+          1797338
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "creation",
+        "budget": 50000,
+        "executions": 2,
+        "outcomes": {
+          "not_recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 289.670002,
+          "p95": 290.728078,
+          "max": 290.845642,
+          "mean": 289.670002,
+          "population_std": 1.1756399999999871
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 33.4934905,
+          "p95": 33.570685749999996,
+          "max": 33.579263,
+          "mean": 33.4934905,
+          "population_std": 0.08577249999999736
+        },
+        "prices": [
+          1797338,
+          1797338
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "creation",
+        "budget": 100000,
+        "executions": 2,
+        "outcomes": {
+          "not_recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 207.6632255,
+          "p95": 209.39242385,
+          "max": 209.584557,
+          "mean": 207.6632255,
+          "population_std": 1.9213314999999938
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 32.599862,
+          "p95": 32.6053448,
+          "max": 32.605954,
+          "mean": 32.599862,
+          "population_std": 0.006091999999998876
+        },
+        "prices": [
+          1797338,
+          1797338
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "creation",
+        "budget": 500000,
+        "executions": 2,
+        "outcomes": {
+          "not_recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 274.700535,
+          "p95": 276.7425063,
+          "max": 276.969392,
+          "mean": 274.700535,
+          "population_std": 2.2688570000000254
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 32.3936275,
+          "p95": 32.465286850000005,
+          "max": 32.473249,
+          "mean": 32.3936275,
+          "population_std": 0.07962150000000179
+        },
+        "prices": [
+          1797338,
+          1797338
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "creation",
+        "budget": 10000000,
+        "executions": 2,
+        "outcomes": {
+          "recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 162.104161,
+          "p95": 162.41238850000002,
+          "max": 162.446636,
+          "mean": 162.104161,
+          "population_std": 0.3424750000000074
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 3.678847,
+          "p95": 3.6839176,
+          "max": 3.684481,
+          "mean": 3.678847,
+          "population_std": 0.005633999999999917
+        },
+        "prices": [
+          2684888,
+          2692198
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      },
+      {
+        "purpose": "creation",
+        "budget": 100000000,
+        "executions": 2,
+        "outcomes": {
+          "recommendable": 2
+        },
+        "engine_ms": {
+          "n": 2,
+          "p50": 230.654528,
+          "p95": 237.8092202,
+          "max": 238.604186,
+          "mean": 230.654528,
+          "population_std": 7.9496579999999994
+        },
+        "search_ms": {
+          "n": 2,
+          "p50": 3.4313605000000003,
+          "p95": 3.45067135,
+          "max": 3.452817,
+          "mean": 3.4313605000000003,
+          "population_std": 0.02145649999999999
+        },
+        "prices": [
+          5169270,
+          5935010
+        ],
+        "minimum_pass": 2,
+        "search_caps": 0
+      }
+    ],
+    "timeouts": 0,
+    "api_calls": 0,
+    "database_calls": 0,
+    "runtime_policy_changes": 0,
+    "environment": {
+      "python": "3.11.16",
+      "platform": "Linux-7.0.0-1014-aws-x86_64-with-glibc2.39",
+      "numpy": "2.4.6",
+      "logical_cpus": 2,
+      "cpu": "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz",
+      "memory_total_kib": 1951732
+    }
+  },
+  "purpose_comparisons": [
+    {
+      "purpose": "game",
+      "requests": 16,
+      "cheapest_mean_price": 1330298,
+      "service_mean_price": 1705630.5,
+      "service_performance_index_cheapest_100": 125.13471579201493,
+      "service_performance_per_price_index_cheapest_100": 97.85743071711968
+    },
+    {
+      "purpose": "office",
+      "requests": 24,
+      "cheapest_mean_price": 684566.75,
+      "service_mean_price": 778856.9166666666,
+      "service_performance_index_cheapest_100": 103.32935961555336,
+      "service_performance_per_price_index_cheapest_100": 91.46445905800533
+    },
+    {
+      "purpose": "creation",
+      "requests": 16,
+      "cheapest_mean_price": 1797338,
+      "service_mean_price": 2087570.5,
+      "service_performance_index_cheapest_100": 178.02221099738142,
+      "service_performance_per_price_index_cheapest_100": 147.30601280691855
+    }
+  ],
+  "independent_verification": {
+    "record_count": 480,
+    "repeat_requests": 72,
+    "repeat_signature_agreement": true,
+    "price_minimum_uncapped_requests": 72,
+    "common_comparison_requests": 56,
+    "sku_prices_reconstructed": true,
+    "timing_boundaries_and_totals_checked": true,
+    "price_and_performance_comparison_recalculated": true,
+    "expected_invalid_budget_errors": 12,
+    "source_and_result_hashes_verified": true,
+    "run_manifest_sha256": "83e31ab8ae8eb7bb88b3caeb526f4303fcdd49a23d23bf3d582ba0ea8abe23e8",
+    "verifier_sha256": "1414a565d2b7e5112e22bcfa8e2b3540732d2d6c24af50b77327d5af72425dfd"
+  }
+}
