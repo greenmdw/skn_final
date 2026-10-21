@@ -6,6 +6,18 @@ import { CHOICE_ART } from './home/choiceArt'
 
 const CARDS = [
   {
+    "title": "받은 견적 점검",
+    "text": "다나와·블로그·유튜브에서 받은 견적을 캡처나 텍스트로 올리세요. 호환과 가격을 점검하고, 저장한 견적과 비교할 수 있어요.",
+    "tags": [
+      "이미지 캡처",
+      "텍스트·파일",
+      "부품 비교"
+    ],
+    "cta": "견적 올리기 →",
+    "to": "/check",
+    "artIndex": 1
+  },
+  {
     "title": "새 컴퓨터 본체",
     "text": "부품 8종을 처음부터 짭니다. 용도와 예산을 말하면 서로 맞는 한 벌을 계산해 찾아 드려요.",
     "tags": [
@@ -19,18 +31,8 @@ const CARDS = [
       "쿨러"
     ],
     "cta": "시작하기 →",
-    "to": "/start"
-  },
-  {
-    "title": "받은 견적 점검",
-    "text": "다나와·블로그·유튜브에서 받은 견적을 캡처나 텍스트로 올리세요. 호환과 가격을 점검하고, 저장한 견적과 비교할 수 있어요.",
-    "tags": [
-      "이미지 캡처",
-      "텍스트·파일",
-      "부품 비교"
-    ],
-    "cta": "견적 올리기 →",
-    "to": "/check"
+    "to": "/start",
+    "artIndex": 0
   },
   {
     "title": "주변기기 견적",
@@ -42,7 +44,8 @@ const CARDS = [
       "스피커"
     ],
     "cta": "품목 고르기 →",
-    "to": "/peripherals"
+    "to": "/peripherals",
+    "artIndex": 2
   }
 ] as const
 
@@ -59,9 +62,9 @@ export default function ChoosePage() {
           <p>서로 맞는 부품 한 벌은 코드로 계산합니다. 궁금한 점은 채팅으로 묻고 고치세요. 구매 결정은 직접 하시면 됩니다.</p>
         </div>
         <div className="tf-choice-grid">
-          {cards.map((card, index) => (
+          {cards.map(card => (
             <Link className="tf-choice-card" key={card.to} to={card.to}>
-              <div className="tf-choice-media tf-choice-media-pc" dangerouslySetInnerHTML={{ __html: CHOICE_ART[index] }} />
+              <div className="tf-choice-media tf-choice-media-pc" dangerouslySetInnerHTML={{ __html: CHOICE_ART[card.artIndex] }} />
               <h2>{card.title}</h2>
               <p>{card.text}</p>
               <div className="tf-choice-tags">{card.tags.map(tag => <span key={tag}>{tag}</span>)}</div>
