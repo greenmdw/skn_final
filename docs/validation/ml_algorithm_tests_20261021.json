@@ -1,0 +1,1616 @@
+{
+  "schema_version": "ml-algorithm-test-report-v1",
+  "generated_at": "2026-10-21T06:44:17.755155+00:00",
+  "environment": {
+    "python": "3.11.16",
+    "platform": "Linux-7.0.0-1014-aws-x86_64-with-glibc2.39",
+    "cpu": "Intel(R) Xeon(R) Platinum 8259CL CPU @ 2.50GHz",
+    "logical_cpus": 2,
+    "affinity_cpus": 2,
+    "memory_total_kib": 1951732,
+    "gpu_used": false,
+    "packages": {
+      "numpy": "2.4.6",
+      "PyYAML": "6.0.3",
+      "pandas": "3.0.5",
+      "pydantic": "2.13.5",
+      "openai": "2.54.0",
+      "pytest": "9.1.1"
+    },
+    "original_training_environment": {
+      "numpy": "2.4.6",
+      "python": "3.11.16"
+    },
+    "hardware_scope": "current_offline_repeatability_run; original hardware not archived"
+  },
+  "official_ml_test": {
+    "llm/game/value": {
+      "rows": 5,
+      "unique_pair_groups": 5,
+      "weight_sum": 5.0,
+      "effective_sample_size": 5.0,
+      "label_counts": {
+        "A": 4,
+        "B": 1
+      },
+      "weighted_log_loss": 0.01762806108705319,
+      "weighted_accuracy": 1.0,
+      "tie_predictions": 0,
+      "weighted_brier_score": 0.001365474311709796,
+      "macro_f1": 1.0,
+      "confusion_actual_predicted": {
+        "A/A": 4,
+        "B/B": 1
+      }
+    },
+    "llm/game/performance": {
+      "rows": 8,
+      "unique_pair_groups": 8,
+      "weight_sum": 8.0,
+      "effective_sample_size": 8.0,
+      "label_counts": {
+        "B": 6,
+        "A": 2
+      },
+      "weighted_log_loss": 0.08088624984683522,
+      "weighted_accuracy": 1.0,
+      "tie_predictions": 0,
+      "weighted_brier_score": 0.013313811527375761,
+      "macro_f1": 1.0,
+      "confusion_actual_predicted": {
+        "A/A": 2,
+        "B/B": 6
+      }
+    },
+    "rule_recovery/game/value": {
+      "rows": 24,
+      "unique_pair_groups": 24,
+      "weight_sum": 24.0,
+      "effective_sample_size": 24.0,
+      "label_counts": {
+        "A": 15,
+        "B": 9
+      },
+      "weighted_log_loss": 0.7384264132052998,
+      "weighted_accuracy": 0.4583333333333333,
+      "tie_predictions": 0,
+      "weighted_brier_score": 0.2676336639831529,
+      "macro_f1": 0.4337568058076225,
+      "confusion_actual_predicted": {
+        "A/A": 8,
+        "A/B": 7,
+        "B/A": 6,
+        "B/B": 3
+      }
+    },
+    "rule_recovery/game/performance": {
+      "rows": 24,
+      "unique_pair_groups": 24,
+      "weight_sum": 24.0,
+      "effective_sample_size": 24.0,
+      "label_counts": {
+        "B": 13,
+        "A": 11
+      },
+      "weighted_log_loss": 0.6582564234727885,
+      "weighted_accuracy": 0.6666666666666666,
+      "tie_predictions": 0,
+      "weighted_brier_score": 0.23270119883757157,
+      "macro_f1": 0.6571428571428571,
+      "confusion_actual_predicted": {
+        "A/A": 6,
+        "A/B": 5,
+        "B/A": 3,
+        "B/B": 10
+      }
+    }
+  },
+  "candidate_comparison_same_41_pairs": {
+    "game/value": {
+      "initial": {
+        "rows": 17,
+        "unique_pair_groups": 17,
+        "weight_sum": 17.0,
+        "effective_sample_size": 17.0,
+        "label_counts": {
+          "A": 10,
+          "B": 7
+        },
+        "weighted_log_loss": 0.014331651585624421,
+        "weighted_accuracy": 1.0,
+        "tie_predictions": 0,
+        "weighted_brier_score": 0.001077162869542496,
+        "macro_f1": 1.0,
+        "confusion_actual_predicted": {
+          "A/A": 10,
+          "B/B": 7
+        }
+      },
+      "expanded": {
+        "rows": 17,
+        "unique_pair_groups": 17,
+        "weight_sum": 17.0,
+        "effective_sample_size": 17.0,
+        "label_counts": {
+          "A": 10,
+          "B": 7
+        },
+        "weighted_log_loss": 0.01996640562634014,
+        "weighted_accuracy": 1.0,
+        "tie_predictions": 0,
+        "weighted_brier_score": 0.0023433869420982152,
+        "macro_f1": 1.0,
+        "confusion_actual_predicted": {
+          "A/A": 10,
+          "B/B": 7
+        }
+      },
+      "diagnostic": {
+        "rows": 17,
+        "unique_pair_groups": 17,
+        "weight_sum": 17.0,
+        "effective_sample_size": 17.0,
+        "label_counts": {
+          "A": 10,
+          "B": 7
+        },
+        "weighted_log_loss": 0.015757634785037264,
+        "weighted_accuracy": 1.0,
+        "tie_predictions": 0,
+        "weighted_brier_score": 0.0012731245005793148,
+        "macro_f1": 1.0,
+        "confusion_actual_predicted": {
+          "A/A": 10,
+          "B/B": 7
+        }
+      },
+      "service": {
+        "rows": 17,
+        "unique_pair_groups": 17,
+        "weight_sum": 17.0,
+        "effective_sample_size": 17.0,
+        "label_counts": {
+          "A": 10,
+          "B": 7
+        },
+        "weighted_log_loss": 0.039237902393164284,
+        "weighted_accuracy": 1.0,
+        "tie_predictions": 0,
+        "weighted_brier_score": 0.005248027717680997,
+        "macro_f1": 1.0,
+        "confusion_actual_predicted": {
+          "A/A": 10,
+          "B/B": 7
+        }
+      }
+    },
+    "game/performance": {
+      "initial": {
+        "rows": 24,
+        "unique_pair_groups": 24,
+        "weight_sum": 24.0,
+        "effective_sample_size": 24.0,
+        "label_counts": {
+          "B": 15,
+          "A": 9
+        },
+        "weighted_log_loss": 0.0900711055233913,
+        "weighted_accuracy": 1.0,
+        "tie_predictions": 0,
+        "weighted_brier_score": 0.014520428030994417,
+        "macro_f1": 1.0,
+        "confusion_actual_predicted": {
+          "A/A": 9,
+          "B/B": 15
+        }
+      },
+      "expanded": {
+        "rows": 24,
+        "unique_pair_groups": 24,
+        "weight_sum": 24.0,
+        "effective_sample_size": 24.0,
+        "label_counts": {
+          "B": 15,
+          "A": 9
+        },
+        "weighted_log_loss": 0.06525659398096505,
+        "weighted_accuracy": 1.0,
+        "tie_predictions": 0,
+        "weighted_brier_score": 0.008961249007167103,
+        "macro_f1": 1.0,
+        "confusion_actual_predicted": {
+          "A/A": 9,
+          "B/B": 15
+        }
+      },
+      "diagnostic": {
+        "rows": 24,
+        "unique_pair_groups": 24,
+        "weight_sum": 24.0,
+        "effective_sample_size": 24.0,
+        "label_counts": {
+          "B": 15,
+          "A": 9
+        },
+        "weighted_log_loss": 0.06129479541670794,
+        "weighted_accuracy": 1.0,
+        "tie_predictions": 0,
+        "weighted_brier_score": 0.008765603447251328,
+        "macro_f1": 1.0,
+        "confusion_actual_predicted": {
+          "A/A": 9,
+          "B/B": 15
+        }
+      },
+      "service": {
+        "rows": 24,
+        "unique_pair_groups": 24,
+        "weight_sum": 24.0,
+        "effective_sample_size": 24.0,
+        "label_counts": {
+          "B": 15,
+          "A": 9
+        },
+        "weighted_log_loss": 0.14952638981723335,
+        "weighted_accuracy": 1.0,
+        "tie_predictions": 0,
+        "weighted_brier_score": 0.02932557875539223,
+        "macro_f1": 1.0,
+        "confusion_actual_predicted": {
+          "A/A": 9,
+          "B/B": 15
+        }
+      }
+    }
+  },
+  "split_counts": {
+    "llm": {
+      "train": {
+        "game/value": 19,
+        "game/performance": 45
+      },
+      "validation": {
+        "game/value": 2,
+        "game/performance": 12
+      },
+      "test": {
+        "game/value": 5,
+        "game/performance": 8
+      }
+    },
+    "rule_recovery": {
+      "train": {
+        "game/value": 73,
+        "game/performance": 68
+      },
+      "validation": {
+        "game/value": 23,
+        "game/performance": 28
+      },
+      "test": {
+        "game/value": 24,
+        "game/performance": 24
+      }
+    }
+  },
+  "ml_repeatability": {
+    "game/value": {
+      "fits": 5,
+      "identical_to_frozen_model": true,
+      "weight_population_std": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "fit_ms_mean": 34.59983600478154,
+      "fit_ms_population_std": 3.276931720682777,
+      "prediction_repeats_per_pair": 100,
+      "prediction_calls": 1700,
+      "changed_predictions_or_probabilities": 0
+    },
+    "game/performance": {
+      "fits": 5,
+      "identical_to_frozen_model": true,
+      "weight_population_std": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "fit_ms_mean": 103.01717900147196,
+      "fit_ms_population_std": 7.80208951166983,
+      "prediction_repeats_per_pair": 100,
+      "prediction_calls": 2400,
+      "changed_predictions_or_probabilities": 0
+    }
+  },
+  "invalid_input_probes": [
+    {
+      "profile": "game/value",
+      "case": "missing_feature",
+      "result": "ValueError",
+      "message": "invalid axis features"
+    },
+    {
+      "profile": "game/value",
+      "case": "nan",
+      "result": "ValueError",
+      "message": "invalid axis features"
+    },
+    {
+      "profile": "game/value",
+      "case": "infinity",
+      "result": "ValueError",
+      "message": "invalid axis features"
+    },
+    {
+      "profile": "game/value",
+      "case": "below_zero",
+      "result": "ValueError",
+      "message": "invalid axis features"
+    },
+    {
+      "profile": "game/value",
+      "case": "above_one",
+      "result": "ValueError",
+      "message": "invalid axis features"
+    },
+    {
+      "profile": "game/value",
+      "case": "zero_temperature",
+      "result": "ValueError",
+      "message": "invalid model temperature"
+    },
+    {
+      "profile": "game/value",
+      "case": "negative_weight",
+      "result": "ValueError",
+      "message": "invalid simplex weights"
+    },
+    {
+      "profile": "game/value",
+      "case": "wrong_feature_order",
+      "result": "ValueError",
+      "message": "unsupported model or feature order"
+    },
+    {
+      "profile": "game/value",
+      "case": "identical_features",
+      "result": {
+        "probability_A": 0.5,
+        "score_difference": 0.0,
+        "winner": "TIE"
+      }
+    },
+    {
+      "profile": "game/performance",
+      "case": "missing_feature",
+      "result": "ValueError",
+      "message": "invalid axis features"
+    },
+    {
+      "profile": "game/performance",
+      "case": "nan",
+      "result": "ValueError",
+      "message": "invalid axis features"
+    },
+    {
+      "profile": "game/performance",
+      "case": "infinity",
+      "result": "ValueError",
+      "message": "invalid axis features"
+    },
+    {
+      "profile": "game/performance",
+      "case": "below_zero",
+      "result": "ValueError",
+      "message": "invalid axis features"
+    },
+    {
+      "profile": "game/performance",
+      "case": "above_one",
+      "result": "ValueError",
+      "message": "invalid axis features"
+    },
+    {
+      "profile": "game/performance",
+      "case": "zero_temperature",
+      "result": "ValueError",
+      "message": "invalid model temperature"
+    },
+    {
+      "profile": "game/performance",
+      "case": "negative_weight",
+      "result": "ValueError",
+      "message": "invalid simplex weights"
+    },
+    {
+      "profile": "game/performance",
+      "case": "wrong_feature_order",
+      "result": "ValueError",
+      "message": "unsupported model or feature order"
+    },
+    {
+      "profile": "game/performance",
+      "case": "identical_features",
+      "result": {
+        "probability_A": 0.5,
+        "score_difference": 0.0,
+        "winner": "TIE"
+      }
+    }
+  ],
+  "observed_ml_failures": [
+    {
+      "model_key": "llm/game/performance",
+      "split": "validation",
+      "comparison_id": "a5bcca625dd79a8ad6c535fb6438a64fd0c60d41d93139a698f2adbdee05f6b1",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        0.027519789891087942,
+        0.0,
+        -0.019270833333333348
+      ],
+      "tradeoff_types": [
+        "price:review"
+      ],
+      "score_difference": 0.0022015831912870353
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "validation",
+      "comparison_id": "44d9f8b1bf977258228b1083bb05cd23aeab6f4dbd4523b7104a76187e721da1",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        -0.030197046746818557,
+        0.025996195349849482,
+        -0.004166666666666652
+      ],
+      "tradeoff_types": [
+        "price:performance"
+      ],
+      "score_difference": -0.007199142306548303
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "validation",
+      "comparison_id": "3deb8308bfea305591743c995c6cfef104725ba86987d59bc19bdbb356b2df73",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        0.0016347491953347948,
+        -0.03157152588734524,
+        0.030977182539682513
+      ],
+      "tradeoff_types": [
+        "performance:review"
+      ],
+      "score_difference": -0.011060912170850267
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "validation",
+      "comparison_id": "3fccbf2cf78c7a31856806d97d5e36e8e2686241f0dd4d3912176996ce6ccb64",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        0.14772745176150792,
+        -0.043447985412762125,
+        -0.05427083333333338
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "price:review"
+      ],
+      "score_difference": 0.06721731118990307
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "validation",
+      "comparison_id": "57f2e202bca9761442bc60d25315a3b71c63ceb4ad12e3bc8db972dfba4053d2",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        -0.043393127692313294,
+        -0.020737796505545747,
+        0.05292162698412706
+      ],
+      "tradeoff_types": [
+        "price:review",
+        "performance:review"
+      ],
+      "score_difference": -0.032404700124077465
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "validation",
+      "comparison_id": "bf9662fa6364b63b8e738e0c5dc9cee36fd9256d3c685caa62f55424aa505ee9",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        -0.1456052252572846,
+        0.042490616650748936,
+        0.006388888888888888
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "price:review"
+      ],
+      "score_difference": -0.0673270062111477
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "test",
+      "comparison_id": "0d2879ad505f55be1b32abea4a4488e8f5430231280dae4f8b781009f432ab98",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        -0.10256016043568317,
+        0.11807904021798926,
+        -0.03494543650793647
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "performance:review"
+      ],
+      "score_difference": -0.012952185695659256
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "test",
+      "comparison_id": "e4a88451f92dbc030d74dc24b21d58c9c6d1ce85650170afbe5642b967ed4b8f",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        -0.21496861142378798,
+        0.06434031058811451,
+        0.055500992063492016
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "price:review"
+      ],
+      "score_difference": -0.09783565054928138
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "test",
+      "comparison_id": "04e71688786be0aaef3a3e8b880c9ed7ae5b64c38865211183360ec8cc2be0ec",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        0.029419671029021655,
+        0.010729479201134873,
+        -0.0323660714285714
+      ],
+      "tradeoff_types": [
+        "price:review",
+        "performance:review"
+      ],
+      "score_difference": 0.02070787944871508
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "test",
+      "comparison_id": "1661019e5e6b34ae30c924b281361f15be971760f030fd1835763b862654b599",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        0.03887006771017798,
+        -0.03297594371982859,
+        0.0011904761904761862
+      ],
+      "tradeoff_types": [
+        "price:performance"
+      ],
+      "score_difference": 0.009378071307781313
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "test",
+      "comparison_id": "3164e00adad76c5ef4836d8ffd85907d205c84effe8e3066dedc967fd8da57cd",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        -0.04651827077602455,
+        0.0,
+        0.013928571428571401
+      ],
+      "tradeoff_types": [
+        "price:review"
+      ],
+      "score_difference": -0.02670202562152281
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "test",
+      "comparison_id": "557f381eef5625be1781ccfee070c264bb55e79b5bbc89cb755026524df31054",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        -0.08280189807249005,
+        -0.005980063644814293,
+        0.030327380952380967
+      ],
+      "tradeoff_types": [
+        "price:review",
+        "performance:review"
+      ],
+      "score_difference": -0.04981057872092233
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "test",
+      "comparison_id": "5a1bc877f04edef0703672173756b2df94d1d6d0bd78b0819e041417e342089b",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        -0.11527565259014227,
+        0.07206410930648288,
+        -0.0025000000000000577
+      ],
+      "tradeoff_types": [
+        "price:performance"
+      ],
+      "score_difference": -0.03808423477968936
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "test",
+      "comparison_id": "6a8f9ba99c1f01c06c4304b6d91ec278104b4b292db5fafb9944b92cdde71208",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        -0.16242877822394242,
+        0.11562705436936233,
+        0.05399305555555556
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "price:review"
+      ],
+      "score_difference": -0.04687800851103055
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "test",
+      "comparison_id": "9d994bb8234eb8e5804da2a0c508c50744c606cb71ff3883a48ef94496e30d17",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        0.006638405979520368,
+        0.010729479201134873,
+        -0.0234375
+      ],
+      "tradeoff_types": [
+        "price:review",
+        "performance:review"
+      ],
+      "score_difference": 0.007673317148575762
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "test",
+      "comparison_id": "ba189f644d7aafac62b0efc9dd6c8ba994c78db4c222d3f74f52e784440c50b2",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        -0.0037002490818540124,
+        0.025996195349849482,
+        -0.03454861111111107
+      ],
+      "tradeoff_types": [
+        "performance:review"
+      ],
+      "score_difference": 0.007561361450242245
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "test",
+      "comparison_id": "d6991cc48e82f53e3047d5779139dcb1dfd46f75b6d51c9e342c10b1335946a9",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        0.007488768623211017,
+        0.004208392524784554,
+        -0.04962797619047621
+      ],
+      "tradeoff_types": [
+        "price:review"
+      ],
+      "score_difference": 0.005034283287566688
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "test",
+      "comparison_id": "f7c596f1b9b440a44affc75aa5596fd3db35b3aef4b9397b35945cadbef9823a",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        0.04903701731543353,
+        0.0,
+        -0.028199404761904745
+      ],
+      "tradeoff_types": [
+        "price:review"
+      ],
+      "score_difference": 0.027877481947713348
+    },
+    {
+      "model_key": "rule_recovery/game/value",
+      "split": "test",
+      "comparison_id": "fa22e93f4430e064784d820c27d1b45c0a6392a56fc875dd302fced4c14db32b",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        -0.024248909920357886,
+        0.0,
+        0.008928571428571397
+      ],
+      "tradeoff_types": [
+        "price:review"
+      ],
+      "score_difference": -0.013885796325236146
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "2c988a39f89fae045ca5c8728ef4928c2a7d8ab1264d84d2549db21565fa71da",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        -0.028594116912095346,
+        0.025996195349849482,
+        -0.008333333333333304
+      ],
+      "tradeoff_types": [
+        "price:performance"
+      ],
+      "score_difference": 0.008212227160823959
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "af47b5a4dae826d6e710aa98426c691b0b69d9664dd05b78f227babed2a86fa6",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        -0.030197046746818557,
+        0.025996195349849482,
+        -0.004166666666666652
+      ],
+      "tradeoff_types": [
+        "price:performance"
+      ],
+      "score_difference": 0.008724974527212647
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "cdd7344b3384422685463b2bf2fdb5a8839995da9a72671d0116d9d3af7590cb",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        -0.11570641953328792,
+        -0.07127463694982628,
+        0.06998511904761906
+      ],
+      "tradeoff_types": [
+        "price:review",
+        "performance:review"
+      ],
+      "score_difference": -0.05190904226702953
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "9a23c454a35b2a5d0f7a72d353cd54e455e1a3a493c8ae2876f5844de02b6e08",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        -0.05669445571857046,
+        0.04389551636792344,
+        -0.03851686507936514
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "performance:review"
+      ],
+      "score_difference": 0.007295045661166941
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "12121bbf5ee40a26148631803e76610a2f9acafee3f40b9320ded0abb2200a62",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        -0.10378405040536187,
+        0.06434031058811451,
+        0.0016666666666665941
+      ],
+      "tradeoff_types": [
+        "price:performance"
+      ],
+      "score_difference": 0.018180709605129648
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "2e99b794b87106292974725a50281c68115689bcba9884c0fd15b0153dab90dc",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        0.05907709245999626,
+        -0.043447985412762125,
+        -0.030818452380952377
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "price:review"
+      ],
+      "score_difference": -0.020417063231848498
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "7b616c88bd04e0229e92de0abb5b6667ac5322e731ed56f94cb9147828af51c1",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        0.26191069425302904,
+        -0.06961212345785595,
+        -0.06879464285714287
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "price:review"
+      ],
+      "score_difference": -0.003144063795536331
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "965388c7bf4f8c993de9b361aa94a8e1ac80516b8ac9c6b94466ca826193a45c",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        0.08196532022168634,
+        0.0021771903415804816,
+        -0.05829861111111112
+      ],
+      "tradeoff_types": [
+        "price:review"
+      ],
+      "score_difference": 0.006039656027063334
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "9737e01c3831cecf5571b8caef73d21fd9403b5edba517cc10f1900f8e5f8c2c",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        0.04966945360718522,
+        -0.04634095542693484,
+        -0.005634920634920548
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "price:review"
+      ],
+      "score_difference": -0.018997666661707966
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "a5bcca625dd79a8ad6c535fb6438a64fd0c60d41d93139a698f2adbdee05f6b1",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        0.027519789891087942,
+        0.0,
+        -0.019270833333333348
+      ],
+      "tradeoff_types": [
+        "price:review"
+      ],
+      "score_difference": 0.001649791311550919
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "af546dbfa058f9a6608b051481268cbeab711f92c0d567ab1922a11939ce3b73",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        -0.023010730296290416,
+        -0.0034527566651876285,
+        0.050719246031746046
+      ],
+      "tradeoff_types": [
+        "price:review"
+      ],
+      "score_difference": 0.0034700491479785493
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "b51f3729c1f0cd36bb487563002bb63037317cba6c5b3275757b94dc2daee55c",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        0.027018323857985527,
+        0.0,
+        -0.026215277777777768
+      ],
+      "tradeoff_types": [
+        "price:review"
+      ],
+      "score_difference": 0.00016060921604155165
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "cfd6426e3aa4fa61632fc88ad0714315c8495c43f03560db10a216dd70d424b8",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        -0.050757499534908934,
+        0.0,
+        0.03931051587301582
+      ],
+      "tradeoff_types": [
+        "price:review"
+      ],
+      "score_difference": -0.0022893967323786243
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "e077614e63448198715167da10caeb4c1bf2475a89639b94168dc1b9d9f28c33",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        0.02715664076591162,
+        -0.013441936073999239,
+        -0.0314484126984127
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "price:review"
+      ],
+      "score_difference": -0.008923516030899758
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "validation",
+      "comparison_id": "fb83ea298260af330cba8b515296265b35083e825b2d99fd990c30a9346a179d",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        0.0052908193564709105,
+        -0.02449126148956926,
+        0.03454861111111118
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "performance:review"
+      ],
+      "score_difference": -0.0067268708002251355
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "test",
+      "comparison_id": "404348c327b739563a12df81a17fe6ce7745f4ac05342d7616fb83c6550d8bd0",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        -0.1274987974074825,
+        0.07201112626135592,
+        -0.0035069444444444375
+      ],
+      "tradeoff_types": [
+        "price:performance"
+      ],
+      "score_difference": 0.017005527386428163
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "test",
+      "comparison_id": "833344692a13cd995cf567be7395d87462accefdb2bacf7620a9346fc318568f",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        0.15547503189289014,
+        -0.07201112626135592,
+        -0.026874999999999982
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "price:review"
+      ],
+      "score_difference": -0.01748666937823552
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "test",
+      "comparison_id": "518e944dad7b9d1f23c78d0ac7b98a88899ae6b6a5b9cb0eb130b1e25876d2b6",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        0.11725795646871795,
+        -0.03301739560592687,
+        -0.05438988095238084
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "price:review"
+      ],
+      "score_difference": -0.007236822260288697
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "test",
+      "comparison_id": "0604695f04303eb127cf9327bc4b3d066d4361fe21bcc4bad7158c9e04d1d044",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        0.027976234485407647,
+        0.0,
+        -0.03038194444444442
+      ],
+      "tradeoff_types": [
+        "price:review"
+      ],
+      "score_difference": -0.00048114199180735465
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "test",
+      "comparison_id": "4819f635246777fa28ce21674b8508fe8648bbd1a1841d2fed753e38463a2f81",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        -0.014818898204344677,
+        0.0,
+        0.019270833333333348
+      ],
+      "tradeoff_types": [
+        "price:review"
+      ],
+      "score_difference": 0.000890387025797734
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "test",
+      "comparison_id": "d3d882769e8611e82296348c1543bae21f23487b3e1e612272855c18dc8da7a1",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        -0.010532241244879281,
+        -0.02373319280770758,
+        0.02003968253968258
+      ],
+      "tradeoff_types": [
+        "price:review",
+        "performance:review"
+      ],
+      "score_difference": -0.012338427425663889
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "test",
+      "comparison_id": "d86c2ff23d6aa0dffab469da7d626e480319ead10c75a6e11385126e01e620c2",
+      "actual": "A",
+      "predicted": "B",
+      "delta": [
+        0.04850059494758918,
+        -0.08983086767544862,
+        0.040778769841269824
+      ],
+      "tradeoff_types": [
+        "price:performance",
+        "performance:review"
+      ],
+      "score_difference": -0.03604264764749737
+    },
+    {
+      "model_key": "rule_recovery/game/performance",
+      "split": "test",
+      "comparison_id": "edac0fccc704051b8e1112bc178966df2522ec97a992a1d1e7e2d506c6f98113",
+      "actual": "B",
+      "predicted": "A",
+      "delta": [
+        0.024788107395075643,
+        0.0,
+        -0.019270833333333348
+      ],
+      "tradeoff_types": [
+        "price:review"
+      ],
+      "score_difference": 0.0011034548123484587
+    }
+  ],
+  "engine_archived_baseline": {
+    "generated_at": "2026-10-18T05:07:32+00:00",
+    "git_commit": "4e55fd2a67bc7dcf3260e377c3c2c3403d6508e7",
+    "git_dirty": true,
+    "rule_set_version": "computer-rules-v14",
+    "engine_config_version": "recommendation-engine-v1-20261014",
+    "catalog_counts": {
+      "CPU": 40,
+      "메인보드": 40,
+      "RAM": 39,
+      "GPU": 40,
+      "저장장치": 40,
+      "파워": 40,
+      "케이스": 40,
+      "쿨러": 40
+    },
+    "requests": 126,
+    "built": 125,
+    "recommendable": 108,
+    "not_recommendable": 17,
+    "error_types": {
+      "CandidateShortage": 1
+    },
+    "compatibility_failed_builds": 0,
+    "recorded_cpu_gpu_tier_floor_checked_builds": 125,
+    "recorded_cpu_gpu_tier_floor_passed_builds": 125,
+    "budget_exceeding_builds": 17,
+    "wall_ms_p50": 282.0,
+    "wall_ms_p95": 434.75,
+    "wall_ms_max": 1030,
+    "mean_price_recommendable_only": 1106731.1851851852,
+    "mean_budget_utilization_pct_recommendable_only": 52.422666402116405,
+    "cells": [
+      {
+        "purpose": "game",
+        "budget": 1000000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 0,
+        "not_recommendable": 8,
+        "budget_utilization_mean_pct_recommendable_only": null,
+        "budget_utilization_range_pct_recommendable_only": null,
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 316.5
+      },
+      {
+        "purpose": "game",
+        "budget": 2000000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 74.796525,
+        "budget_utilization_range_pct_recommendable_only": [
+          66.8019,
+          98.7804
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 272.0
+      },
+      {
+        "purpose": "game",
+        "budget": 3500000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 47.773942857142856,
+        "budget_utilization_range_pct_recommendable_only": [
+          39.0408,
+          73.97337142857143
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 252.5
+      },
+      {
+        "purpose": "office",
+        "budget": 1000000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 72.79835,
+        "budget_utilization_range_pct_recommendable_only": [
+          67.7758,
+          83.648
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 267.0
+      },
+      {
+        "purpose": "office",
+        "budget": 2000000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 37.5524,
+        "budget_utilization_range_pct_recommendable_only": [
+          35.4074,
+          41.5079
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 220.0
+      },
+      {
+        "purpose": "office",
+        "budget": 3500000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 24.340978571428572,
+        "budget_utilization_range_pct_recommendable_only": [
+          22.099371428571427,
+          30.27594285714286
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 282.5
+      },
+      {
+        "purpose": "creation",
+        "budget": 1000000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 0,
+        "not_recommendable": 8,
+        "budget_utilization_mean_pct_recommendable_only": null,
+        "budget_utilization_range_pct_recommendable_only": null,
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 335.5
+      },
+      {
+        "purpose": "creation",
+        "budget": 2000000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 92.36165,
+        "budget_utilization_range_pct_recommendable_only": [
+          91.6019,
+          93.1214
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 355.5
+      },
+      {
+        "purpose": "creation",
+        "budget": 3500000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 60.79422857142857,
+        "budget_utilization_range_pct_recommendable_only": [
+          53.21222857142857,
+          83.54022857142857
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 282.5
+      }
+    ],
+    "errors": [
+      {
+        "id": "upgrade|RAM+메인보드|1000000",
+        "error": {
+          "type": "CandidateShortage",
+          "message": "추천할 수 있는 후보가 부족해요. 메인보드 — 소켓 불일치 35개, 폼팩터 불일치 3개, 메모리 규격 불일치 7개",
+          "attrs": {
+            "slots": {
+              "메인보드": {
+                "pass": 0,
+                "pending_reasons": {},
+                "fail_reasons": {
+                  "FAIL_SOCKET_NOT_IN": 35,
+                  "FAIL_FORM_NOT_IN": 3,
+                  "FAIL_MEM_TYPE": 7
+                }
+              }
+            },
+            "enrichment": []
+          }
+        }
+      }
+    ]
+  },
+  "engine_archived_v4": {
+    "generated_at": "2026-10-18T05:11:47+00:00",
+    "git_commit": "4e55fd2a67bc7dcf3260e377c3c2c3403d6508e7",
+    "git_dirty": true,
+    "rule_set_version": "computer-rules-v14",
+    "engine_config_version": "recommendation-engine-v2-20261018",
+    "catalog_counts": {
+      "CPU": 40,
+      "메인보드": 40,
+      "RAM": 39,
+      "GPU": 40,
+      "저장장치": 40,
+      "파워": 40,
+      "케이스": 40,
+      "쿨러": 40
+    },
+    "requests": 126,
+    "built": 125,
+    "recommendable": 108,
+    "not_recommendable": 17,
+    "error_types": {
+      "CandidateShortage": 1
+    },
+    "compatibility_failed_builds": 0,
+    "recorded_cpu_gpu_tier_floor_checked_builds": 125,
+    "recorded_cpu_gpu_tier_floor_passed_builds": 125,
+    "budget_exceeding_builds": 17,
+    "wall_ms_p50": 287.0,
+    "wall_ms_p95": 817.25,
+    "wall_ms_max": 3108,
+    "mean_price_recommendable_only": 1146582.0185185184,
+    "mean_budget_utilization_pct_recommendable_only": 53.72505529100529,
+    "cells": [
+      {
+        "purpose": "game",
+        "budget": 1000000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 0,
+        "not_recommendable": 8,
+        "budget_utilization_mean_pct_recommendable_only": null,
+        "budget_utilization_range_pct_recommendable_only": null,
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 310.0
+      },
+      {
+        "purpose": "game",
+        "budget": 2000000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 74.796525,
+        "budget_utilization_range_pct_recommendable_only": [
+          66.8019,
+          98.7804
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 270.0
+      },
+      {
+        "purpose": "game",
+        "budget": 3500000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 54.72372857142857,
+        "budget_utilization_range_pct_recommendable_only": [
+          47.26708571428571,
+          75.57594285714286
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 272.0
+      },
+      {
+        "purpose": "office",
+        "budget": 1000000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 72.79835,
+        "budget_utilization_range_pct_recommendable_only": [
+          67.7758,
+          83.648
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 264.5
+      },
+      {
+        "purpose": "office",
+        "budget": 2000000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 37.5524,
+        "budget_utilization_range_pct_recommendable_only": [
+          35.4074,
+          41.5079
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 338.5
+      },
+      {
+        "purpose": "office",
+        "budget": 3500000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 24.50112142857143,
+        "budget_utilization_range_pct_recommendable_only": [
+          22.099371428571427,
+          33.21622857142857
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 346.0
+      },
+      {
+        "purpose": "creation",
+        "budget": 1000000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 0,
+        "not_recommendable": 8,
+        "budget_utilization_mean_pct_recommendable_only": null,
+        "budget_utilization_range_pct_recommendable_only": null,
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 326.5
+      },
+      {
+        "purpose": "creation",
+        "budget": 2000000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 94.08064999999999,
+        "budget_utilization_range_pct_recommendable_only": [
+          93.3209,
+          94.8404
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 819.5
+      },
+      {
+        "purpose": "creation",
+        "budget": 3500000,
+        "requests": 8,
+        "built": 8,
+        "recommendable": 8,
+        "not_recommendable": 0,
+        "budget_utilization_mean_pct_recommendable_only": 65.52937142857144,
+        "budget_utilization_range_pct_recommendable_only": [
+          60.35708571428572,
+          81.04622857142857
+        ],
+        "compatibility_failed_builds": 0,
+        "recorded_cpu_gpu_tier_floor_checked_builds": 8,
+        "recorded_cpu_gpu_tier_floor_passed_builds": 8,
+        "minimum_spec_compliance_rate": null,
+        "minimum_spec_measurement_status": "no_independent_purpose_specific_ground_truth",
+        "wall_ms_p50": 285.0
+      }
+    ],
+    "errors": [
+      {
+        "id": "upgrade|RAM+메인보드|1000000",
+        "error": {
+          "type": "CandidateShortage",
+          "message": "추천할 수 있는 후보가 부족해요. 메인보드 — 소켓 불일치 35개, 폼팩터 불일치 3개, 메모리 규격 불일치 7개",
+          "attrs": {
+            "slots": {
+              "메인보드": {
+                "pass": 0,
+                "pending_reasons": {},
+                "fail_reasons": {
+                  "FAIL_SOCKET_NOT_IN": 35,
+                  "FAIL_FORM_NOT_IN": 3,
+                  "FAIL_MEM_TYPE": 7
+                }
+              }
+            },
+            "enrichment": []
+          }
+        }
+      }
+    ]
+  },
+  "archived_scenarios": {
+    "generated_at": "2026-10-15T03:25:05+00:00",
+    "scenarios": 20,
+    "cases": 39,
+    "mismatch_cases": 0
+  },
+  "api_calls": 0,
+  "database_calls": 0,
+  "runtime_policy_changes": 0,
+  "input_files_sha256": {
+    "outputs/cold_start_policy/20261021_diagnostic_augmented_exports_v1/lineage.json": "e2790d60b52c85ad8fab72899c0ac0ccc3d21da322dc31c55dabce1f98b38f34",
+    "outputs/cold_start_policy/20261021_diagnostic_augmented_exports_v1/llm/train.jsonl": "233d7a96848d2b2df66b624a1031afd0efb0c1a9376ce9e24ee87618b03de6d3",
+    "outputs/cold_start_policy/20261021_diagnostic_augmented_exports_v1/llm/validation.jsonl": "aff677ccac5ecb920d3648429ce72b098aea497aa02a32ebee2a820bbb0670f7",
+    "outputs/cold_start_policy/20261021_diagnostic_augmented_exports_v1/llm/test.jsonl": "24f60b5cd075313ecac64f20e3c402eaacae17b7fb9c838b1ff96ed15b23d07a",
+    "outputs/cold_start_policy/20261021_diagnostic_augmented_exports_v1/rule_recovery/train.jsonl": "bd7e38c37c75113bfa26f9027ec217152cc504ab4eacc84cfd9c124c1d6b992a",
+    "outputs/cold_start_policy/20261021_diagnostic_augmented_exports_v1/rule_recovery/validation.jsonl": "0bc8434c8e6e31dc859f76eae355ac85d02d2d3698e92c1b918cf1d328131f8b",
+    "outputs/cold_start_policy/20261021_diagnostic_augmented_exports_v1/rule_recovery/test.jsonl": "e854a7b1a3832f4dcc5a8fd32d19086336ab1ec8cfc1d78b4539fc3d35adf7ea",
+    "outputs/cold_start_policy/20261020_training_v1/models.json": "f48d4416f5503e57e81c69f01088f84fb0906d8a8115eeb502b22936b327edcb",
+    "outputs/cold_start_policy/20261021_retraining_v1/models.json": "3d86925d59905298bbbe5b674473a43e818e9e5668d1c7db62ea2bd1a9b517ff",
+    "outputs/cold_start_policy/20261021_diagnostic_retraining_v1/models.json": "c9ed744c0b62c9090df7577a078aad025e65a19cd32cb8ab2155daf0a3c112ef",
+    "outputs/cold_start_policy/20261021_diagnostic_augmented_exports_v1/retired_evaluation_groups.json": "c6ff727c1f0224edf88a887eaed38d5ea482ac603e25ee943414bb37c9f9f1c2",
+    "outputs/cold_start_policy/20261021_evaluation_v1/test.jsonl": "10e916d1adadd5057f7b8e0bab5b00b4d7a33ac2a86ddcf5f7da114fc216988c",
+    "outputs/cold_start_policy/20261021_runtime_policy_comparison_v1/comparison_result.json": "1479a1c2903ce66c1620eef54acdc555f782076a6bb3ba6d0ca192cad52794f3",
+    "outputs/cold_start_policy/20261021_diagnostic_retraining_v1/training_config.json": "f48badc349cca4af57b6060fabe0d792daa7fea863c30fd7713d9d3d04128aba",
+    "outputs/cold_start_policy/20261020_training_v1/predictions.jsonl": "8201d31f029c24680d1534d5870886a5515c5a3ef353d668b3ece863463b4115",
+    "outputs/cold_start_policy/20261021_retraining_v1/predictions.jsonl": "61b42be4119de24f8dec61c805f54fe71f72277baf124db652cf474f432a1ef4",
+    "outputs/cold_start_policy/20261021_diagnostic_retraining_v1/predictions.jsonl": "6044651836b3444b3b3f533a5d0d96d726a7237a7d2ac9e62a937ecee0b7aac4",
+    "docs/validation/engine_perf_axis_baseline_20261018.json": "e209a67b6f99e35a5b470ef8e973baf1043052bee247be1ddc6c7c5efe944fd0",
+    "docs/validation/engine_perf_axis_after_20261018.json": "262cb19d5ef1e8538fe0d5c7ef24354c890b3239a4e249f1d642d3e91791259d",
+    "docs/validation/engine_policy_scenarios_20261015.json": "7d88a7cb5691b5fb650a11ff52a9a77a71876b93b903bb1f22d8e34bad9b1c06",
+    "outputs/cold_start_policy/20261021_diagnostic_retraining_v1/training_result.json": "ac429c64e3b29549c8e40d3714c2110d388be92ac09a69be349184f86d69f7ce"
+  },
+  "inputs_unchanged": true,
+  "collector_sha256": "20eb231b84488abb79b84a00346387224e4388652bcd1bbcc98ef58aa3dcf7c7"
+}
