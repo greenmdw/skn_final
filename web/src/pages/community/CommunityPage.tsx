@@ -1,5 +1,5 @@
 import NavigationLink from '../../components/NavigationLink'
-import { useEffect, useMemo, useState, type DependencyList, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DependencyList, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { ApiError } from '../../api/types'
 import {
@@ -585,6 +585,9 @@ function WriteView({ userName, editing, onCancel, onDone }: { userName: string |
   const [body, setBody] = useState(editing?.body ?? '')
   const [productKind, setProductKind] = useState('모니터')
   const [productQuery, setProductQuery] = useState('')
+  const [productSearchOpen, setProductSearchOpen] = useState(false)
+  const productSearchInputRef = useRef<HTMLLabelElement>(null)
+  const productSearchResultsRef = useRef<HTMLDivElement>(null)
   const [unlistedName, setUnlistedName] = useState('')
   const [selected, setSelected] = useState<SelectedProduct[]>(() => (editing ? editing.products.map(productToSelected) : []))
   const [results, setResults] = useState<CatalogProduct[]>([])
@@ -600,6 +603,16 @@ function WriteView({ userName, editing, onCancel, onDone }: { userName: string |
     }, 250)
     return () => { alive = false; window.clearTimeout(timer) }
   }, [productQuery, productKind])
+
+  useEffect(() => {
+    const closeProductSearch = (event: PointerEvent) => {
+      const target = event.target as Node
+      if (productSearchInputRef.current?.contains(target) || productSearchResultsRef.current?.contains(target)) return
+      setProductSearchOpen(false)
+    }
+    document.addEventListener('pointerdown', closeProductSearch)
+    return () => document.removeEventListener('pointerdown', closeProductSearch)
+  }, [])
 
   const add = (item: SelectedProduct) => {
     setSelected(current => {
@@ -652,8 +665,8 @@ function WriteView({ userName, editing, onCancel, onDone }: { userName: string |
       <form className="cm-card cm-write-form" onSubmit={submit}>
         <label>게시판<select required value={category} onChange={event => setCategory(event.target.value)}><option value="">게시판 선택</option><option>질문 · Q&A</option><option>사용기 · 리뷰</option><option>정보 · 팁</option><option>자유 게시판</option></select></label>
         {category !== '자유 게시판' && <>
-          <label>제품 종류<select value={productKind} onChange={event => { setProductKind(event.target.value); setProductQuery('') }}><option>모니터</option><option>키보드</option><option>마우스</option><option>스피커</option></select></label>
-          <fieldset className="full"><legend>연결 제품 <small>{category === '사용기 · 리뷰' ? '1개 이상 필수' : '선택'} · {selected.length} / 5개</small></legend><div className="cm-product-entry"><label>제품 검색<input value={productQuery} onChange={event => setProductQuery(event.target.value)} placeholder="제조사 또는 모델명 입력" /></label><label>목록에 없는 제품<span><input value={unlistedName} onChange={event => setUnlistedName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addUnlisted() } }} placeholder="제조사와 모델명을 입력하세요" /><button type="button" className="cm-btn" onClick={addUnlisted}>추가</button></span></label></div>{productQuery ? <div className="cm-product-results">{results.length ? results.map(product => { const on = selected.some(item => item.key === product.id); return <button type="button" key={product.id} className={on ? 'selected' : ''} onClick={() => toggleCatalog(product)}><span><strong>{product.name}</strong><small>{product.maker} · {product.detail}</small></span><b>{on ? '추가됨' : '추가'}</b></button> }) : <p>검색 결과가 없습니다. 목록에 없는 제품으로 추가할 수 있습니다.</p>}</div> : <p className="cm-product-help">검색어를 입력하면 선택한 제품 종류의 카탈로그가 표시됩니다.</p>}<div className="cm-selected-product-cards">{selected.map(item => <div key={item.key}><span><strong>{item.name}</strong><small>{item.productId ? `${item.kind} · ${item.detail}` : item.detail}</small></span><label>옵션 (선택)<input value={item.option} list={item.options.length ? `options-${item.key}` : undefined} onChange={event => setOption(item.key, event.target.value)} placeholder="예: 저소음 적축, 색상" />{item.options.length > 0 && <datalist id={`options-${item.key}`}>{item.options.map(option => <option value={option} key={option} />)}</datalist>}</label><button type="button" className="cm-btn" onClick={() => add(item)}>삭제</button></div>)}</div>{category === '사용기 · 리뷰' && <p className="cm-review-notice">사용기 글의 내용은 제품 추천에 참고 자료로 활용될 수 있습니다.</p>}</fieldset>
+          <label>제품 종류<select value={productKind} onChange={event => { setProductKind(event.target.value); setProductQuery(''); setProductSearchOpen(false) }}><option>모니터</option><option>키보드</option><option>마우스</option><option>스피커</option></select></label>
+          <fieldset className="full"><legend>연결 제품 <small>{category === '사용기 · 리뷰' ? '1개 이상 필수' : '선택'} · {selected.length} / 5개</small></legend><div className="cm-product-entry"><label ref={productSearchInputRef}>제품 검색<input value={productQuery} onFocus={() => setProductSearchOpen(true)} onChange={event => { setProductQuery(event.target.value); setProductSearchOpen(true) }} placeholder="제조사 또는 모델명 입력" /></label><label>목록에 없는 제품<span><input value={unlistedName} onChange={event => setUnlistedName(event.target.value)} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); addUnlisted() } }} placeholder="제조사와 모델명을 입력하세요" /><button type="button" className="cm-btn" onClick={addUnlisted}>추가</button></span></label></div>{productQuery && productSearchOpen ? <div ref={productSearchResultsRef} className="cm-product-results">{results.length ? results.map(product => { const on = selected.some(item => item.key === product.id); return <button type="button" key={product.id} className={on ? 'selected' : ''} onClick={() => toggleCatalog(product)}><span><strong>{product.name}</strong><small>{product.maker} · {product.detail}</small></span><b>{on ? '추가됨' : '추가'}</b></button> }) : <p>검색 결과가 없습니다. 목록에 없는 제품으로 추가할 수 있습니다.</p>}</div> : !productQuery ? <p className="cm-product-help">검색어를 입력하면 선택한 제품 종류의 카탈로그가 표시됩니다.</p> : null}<div className="cm-selected-product-cards">{selected.map(item => <div key={item.key}><span><strong>{item.name}</strong><small>{item.productId ? `${item.kind} · ${item.detail}` : item.detail}</small></span><label>옵션 (선택)<input value={item.option} list={item.options.length ? `options-${item.key}` : undefined} onChange={event => setOption(item.key, event.target.value)} placeholder="예: 저소음 적축, 색상" />{item.options.length > 0 && <datalist id={`options-${item.key}`}>{item.options.map(option => <option value={option} key={option} />)}</datalist>}</label><button type="button" className="cm-btn" onClick={() => add(item)}>삭제</button></div>)}</div>{category === '사용기 · 리뷰' && <p className="cm-review-notice">사용기 글의 내용은 제품 추천에 참고 자료로 활용될 수 있습니다.</p>}</fieldset>
         </>}
         <label className="full">제목<input required maxLength={80} value={title} onChange={event => setTitle(event.target.value)} placeholder="내용을 구체적으로 알 수 있는 제목을 입력하세요" /></label>
         <div className="full cm-body-field">
