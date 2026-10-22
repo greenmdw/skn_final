@@ -527,3 +527,55 @@ def test_a_rejected_reply_without_a_matching_lookup_is_not_replaced_by_the_whole
     monkeypatch.setattr(quote_review_agent, "system_prompt", lambda *a, **k: "prompt")
     result = quote_review_agent.run_turn({}, [], "둘 중 뭐가 나아?", [], lambda n, a: "요약 전체 문장", user_text="둘 중 뭐가 나아?")
     assert result.reply == quote_review_agent.NO_GROUNDED_REPLY and "요약 전체 문장" not in result.reply
+
+
+# ── 대안 호환성: "이 대안 호환돼?"에 항목별로 답한다 (2026-10-22) ─────────────────────────────
+
+def test_compare_parts_carries_the_full_compat_of_the_swapped_build_not_only_the_changes(review):
+    result = quote_alternatives.compare_parts(review, "GPU", loader()(), None, "cheaper")
+    assert result["candidates"]
+    for c in result["candidates"]:
+        compat = c["compat"]
+        assert set(compat["counts"]) >= {"ok", "fail", "unknown", "skipped"}
+        assert all(p["state"] in ("fail", "unknown") and p["label"] and p["detail"] for p in compat["problems"])
+        assert compat["counts"]["unknown"] == sum(p["state"] == "unknown" for p in compat["problems"])
+
+
+def test_the_compare_parts_text_names_each_unknown_item_and_why(review):
+    result = quote_alternatives.compare_parts(review, "GPU", loader()(), None, "cheaper")
+    text = quote_facts.compare_parts(result)
+    assert "바꾼 구성 호환 검사: 통과" in text
+    for c in result["candidates"]:
+        for p in c["compat"]["problems"]:
+            assert f"{p['label']}: " in text and p["detail"] in text
+
+
+def test_the_alternatives_text_lists_unknown_items_once_with_how_many_candidates_share_them(review):
+    result = quote_alternatives.alternatives(review, "GPU", loader()(), "cheaper")
+    text = quote_facts.alternatives(result)
+    unknown_axes = {p["label"] for c in result["candidates"] for p in c["compat"]["problems"] if p["state"] == "unknown"}
+    if unknown_axes:
+        assert "비호환이 확인된 것은 아닙니다" in text
+        for label in unknown_axes:
+            assert f"- {label}: 확인 못 함 — " in text
+            assert text.count(f"- {label}: 확인 못 함") == 1               # 후보마다 되풀이하지 않고 항목별로 한 번
+
+
+def test_a_compat_question_that_names_a_product_checks_that_product_not_the_quote_itself(review):
+    pool = loader()()
+    name = next(c.name for c in pool["RAM"] if c.name != quote_alternatives._baseline("RAM", review["input"]["current_specs"],
+                                                                                         {}).get("name"))
+    calls = chat.route(f"{name} 호환성 체크해줘", loader(), review)
+    assert calls and calls[0][0] == "compare_parts" and calls[0][1]["slot"] == "RAM"
+    assert calls[0][1]["targets"] == [name]
+    assert "바꾼 구성 호환 검사" in chat.run_fact(review, *calls[0], loader())
+
+
+def test_a_compat_question_without_a_product_still_reads_the_quotes_own_compat(review):
+    assert chat.route("이 견적 호환 문제 있어?", loader(), review)[0][0] == "compat"
+    assert chat.route("RAM 호환돼?", loader(), review)[0][0] in ("compat", "compare")
+
+
+def test_the_agent_prompt_tells_the_model_to_pass_on_the_unknown_reasons(review):
+    prompt = quote_review_agent.system_prompt(review, "요약")
+    assert "바꾼 구성 호환 검사" in prompt and "'정보가 없다'고만 답하지 않습니다" in prompt

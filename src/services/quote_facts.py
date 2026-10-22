@@ -122,12 +122,33 @@ def alternatives(result: dict) -> str:
     for i, c in enumerate(result["candidates"], 1):
         fail = f" · ⚠ 견적의 다른 부품과 확정된 비호환: {', '.join(c['incompatible'])}" if c["incompatible"] else ""
         unknown = f" · 확인 못 함 {c['unknown']}건" if c["unknown"] else ""
+        passed = (c.get("compat") or {}).get("counts", {}).get("ok")
+        passed = f" · 통과 {passed}건" if passed else ""           # 확인 못 한 항목이 이 부품과 무관한지(쿨러 정보 부족 등) 가늠할 수 있게
         delta = f" ({c['price_delta']:+,}원)" if c["price_delta"] is not None else ""
         tier = f" · 성능 등급 {c['perf_tier']:g}" if c.get("perf_tier") else ""
-        lines.append(f"{i}. {c['name']} · {_won(c['price'])}{delta}{tier}{fail}{unknown}")
+        lines.append(f"{i}. {c['name']} · {_won(c['price'])}{delta}{tier}{fail}{passed}{unknown}")
+    lines += _problem_summary(result["candidates"])
     if result.get("note"):
         lines.append(result["note"])
     return "\n".join(lines)
+
+
+def _problem_summary(candidates: list[dict]) -> list[str]:
+    """후보들의 호환 검사에서 확정 비호환·확인 못 함으로 남은 항목을 항목별로 한 번씩 — 어느 항목을 왜 못 봤는지 답할 근거."""
+    seen: dict[str, tuple[dict, int]] = {}
+    for c in candidates:
+        for p in (c.get("compat") or {}).get("problems", []):
+            key = f"{p['state']}|{p['axis']}"
+            seen[key] = (seen[key][0], seen[key][1] + 1) if key in seen else (p, 1)
+    if not seen:
+        return []
+    total = len(candidates)
+    lines = ["호환 검사에서 확인 못 한 항목은 스펙 정보가 부족해서이고 비호환이 확인된 것은 아닙니다."
+             if any(p["state"] == "unknown" for p, _ in seen.values()) else ""]
+    for p, n in seen.values():
+        origin = "" if p.get("new", True) else " · 견적에 원래 있던 문제"
+        lines.append(f"- {p['label']}: {_STATE_TEXT[p['state']]} — {p['detail']} (후보 {total}개 중 {n}개{origin})")
+    return [ln for ln in lines if ln]
 
 
 def _spec_value(v, unit: str) -> str:
@@ -180,6 +201,14 @@ def compare_parts(result: dict) -> str:
             lines.append(f"   ⚠ 견적의 다른 부품과 새로 생기는 확정 비호환: {', '.join(c['incompatible'])}")
         for ch in c["compat_changes"]:
             lines.append(f"   · {ch['label']}: {_STATE_TEXT[ch['from']]} → {_STATE_TEXT[ch['to']]}")
+        compat = c.get("compat")
+        if compat:                       # "이 제품 호환돼?"에 답할 근거 — 바꾼 구성 전체의 항목별 상태(상태가 안 바뀐 항목 포함)
+            n = compat["counts"]
+            lines.append(f"   · 바꾼 구성 호환 검사: 통과 {n.get('ok', 0)}건 · 확인 못 함 {n.get('unknown', 0)}건 · "
+                         f"확정된 비호환 {n.get('fail', 0)}건")
+            for p in compat["problems"]:
+                origin = "" if p["new"] else " (견적에 원래 있던 문제)"
+                lines.append(f"   · {p['label']}: {_STATE_TEXT[p['state']]} — {p['detail']}{origin}")
         rev = c.get("review") or {}
         lines.append("   리뷰: " + (rev.get("headline") or "정보 없음") + (f" (관측된 리뷰 {rev['total_count']}건)" if rev.get("total_count") else ""))
     lines += _between_candidates(result["candidates"])

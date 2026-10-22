@@ -172,6 +172,17 @@ def _game_call(text: str, low: str, slot: str | None, by_slot_loader, review: di
     return ("game", {"text": text, "swap_slot": swap_slot, "swap_product": swap_product})
 
 
+def _baseline_name(review: dict | None, slot: str, by_slot_loader) -> str | None:
+    """견적 속 그 부품군 부품의 카탈로그 이름(질문의 제품이 견적 부품 자신일 때 비교 대상에서 빼려고)."""
+    if review is None:
+        return None
+    from src.categories import load_category
+    from src.engine.owned_parts import resolve_owned_parts
+
+    specs = (review.get("input") or {}).get("current_specs") or {}
+    return (resolve_owned_parts(specs, by_slot_loader(), load_category("computer")["slot_structure"]).get(slot) or {}).get("name")
+
+
 def route(text: str, by_slot_loader=None, review: dict | None = None) -> list[tuple[str, dict]]:
     """질문에서 어떤 사실을 읽을지 — [(도구 이름, 인자)]. 규칙 경로의 답이면서 에이전트에는 미리 조회한 근거가 된다.
 
@@ -181,6 +192,14 @@ def route(text: str, by_slot_loader=None, review: dict | None = None) -> list[tu
     game = _game_call(text, low, slot, by_slot_loader, review)
     if game is not None:                    # 게임 질문은 부품 비교보다 먼저 — "5070 으로 바꾸면 배그 돌아가?"를 부품 비교로 읽지 않는다
         return [game]
+    if slot and by_slot_loader is not None and not any(w in low for w in _COMPARE_WORDS) \
+            and any(w in low for w in _INTENT_WORDS["compat"]):
+        # "삼성전자 DDR5-5600 16GB 호환성 체크해줘" — 비교 낱말이 없어도 질문에 제품 이름이 있으면 그 제품으로 바꾼 구성의 호환을 본다.
+        # 예전엔 견적 자체의 호환 검사(compat)만 읽어, 물은 제품의 호환은 근거가 없어 "결과가 없다"고 답했다(2026-10-22).
+        pool = by_slot_loader().get(slot, [])
+        asked = extract_targets(text, slot, pool, _baseline_name(review, slot, by_slot_loader))
+        if asked:
+            return [("compare_parts", {"slot": slot, "direction": None, "targets": asked})]
     if slot and by_slot_loader is not None and any(w in low for w in _COMPARE_WORDS):
         baseline = None
         if review is not None:

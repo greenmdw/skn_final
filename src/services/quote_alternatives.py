@@ -18,6 +18,17 @@ DEFAULT_LIMIT = 5
 _NEARBY = 0.35            # 방향을 안 정하면 현재 가격의 ±35% 안 후보를 가까운 순으로 보인다
 
 
+def _compat_brief(result: dict, base_incompat: set) -> dict:
+    """바꾼 구성의 호환 검사 전체 요약 — 개수와, 확정 비호환·확인 못 함 항목의 이름과 근거 문장.
+
+    대화가 "이 대안 호환돼?"에 "정보가 없다"고만 답하던 문제(2026-10-22): 예전엔 상태가 바뀐 항목(compat_changes)과 확인 못 함
+    개수만 내려가, 어느 항목을 왜 못 봤는지 답할 근거가 없었다. 이유는 검사 결과의 detail 문장 그대로다."""
+    return {"counts": dict(result["summary"]),
+            "problems": [{"axis": c["axis"], "label": c["label"], "state": c["state"], "detail": c["detail"],
+                          "new": c["state"] != "fail" or c["axis"] not in base_incompat}
+                         for c in result["checks"] if c["state"] in ("fail", "unknown")]}
+
+
 def _baseline(slot: str, specs: dict, owned: dict) -> dict:
     info = owned.get(slot) or {}
     quoted = parse_price(specs.get(slot)) if specs.get(slot) else None
@@ -53,7 +64,8 @@ def alternatives(review: dict, slot: str, by_slot: dict[str, list[Candidate]], d
         delta = cand.price - baseline["price"] if baseline["price"] is not None else None
         tier = cand.specs.get("perf_tier")
         rows.append({"name": cand.name, "price": cand.price, "price_delta": delta, "perf_tier": tier,
-                     "incompatible": new_fail, "unknown": result["summary"].get("unknown", 0)})
+                     "incompatible": new_fail, "unknown": result["summary"].get("unknown", 0),
+                     "compat": _compat_brief(result, base_incompat)})
 
     if direction == "cheaper" and baseline["price"] is not None:
         rows = [r for r in rows if r["price"] < baseline["price"]]
@@ -199,6 +211,7 @@ def compare_parts(review: dict, slot: str, by_slot: dict[str, list[Candidate]], 
             "specs": _spec_rows(slot, base_specs, dict(cand.specs)),
             "incompatible": [a for a in result["incompatible"] if a not in base_incompat],      # 이 후보 때문에 새로 생기는 확정 비호환
             "compat_changes": _compat_changes(base_checks, result["checks"]),
+            "compat": _compat_brief(result, base_incompat),
             "review": _review_brief(cand.product_key),
         })
     notes = [picked["note"]] if picked.get("note") else []
