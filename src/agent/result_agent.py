@@ -31,7 +31,7 @@ from uuid import UUID
 
 from src.agent.conditions_agent import SEARCH_PERMISSION_MARKER as _SEARCH_PERMISSION_MARKER
 from src.agent.conditions_agent import _model, is_search_confirmation
-from src.agent.text_guard import foreign_script, leaked_internals
+from src.agent.text_guard import foreign_script, leaked_internals, tier_numbers
 from src.clients.llm_guard import llm_call_slot
 from src.config import LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, RESULT_AGENT
 from src.errors import NotFound, ServiceUnavailable, ValidationFailed
@@ -58,6 +58,20 @@ def _won(n: int | None) -> str:
     if n is None:
         return "-"
     return f"{n:,}원"
+
+
+_TIER_RE = re.compile(r"성능 티어 ([\d.]+)")
+
+
+def _tier_of(spec_summary: str | None) -> float | None:
+    """화면용 스펙 문자열 끝의 "성능 티어 N"(recommendation_service._spec_summary) — 없으면 None."""
+    m = _TIER_RE.search(spec_summary or "")
+    return float(m.group(1)) if m else None
+
+
+def _chat_spec(spec_summary: str | None) -> str:
+    """도구 결과에 싣는 스펙 문자열 — "성능 티어 N"을 뺀다. 사용자가 모르는 내부 눈금이라 답에 옮겨지면 안 된다(10/22)."""
+    return re.sub(r"\s*·?\s*성능 티어 [\d.]+", "", spec_summary or "").strip(" ·")
 
 
 # ── 세션: 도구가 공유하는 연결·상태 ────────────────────────────────────────
@@ -155,22 +169,18 @@ class ResultSession:
         pmin = self._perf_min_by_slot().get(it["slot"])
         short = result_advice.requirement_shortfalls(self.conn, self.revision_id, it["slot"],
                                                      [r["candidate_id"] for r in rows])
-        lines = [f"{it['slot']} 현재: {it['product']['name']} {_won(it['price'])}"
-                 + (f" · 요구 성능 티어 ≥ {pmin}" if pmin is not None else "")]
+        lines = [f"{it['slot']} 현재: {it['product']['name']} {_won(it['price'])}"]
+        cur_tier = _tier_of(it["product"].get("spec_summary"))
         for i, r in enumerate(rows, 1):
-            tier = None
-            if r["product"].get("spec_summary", "") and "티어" in r["product"]["spec_summary"]:
-                try:
-                    tier = int(r["product"]["spec_summary"].split("티어")[1])
-                except ValueError:
-                    tier = None
+            tier = _tier_of(r["product"].get("spec_summary"))
             if (why := short.get(str(r["candidate_id"]))) is not None:
                 flag = f" ⚠ 요구 사양 미달({why})"
             else:
                 flag = " ⚠ 요구 사양 미달" if (pmin is not None and tier is not None and tier < pmin) else ""
             lines.append(f"{i}. candidate_id={r['candidate_id']} · {r['product']['name']} · {_won(r['price'])}"
                          f" ({r['price_delta']:+,}원) · {r['label']}"
-                         + (f" · 성능 티어 {tier}" if tier is not None else "") + flag)
+                         + (f" · {result_advice.perf_change_text(cur_tier, tier)}"
+                            if tier is not None and cur_tier is not None else "") + flag)
         priced = [(i, r) for i, r in enumerate(rows, 1) if r.get("price") is not None]
         if len(priced) > 1:
             lo, hi = min(priced, key=lambda x: x[1]["price"]), max(priced, key=lambda x: x[1]["price"])
@@ -365,7 +375,7 @@ class ResultSession:
             return self._record(call, f"{entry['slot']}: 이 견적에 담을 수 있는 후보가 없습니다")
         lines = [f"{entry['slot']} 담을 수 있는 후보({entry['reason_text']} 구성에서 담으면 그만큼 총액이 늘어납니다):"]
         lines += [f"{i}. candidate_id={r['candidate_id']} · {r['product']['name']} · {_won(r['price'])}"
-                  + (f" · {r['product']['spec_summary']}" if r["product"].get("spec_summary") else "")
+                  + (f" · {spec}" if (spec := _chat_spec(r["product"].get("spec_summary"))) else "")
                   for i, r in enumerate(rows, 1)]
         return self._record(call, "\n".join(lines))
 
@@ -402,7 +412,7 @@ class ResultSession:
         if it is None:
             return self._record(call, f"오류: '{slot}' 슬롯이 없습니다.")
         lines = [f"{it['slot']} {it['product']['name']} {_won(it['price'])}"
-                 + (f" · {it['product']['spec_summary']}" if it['product'].get('spec_summary') else "")
+                 + (f" · {spec}" if (spec := _chat_spec(it["product"].get("spec_summary"))) else "")
                  + (f" · 예산 비중 {it['budget_share']:.0%}" if it.get("budget_share") else "")]
         r = it.get("reason") or {}
         lines.append("저장된 추천 이유: " + (r.get("text") if r.get("status") == "ready" and r.get("text")
@@ -650,7 +660,7 @@ def make_tools(s: ResultSession) -> list:
 
     @tool
     def preview_swap(slot: str, candidate_id: str = "", direction: str = "") -> str:
-        """부품을 바꾸면 어떻게 되는지 *바꾸지 않고* 계산한다 — 차액·바꾼 뒤 총액·예산 초과 여부, 성능 등급 변화,
+        """부품을 바꾸면 어떻게 되는지 *바꾸지 않고* 계산한다 — 차액·바꾼 뒤 총액·예산 초과 여부, 성능 변화,
         이 견적의 요구 사양 충족 여부, 소켓·전력·크기 호환 점검. "바꿔도 돼?", "괜찮을까?", "문제없어?" 에 쓴다.
         특정 후보 대신 "한 단계 위/더 좋은 걸로"면 direction="up", "한 단계 아래/더 싼 걸로"면 direction="down" —
         코드가 성능 등급(RAM 은 용량) 기준 바로 다음 단계 후보를 골라 계산하고 그 candidate_id 를 돌려준다.
@@ -677,8 +687,8 @@ def make_tools(s: ResultSession) -> list:
 
     @tool
     def upgrade_options(extra: str = "", new_budget: str = "") -> str:
-        """남은 예산(또는 주어진 금액) 안에서 CPU·GPU 성능 등급, RAM 용량을 올릴 수 있는 후보를 슬롯별로 돌려준다.
-        요구 사양·호환을 통과한 것만, 용도 기준 등급에 못 미치는 부품부터. 바꾸지는 않는다.
+        """남은 예산(또는 주어진 금액) 안에서 CPU·GPU 성능, RAM 용량을 올릴 수 있는 후보를 슬롯별로 돌려준다.
+        요구 사양·호환을 통과한 것만, 용도 기준 성능에 못 미치는 부품부터. 바꾸지는 않는다.
         "돈 남았는데 뭐 올릴까?", "10만원 더 쓰면?", "예산 200만원이면?" 에 쓴다.
 
         Args:
@@ -690,7 +700,7 @@ def make_tools(s: ResultSession) -> list:
     @tool
     def budget_reason() -> str:
         """예산을 다 안 쓴 이유 — 추천 엔진이 세트를 고르는 방식(예산 상한 안에서 점수 합 최대), 이번 점수 비중,
-        용도 기준 등급과 지금 CPU·GPU 등급을 돌려준다. "왜 예산을 다 안 썼어?", "700만원인데 왜 300만원에 짰어?" 에 쓴다.
+        지금 CPU·GPU 가 용도 기준을 채우는지 돌려준다. "왜 예산을 다 안 썼어?", "700만원인데 왜 300만원에 짰어?" 에 쓴다.
         올릴 후보는 주지 않는다 — 그건 upgrade_options.
         """
         return s.budget_reason()
@@ -946,7 +956,7 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "6. '돈 남았는데 뭐 바꿀까', '남은 예산으로 업그레이드', 'N만원 더 쓰면' → upgrade_options. '예산을 N원으로 늘려줘'처럼 새 총예산을 말하면 upgrade_options(new_budget=N) — "
         "조건의 예산 자체는 이 화면에서 못 바꾸고 화면의 '조건 바꾸기'에서 바꾼다고 한 번 말하고 그 금액 기준 후보를 보여 줍니다. 결과의 순서와 후보를 그대로 전하고, 사용자가 고르기 전에는 바꾸지 않습니다.",
         # 6번 문장 뒤에 이어 붙였더니 "가격에 맞게 예산 줄여줘"에 RAM 을 바꾸는 일이 생겼다(10/8 평가 D-1 2/4) — 따로 둔다
-        "6-1. '왜 예산을 다 안 썼어?', '왜 300만원에 짰어?'처럼 예산을 남긴 이유를 물으면 budget_reason 의 방식 설명과 CPU·GPU 등급을 옮기고, "
+        "6-1. '왜 예산을 다 안 썼어?', '왜 300만원에 짰어?'처럼 예산을 남긴 이유를 물으면 budget_reason 의 방식 설명과 CPU·GPU 가 용도 기준을 채우는지를 옮기고, "
         "'→' 줄을 결론으로 전합니다. '예산을 다 쓰지 못했다'처럼 실패로 말하지 않습니다 — 예산은 상한입니다.",
         "7. '뭘 바꾸면 싸져?', 'N만원 줄이고 싶어' → savings_options(target). 'CPU는 그대로 두고'처럼 바꾸지 말라는 부품이 있으면 keep 에 넣습니다. 금액을 말했으면 '→ … 성능을 가장 적게 잃는 조합' 줄을 먼저 전합니다 "
         "— 가장 많이 줄어드는 후보를 대신 권하지 않습니다. 요구 사양을 낮춰야 하는 항목은 그 사실(⚠)과 함께 전합니다.",
@@ -961,6 +971,8 @@ def system_prompt(result: dict, user_text: str, history: list[dict], prefetched:
         "'판단하기 어렵다'로 끝내지 말고 일반론을 먼저 말합니다. 단, 일반 안내에는 (a) 입력에 없는 숫자를 쓰지 않고 "
         "(b) 이 견적 부품에 대한 판정(충분하다·호환된다·더 낫다)을 하지 않고 (c) 특정 제품의 사실(동봉품·사양·출시·가격 전망)을 지어내지 않습니다 — 그런 건 '데이터에 없다'고 말합니다. "
         f"마지막에 {suggest_tail}",
+        "13-1. CPU·GPU 의 '성능 등급'·'티어' 숫자는 사용자가 모르는 내부 값이라 말하지 않습니다. 도구 결과의 '한 단계 위', "
+        "'기준 이상', '권장 이상'처럼 지금 부품·용도 기준과 견준 말로 전합니다.",
         "14. 소음·발열·가격 전망처럼 데이터가 없는 질문은 없다고 말하고 추측하지 않습니다. 날씨처럼 PC와 무관한 말은 이 화면은 PC 견적만 다룬다고 한 문장으로 답하고 "
         f"{suggest_tail}",
         "15. 사용자가 말한 제품이 list_alternatives·upgrade_options·savings_options 결과에 안 보이면(지어내지 말고) "
@@ -1243,7 +1255,8 @@ def run_turn(conn, revision_id: UUID, result: dict, text: str, user_id: UUID | N
                                             swap_arithmetic(session.result, session.outputs)])
         bad_words = (evaluative_words(reply, text) + swap_arithmetic_sign_errors(reply, session.result, session.outputs)
                      + foreign_script(reply)       # 다른 언어 글자가 섞인 답("конкрет한 모델")도 코드 문장으로
-                     + leaked_internals(reply))    # 도구 이름·프롬프트 문구를 그대로 말한 답도 코드 문장으로(U-07)
+                     + leaked_internals(reply)     # 도구 이름·프롬프트 문구를 그대로 말한 답도 코드 문장으로(U-07)
+                     + tier_numbers(reply))        # "성능 등급 4"처럼 내부 눈금 숫자를 말한 답도(10/22)
         if not ok or bad_words:
             log.warning("result agent reply rejected (numbers %s, words %s) — replaced: %r", sorted(outside), bad_words, reply[:120])
             guard = {"numbers": sorted(outside), "words": bad_words}

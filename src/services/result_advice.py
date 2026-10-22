@@ -128,14 +128,36 @@ def no_metric_note(slot: str) -> str | None:
     """'더 좋다'를 정할 값이 없는 슬롯에서 한 단계 위/아래를 가격으로 골랐다는 사실 — 성능·용량이 바뀐다는 뜻이 아니다."""
     if slot in _UPGRADE_SLOTS:
         return None
-    note = f"{slot}는 성능 등급·용량처럼 '더 좋다'를 정할 값이 없어 가격으로 바로 위/아래 후보를 골랐음(더 좋아진다는 뜻이 아님)"
+    note = f"{slot}는 성능·용량처럼 '더 좋다'를 정할 값이 없어 가격으로 바로 위/아래 후보를 골랐음(더 좋아진다는 뜻이 아님)"
     return note + (" · " + STORAGE_CAPACITY_NOTE if slot == "저장장치" else "")
 
 
-def _metric_text(slot: str, value: float | None) -> str:
-    if value is None:
-        return "등급 정보 없음"
-    return f"{value:g}GB" if slot == "RAM" else f"성능 등급 {value:g}"
+# CPU·GPU 의 성능 등급(perf_tier) 숫자는 채팅 문장에 넣지 않는다 — 사용자가 뜻을 모르는 내부 눈금이라 "성능 등급 4 → 6"이
+# 답에 그대로 옮겨졌다(10/22). 지금 부품과의 차이("한 단계 위")나 용도 기준과의 관계("기준 이상")로만 적는다. RAM 은 GB.
+def perf_change_text(m0: float | None, m1: float | None) -> str:
+    """지금 성능 등급 `m0` 에서 `m1` 로 바뀔 때의 문장 — 숫자 대신 단계 차이."""
+    if m0 is None or m1 is None:
+        return "성능 비교 정보 없음"
+    gap = float(m1) - float(m0)
+    if gap == 0:
+        return "지금과 같은 성능 수준"
+    steps = "한 단계" if abs(gap) == 1 else f"{abs(gap):g}단계"
+    return f"지금보다 성능 {steps} {'위' if gap > 0 else '아래'}"
+
+
+def _change_text(slot: str, m0: float | None, m1: float | None) -> str:
+    if slot == "RAM":
+        return f"{_gb_text(m0)} → {_gb_text(m1)}"
+    return perf_change_text(m0, m1)
+
+
+def _gb_text(value: float | None) -> str:
+    return "용량 정보 없음" if value is None else f"{value:g}GB"
+
+
+def _now_text(slot: str, value: float | None) -> str:
+    """지금 부품 이름 뒤에 붙일 값 — RAM 만 용량, CPU·GPU 는 등급 숫자를 말하지 않으니 비운다."""
+    return f" {_gb_text(value)}" if slot == "RAM" else ""
 
 
 def _new_failures(ctx: _Ctx, slot: str, cand) -> set[str]:
@@ -154,7 +176,7 @@ def _requirement_verdict(ctx: _Ctx, slot: str, cand) -> tuple[str, list[str]]:
 
 
 _REQ_REASON_TEXT = {
-    "FAIL_PERF_BELOW": "요구 성능 등급 미달",
+    "FAIL_PERF_BELOW": "용도 기준 성능 미달",
     "FAIL_CAPACITY_BELOW": "요구 용량 미달",
     "FAIL_WATTAGE_BELOW": "요구 파워 용량 미달",
     "FAIL_RATING_BELOW": "요구 효율 등급 미달",
@@ -338,7 +360,7 @@ def _no_step_text(conn, ctx: _Ctx, slot: str, row: dict, cur, direction: str) ->
     head = f"{slot}: 지금 {row['product_name']} {fmt_money(_price(row))}"
     m0 = _metric(slot, cur.specs) if cur is not None else None
     if m0 is not None:
-        return f"{head} · {_metric_text(slot, m0)} — 지금 구성과 맞는 한 단계 {word} 후보가 카탈로그에 없습니다."
+        return f"{head}{_now_text(slot, m0)} — 지금 구성과 맞는 한 단계 {word} 후보가 카탈로그에 없습니다."
     pool = [c for c in ctx.pool.get(slot, []) if cur is None or c.variant_id != cur.variant_id]
     beyond = [c for c in pool if c.price is not None and (_price(c) > _price(row) if up else _price(c) < _price(row))]
     if not beyond:
@@ -354,7 +376,7 @@ def _no_step_text(conn, ctx: _Ctx, slot: str, row: dict, cur, direction: str) ->
 
 def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = None, direction: str | None = None) -> str:
     """slot 을 variant_id(또는 direction='up'|'down' 이면 한 단계 위/아래 후보)로 바꾼다고 가정한 결과 — 가격·예산,
-    성능 등급, 요구 사양, 부품 사이 호환. 구성표는 그대로다."""
+    성능 변화, 요구 사양, 부품 사이 호환. 구성표는 그대로다."""
     from src.services.recommendation_service import compat_checks
     ctx = _context(conn, revision_id)
     row = ctx.row(slot)
@@ -397,8 +419,8 @@ def preview_swap(conn, revision_id: UUID, slot: str, variant_id: str | None = No
     m0 = _metric(slot, cur.specs) if cur is not None else None
     m1 = _metric(slot, cand.specs)
     if m0 is not None or m1 is not None:
-        lines.append(f"{slot} {_metric_text(slot, m0)} → {_metric_text(slot, m1)}"
-                     + (" (요구 사양을 채우는 더 낮은 단계가 없어 같은 단계의 더 싼 후보)"
+        lines.append(f"{slot} {_change_text(slot, m0, m1)}"
+                     + (" (요구 사양을 채우는 더 낮은 단계가 없어 같은 성능 수준의 더 싼 후보)"
                         if direction == "down" and not variant_id and m0 is not None and m0 == m1 else ""))
     elif not variant_id and (note := no_metric_note(slot)):
         lines.append(note)
@@ -490,7 +512,7 @@ def check_build(conn, revision_id: UUID) -> str:
     mark = {"ok": "통과", "fail": "⚠ 문제", "unknown": "스펙 정보 없어 확인 못 함"}
     lines = [f"- {r['label']}: {mark.get(r['state'], r['state'])} — {r['detail']}" for r in rows]
     # "CPU가 그래픽카드 발목 잡지 않아?" — 병목을 fps 로 계산하지는 않는다. 추천 엔진이 쓰는 용도별 기준 등급과
-    # 지금 등급을 나란히 보여 줄 뿐이다(어느 쪽이 기준에 못 미치는지).
+    # 지금 등급을 견줘 어느 쪽이 기준에 못 미치는지만 적는다(등급 숫자는 내지 않는다).
     ideals = _ideal_tiers(ctx)
     tiers = []
     for slot in ("CPU", "GPU"):
@@ -498,10 +520,10 @@ def check_build(conn, revision_id: UUID) -> str:
         cand = ctx.by_variant.get(str(row["variant_id"])) if row else None
         tier = _metric(slot, cand.specs) if cand is not None else None
         if tier is not None and slot in ideals:
-            tiers.append(f"{slot} {tier:g}(기준 {ideals[slot]:g}{', 못 미침' if tier < ideals[slot] else ''})")
+            tiers.append(f"{slot} {'기준에 못 미침' if tier < ideals[slot] else '기준 이상'}")
     if tiers:
-        lines.append("- 성능 등급과 이 용도 기준 등급: " + " · ".join(tiers)
-                     + " — 병목(fps)은 계산하지 않고 등급만 비교")
+        lines.append("- CPU·GPU 성능과 이 용도 기준: " + " · ".join(tiers)
+                     + " — 병목(fps)은 계산하지 않고 용도 기준과만 비교")
     lines += [f"- {x}" for x in cooler_lines(conn, ctx)]
     return "\n".join(lines)
 
@@ -521,7 +543,7 @@ def _upgrade_order(ctx: _Ctx, slots: list[str]) -> list[str]:
 
 
 def upgrade_options(conn, revision_id: UUID, budget: int | None = None, new_budget: int | None = None) -> str:
-    """`budget`(기본: 예산 잔여) 안에서 CPU·GPU 성능 등급, RAM 용량을 올릴 수 있는 후보. 한 번에 한 부품씩 바꾼다고
+    """`budget`(기본: 예산 잔여) 안에서 CPU·GPU 성능, RAM 용량을 올릴 수 있는 후보. 한 번에 한 부품씩 바꾼다고
     가정하고, 이 견적의 요구 사양과 지금 구성과의 호환(확정 비호환 없음)을 통과한 것만 낸다.
     `new_budget`(사용자가 말한 새 총예산)을 주면 새 예산 - 총액 안에서 찾고, '바꾼 뒤 잔여'도 새 예산으로 계산한다 —
     원래 예산으로 계산하면 후보 잔여가 음수로 나와 모델이 "새 예산 초과"로 옮긴다(10/7 베이스라인 비사실)."""
@@ -544,7 +566,7 @@ def upgrade_options(conn, revision_id: UUID, budget: int | None = None, new_budg
                 " 더 쓸 수 있는 금액을 말씀해 주시면 그 안에서 찾습니다.")
     ideals = _ideal_tiers(ctx)
     present = [s for s in _UPGRADE_SLOTS if ctx.row(s) is not None]
-    lines = [head + " (한 번에 한 부품씩, 요구 사양·호환 통과한 것만, 순서는 용도 기준 등급에 못 미치는 정도가 큰 부품부터):"]
+    lines = [head + " (한 번에 한 부품씩, 요구 사양·호환 통과한 것만, 순서는 용도 기준 성능에 못 미치는 정도가 큰 부품부터):"]
     found = 0
     for slot in _upgrade_order(ctx, present):
         row = ctx.row(slot)
@@ -562,24 +584,24 @@ def upgrade_options(conn, revision_id: UUID, budget: int | None = None, new_budg
                 continue
             ok.append((m1, delta, cand))
         ideal = ideals.get(slot)
-        basis = (f" · 이 용도 기준 등급 {ideal:g}" + (" (이미 채움)" if m0 >= ideal else " (못 미침)")) if ideal is not None else ""
+        basis = (" · 이 용도 기준 성능 " + ("이미 채움" if m0 >= ideal else "못 미침")) if ideal is not None else ""
         if not ok:
-            lines.append(f"- {slot}: 지금 {cur.name} {_metric_text(slot, m0)}{basis} — 이 금액 안에서 올릴 후보 없음")
+            lines.append(f"- {slot}: 지금 {cur.name}{_now_text(slot, m0)}{basis} — 이 금액 안에서 올릴 후보 없음")
             continue
         found += 1
         step_metric = min(m for m, _, _ in ok)
         step = min((o for o in ok if o[0] == step_metric), key=lambda o: o[1])
         best_metric = max(m for m, _, _ in ok)
         best = min((o for o in ok if o[0] == best_metric), key=lambda o: o[1])
-        picks = [("한 단계 위", step)] + ([("이 금액 안 가장 높은 등급", best)] if best is not step else [])
-        lines.append(f"- {slot}: 지금 {cur.name} {_metric_text(slot, m0)}{basis}")
+        picks = [("한 단계 위", step)] + ([("이 금액 안 가장 높은 성능", best)] if best is not step else [])
+        lines.append(f"- {slot}: 지금 {cur.name}{_now_text(slot, m0)}{basis}")
         for label, (m1, delta, cand) in picks:
             after = total + delta
             left = f", 바꾼 뒤 잔여 {fmt_money(cap - after)}" if cap else ""
-            lines.append(f"    · {label}: {_label(slot, cand)} {_metric_text(slot, m1)} · {fmt_money(_price(cand))}"
+            lines.append(f"    · {label}: {_label(slot, cand)} {_change_text(slot, m0, m1)} · {fmt_money(_price(cand))}"
                          f" (추가 {fmt_money(delta)}, 바꾼 뒤 총액 {fmt_money(after)}{left}) · candidate_id={cand.variant_id}")
     if not found:
-        lines.append("→ 이 금액 안에서 성능 등급·용량을 올릴 수 있는 후보가 없습니다. 더 쓸 수 있는 금액(예: 20만원)을 "
+        lines.append("→ 이 금액 안에서 성능·용량을 올릴 수 있는 후보가 없습니다. 더 쓸 수 있는 금액(예: 20만원)을 "
                      "말씀해 주시면 그 안에서 찾습니다.")
     lines.append("케이스·쿨러·파워·저장장치는 '더 좋다'를 정할 값이 없어 넣지 않았습니다.")
     return "\n".join(lines)
@@ -621,7 +643,7 @@ def is_budget_left_question(text: str) -> bool:
 
 def budget_reason(conn, revision_id: UUID) -> str:
     """예산을 다 안 쓴 이유 — 추천 엔진이 세트를 고르는 방식(예산 상한 안에서 점수 합 최대), 이번 요청의 축 가중치,
-    용도 기준 등급과 지금 CPU·GPU 등급을 사실대로 옮긴다. 고르지 않은 후보를 하나하나 다시 채점하지는 않는다
+    지금 CPU·GPU 가 용도 기준을 채우는지 사실대로 옮긴다(등급 숫자는 내지 않는다). 고르지 않은 후보를 하나하나 다시 채점하지는 않는다
     (엔진의 슬롯별 예산 배분·리뷰 점수를 다시 만들어야 한다) — 그래서 "이 부품이 몇 점 낮아서"는 말하지 않는다.
     700만원 예산에 300만원 구성이 나왔을 때 채팅이 "근거를 확인할 수 없다"고만 답하던 것(2026-10-08 실측 8/8)."""
     from src.engine.stage2_requirement import load_computer_rules
@@ -657,15 +679,15 @@ def budget_reason(conn, revision_id: UUID) -> str:
         if tier is None or slot not in ideals:
             continue
         ideal = ideals[slot]
-        where = "보다 높음" if tier > ideal else ("과 같음" if tier == ideal else "에 못 미침")
+        where = "보다 높음" if tier > ideal else ("과 같은 수준" if tier == ideal else "에 못 미침")
         standing.append((slot, tier, ideal))
-        lines.append(f"- {slot}: {cur.name} 성능 등급 {tier:g} — {purpose} 용도 기준 등급 {ideal:g}{where}")
-    lines.insert(3, "'성능' 점수는 성능 등급이 높을수록 오르고, '가격' 점수는 슬롯 참고 예산에 비해 비쌀수록 낮아집니다.")
+        lines.append(f"- {slot}: {cur.name} — {purpose} 용도 기준 성능{where}")
+    lines.insert(3, "'성능' 점수는 부품 성능이 높을수록 오르고, '가격' 점수는 슬롯 참고 예산에 비해 비쌀수록 낮아집니다.")
     if priority in ("value", "quiet"):
         heavy = "가격" if priority == "value" else "가격·리뷰(정숙성)"
         lines.append(f"→ {PRIORITY_LABEL[priority]}이라 {heavy} 비중이 커서, 요구 성능을 채우는 범위에서 더 싼 쪽이 점수가 높습니다.")
     elif standing and all(t >= i for _, t, i in standing):
-        lines.append("→ CPU·GPU가 이미 이 용도 기준 등급 이상이라, 더 비싼 부품은 성능 점수가 오르는 만큼 가격 점수가 "
+        lines.append("→ CPU·GPU가 이미 이 용도 기준 성능 이상이라, 더 비싼 부품은 성능 점수가 오르는 만큼 가격 점수가 "
                      "깎여 총점이 크게 오르지 않습니다. 리뷰 점수도 부품마다 달라 순위에 영향을 줍니다.")
     elif standing:
         lines.append("→ 기준에 못 미치는 부품이 있는데도 예산이 남은 이유는 이 계산만으로 확정할 수 없습니다"
@@ -894,7 +916,7 @@ def savings_options(conn, revision_id: UUID, target: int | None = None, keep: li
         cur = _current(ctx, slot, row)
         m0, m1 = (_metric(slot, cur.specs) if cur else None), _metric(slot, cand.specs)
         verdict, reasons = _requirement_verdict(ctx, slot, cand)
-        perf = (f" · {_metric_text(slot, m0)} → {_metric_text(slot, m1)}" if m0 is not None or m1 is not None
+        perf = (f" · {_change_text(slot, m0, m1)}" if m0 is not None or m1 is not None
                 else " · 성능 값 없음" + ("(요구 사양은 채움)" if verdict == "Pass" else ""))
         warn = f" · ⚠ {_reason_text(reasons)}" if verdict == "Fail" else ""
         now_price = _price(row) * _qty(row) if slot == "RAM" else _price(row)   # RAM 은 구성 합계끼리 비교
@@ -938,7 +960,7 @@ def savings_options(conn, revision_id: UUID, target: int | None = None, keep: li
         lines.append("요구 사양을 한 단계 낮추면 (⚠ 이 견적의 조건이 정한 기준 아래로 내려감):")
         for saving, slot, row, cand, m0, m1, reasons in relaxed:
             lines.append(f"- {slot}: {row['product_name']} → {_label(slot, cand)} {fmt_money(_price(cand))} (절약 {fmt_money(saving)})"
-                         f" · {_metric_text(slot, m0)} → {_metric_text(slot, m1)} · ⚠ {_reason_text(reasons)}"
+                         f" · {_change_text(slot, m0, m1)} · ⚠ {_reason_text(reasons)}"
                          f" · candidate_id={cand.variant_id}")
     lines.append("아직 아무것도 바꾸지 않았습니다.")
     return "\n".join(lines)

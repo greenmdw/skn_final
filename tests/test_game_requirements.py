@@ -119,7 +119,7 @@ def test_service_surfaces_unknown_games_and_trace_row(monkeypatch):
     assert len(held["extra_caveats"]) == 2 and any("잠정값" in c for c in held["extra_caveats"])
     assert "scope_note" not in extras                       # 신규 조립엔 견적 범위 문장이 없다
     step, detail = svc._games_trace_row(spec)
-    assert step == "게임 요구사양" and "CPU 등급 7 이상" in detail and "별게임" in detail
+    assert step == "게임 요구사양" and "최소 성능을 정했습니다" in detail and "등급" not in detail and "별게임" in detail
     assert svc._games_trace_row(_spec(purpose="game")) is None
     assert svc._explanation_extras(_spec(purpose="game")) == {}
 
@@ -347,7 +347,7 @@ def test_games_trace_row_uses_confirmed_wording_when_all_recognized_titles_are_a
     step, detail = svc._games_trace_row(spec)
     assert step == "게임 요구사양"
     assert "잠정" not in detail
-    assert "확인해 최소 등급을 정했습니다" in detail
+    assert "확인해 CPU·그래픽카드 최소 성능을 정했습니다" in detail and "등급" not in detail
 
 
 def test_explanation_extras_has_provisional_caveat_only_when_a_title_is_recognized(monkeypatch):

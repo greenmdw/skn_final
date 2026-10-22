@@ -140,7 +140,7 @@ def test_performance_priority_that_leaves_a_lot_explains_the_method_without_a_re
     notice = budget_notice(_totals(3_085_120), {"mode": "build", "budget_max": 7_000_000, "priority": "performance",
                                                 "purpose": "office"})
     assert notice["suggest_priority"] is None and notice["remaining"] == 3_914_880
-    assert "사무 용도 기준 등급" in notice["message"] and "남은 예산으로 뭘 올릴까?" in notice["message"]
+    assert "사무 용도 기준 성능" in notice["message"] and "남은 예산으로 뭘 올릴까?" in notice["message"]
     assert "성능 우선'으로 다시" not in notice["message"]
 
 

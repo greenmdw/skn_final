@@ -155,7 +155,7 @@ def test_rule_path_answers_questions_without_changing_the_build(conn):
 
     power = recommendation_service.handle_result_message(conn, revision_id, "파워 용량 충분해?")
     assert "파워 용량" in power["reply"]
-    assert "성능 등급과 이 용도 기준 등급: CPU" in power["reply"]          # 병목 질문의 근거 — 등급만, fps 아님
+    assert "CPU·GPU 성능과 이 용도 기준: CPU" in power["reply"]          # 병목 질문의 근거 — 용도 기준과만, fps 아님
 
     game = recommendation_service.handle_result_message(conn, revision_id, "배그 돌아가?")
     assert "배틀그라운드" in game["reply"]
@@ -206,7 +206,7 @@ def test_budget_reason_explains_how_the_set_was_chosen_without_changing_it(conn)
     assert "점수 합이 가장 높은 것" in out and "예산은 넘으면 안 되는 상한" in out
     assert "(성능 우선): 성능 60%" in out                       # 우선순위별 가중치 표 그대로
     # 사무 신규 조립은 GPU 를 견적에 넣지 않는다(computer-rules-v14) — 등급 비교는 있는 부품(CPU)만
-    assert "사무 용도 기준 등급" in out and "- CPU:" in out and "- GPU:" not in out
+    assert "사무 용도 기준 성능" in out and "등급" not in out and "- CPU:" in out and "- GPU:" not in out
     assert "\n→ " in out                                         # 결론 줄은 코드가 고른다
     assert _snapshot(conn, revision_id) == before
 
@@ -467,3 +467,27 @@ def test_no_cheaper_cooler_says_why_and_offers_the_box_cooler(conn):
     else:
         assert f"카탈로그 쿨러 {len(ctx.pool['쿨러'])}개 중 가장 싼 제품이라 더 싼 후보가 없습니다" in out, out
         assert "CPU 기본 쿨러(카탈로그 값)" in out and "별도 쿨러가 담겨 있음" in out, out
+
+
+def test_chat_tool_texts_never_show_perf_tier_numbers(conn):
+    """CPU·GPU 성능 등급은 사용자가 모르는 내부 눈금이다(10/22 "발로란트 잘 돌아가?"에 "등급 4, 6"). 결과 채팅 도구 문장은
+    등급 숫자 대신 "한 단계 위"·"기준 이상"으로 적는다."""
+    revision_id = _build(conn, budget=3_000_000, priority="performance")
+    texts = [result_advice.upgrade_options(conn, revision_id, 1_000_000),
+             result_advice.savings_options(conn, revision_id, 100_000),
+             result_advice.budget_reason(conn, revision_id),
+             result_advice.check_build(conn, revision_id),
+             result_advice.preview_swap(conn, revision_id, "GPU", direction="up"),
+             result_advice.preview_swap(conn, revision_id, "CPU", direction="down"),
+             result_advice.game_check(conn, revision_id, "사이버펑크, 발로란트")]
+    joined = "\n".join(texts)
+    assert not re.search(r"(등급|티어)\s*\d", joined), joined
+    assert "성능 한 단계 위" in joined or re.search(r"성능 [\d.]+단계 위", joined)
+
+
+@pytest.mark.parametrize("m0, m1, text", [
+    (5, 6, "지금보다 성능 한 단계 위"), (8, 4, "지금보다 성능 4단계 아래"), (6, 6, "지금과 같은 성능 수준"),
+    (None, 6, "성능 비교 정보 없음"),
+])
+def test_perf_change_text(m0, m1, text):
+    assert result_advice.perf_change_text(m0, m1) == text

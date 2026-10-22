@@ -72,7 +72,7 @@ def budget_notice(totals: dict | None, values: dict) -> dict | None:
     head = f"예산 {fmt_money(budget)} 중 {fmt_money(spent)}을 썼어요."
     if priority == "performance":
         purpose = PURPOSE_LABEL.get(values.get("purpose") or "game", "이")
-        message = (f"{head} 추천은 예산을 채우는 방식이 아니라 {purpose} 용도 기준 등급에 맞춰 점수가 가장 높은 조합을 골라요. "
+        message = (f"{head} 추천은 예산을 채우는 방식이 아니라 {purpose} 용도 기준 성능에 맞춰 점수가 가장 높은 조합을 골라요. "
                    f"남은 {fmt_money(remaining)}으로 올릴 부품은 결과 채팅에서 '남은 예산으로 뭘 올릴까?'라고 물어보세요.")
         suggest = None
     elif (reason := _UNDERSPENT_REASON.get(priority)) is not None:
@@ -1187,7 +1187,7 @@ _SPEC_DISPLAY_FIELDS: dict[str, list[tuple[str, str]]] = {
 
 def _spec_summary(slot: str, specs: dict | None) -> str | None:
     """개발요청 3번 — 슬롯별 실제 스펙 문자열. "성능 티어 N"은 맨 끝에 그대로 둔다 —
-    result_agent.py(100~102행)가 split("티어")로 파싱하는 형식을 안 바꾼다."""
+    result_agent._tier_of 가 이 형식으로 읽고, 채팅 도구 결과에 실을 때는 _chat_spec 이 뺀다."""
     specs = specs or {}
     parts = [fmt.format(specs[key]) for key, fmt in _SPEC_DISPLAY_FIELDS.get(slot, []) if specs.get(key) not in (None, "")]
     tier = specs.get("perf_tier")
@@ -1308,7 +1308,7 @@ def _explanation_extras(spec, tier_notes: list[str] | None = None) -> dict:
     # E7 — 인식된 게임 제목 중 팀 확인 전(provisional) 값이 하나라도 있으면 코드가 caveat 을 붙인다
     # (LLM 문안 아님, 결정 0003과 같은 원칙 — 판정·수치는 코드). 표에 없는 게임 caveat 과는 별개다.
     if "games_provisional" in spec.flags:
-        caveats.append("게임별 요구 등급은 배급사 권장 사양을 대략 옮긴 잠정값이라, "
+        caveats.append("게임별 요구 성능 기준은 배급사 권장 사양을 대략 옮긴 잠정값이라, "
                        "구매 전 해당 게임의 공식 권장 사양을 확인해 주세요.")
     if caveats:
         out["extra_caveats"] = caveats
@@ -1324,24 +1324,22 @@ def _games_trace_row(spec) -> tuple[str, str] | None:
     """
     if "games_applied" not in spec.flags:
         return None
-    gpu = (spec.targets.get("GPU") or {}).get("perf_tier_min")
-    cpu = (spec.targets.get("CPU") or {}).get("perf_tier_min")
-    tier_note = f" (GPU 등급 {gpu} 이상, CPU 등급 {cpu} 이상)" if gpu is not None and cpu is not None else ""
+    # 정한 최소 성능 등급 숫자("GPU 등급 4 이상")는 적지 않는다 — 사용자가 모르는 내부 눈금이다(10/22)
     games = spec.games
     approved = [g for g in games if g["status"] == "approved"]
 
     if not games or not approved:
         # 인식된 제목을 모두 잠정값으로 다룬다(games 를 못 얻은 방어적 경우도 포함) — 단정하지 않는다.
-        detail = "입력한 게임의 권장 사양을 대략 옮긴 잠정 기준으로 최소 등급을 정했습니다" + tier_note
+        detail = "입력한 게임의 권장 사양을 대략 옮긴 잠정 기준으로 CPU·그래픽카드 최소 성능을 정했습니다"
     elif len(approved) == len(games):
-        detail = "입력한 게임의 배급사 권장 사양을 확인해 최소 등급을 정했습니다" + tier_note
+        detail = "입력한 게임의 배급사 권장 사양을 확인해 CPU·그래픽카드 최소 성능을 정했습니다"
     else:
         per_title = [
             f"{g['label']}: 배급사 권장 사양 확인({(g.get('source') or {}).get('checked_at')})"
             if g["status"] == "approved" else f"{g['label']}: 잠정값"
             for g in games
         ]
-        detail = "게임별 요구 등급 확인 상태 — " + ", ".join(per_title) + tier_note
+        detail = "게임별 권장 사양 확인 상태 — " + ", ".join(per_title)
     unknown = _unknown_games(spec)
     if unknown:
         detail += f". 표에 없는 게임: {', '.join(unknown)}"

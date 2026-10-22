@@ -24,12 +24,14 @@ _COMPARED_KEYS = ("purpose", "games", "resolution", "budget_max", "priority")
 _REQUIREMENT_DRIVERS = ("purpose", "games", "resolution")
 # (슬롯, 요구 필드) → 사람 말
 _REQUIREMENT_FIELDS = {
-    ("GPU", "perf_tier_min"): "그래픽 성능 등급",
+    ("GPU", "perf_tier_min"): "그래픽 성능",
     ("GPU", "vram_gb_min"): "그래픽 메모리(GB)",
-    ("CPU", "perf_tier_min"): "CPU 성능 등급",
+    ("CPU", "perf_tier_min"): "CPU 성능",
     ("RAM", "capacity_gb_min"): "메모리 용량(GB)",
     ("파워", "wattage_min"): "파워 용량(W)",
 }
+# 값이 성능 등급인 요구 — 숫자("6 → 7") 대신 단계 차이로 적는다. 사용자가 모르는 내부 눈금이다(10/22).
+_TIER_FIELDS = {("GPU", "perf_tier_min"), ("CPU", "perf_tier_min")}
 # 게임 요구 표의 키 → 요구 필드(슬롯, 필드)
 _GAME_TIER_FIELDS = {"gpu": ("GPU", "perf_tier_min"), "vram_gb": ("GPU", "vram_gb_min"),
                      "cpu": ("CPU", "perf_tier_min"), "ram_gb": ("RAM", "capacity_gb_min")}
@@ -59,6 +61,14 @@ def _selected_items(result: dict) -> dict[str, dict]:
     return {i["slot"]: i for i in result.get("items") or [] if i.get("selected")}
 
 
+def _requirement_change_text(change: dict) -> str:
+    if change["field"] not in _TIER_FIELDS:
+        return f"{change['label']} {change['before']} → {change['after']}"
+    gap = float(change["after"]) - float(change["before"])
+    steps = "한 단계" if abs(gap) == 1 else f"{abs(gap):g}단계"
+    return f"{change['label']} {steps} {'높아짐' if gap > 0 else '낮아짐'}"
+
+
 def _game_evidence(before: dict, after: dict, field: tuple[str, str], req_before, req_after) -> list[str]:
     """게임이 바뀌어 이 요구가 달라졌을 때, 그 요구값을 정한 게임만 — 새로 들어와 요구를 올린 게임
     (요구값 = 바뀐 뒤 요구) 또는 빠지면서 요구를 내린 게임(요구값 = 바뀌기 전 요구)."""
@@ -74,8 +84,9 @@ def _game_evidence(before: dict, after: dict, field: tuple[str, str], req_before
                       *((k, "제외") for k in old_keys if k not in new_keys)]:
         value = (titles.get(key) or {}).get("tier", {}).get(tier_key)
         if value is not None and value == (req_after if verb == "추가" else req_before):
-            lines.append(f"{stage2_requirement.game_title_label(key, rules)} {verb}"
-                         f"({_REQUIREMENT_FIELDS[field]} {value} 요구)")
+            need = (f"{_REQUIREMENT_FIELDS[field]} 기준을 {'올림' if verb == '추가' else '내림'}" if field in _TIER_FIELDS
+                    else f"{_REQUIREMENT_FIELDS[field]} {value} 요구")
+            lines.append(f"{stage2_requirement.game_title_label(key, rules)} {verb}({need})")
     return lines
 
 
@@ -136,7 +147,7 @@ def compare(before_values: dict, after_values: dict, before_result: dict, after_
                     games += [g for g in _game_evidence(before_values, after_values, change["field"],
                                                         change["before"], change["after"]) if g not in games]
                 evidence += games or [f"{c['label']} {c['before']} → {c['after']}" for c in causes if c["key"] == "games"]
-            claim = ", ".join(f"{c['label']} {c['before']} → {c['after']}" for c in req_changes[slot])
+            claim = ", ".join(_requirement_change_text(c) for c in req_changes[slot])
             reasons.append({"slot": slot, "label": label, "kind": "requirement",
                             "claim": f"요구 {claim}", "evidence": evidence, "source": "rules",
                             "cites_games": any(c["key"] == "games" for c in causes)})
@@ -152,7 +163,7 @@ def compare(before_values: dict, after_values: dict, before_result: dict, after_
         "reasons": reasons,
         "totals": {"before": total_before, "after": total_after, "diff": total_after - total_before},
         # 게임 표를 근거로 인용했고 그 표가 잠정값일 때만 알린다.
-        "caveats": (["게임 요구 등급은 팀 확인 전 잠정값이에요."]
+        "caveats": (["게임 권장 사양 기준은 팀 확인 전 잠정값이에요."]
                     if any(r.get("cites_games") for r in reasons)
                     and _games_provisional(before_values.get("games"), after_values.get("games")) else []),
     }

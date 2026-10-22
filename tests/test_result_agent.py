@@ -555,3 +555,10 @@ def test_previous_outputs_come_from_the_last_answer_turn_log():
     assert ra.previous_outputs(more) == ["explain"]
     assert ra.previous_outputs(more, turns=2) == ["바꾼 뒤 총액 1,530,828원", "explain"]
     assert ra.previous_outputs(more, turns=0) == []
+
+
+def test_chat_spec_drops_the_tier_and_tier_of_reads_it():
+    from src.agent.result_agent import _chat_spec, _tier_of
+    assert _chat_spec("AM5 · 6코어 · 성능 티어 6") == "AM5 · 6코어"
+    assert _chat_spec("성능 티어 6") == "" and _chat_spec(None) == ""
+    assert _tier_of("AM5 · 성능 티어 6.5") == 6.5 and _tier_of("AM5") is None
