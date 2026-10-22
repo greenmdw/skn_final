@@ -103,7 +103,7 @@ def _slot_reasons(review: dict, owned: dict[str, dict], by_slot: dict[str, list[
     for row in _game_rows(conditions, owned):
         if row["state"] == "unmet" and row["slot"] in reasons:
             reasons[row["slot"]].append({"code": "game_unmet", "game": row["game"], "key": row["key"],
-                                         "text": f"{row['game']} 요구 {row['label']} {row['need']:g} / 지금 {float(row['have']):g}"})
+                                         "text": f"{row['game']} 권장 사양 미달 — " + grc.requirement_phrase(row["key"], row["need"], row["have"])})
 
     for slot, info in owned.items():
         if info.get("source") != "catalog":

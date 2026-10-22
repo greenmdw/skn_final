@@ -654,7 +654,7 @@ def test_result_questions_work_without_a_gpu_and_do_not_change_the_quote():
         assert check and "GPU 길이" not in check                              # 빠진 GPU 의 길이 검사를 '정보 없음'으로 말하지 않는다
         assert "기본 쿨러" in "\n".join(result_advice.cooler_lines(conn, ctx))
         game = result_advice.game_check(conn, revision_id, "롤")
-        assert "그래픽카드를 넣지 않은 내장 그래픽 구성이라 비교하지 않음" in game and "GPU 성능 등급 요구" in game
+        assert "그래픽카드를 넣지 않은 내장 그래픽 구성이라 비교하지 않음" in game and "CPU 성능 지금 " in game and "등급" not in game
         from src.services import peripherals_service
         pc_context = peripherals_service.pc_context_from_list(conn, list_id, principal)     # 모니터 단자 검사가 내장 그래픽 견적임을 안다
         assert pc_context["gpu_specs"] is None and pc_context["integrated_graphics"] is True

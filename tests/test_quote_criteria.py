@@ -56,7 +56,7 @@ def test_game_lines_check_each_quote_against_the_table_with_its_own_values():
     out = game_lines(rows, "R01", "R02", "R02에서 롤이랑 배그 돌아가?")
     first, second = out.split("[R02]")
     assert out.startswith("[R01]") and "롤" in first and "배그" in first
-    assert "⚠ 미달" in first and "⚠ 미달" not in second and "표의 요구 기준을 모두 채움" in second
+    assert "⚠ 미달" in first and "⚠ 미달" not in second and "표의 권장 사양을 모두 채움" in second
 
 
 def test_game_lines_say_the_game_is_missing_only_when_it_is_really_not_in_the_table():

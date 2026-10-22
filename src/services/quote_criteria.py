@@ -102,7 +102,7 @@ def facts_lines(criteria: list[dict[str, Any]], label_a: str, label_b: str) -> l
 
 
 def game_lines(criteria: list[dict[str, Any]], label_a: str, label_b: str, game: str) -> str:
-    """두 견적 각각의 게임 요구 사양 비교 — 기준 표의 등급·용량 값을 그대로 쓴다(표에 없는 게임이면 그 사실만)."""
+    """두 견적 각각의 게임 요구 사양 비교 — CPU·GPU 는 권장 이상/미달, RAM·VRAM 은 용량(표에 없는 게임이면 그 사실만)."""
     from src.engine.game_requirements_check import check_games
 
     row = {r["key"]: r for r in criteria}

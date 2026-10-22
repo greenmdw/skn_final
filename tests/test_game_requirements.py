@@ -119,7 +119,7 @@ def test_service_surfaces_unknown_games_and_trace_row(monkeypatch):
     assert len(held["extra_caveats"]) == 2 and any("잠정값" in c for c in held["extra_caveats"])
     assert "scope_note" not in extras                       # 신규 조립엔 견적 범위 문장이 없다
     step, detail = svc._games_trace_row(spec)
-    assert step == "게임 요구사양" and "CPU 등급 7 이상" in detail and "별게임" in detail
+    assert step == "게임 요구사양" and "최소 성능을 정했습니다" in detail and "등급" not in detail and "별게임" in detail
     assert svc._games_trace_row(_spec(purpose="game")) is None
     assert svc._explanation_extras(_spec(purpose="game")) == {}
 
@@ -347,7 +347,7 @@ def test_games_trace_row_uses_confirmed_wording_when_all_recognized_titles_are_a
     step, detail = svc._games_trace_row(spec)
     assert step == "게임 요구사양"
     assert "잠정" not in detail
-    assert "확인해 최소 등급을 정했습니다" in detail
+    assert "확인해 CPU·그래픽카드 최소 성능을 정했습니다" in detail and "등급" not in detail
 
 
 def test_explanation_extras_has_provisional_caveat_only_when_a_title_is_recognized(monkeypatch):
@@ -364,3 +364,17 @@ def test_explanation_extras_has_no_provisional_caveat_when_all_recognized_titles
     monkeypatch.setattr(s2, "load_computer_rules", lambda path=None: rules)
     extras = svc._explanation_extras(_spec(purpose="game", games=["롤"]))
     assert extras == {}
+
+
+def test_game_check_sentence_never_shows_perf_tier_numbers():
+    """"발로란트 잘 돌아가?"에 "GPU 성능 등급 요구 3 / 지금 6"이 그대로 답에 옮겨졌다(10/22) — 사용자는 등급 눈금을 모른다.
+    CPU·GPU 는 권장 이상/미달만, RAM·VRAM 은 GB 로 적는다."""
+    from src.engine.game_requirements_check import check_games
+
+    met = check_games("발로란트", {"gpu": 6, "cpu": 5, "ram_gb": 32, "vram_gb": 8})
+    assert "등급" not in met and "권장 사양을 모두 채움" in met
+    assert "그래픽카드 성능 지금 권장 이상" in met and "RAM 용량 지금 32GB(권장" in met
+    short = check_games("사이버펑크", {"gpu": 1, "cpu": 1, "ram_gb": 16, "vram_gb": 8}, subject="바꾼 뒤")
+    assert "등급" not in short and "권장 사양 미달: 그래픽카드 성능, CPU 성능" in short
+    assert "그래픽카드 성능 바꾼 뒤 권장보다 낮음 ⚠ 미달" in short
+    assert not re.search(r"성능[^·(]*\d", met + short)          # CPU·GPU 항목에는 숫자가 없다

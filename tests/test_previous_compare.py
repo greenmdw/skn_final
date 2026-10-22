@@ -26,7 +26,7 @@ def test_resolution_change_explains_the_gpu_upgrade_and_keeps_the_rest():
     c = compare(BASE, {**BASE, "resolution": "QHD_165"}, BEFORE, after, "9월 25일")
     reason = _reason(c, "GPU")
     assert reason["kind"] == "requirement"
-    assert "그래픽 성능 등급 6 → 7" in reason["claim"]
+    assert "그래픽 성능 한 단계 높아짐" in reason["claim"] and "등급" not in c["text"]
     assert reason["evidence"] == ["해상도·주사율 FHD 144Hz → QHD 165Hz"]
     assert c["unchanged"] == ["CPU", "RAM"]
     assert c["totals"]["diff"] == 300_000
@@ -52,7 +52,7 @@ def test_heavier_game_is_named_as_the_cause_with_its_table_value():
     c = compare(BASE, {**BASE, "games": ["오버워치", "사이버펑크"]}, BEFORE, after, "9월 25일")
     reason = _reason(c, "CPU")
     assert reason["kind"] == "requirement"
-    assert reason["evidence"] == ["사이버펑크 추가(CPU 성능 등급 7 요구)"]
+    assert reason["evidence"] == ["사이버펑크 추가(CPU 성능 기준을 올림)"]
     assert not any("오버워치" in e and "추가" in e for e in reason["evidence"])
     assert c["caveats"] == [], "게임 표가 승인(approved)됐으면 잠정값 안내가 없다"
 
