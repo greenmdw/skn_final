@@ -1,0 +1,240 @@
+import { useEffect, useState, type FormEvent } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import PlannerShell from '../components/PlannerShell'
+import QuantityWarnings from '../components/QuantityWarnings'
+import DateInput from '../components/DateInput'
+import ProductThumb from '../components/ProductThumb'
+import { api } from '../api'
+import { usePlan } from '../state/PlanContext'
+import { useToast } from '../state/ToastContext'
+import { localDate, multiQtyItems, peripheralsTotal, planTotal } from '../state/planModel'
+import { useSetups } from '../state/SetupsContext'
+import { useAuthUser } from '../state/authStore'
+import type { CurrentPlan, SavedSetup } from '../state/types'
+import { wonFmt } from '../utils/format'
+
+// 장바구니 양식(이름·구매 예정일·목표 금액·메모)을 다른 화면(예: 주변기기 추천)에 다녀와도 잃지 않게 이 탭에 보관한다.
+// 이름·목표 금액은 사용자가 직접 고친 경우에만 보관한다 — 고치지 않았으면 담은 구성에 맞춘 기본값을 다시 계산한다.
+interface CartForm { name?: string; date?: string; target?: string; memo?: string }
+const formKey = (listId: string) => 'truefit.cart.form:' + listId
+function readForm(listId: string | undefined): CartForm | null {
+  if (!listId) return null
+  try { return JSON.parse(sessionStorage.getItem(formKey(listId)) ?? 'null') as CartForm | null } catch { return null }
+}
+function writeForm(listId: string, form: CartForm | null) {
+  try {
+    if (form) sessionStorage.setItem(formKey(listId), JSON.stringify(form))
+    else sessionStorage.removeItem(formKey(listId))
+  } catch { /* 보관 실패는 무시 */ }
+}
+
+// 추천 결과를 장바구니에 담아 확인하고, 이름·구매 예정일·목표 금액·메모를 정해 확정한다(서버가 리포트를 만든다).
+// 확정은 로그인이 필요하다 — 로그인하면 이 구성을 그대로 이어서 확정할 수 있다.
+export default function CartPage() {
+  const { state, checkDraft, clearEditingSheet, setPeripherals } = usePlan()
+  const { addSetup, storageError, reload: reloadSetups } = useSetups()
+  const { showToast } = useToast()
+  const user = useAuthUser()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const plannerMode = (location.state as { plannerMode?: 'computer' | 'check' | 'peripherals' } | null)?.plannerMode
+  const peripherals = state.peripherals
+  // 본체 견적 없이 주변기기만 담았으면, 그 추천을 받은 목록(세션)을 본체 없는 견적으로 확정한다.
+  const peripheralOnly = !state.currentPlan && !!state.peripheralSessionId && state.peripherals.length > 0
+  const plan: CurrentPlan | null = state.currentPlan ?? (peripheralOnly && state.peripheralSessionId
+    ? { id: state.peripheralSessionId, mode: 'new', items: [], budget: null, conditions: { intent: '', performance: '', quiet: '' }, checkSnapshot: null }
+    : null)
+  const bodyTotal = plan ? planTotal(plan) : 0
+  const periphTotal = peripheralsTotal(peripherals)
+  const total = bodyTotal + periphTotal
+  const defaultName = [state.intent, plan?.budget ? Math.round(plan.budget / 10000).toLocaleString('ko-KR') + '만 원' : '', state.quiet].filter(Boolean).join(' · ')
+  // "견적 수정하기"로 들어왔으면 원본 견적서의 이름·날짜·목표 금액·메모를 처음 값으로 쓰고, 덮어쓸지 새로 저장할지 묻는다.
+  const editing = state.editingSheet && state.editingSheet.listId === plan?.id ? state.editingSheet : null
+  const [saveMode, setSaveMode] = useState<'overwrite' | 'new' | null>(null)
+  const kept = editing ? null : readForm(plan?.id)
+  const [name, setName] = useState(editing?.name ?? kept?.name ?? (defaultName || (peripheralOnly ? '주변기기 견적' : '내 PC 견적')))
+  const [nameEdited, setNameEdited] = useState(kept?.name !== undefined)
+  const [date, setDate] = useState(editing?.date ?? kept?.date ?? '')   // ISO(yyyy-mm-dd). 칸이 비면 오늘로 확정한다
+  const [dateOk, setDateOk] = useState(true)
+  const [target, setTarget] = useState(editing ? String(editing.target) : kept?.target ?? (total ? String(total) : ''))
+  const [targetEdited, setTargetEdited] = useState(kept?.target !== undefined)
+  const [memo, setMemo] = useState(editing?.memo ?? kept?.memo ?? '')
+  const today = localDate()
+  useEffect(() => {
+    if (!plan || editing) return
+    writeForm(plan.id, {
+      ...(nameEdited ? { name } : {}), date, ...(targetEdited ? { target } : {}), memo,
+    })
+  }, [plan?.id, editing, name, nameEdited, date, target, targetEdited, memo]) // eslint-disable-line react-hooks/exhaustive-deps
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  if (!plan) {
+    return (
+      <PlannerShell>
+        <div className="pl-page narrow">
+          <h2 className="pl-h2">장바구니</h2>
+          <div className="pl-empty">담은 구성이 없어요. 조건을 말하고 추천을 받은 뒤 “장바구니에 담기”를 눌러 주세요.</div>
+          <div><Link className="pl-btn" style={{ textDecoration: 'none', display: 'inline-block' }} to="/start">추천 받으러 가기</Link></div>
+        </div>
+      </PlannerShell>
+    )
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    if (!plan) return
+    const cleanName = name.trim()
+    if (!cleanName) { setError('견적 이름을 입력해 주세요.'); return }
+    if (editing && !saveMode) { setError('원본 견적서를 덮어쓸지, 새 견적서로 저장할지 먼저 골라 주세요.'); return }
+    if (!dateOk) { setError('구매 예정일을 YY/MM/DD 형식으로, 오늘 이후 날짜로 입력해 주세요. 예: 26/10/05'); return }
+    const targetWon = target.trim() === '' ? total : Number(target.replace(/[^0-9]/g, ''))
+    if (!Number.isSafeInteger(targetWon) || targetWon < 0) { setError('목표 금액은 숫자로 입력해 주세요.'); return }
+    setError('')
+    setBusy(true)
+    const setup: SavedSetup = {
+      id: plan.id, title: cleanName, date: date || localDate(), target: targetWon, memo: memo.trim(),
+      savedAt: new Date().toISOString(), plan,
+      desk: { deskUnlocked: state.deskUnlocked, deskWidth: state.deskWidth, deskDepth: state.deskDepth, deskHeight: state.deskHeight },
+      checkDraft, peripherals,
+    }
+    const ok = await addSetup(setup)
+    if (ok && editing && saveMode === 'overwrite') {
+      // 새 견적서로 확정한 뒤 원본을 지운다 — 덮어쓴 것과 같은 결과다(서버에 "덮어쓰기" API가 없어 두 단계로 한다).
+      try {
+        await api.lists.removeReport(editing.listId, editing.revisionNo)
+        reloadSetups()   // addSetup 이 먼저 읽은 목록에는 아직 원본이 있어서 한 번 더 읽는다
+      } catch {
+        showToast('새 견적서는 저장했지만 원본을 지우지 못했어요. 저장한 견적에서 원본을 직접 지워 주세요.')
+      }
+    }
+    setBusy(false)
+    if (ok) { writeForm(plan.id, null); clearEditingSheet(); setPeripherals([]); navigate('/report/' + plan.id, { state: plannerMode ? { plannerMode } : undefined }) }
+  }
+
+  const budget = plan.budget
+  // 서버는 예산을 넘는 구성의 확정을 거절한다. 미리 알려 주고 버튼을 막는다.
+  const overBudget = budget !== null && bodyTotal > budget
+  return (
+    <PlannerShell>
+      <div className="pl-page" style={{ maxWidth: 1080 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div className="pl-eyebrow pl-mono">3 장바구니 · 확인하고 확정하면 리포트가 만들어져요</div>
+          <h2 className="pl-h2" style={{ fontSize: 26 }}>장바구니</h2>
+        </div>
+        <div className="pl-cols">
+          <div className="pl-card">
+            {peripheralOnly ? (
+              <div className="pl-note" style={{ padding: '12px 16px' }}>
+                본체 견적 없이 주변기기만 확정해요. 본체도 함께 확정하려면 <Link to="/start" style={{ color: 'inherit', fontWeight: 700 }}>본체 추천 받기 →</Link>
+              </div>
+            ) : (
+              <div className="pl-card-head" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontWeight: 700 }}>본체</span>
+                <span className="pl-note">{plan.items.length}개</span>
+                <span className="pl-mono" style={{ marginLeft: 'auto' }}>{wonFmt(bodyTotal)}</span>
+              </div>
+            )}
+            {plan.items.map(item => (
+              <div className="pl-cart-row" key={item.id}>
+                <ProductThumb imageUrl={item.imageUrl} partKey={item.key} name={item.name} />
+                <span className="pl-part-cat cat">{item.type}</span>
+                <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <b>{item.name}</b>
+                    {item.qty != null && <span className="pl-qty">×{item.qty}</span>}
+                  </div>
+                  {item.fit && <span className="pl-note">이유 · {item.fit}</span>}
+                </div>
+                <span className="pl-mono" style={{ fontSize: 13 }}>{wonFmt(item.price)}</span>
+              </div>
+            ))}
+            <div className="pl-card-head" style={{ display: 'flex', alignItems: 'center', gap: 10, borderTop: '1px solid var(--line)' }}>
+              <span style={{ fontWeight: 700 }}>주변기기</span>
+              <span className="pl-note">{peripherals.length}개</span>
+              {peripherals.length > 0 && <span className="pl-mono" style={{ marginLeft: 'auto' }}>{wonFmt(periphTotal)}</span>}
+            </div>
+            {peripherals.length === 0 && (
+              <div className="pl-note" style={{ padding: '12px 16px' }}>
+                모니터·키보드·마우스·스피커도 함께 확정하려면 <Link to="/peripherals" style={{ color: 'inherit', fontWeight: 700 }}>주변기기 추천 받기 →</Link>
+              </div>
+            )}
+            {peripherals.map(item => (
+              <div className="pl-cart-row" key={item.variantId ?? item.name}>
+                <ProductThumb imageUrl={item.imageUrl} partKey={item.kind} name={item.name} />
+                <span className="pl-part-cat cat">{{ monitor: '모니터', keyboard: '키보드', mouse: '마우스', speaker: '스피커' }[item.kind]}</span>
+                <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap' }}>
+                    <b>{item.name}</b>
+                    {item.qty > 1 && <span className="pl-qty">×{item.qty}</span>}
+                  </div>
+                  <span className="pl-note">참고가 · 판매처·관측일 미확인 가격이라 구매 가능 가격이 아니에요</span>
+                </div>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <span className="pl-mono" style={{ fontSize: 13 }}>{wonFmt(item.price * item.qty)}</span>
+                  <button type="button" className="pl-pill" onClick={() => setPeripherals(peripherals.filter(entry => entry !== item))} aria-label={`${item.name} 장바구니에서 빼기`}>빼기</button>
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <form className="pl-side" onSubmit={submit} noValidate>
+            <div className="pl-card" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div className="pl-sum-row"><span style={{ color: 'var(--muted)' }}>본체</span><span className="pl-mono">{wonFmt(bodyTotal)}</span></div>
+              {peripherals.length > 0 && <div className="pl-sum-row"><span style={{ color: 'var(--muted)' }}>주변기기</span><span className="pl-mono">{wonFmt(periphTotal)}</span></div>}
+              <div style={{ height: 1, background: 'var(--line)' }} />
+              <div className="pl-sum-row"><b>합계</b><b className="pl-mono" style={{ fontSize: 22 }}>{wonFmt(total)}</b></div>
+              {budget !== null && (
+                <div className="pl-note">{bodyTotal <= budget ? `본체 예산 ${wonFmt(budget)} 중 ${wonFmt(budget - bodyTotal)} 남아요` : `본체 예산 ${wonFmt(budget)}을 ${wonFmt(bodyTotal - budget)} 넘었어요`}</div>
+              )}
+            </div>
+            <div className="pl-card" style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {editing && (
+                <fieldset className="pl-savemode">
+                  <legend>이 견적서를 어떻게 저장할까요?</legend>
+                  <label className={saveMode === 'overwrite' ? 'on' : ''}>
+                    <input type="radio" name="savemode" checked={saveMode === 'overwrite'} onChange={() => setSaveMode('overwrite')} />
+                    <span><b>원본 덮어쓰기</b><small>“{editing.name}”이 지금 구성으로 바뀌고, 원래 구성은 사라져요.</small></span>
+                  </label>
+                  <label className={saveMode === 'new' ? 'on' : ''}>
+                    <input type="radio" name="savemode" checked={saveMode === 'new'} onChange={() => setSaveMode('new')} />
+                    <span><b>새 견적서로 저장</b><small>원본은 그대로 남고, 새 견적서가 하나 더 생겨요.</small></span>
+                  </label>
+                </fieldset>
+              )}
+              <label className="pl-field">견적 이름
+                <input value={name} maxLength={60} onChange={e => { setName(e.target.value); setNameEdited(true) }} />
+              </label>
+              <div className="pl-two">
+                <div className="pl-field">구매 예정일
+                  <DateInput value={date} min={today} ariaLabel="구매 예정일" onChange={(iso, ok) => { setDate(iso); setDateOk(ok) }} />
+                </div>
+                <label className="pl-field">목표 금액(원)
+                  <input inputMode="numeric" value={target} onChange={e => { setTarget(e.target.value); setTargetEdited(true) }} className="pl-mono" />
+                </label>
+              </div>
+              <label className="pl-field">메모
+                <textarea value={memo} maxLength={1000} placeholder="예: 세일 때 GPU 가격 다시 보기" onChange={e => setMemo(e.target.value)} />
+              </label>
+              {!user && (
+                <div className="pl-alert warn" role="status">
+                  확정하려면 로그인이 필요해요. 지금 구성은 그대로 남아 있어요.{' '}
+                  <Link to="/login?next=/cart" style={{ color: 'inherit', fontWeight: 700 }}>로그인하기 →</Link>
+                </div>
+              )}
+              <QuantityWarnings items={multiQtyItems(plan)} />
+              {overBudget && (
+                <div className="pl-alert bad" role="alert">
+                  예산을 넘는 구성은 확정할 수 없어요. 부품이나 수량을 바꿔 예산 안으로 맞춰 주세요.{' '}
+                  <Link to="/plan" style={{ color: 'inherit', fontWeight: 700 }}>결과에서 고치기 →</Link>
+                </div>
+              )}
+              {(error || storageError) && <div className="pl-alert bad" role="alert">{error || storageError}</div>}
+              <button type="submit" className="pl-btn" style={{ fontSize: 15 }} disabled={busy || !user || overBudget || (!!editing && !saveMode)}>{busy ? '확정하는 중…' : '확정하고 리포트 만들기'}</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </PlannerShell>
+  )
+}

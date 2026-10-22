@@ -1,0 +1,249 @@
+"""호환 표기 해석(compat_parse) + 쿨러 소켓·BIOS 축 회귀.
+
+회귀 배경(2026-09-21): 쿨러의 지원 소켓 "LGA1851/1700/1200"을 문자열 포함으로 비교해서 LGA1700 CPU 와 맞는 쿨러가
+비호환으로 판정됐다(LGA1700 CPU 15종 × 쿨러 40종 = 600쌍 중 150쌍 오판). BIOS 축은 데이터가 있는데도 항상 "ok (근사)"였다.
+"""
+from __future__ import annotations
+
+import pytest
+
+from src.dto import Candidate, RequirementSpec
+from src.engine.compat_parse import cpu_family, cpu_supported, parse_socket_list, socket_supported, supported_families
+from src.engine.stage2_requirement import load_computer_rules
+from src.engine import ram_config
+from src.engine.stage4_optimize import _pc_known_failures, pc_compat_details, pc_link_check
+
+RULES = load_computer_rules()["verification"]
+
+
+# ── 소켓 표기 ────────────────────────────────────────────────────────────────
+def test_abbreviated_sockets_inherit_the_prefix_and_wildcards_expand():
+    assert parse_socket_list("LGA1851/1700/1200/115x, AM5/AM4") == ["LGA1851", "LGA1700", "LGA1200", "LGA115.", "AM5", "AM4"]
+    assert parse_socket_list("LGA1851/1700,AM5/AM4") == ["LGA1851", "LGA1700", "AM5", "AM4"]      # 쉼표 뒤 공백 없음
+    assert parse_socket_list(["LGA1700", "AM5/AM4"]) == ["LGA1700", "AM5", "AM4"]                # 리스트도 받는다
+
+
+@pytest.mark.parametrize("cpu, listed, expected", [
+    ("LGA1700", "LGA1851/1700/1200/115x, AM5/AM4", True),    # 이게 오판되던 것
+    ("LGA1851", "LGA1851/1700", True),
+    ("LGA1151", "LGA1700/1200/115x, AM5/AM4", True),         # 115x = 1150·1151·1155·1156
+    ("LGA1700", "AM5/AM4", False),
+    ("AM5", "LGA1700/1200/115x, AM5/AM4", True),
+    ("AM4", "AM5", False),                                    # AM4 는 AM5 가 아니다(접두 일치 오판 방지)
+    ("LGA 1700", "LGA-1700", True),                           # 공백·하이픈 무시
+    ("LGA1700", "", None), (None, "AM5", None), ("LGA1700", None, None),
+])
+def test_socket_supported(cpu, listed, expected):
+    assert socket_supported(cpu, listed) is expected
+
+
+# ── CPU 계열 ─────────────────────────────────────────────────────────────────
+@pytest.mark.parametrize("name, family", [
+    ("AMD Ryzen 7 7800X3D", "ryzen:7000"), ("AMD Ryzen 9 9950X3D2", "ryzen:9000"), ("AMD Ryzen 5 3600", "ryzen:3000"),
+    ("Ryzen 5 1600", "ryzen:1000"), ("AMD Ryzen 5 8600G", "ryzen:8000G"), ("Ryzen 5 4600G", "ryzen:4000G"),
+    ("Ryzen 5 5600G", "ryzen:5000"),                                   # 5000 번대의 G 는 별도 계열이 아니다
+    ("Intel Core i5-14600K", "core:14"), ("i7-9700K", "core:9"), ("Intel Core i3-12100F", "core:12"),
+    ("Intel Core Ultra 7 265K", "ultra:200S"), ("Intel Core Ultra 5 250K Plus", "ultra:PLUS"),
+    ("Pentium G4560", None), ("옛날 CPU", None), ("", None), (None, None),
+])
+def test_cpu_family_from_name(name, family):
+    assert cpu_family(name) == family
+
+
+def test_board_family_lists():
+    assert supported_families("Ryzen 7000 / 8000G / 9000 계열") == {"ryzen:7000", "ryzen:8000G", "ryzen:9000"}
+    assert supported_families("Ryzen 3000 / 4000G / 5000 계열") == {"ryzen:3000", "ryzen:4000G", "ryzen:5000"}
+    assert supported_families("Intel Core 12 / 13 / 14세대") == {"core:12", "core:13", "core:14"}
+    assert supported_families("Intel Core Ultra 200S / Plus 계열") == {"ultra:200S", "ultra:PLUS"}
+    assert supported_families("") == supported_families(None) == set()
+
+
+def test_cpu_supported_is_three_valued():
+    am4 = "Ryzen 3000 / 4000G / 5000 계열"
+    assert cpu_supported("AMD Ryzen 7 5800X3D", am4) is True
+    assert cpu_supported("AMD Ryzen 5 2600", am4) is False           # 2000 번대는 이 보드의 지원 목록에 없다
+    assert cpu_supported("알 수 없는 CPU", am4) is None              # 모르면 단정하지 않는다
+    assert cpu_supported("AMD Ryzen 7 5800X3D", None) is None
+
+
+def test_every_catalog_cpu_family_is_read_and_listed_by_its_boards():
+    """실제 카탈로그의 CPU 이름 형식을 전부 읽고, 같은 소켓 보드의 지원 목록과 맞는다(오판 0)."""
+
+    import psycopg
+    from src.config import DATABASE_URL
+    try:
+        conn = psycopg.connect(DATABASE_URL, prepare_threshold=None)
+    except psycopg.OperationalError:
+        pytest.skip("로컬 PostgreSQL(DATABASE_URL)에 연결할 수 없습니다")
+    with conn:
+        if not conn.execute("SELECT to_regclass('catalog.cpu_spec') IS NOT NULL").fetchone()[0]:
+            pytest.skip("카탈로그가 없습니다")
+        cpus = conn.execute("SELECT p.name, s.socket FROM catalog.product p JOIN catalog.cpu_spec s ON s.product_id=p.id").fetchall()
+        boards = conn.execute("SELECT s.socket, s.supported_cpu_family FROM catalog.mainboard_spec s").fetchall()
+    if not cpus or not boards:
+        pytest.skip("PC 카탈로그가 seed 되지 않았습니다")
+    assert [n for n, _ in cpus if cpu_family(n) is None] == [], "이름에서 계열을 못 읽는 CPU"
+    for name, socket in cpus:
+        for b_socket, listed in boards:
+            if b_socket == socket:
+                assert cpu_supported(name, listed) is True, (name, listed)
+
+
+# ── 엔진 연결 ────────────────────────────────────────────────────────────────
+def _cand(slot, name, **specs):
+    return Candidate(slot=slot, product_key=name, name=name, price=1, specs=specs)
+
+
+def _spec(**kw):
+    return RequirementSpec(list_id="t", category="computer", mode=kw.pop("mode", "build"), **kw)
+
+
+AM4_BOARD = _cand("메인보드", "B550", socket="AM4", mem_type="DDR4", supported_cpu_family="Ryzen 3000 / 4000G / 5000 계열")
+
+
+def test_cooler_socket_no_longer_rejects_lga1700_for_abbreviated_lists():
+    cpu = _cand("CPU", "Intel Core i5-14600K", socket="LGA1700")
+    cooler = _cand("쿨러", "aio", supported_socket="LGA1851/1700/1200/115x, AM5/AM4")
+    assert "cooler_socket" not in _pc_known_failures({"CPU": cpu, "쿨러": cooler}, _spec(), RULES)
+    amd_only = _cand("쿨러", "am", supported_socket="AM5/AM4")
+    assert "cooler_socket" in _pc_known_failures({"CPU": cpu, "쿨러": amd_only}, _spec(), RULES)
+
+
+def test_bios_axis_is_ok_when_the_family_is_listed_and_approximate_when_unreadable():
+    cpu = _cand("CPU", "AMD Ryzen 7 5800X3D", socket="AM4")
+    assert pc_link_check({"CPU": cpu, "메인보드": AM4_BOARD}, _spec(), RULES)["bios"] == "ok"
+    unknown = _cand("CPU", "미확인 CPU", socket="AM4")
+    assert pc_link_check({"CPU": unknown, "메인보드": AM4_BOARD}, _spec(), RULES)["bios"] == "ok (근사)"
+    no_list = _cand("메인보드", "old", socket="AM4", mem_type="DDR4")
+    assert pc_link_check({"CPU": cpu, "메인보드": no_list}, _spec(), RULES)["bios"] == "ok (근사)"
+
+
+def test_bios_axis_fails_for_an_unsupported_family_on_the_same_socket():
+    old = _cand("CPU", "AMD Ryzen 5 2600", socket="AM4")                # AM4 이지만 2000 번대
+    chosen = {"CPU": old, "메인보드": AM4_BOARD}
+    assert "bios" in _pc_known_failures(chosen, _spec(), RULES)
+    assert pc_link_check(chosen, _spec(), RULES)["bios"] == "fail"
+
+
+def test_bios_uses_the_owned_cpu_name_in_upgrades():
+    """업그레이드에서 CPU 를 그대로 쓰면 견적에는 메인보드만 들어간다 — 사용자가 적은 CPU 이름으로 판정한다."""
+    spec = _spec(mode="upgrade", owned={"CPU": {"name": "Ryzen 5 2600", "specs": {"socket": "AM4"}, "source": "inferred"}})
+    assert "bios" in _pc_known_failures({"메인보드": AM4_BOARD}, spec, RULES)
+    fine = _spec(mode="upgrade", owned={"CPU": {"name": "Ryzen 5 5600", "specs": {"socket": "AM4"}, "source": "inferred"}})
+    assert pc_link_check({"메인보드": AM4_BOARD}, fine, RULES)["bios"] == "ok"
+
+
+def test_socket_mismatch_is_not_double_counted_as_a_bios_problem():
+    cpu = _cand("CPU", "AMD Ryzen 7 7800X3D", socket="AM5")
+    lga_board = _cand("메인보드", "B760", socket="LGA1700", mem_type="DDR5", supported_cpu_family="Intel Core 12 / 13 / 14세대")
+    chosen = {"CPU": cpu, "메인보드": lga_board}
+    failures = _pc_known_failures(chosen, _spec(), RULES)
+    assert "socket" in failures and "bios" not in failures
+    check = pc_link_check(chosen, _spec(), RULES)
+    assert check["socket"] == "fail" and "bios" not in check
+
+
+# ── 파워 폼팩터 · GPU 전원 커넥터 ─────────────────────────────────────────────────
+from src.engine.compat_parse import gpu_connector_fit, parse_psu_forms, psu_fits_case  # noqa: E402
+from src.engine.stage4_optimize import pc_compat_details  # noqa: E402
+
+
+def test_psu_forms_are_parsed_from_the_catalog_notation():
+    assert parse_psu_forms("SFX / SFX-L") == ("SFX", "SFX-L")
+    assert parse_psu_forms("ATX / SFX-L 확인") == ("ATX", "SFX-L")
+    assert parse_psu_forms("sfx l") == ("SFX-L",)
+    assert parse_psu_forms("") == parse_psu_forms(None) == ()
+
+
+@pytest.mark.parametrize("psu, case, expected", [
+    ("ATX", "ATX", "ok"), ("SFX-L", "SFX / SFX-L", "ok"),
+    ("ATX", "SFX / SFX-L", "fail"),          # 이게 통과되던 것 — ATX 파워는 SFX 전용 케이스에 안 들어간다
+    ("SFX-L", "ATX", "adapter"), ("SFX", "SFX-L", "adapter"),
+    ("ATX", "", None), (None, "ATX", None), ("ATX / SFX", "ATX", None),   # 파워 표기가 하나로 정해지지 않으면 모름
+])
+def test_psu_fits_case(psu, case, expected):
+    assert psu_fits_case(psu, case) == expected
+
+
+@pytest.mark.parametrize("gpu, aux, psu, expected", [
+    ("2× 8-pin", "O", "PCIe 8-pin", "ok"),
+    ("1× 16-pin (12VHPWR)", "O", "PCIe 8-pin", "adapter"),             # 16핀 GPU + 8핀 파워 → 동봉 어댑터
+    ("1× 16-pin (12V-2x6)", "O", "12V-2x6 / 16-pin", "ok"),
+    ("1× 16-pin (12V-2x6)", "O", "Side Connectors, 12V-2x6", "ok"),
+    ("1× 8-pin", "O", "12V-2x6 / 16-pin 포함", "ok"),                   # 16핀 파워도 8핀을 함께 제공한다고 본다
+    ("슬롯 전력", "X", "PCIe 8-pin", "ok"), ("1× 8-pin", "X", "", "ok"),   # 보조 전원이 필요 없다
+    ("2× 8-pin", "O", "", None), ("", "O", "PCIe 8-pin", None), (None, None, None, None),
+])
+def test_gpu_connector_fit(gpu, aux, psu, expected):
+    assert gpu_connector_fit(gpu, aux, psu) == expected
+
+
+ATX_PSU = _cand("파워", "atx-psu", wattage_w=850, form_factor="ATX", gpu_power_connector="PCIe 8-pin")
+SFX_CASE = _cand("케이스", "sff", psu_form_factor="SFX / SFX-L", max_gpu_len_mm=330)
+ATX_CASE = _cand("케이스", "tower", psu_form_factor="ATX", max_gpu_len_mm=400)
+
+
+def test_atx_psu_in_an_sfx_only_case_is_a_confirmed_incompatibility():
+    assert "psu_form" in _pc_known_failures({"파워": ATX_PSU, "케이스": SFX_CASE}, _spec(), RULES)
+    assert "psu_form" not in _pc_known_failures({"파워": ATX_PSU, "케이스": ATX_CASE}, _spec(), RULES)
+    assert pc_link_check({"파워": ATX_PSU, "케이스": SFX_CASE}, _spec(), RULES)["psu_form"] == "fail"
+
+
+def test_details_report_each_check_with_the_values_compared():
+    gpu = _cand("GPU", "RTX", length_mm=300, power_w=285, power_connector="1× 16-pin (12VHPWR)", aux_power="O")
+    rows = {r["axis"]: r for r in pc_compat_details({"GPU": gpu, "파워": ATX_PSU, "케이스": ATX_CASE}, _spec(), RULES)}
+    assert rows["gpu_len"]["state"] == "ok" and "300mm ≤ 케이스 허용 400mm" in rows["gpu_len"]["detail"]
+    assert rows["psu_form"]["state"] == "ok" and "ATX" in rows["psu_form"]["detail"]
+    # 16핀 GPU + 8핀 파워는 실패가 아니라 "어댑터 필요" — 확인 필요(unknown)로 보이고 이유를 말한다
+    assert rows["gpu_connector"]["state"] == "unknown" and "어댑터" in rows["gpu_connector"]["detail"]
+    assert rows["power"]["state"] == "unknown" and "CPU 전력" in rows["power"]["detail"]
+    assert all(r["label"] and r["detail"] for r in rows.values())
+
+
+def test_checks_for_parts_that_are_not_in_the_quote_are_skipped():
+    """GPU 만 바꾸는 업그레이드: 견적에 없는 CPU·보드·쿨러 사이의 검사(소켓·BIOS·쿨러 …)는 묻지 않는다."""
+    gpu = _cand("GPU", "RTX", length_mm=300, power_w=285)
+    spec = _spec(mode="upgrade")
+    rows = {r["axis"]: r["state"] for r in pc_compat_details({"GPU": gpu}, spec, RULES)}
+    assert rows["socket"] == rows["bios"] == rows["cooler_height"] == rows["memory"] == rows["psu_form"] == "skipped"
+    assert rows["gpu_len"] == "unknown"            # 케이스 정보가 없다 — 바뀌는 GPU 와 관련된 검사라 남는다
+    link = pc_link_check({"GPU": gpu}, spec, RULES)
+    assert "socket" not in link and "bios" not in link and link["gpu_len"] == "ok (근사)"
+
+
+def test_aio_cooler_height_is_skipped_because_radiator_check_replaces_it():
+    # 4a단계 정책: 수랭(AIO)은 높이 대신 라디에이터 검사가 보므로 쿨러 높이는 비적용(skipped)이다.
+    cooler = _cand("쿨러", "aio", cooling_type="Liquid (AIO)", supported_socket="AM5")
+    rows = {r["axis"]: r for r in pc_compat_details({"쿨러": cooler, "케이스": ATX_CASE}, _spec(), RULES)}
+    assert rows["cooler_height"]["state"] == "skipped" and "라디에이터" in rows["cooler_height"]["detail"]
+    assert rows["cooler_height"]["applicable"] is False
+
+
+# ── 수량 — 결과 화면에서 "SSD 2개로"·"램 하나 더" ─────────────────────────────────
+ONE_M2_BOARD = _cand("메인보드", "A620M", m2_slots=1, m2_pcie_gen="PCIe 4.0", dimm_slots=2, max_memory_gb=96)
+M2_SSD = _cand("저장장치", "nvme", form_factor="M.2 2280", interface="PCIe 4.0")
+RAM_1X16 = _cand("RAM", "ddr5 16", module_config="16GB x1", capacity_gb=16)
+
+
+def test_m2_ssds_beyond_the_board_slots_fail_only_when_qty_says_so():
+    """슬롯 1개 메인보드에 M.2 SSD 2개를 담아도 '통과'로 나왔다(10/12 평가 시트) — 수량을 슬롯 수와 견준다."""
+    chosen = {"메인보드": ONE_M2_BOARD, "저장장치": M2_SSD}
+    one = {r["axis"]: r for r in pc_compat_details(chosen, _spec(), RULES)}["m2"]
+    assert one["state"] == "ok" and one["detail"].startswith("M.2 SSD 1개 ≤ 메인보드 M.2 슬롯 1개"), one
+    two = {r["axis"]: r for r in pc_compat_details(chosen, _spec(), RULES, {"저장장치": 2})}["m2"]
+    assert two["state"] == "fail" and "M.2 SSD를 2개 담았는데 메인보드 M.2 슬롯은 1개뿐" in two["detail"], two
+    assert pc_link_check(chosen, _spec(), RULES, {"저장장치": 2})["m2"] == "fail"
+
+
+def test_ram_qty_multiplies_modules_and_capacity():
+    # 수량은 ram_config.with_purchase_qty 가 specs 에 반영한다 — pc_compat_details 의 qty 로는 다시 곱하지 않는다
+    chosen = {"메인보드": ONE_M2_BOARD, "RAM": ram_config.with_purchase_qty(RAM_1X16, 2)}
+    row = {r["axis"]: r for r in pc_compat_details(chosen, _spec(), RULES, {"RAM": 2})}["ram_slots"]
+    assert row["state"] == "ok" and "RAM 모듈 2개(제품 2개) ≤ 메인보드 DIMM 슬롯 2개" in row["detail"]
+    assert "RAM 총 32GB" in row["detail"], row
+    chosen["RAM"] = ram_config.with_purchase_qty(RAM_1X16, 3)
+    row = {r["axis"]: r for r in pc_compat_details(chosen, _spec(), RULES, {"RAM": 3})}["ram_slots"]
+    assert row["state"] == "fail", row
+    # 화면의 "확정된 호환 문제"에 그대로 나가는 문장 — 비교식이 아니라 어긴 쪽과 바꿀 방법만(QA 10/16 #22)
+    assert row["detail"] == ("RAM 모듈 3개(제품 3개)를 꽂아야 하는데 메인보드 RAM 슬롯은 2개뿐입니다. "
+                             "RAM 수량을 줄이거나 RAM을 더 받는 메인보드로 바꿔 주세요."), row

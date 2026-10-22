@@ -1,0 +1,17 @@
+{
+  "policy_version": 1,
+  "sources": {
+    "danawa_company_product_review": {
+      "status": "unreviewed",
+      "permitted_use": "metadata_pilot_only",
+      "approval_reference": null,
+      "notes": "수집·요약·게시·작성자 식별값 보관 허용 범위를 별도로 확인해야 함"
+    },
+    "truefit_synthetic_reviews_pilot_v1": {
+      "status": "demo_only",
+      "permitted_use": "labeled_synthetic_preview_only",
+      "approval_reference": null,
+      "notes": "실제 후기 건수·평점·관계 지표·운영 순위에 포함하지 않음"
+    }
+  }
+}

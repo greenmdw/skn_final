@@ -1,0 +1,222 @@
+"""identity.* 저장소."""
+from __future__ import annotations
+import uuid
+from uuid import UUID
+from src.db.base import Repo
+
+class ConversationRepo(Repo):
+    def guest_identity_known(self, guest_session_hash: str) -> bool:
+        return self._one(
+            "SELECT 1 FROM identity.conversation WHERE guest_session_hash=%s LIMIT 1",
+            (guest_session_hash,),
+        ) is not None
+    def create(self, *, user_id: UUID | None, guest_session_hash: str | None) -> UUID:
+        row = self._one("INSERT INTO identity.conversation (user_id, guest_session_hash) VALUES (%s, %s) RETURNING id", (user_id, guest_session_hash))
+        return row["id"]
+
+    def add_message(self, conversation_id: UUID, role: str, content: str, *, client_message_id: str | None = None,
+                    metadata: dict | None = None) -> UUID:
+        from psycopg.types.json import Jsonb
+
+        row = self._one(
+            # created_at 기본값 now() 는 트랜잭션 시작 시각이라, 한 요청에서 저장하는 질문과 답이 같은 시각이 되어
+            # 대화 내역에서 답이 질문보다 먼저 나왔다. 저장하는 순간의 시각을 쓴다.
+            "INSERT INTO identity.message (conversation_id, role, content, client_message_id, created_at, metadata) "
+            "VALUES (%s, %s, %s, %s, clock_timestamp(), %s) RETURNING id",
+            (conversation_id, role, content, client_message_id or str(uuid.uuid4()), Jsonb(metadata or {})),
+        )
+        return row["id"]
+
+    def messages(self, conversation_id: UUID) -> list[dict]:
+        return self._all(
+            # 이미 같은 시각으로 저장된 질문·답(위 수정 전 기록)은 사용자 말을 먼저 둔다.
+            "SELECT id, role, content, created_at, client_message_id, metadata FROM identity.message "
+            "WHERE conversation_id = %s ORDER BY created_at, (role <> 'user')",
+            (conversation_id,),
+        )
+
+    def find_by_client_message_id(self, conversation_id: UUID, client_message_id: str) -> dict | None:
+        """같은 client_message_id 의 사용자 메시지(재전송 판별) — 없으면 None."""
+        return self._one(
+            "SELECT id, created_at FROM identity.message WHERE conversation_id=%s AND client_message_id=%s",
+            (conversation_id, client_message_id),
+        )
+
+    def assistant_after(self, conversation_id: UUID, user_message_id: UUID) -> dict | None:
+        """사용자 메시지 바로 다음에 저장된 답(재전송 때 같은 답을 돌려주려고)."""
+        return self._one(
+            "SELECT m.id, m.content, m.created_at, m.metadata FROM identity.message m "
+            "JOIN identity.message u ON u.id=%s AND u.conversation_id=m.conversation_id "
+            "WHERE m.conversation_id=%s AND m.role='assistant' AND m.created_at >= u.created_at "
+            "ORDER BY m.created_at LIMIT 1",
+            (user_message_id, conversation_id),
+        )
+
+    def answer_for_question(self, conversation_id: UUID, comparison_id: str, normalized_question: str) -> dict | None:
+        """이 비교에서 같은(정규화한) 질문에 이미 한 답 — 가장 먼저 한 답을 돌려준다(BE-12)."""
+        return self._one(
+            "SELECT id, content, created_at, metadata FROM identity.message "
+            "WHERE conversation_id=%s AND role='assistant' AND metadata->>'comparison_id' = %s "
+            "AND metadata->>'normalized_question' = %s AND NOT (metadata ? 'duplicate_of') "
+            "ORDER BY created_at LIMIT 1",
+            (conversation_id, comparison_id, normalized_question),
+        )
+
+    def attach_user(self, guest_session_hash: str, user_id: UUID) -> None:
+        """게스트 소유 대화·리스트를 로그인 계정으로 귀속(§A-3 5번). guest 토큰은 폐기."""
+        self._exec(
+            "UPDATE identity.conversation SET user_id=%s, guest_session_hash=NULL "
+            "WHERE guest_session_hash=%s AND user_id IS NULL",
+            (user_id, guest_session_hash),
+        )
+        self._exec(
+            "UPDATE planning.plan SET owner_user_id=%s WHERE owner_user_id IS NULL "
+            "AND conversation_id IN (SELECT id FROM identity.conversation WHERE user_id=%s)",
+            (user_id, user_id),
+        )
+
+
+class UserRepo(Repo):
+    """identity.app_user — password_hash는 get_for_login()에서만 돌려준다(§A-1)."""
+
+    _PUBLIC_COLUMNS = (
+        "id, email_normalized AS email, display_name, "
+        "(marketing_agreed_at IS NOT NULL) AS marketing_agreed, created_at, "
+        "status, password_updated_at, sessions_revoked_at"
+    )
+
+    def is_email_taken(self, email_normalized: str) -> bool:
+        row = self._one(
+            "SELECT 1 FROM identity.app_user WHERE email_normalized=%s AND status != 'deleted'",
+            (email_normalized,),
+        )
+        return row is not None
+
+    def create_local_user(self, *, email_normalized: str, password_hash: str, display_name: str,
+                           terms_version: str, terms_agreed_at, privacy_agreed_at,
+                           marketing_agreed_at) -> dict:
+        user_id = uuid.uuid4()
+        row = self._one(
+            "INSERT INTO identity.app_user "
+            "(id, email_normalized, auth_subject, display_name, password_hash, password_updated_at, "
+            " terms_version, terms_agreed_at, privacy_agreed_at, marketing_agreed_at) "
+            "VALUES (%s, %s, %s, %s, %s, now(), %s, %s, %s, %s) "
+            f"RETURNING {self._PUBLIC_COLUMNS}",
+            (user_id, email_normalized, f"local:{user_id}", display_name, password_hash,
+             terms_version, terms_agreed_at, privacy_agreed_at, marketing_agreed_at),
+        )
+        return row
+
+    def get_for_login(self, email_normalized: str) -> dict | None:
+        """password_hash 포함 — 로그인 검증 전용. 다른 조회에는 쓰지 않는다."""
+        return self._one(
+            "SELECT id, email_normalized AS email, display_name, password_hash, status, "
+            "failed_login_count, locked_until, password_updated_at "
+            "FROM identity.app_user WHERE email_normalized=%s",
+            (email_normalized,),
+        )
+
+    def get_for_login_locked(self, email_normalized: str) -> dict | None:
+        """get_for_login + FOR UPDATE — 로그인 판정용 행 잠금.
+
+        비밀번호 변경(UPDATE)과 로그인 판정(SELECT)이 겹치면, 평범한 SELECT는
+        상대 트랜잭션의 커밋을 기다리지 않고 옛 값을 읽어버릴 수 있다(P6 review
+        R1). FOR UPDATE로 그 UPDATE 뒤에 서도록 강제해, 막 바뀐 비밀번호로도
+        판정하게 한다. 전용 커넥션에서만 써야 한다 — 요청 전체를 감싸는 conn에서
+        쓰면 그 트랜잭션이 끝날 때까지 잠금이 안 풀려 같은 요청의 다른 쓰기가
+        걸릴 수 있다."""
+        return self._one(
+            "SELECT id, email_normalized AS email, display_name, password_hash, status, "
+            "failed_login_count, locked_until, password_updated_at "
+            "FROM identity.app_user WHERE email_normalized=%s FOR UPDATE",
+            (email_normalized,),
+        )
+
+    def get(self, user_id: UUID) -> dict | None:
+        return self._one(
+            f"SELECT {self._PUBLIC_COLUMNS} FROM identity.app_user WHERE id=%s", (user_id,)
+        )
+
+    def record_login_success(self, user_id: UUID) -> None:
+        self._exec(
+            "UPDATE identity.app_user SET failed_login_count=0, locked_until=NULL, "
+            "last_login_at=now() WHERE id=%s",
+            (user_id,),
+        )
+
+    def record_login_failure(self, user_id: UUID, *, max_failures: int, lock_minutes: int) -> None:
+        """max_failures번째 실패 시 잠그고 카운트를 0으로 되돌린다(§A-3 로그인 3번)."""
+        self._exec(
+            "UPDATE identity.app_user SET "
+            "failed_login_count = CASE WHEN failed_login_count + 1 >= %s THEN 0 ELSE failed_login_count + 1 END, "
+            "locked_until = CASE WHEN failed_login_count + 1 >= %s THEN now() + (%s || ' minutes')::interval "
+            "ELSE locked_until END "
+            "WHERE id=%s",
+            (max_failures, max_failures, lock_minutes, user_id),
+        )
+
+    def update_profile(self, user_id: UUID, *, display_name: str | None = None,
+                        email_normalized: str | None = None,
+                        marketing_agreed: bool | None = None) -> dict:
+        sets: list[str] = []
+        params: list[object] = []
+        if display_name is not None:
+            sets.append("display_name=%s")
+            params.append(display_name)
+        if email_normalized is not None:
+            sets.append("email_normalized=%s")
+            sets.append("email_verified_at=NULL")
+            params.append(email_normalized)
+        if marketing_agreed is not None:
+            sets.append("marketing_agreed_at = CASE WHEN %s THEN now() ELSE NULL END")
+            params.append(marketing_agreed)
+        if not sets:
+            return self.get(user_id)
+        params.append(user_id)
+        return self._one(
+            f"UPDATE identity.app_user SET {', '.join(sets)} WHERE id=%s "
+            f"RETURNING {self._PUBLIC_COLUMNS}",
+            params,
+        )
+
+    def update_password(self, user_id: UUID, password_hash: str):
+        """password_updated_at(DB now())을 돌려준다 — 호출자가 그 시각 이후로만
+        유효한 토큰을 발급하도록(§A-3 세션 무효화 경계값 계산)."""
+        row = self._one(
+            "UPDATE identity.app_user SET password_hash=%s, password_updated_at=now() WHERE id=%s "
+            "RETURNING password_updated_at",
+            (password_hash, user_id),
+        )
+        return row["password_updated_at"]
+
+    def revoke_session(self, user_id: UUID, jti: str, expires_at_epoch: int) -> None:
+        """로그아웃한 토큰을 만료 시각까지 폐기 목록에 둔다(이미 있으면 그대로). 지난 만료분은 이때 같이 지운다."""
+        self._exec("DELETE FROM identity.revoked_session WHERE expires_at < now() - interval '1 day'")
+        self._exec(
+            "INSERT INTO identity.revoked_session (jti, user_id, expires_at) VALUES (%s, %s, to_timestamp(%s)) ON CONFLICT (jti) DO NOTHING",
+            (jti, user_id, expires_at_epoch),
+        )
+
+    def revoke_all_sessions(self, user_id: UUID):
+        """이 시각 이전에 발급된 토큰을 모두 무효로 한다. 그 시각(DB now())을 돌려준다 — 이어서 쓸 새 토큰은 이 시각 뒤에 발급해야 한다."""
+        row = self._one(
+            "UPDATE identity.app_user SET sessions_revoked_at = now() WHERE id=%s RETURNING sessions_revoked_at", (user_id,))
+        return row["sessions_revoked_at"]
+
+    def withdraw(self, user_id: UUID) -> None:
+        """소프트 삭제 + 개인정보 제거(§A-3 회원 탈퇴)."""
+        self._exec("DELETE FROM identity.preference_signal WHERE user_id=%s", (user_id,))
+        self._exec(
+            "UPDATE identity.app_user SET "
+            "status='deleted', deleted_at=now(), "
+            "email_normalized = 'deleted+' || id::text || '@deleted.invalid', "
+            "display_name='탈퇴한 사용자', password_hash=NULL, password_updated_at=now(), "
+            "email_verified_at=NULL, marketing_agreed_at=NULL, "
+            # terms_version 도 같이 지운다 — app_user_terms_pair_check 가 둘을 세트로 묶는다
+            # (하나만 NULL이면 제약 위반).
+            "terms_version=NULL, terms_agreed_at=NULL, privacy_agreed_at=NULL, "
+            "failed_login_count=0, locked_until=NULL, "
+            "ui_settings='{}'::jsonb, notification_settings='{}'::jsonb "
+            "WHERE id=%s AND status='active'",
+            (user_id,),
+        )

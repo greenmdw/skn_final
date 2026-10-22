@@ -1,0 +1,555 @@
+"""조건 대화 에이전트 — 모델 호출 없이 검증할 수 있는 부분.
+
+도구가 값을 스키마대로 검사·강제하는지, 도구 결과에 '다음 질문'이 실리는지, 대화 이력 변환,
+그리고 Strands SDK 가 도구를 실제로 등록하는지(네트워크 없음)를 본다. 실제 모델 응답은
+docs/조건대화_에이전트_strands.md 의 실측 기록으로 대신한다.
+"""
+from __future__ import annotations
+
+import pytest
+
+from src.agent import conditions_agent as ca
+from src.categories import load_category
+from src.services.session_service import _next_question, compute_missing
+
+
+def _draft(category: str, values: dict | None = None) -> ca.ConditionDraft:
+    cat_def = load_category(category)
+    return ca.ConditionDraft(
+        category=category, cat_def=cat_def, values=dict(values or {}),
+        missing_fn=lambda v: compute_missing(cat_def, v),
+        next_question_fn=lambda v: _next_question(cat_def, v),
+    )
+
+
+# ── 값 강제 ────────────────────────────────────────────────────────────────
+@pytest.mark.parametrize("raw, expected", [
+    ("1500000", 1_500_000), ("1,500,000", 1_500_000), ("1,500,000 won", 1_500_000),
+    ("150만원", 1_500_000), ("1.5억", 150_000_000), ("2.5 million won", 2_500_000),
+    ("300k", 300_000), ("about 2 million", 2_000_000),
+    ("300만", 3_000_000), ("300만원", 3_000_000), ("3000000", 3_000_000), ("3,000,000", 3_000_000),
+    ("삼백만원", 3_000_000), ("백만원", 1_000_000), ("이천오백만원", 25_000_000), ("일억", 100_000_000),
+])
+def test_amount_parsing(raw, expected):
+    assert ca._parse_amount(raw) == expected
+
+
+def test_enum_case_insensitive_and_rejects_unknown():
+    d = _draft("computer")
+    assert d.set("purpose", "Game").startswith("purpose = \"game\"")
+    assert d.patches["purpose"] == "game"
+    msg = d.set("priority", "cheap")
+    assert msg.startswith("오류") and "priority" not in d.patches
+
+
+def test_unknown_and_file_fields_are_refused():
+    d = _draft("computer")
+    assert d.set("cpu_model", "5600").startswith("오류")
+    assert d.set("current_specs", "{}").startswith("오류")   # 사양 파일이 채우는 필드
+    assert not d.patches
+
+
+def test_list_splits_on_comma_only():
+    d = _draft("computer")
+    d.set("games", "발로란트·롤, 배그")
+    assert d.patches["games"] == ["발로란트·롤", "배그"]   # '·' 는 구분자가 아니다
+
+
+def test_work_programs_in_games_move_to_extra():
+    """QA #66 — 모델이 작업 프로그램을 games 에 넣으면 '하는 게임'으로 보였다. 게임만 남기고 프로그램은 extra 로."""
+    d = _draft("computer")
+    msg = d.set("games", "배그, 블렌더, OBS")
+    assert d.patches["games"] == ["배그"]
+    assert d.patches["extra"] == ["사용 프로그램: 블렌더, OBS"]
+    assert "games 에서 뺐다" in msg and "자동 추천에는 반영되지 않는" in msg
+    d = _draft("computer")
+    msg = d.set("games", "프리미어 프로, 애프터이펙트")
+    assert msg.startswith("오류") and "games" not in d.patches
+    assert d.patches["extra"] == ["사용 프로그램: 프리미어 프로, 애프터이펙트"]
+
+
+def test_no_game_title_is_taken_for_a_work_program():
+    from src.engine.stage2_requirement import load_computer_rules
+    titles = load_computer_rules()["requirements"]["game_titles"]
+    names = [n for key, v in titles.items() for n in (key, *(v.get("aliases") or []))]
+    assert names and not [n for n in names if ca.is_work_program(n)]
+    assert not ca.is_work_program("오버워치") and ca.is_work_program("CAD") and not ca.is_work_program("카드게임")
+
+
+def test_nullable_int_clears_and_bool_parses():
+    d = _draft("computer")
+    d.set("budget_max", "null")
+    assert d.patches["budget_max"] is None
+    d.set("noise_sensitive", "yes")
+    assert d.patches["noise_sensitive"] is True
+
+
+@pytest.mark.parametrize("raw, expected", [
+    ("1000000", 1_000_000), ("20000000", 20_000_000), ("100만원", 1_000_000),
+    ("1000만원", 10_000_000),
+    ("300만", 3_000_000), ("300만원", 3_000_000), ("3000000", 3_000_000), ("3,000,000", 3_000_000),
+    ("삼백만원", 3_000_000),
+])
+def test_budget_amount_parses_like_int(raw, expected):
+    d = _draft("computer")
+    out = d.set("budget_max", raw)
+    assert not out.startswith("오류"), out
+    assert d.patches["budget_max"] == expected
+
+
+@pytest.mark.parametrize("raw, expected", [("100", 1_000_000), ("150", 1_500_000), (" 1500 ", 15_000_000), ("1,000", 10_000_000)])
+def test_bare_small_budget_reads_as_manwon(raw, expected):
+    # 10/15 QA #37 — 예산 차례에 "100" 만 치면 100원(범위 밖 거절)과 100만원 사이를 오갔다
+    d = _draft("computer")
+    out = d.set("budget_max", raw)
+    assert d.patches["budget_max"] == expected
+    assert f"{expected // 10_000}만 원" in out
+
+
+@pytest.mark.parametrize("raw", ["5000", "5"])
+def test_bare_budget_out_of_range_is_refused(raw):
+    d = _draft("computer")
+    assert d.set("budget_max", raw).startswith("오류")
+    assert "budget_max" not in d.patches
+
+
+def test_extra_appends_without_duplicates():
+    d = _draft("computer", {"extra": ["흰색 케이스"]})
+    d.add_extra("흰색 케이스")
+    d.add_extra("RGB 없이")
+    assert d.patches["extra"] == ["흰색 케이스", "RGB 없이"]
+
+
+# ── 도구 결과가 다음 질문을 실어 나른다 ────────────────────────────────────
+def test_tool_result_carries_next_question_from_rules():
+    d = _draft("computer", {"category": "computer", "mode": "build"})
+    out = d.set("purpose", "game")
+    assert "다음 질문" in out and "예산" in out              # purpose 다음은 budget_max
+    d.set("budget_max", "150만원")
+    out = d.set("priority", "value")
+    assert "모두 채워짐" in out
+    assert d.trace and d.trace[0].startswith("set_condition('purpose', 'game')")
+
+
+# ── 프롬프트 ───────────────────────────────────────────────────────────────
+def test_system_prompt_lists_option_codes_and_language():
+    d = _draft("computer", {"category": "computer"})
+    p = ca.system_prompt(d, "게임용 PC 맞추려고요")
+    assert '게임→"game"' in p                # 질문 칩의 라벨→값 매핑이 모델에 보인다
+    assert p.endswith("답변 언어: 한국어 존댓말.")
+
+
+# ── 대화 이력 ──────────────────────────────────────────────────────────────
+def test_history_cuts_at_reset_merges_roles_and_starts_with_user():
+    rows = [
+        {"role": "user", "content": "옛날 얘기"},
+        {"role": "assistant", "content": "옛 답"},
+        {"role": "system", "content": "조건을 초기화했어요."},
+        {"role": "assistant", "content": "무엇을 도와드릴까요?"},
+        {"role": "user", "content": "게임용"},
+        {"role": "user", "content": "150만원"},
+        {"role": "assistant", "content": "우선순위는요?"},
+    ]
+    msgs = ca._history(rows)
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[0]["content"][0]["text"] == "게임용\n150만원"
+
+
+# ── Strands 등록 (네트워크 없음) ───────────────────────────────────────────
+def test_strands_registers_five_tools():
+    d = _draft("computer")
+    tools = ca.make_tools(d)
+    assert [t.tool_name for t in tools] == [
+        "set_condition", "add_extra_condition", "clear_condition", "record_brand_preference",
+        "search_unavailable_part",
+    ]
+    spec = tools[0].tool_spec
+    assert set(spec["inputSchema"]["json"]["required"]) == {"field", "value"}
+
+
+# ── 브랜드 선호·비선호 기록 (docs/사용자_선호비선호_기록_설계.md 파이프라인 A) ──────
+def test_record_brand_preference_appends_patch():
+    d = _draft("computer")
+    out = d.record_brand_preference("GPU", "NVIDIA", "prefer")
+    assert "GPU 브랜드 prefer 기록" in out
+    assert d.preference_patches == [{"slot": "GPU", "value": "NVIDIA", "direction": "prefer"}]
+
+
+@pytest.mark.parametrize("slot,brand,expected", [("씨피유", "라이젠", "amd"), ("cpu", "인텔", "intel"), ("CPU", "Intel", "intel")])
+def test_record_brand_preference_understands_korean_and_product_line_names(slot, brand, expected):
+    """예전엔 "amd"·"intel" 글자 그대로만 brand_pref 에 담겨, "인텔이 좋아요"는 이번 견적에 반영되지 않았다."""
+    d = _draft("computer")
+    d.record_brand_preference(slot, brand, "prefer")
+    assert d.patches.get("brand_pref") == expected
+
+
+def test_record_brand_preference_cpu_prefer_also_sets_brand_pref_condition():
+    """CPU + prefer + amd/intel 은 기존 brand_pref 필드도 같이 채워 이번 견적에 바로 반영한다."""
+    d = _draft("computer")
+    d.record_brand_preference("CPU", "AMD", "prefer")
+    assert d.patches["brand_pref"] == "amd"
+    assert d.preference_patches == [{"slot": "CPU", "value": "AMD", "direction": "prefer"}]
+
+
+def test_record_brand_preference_cpu_avoid_does_not_touch_brand_pref():
+    """비선호는 brand_pref(단일 선호값)로 표현할 수 없다 — 신호로만 남긴다."""
+    d = _draft("computer")
+    d.record_brand_preference("CPU", "Intel", "avoid")
+    assert "brand_pref" not in d.patches
+    assert d.preference_patches == [{"slot": "CPU", "value": "Intel", "direction": "avoid"}]
+
+
+def test_record_brand_preference_rejects_bad_direction():
+    d = _draft("computer")
+    out = d.record_brand_preference("GPU", "AMD", "hate")
+    assert out.startswith("오류:")
+    assert d.preference_patches == []
+
+
+def test_record_brand_preference_rejects_blank_fields():
+    d = _draft("computer")
+    assert d.record_brand_preference("", "AMD", "prefer").startswith("오류:")
+    assert d.record_brand_preference("GPU", "", "prefer").startswith("오류:")
+    assert d.preference_patches == []
+
+
+def test_unavailable_under_mock_mode(monkeypatch):
+    monkeypatch.setattr(ca, "MOCK_MODE", True)
+    monkeypatch.setattr(ca, "CONDITIONS_AGENT", True)
+    assert ca.available() is False
+
+
+# ── DB 미보유 부품 실시간 검색 (docs/미보유부품_실시간스펙검색_설계.md 확장) ──────────────
+@pytest.mark.parametrize("answer", [
+    "진행해줘", "진행해 주세요", "진행해주세요", "응 진행해줘", "네, 진행해 주세요.", "외부 검색 진행해줘", "검색 진행해줘",
+    "외부 검색해줘", "진행", "찾아봐", "찾아 주세요", "해주세요", "해줘", "진행해도 돼요", "예", "넵", "ㅇㅇ", "ok", "좋아요 진행해요".replace("좋아요 ", ""),
+])
+def test_search_confirmation_accepts_natural_korean_answers(answer):
+    reply = f"'RTX 6090'는 저희 DB에 없는 상품으로 확인됩니다. {ca.SEARCH_PERMISSION_MARKER}"
+    assert ca.is_search_confirmation(reply, answer) is True, answer
+
+
+@pytest.mark.parametrize("answer", [
+    "아니", "아니요", "진행하지마", "진행하지 마세요", "하지 마", "됐어", "다른 부품으로 비교해줘", "RTX 5090으로 바꿔줘",
+    "검색 말고 추천해줘", "싫어", "나중에 할게", "가격이 얼마야", "",
+])
+def test_search_confirmation_rejects_denials_and_new_requests(answer):
+    reply = f"'RTX 6090'는 저희 DB에 없는 상품으로 확인됩니다. {ca.SEARCH_PERMISSION_MARKER}"
+    assert ca.is_search_confirmation(reply, answer) is False, answer
+
+
+def test_is_search_confirmation_requires_both_marker_and_affirmation():
+    marker_reply = f"RTX 6090은 저희 DB에 없는 상품으로 확인됩니다. {ca.SEARCH_PERMISSION_MARKER}"
+    assert ca.is_search_confirmation(marker_reply, "응") is True
+    assert ca.is_search_confirmation(marker_reply, "아니 됐어") is False
+    assert ca.is_search_confirmation("그냥 평범한 답변", "응") is False  # 마커 없으면 동의로 안 침
+    assert ca.is_search_confirmation(None, "응") is False
+
+
+def test_search_unavailable_part_without_conn_refuses():
+    d = _draft("computer")
+    assert d.conn is None
+    out = d.search_unavailable_part("GPU", "RTX 6090")
+    assert out.startswith("오류:")
+
+
+def test_search_unavailable_part_found_in_catalog_tells_agent_not_missing(monkeypatch):
+    from src.dto import Candidate
+
+    d = _draft("computer")
+    d.conn = object()  # 실제 DB는 안 쓴다 — 아래서 조회 함수 자체를 바꿔 끼운다
+    found = Candidate(product_key="k", slot="GPU", name="NVIDIA GeForce RTX 5090")
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": [found]})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: pool)
+
+    out = d.search_unavailable_part("GPU", "RTX 5090")
+    assert "실제로 카탈로그에 있습니다" in out
+
+
+def test_search_unavailable_part_not_confirmed_asks_permission_without_calling_lookup(monkeypatch):
+    def boom(*_a, **_kw):
+        raise AssertionError("동의 전인데 실시간 검색이 호출됨")
+
+    d = _draft("computer")
+    d.conn = object()
+    assert d.search_confirmed is False
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": []})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: [])
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", boom)
+
+    out = d.search_unavailable_part("GPU", "RTX 6090")
+    assert ca.SEARCH_PERMISSION_MARKER in out
+    assert "DB에 없는 상품" in out
+
+
+def test_search_unavailable_part_confirmed_records_extra_condition(monkeypatch):
+    from src.services.live_spec_lookup import LiveSpecLookupResult
+
+    d = _draft("computer")
+    d.conn = object()
+    d.search_confirmed = True
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": []})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: [])
+    monkeypatch.setattr("src.services.live_spec_lookup.available", lambda: True)
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", lambda conn, text, **kw: LiveSpecLookupResult.model_validate(
+        {"relevant": True, "supported_fields": {"interface": "PCIe 5.0"}, "source_url": "https://example.com/rtx6090"}))
+
+    out = d.search_unavailable_part("GPU", "RTX 6090")
+    assert "PCIe 5.0" in out
+    assert "카탈로그 정식 등재 값이 아니" in out
+    assert any("RTX 6090" in e for e in d.patches.get("extra", []))
+
+
+def test_search_unavailable_part_busy_lookup_is_a_sentence_not_an_exception(monkeypatch):
+    from src.errors import ServiceUnavailable
+
+    def busy(conn, text, **kw):
+        raise ServiceUnavailable("지금 검색 요청이 몰려 있어요. 잠시 후 다시 시도해 주세요.", code="live_part_lookup_busy")
+
+    d = _draft("computer")
+    d.conn = object()
+    d.search_confirmed = True
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": []})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: [])
+    monkeypatch.setattr("src.services.live_spec_lookup.available", lambda: True)
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", busy)
+
+    out = d.search_unavailable_part("GPU", "RTX 6090")
+    assert "몰려 있어요" in out and "가져오지 못했습니다" in out
+    assert not d.patches.get("extra")            # 못 가져왔으니 추가 조건으로 기록하지 않는다
+
+
+def test_search_unavailable_part_passes_the_canonical_slot_to_lookup(monkeypatch):
+    from src.services.live_spec_lookup import LiveSpecLookupResult
+
+    seen = {}
+
+    def fake(conn, text, **kw):
+        seen.update(kw)
+        return LiveSpecLookupResult(relevant=False)
+
+    d = _draft("computer")
+    d.conn = object()
+    d.search_confirmed = True
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": []})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: [])
+    monkeypatch.setattr("src.services.live_spec_lookup.available", lambda: True)
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", fake)
+    d.search_unavailable_part("GPU", "RTX 6090")
+    assert seen.get("slot") == "GPU"
+
+
+# ── 원한 미보유 부품 → wanted_parts 조건 (설계 §11) ──────────────────────────────────────────
+
+
+def _confirmed_lookup(monkeypatch, fields, values=None, source="https://example.com/spec"):
+    from src.services.live_spec_lookup import LiveSpecLookupResult
+
+    d = _draft("computer", values)
+    d.conn = object()
+    d.search_confirmed = True
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"CPU": [], "GPU": [], "RAM": []})
+    monkeypatch.setattr("src.engine.owned_parts._match_catalog", lambda text, pool: [])
+    monkeypatch.setattr("src.services.live_spec_lookup.available", lambda: True)
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", lambda conn, text, **kw: LiveSpecLookupResult.model_validate(
+        {"relevant": True, "supported_fields": fields, "source_url": source}))
+    return d
+
+
+def test_found_cpu_is_saved_as_a_wanted_part_and_the_reply_says_which_condition_it_makes(monkeypatch):
+    d = _confirmed_lookup(monkeypatch, {"socket": "AM5", "mem_type": "DDR5"}, {"mode": "build"})
+    out = d.search_unavailable_part("CPU", "Ryzen 9 9999X")
+    wanted = d.patches["wanted_parts"]["CPU"]
+    assert wanted["name"] == "Ryzen 9 9999X" and wanted["fields"] == {"socket": "AM5", "mem_type": "DDR5"}
+    assert wanted["source_url"] == "https://example.com/spec"
+    assert "CPU 소켓 AM5 기준으로 나머지 부품을 맞춰" in out and "카탈로그의 비슷한 제품이 추천" in out
+
+
+def test_found_gpu_is_saved_but_the_reply_says_it_does_not_change_the_recommendation(monkeypatch):
+    d = _confirmed_lookup(monkeypatch, {"interface": "PCIe 5.0"}, {"mode": "build"})
+    out = d.search_unavailable_part("GPU", "RTX 6090")
+    assert d.patches["wanted_parts"]["GPU"]["fields"] == {"interface": "PCIe 5.0"}
+    assert "호환 조건을 만들지 않아 추천은 달라지지 않습니다" in out
+
+
+def test_in_upgrade_mode_the_wanted_part_is_only_recorded(monkeypatch):
+    d = _confirmed_lookup(monkeypatch, {"socket": "AM5"}, {"mode": "upgrade"})
+    out = d.search_unavailable_part("CPU", "Ryzen 9 9999X")
+    assert "wanted_parts" in d.patches and "기록만 합니다" in out and "기준으로 나머지 부품을 맞춰" not in out
+
+
+def test_second_wanted_part_is_added_without_dropping_the_first(monkeypatch):
+    d = _confirmed_lookup(monkeypatch, {"socket": "AM5"}, {"mode": "build", "wanted_parts": {"RAM": {"name": "r", "fields": {"mem_type": "DDR5"}}}})
+    d.search_unavailable_part("CPU", "Ryzen 9 9999X")
+    assert set(d.patches["wanted_parts"]) == {"RAM", "CPU"}
+
+
+def test_not_found_or_unconfirmed_search_saves_no_wanted_part(monkeypatch):
+    d = _confirmed_lookup(monkeypatch, {"socket": "AM5"}, {"mode": "build"})
+    d.search_confirmed = False
+    d.search_unavailable_part("CPU", "Ryzen 9 9999X")
+    assert "wanted_parts" not in d.patches                      # 동의 전에는 검색도, 기록도 없다
+
+
+# ── 모드별 필드 — 새 조립 화면에서 업그레이드를 받은 척하지 않는다 ─────────────────────────────
+
+_UPGRADE_ONLY = {"upgrade_parts", "owned_platform", "owned_ram_type", "owned_psu_w"}
+
+
+def test_build_mode_hides_upgrade_only_fields_from_the_agent():
+    draft = _draft("computer", {"mode": "build"})
+    assert not (_UPGRADE_ONLY & set(draft.schema()))
+    assert "오류" in draft.set("upgrade_parts", "GPU")
+    assert "owned_platform" not in ca.system_prompt(draft)
+
+
+def test_upgrade_mode_keeps_upgrade_fields():
+    assert _UPGRADE_ONLY <= set(_draft("computer", {"mode": "upgrade"}).schema())
+
+
+def test_unknown_mode_does_not_filter_fields():
+    assert _UPGRADE_ONLY <= set(_draft("computer", {}).schema())
+
+
+def test_build_prompt_tells_the_agent_upgrade_is_out_of_scope():
+    assert "새 컴퓨터 조립만" in ca.system_prompt(_draft("computer", {"mode": "build"}))
+    assert "새 컴퓨터 조립만" not in ca.system_prompt(_draft("computer", {"mode": "upgrade"}))
+
+
+# ── "엔비디아 5070"처럼 시리즈 낱말(RTX)이 빠진 표기는 카탈로그에 있는 제품군이다 ────────────────────────────
+def _gpu_pool():
+    from src.dto import Candidate
+
+    return [Candidate(product_key=n, slot="GPU", name=n) for n in (
+        "NVIDIA GeForce RTX 5060", "NVIDIA GeForce RTX 5070", "NVIDIA GeForce RTX 5070 Ti", "NVIDIA GeForce RTX 5080")]
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("엔비디아 5070", {"NVIDIA GeForce RTX 5070", "NVIDIA GeForce RTX 5070 Ti"}),    # 5070·5070 Ti 둘 다 — 어느 것인지는 되묻는다
+    ("5070", {"NVIDIA GeForce RTX 5070", "NVIDIA GeForce RTX 5070 Ti"}),
+    ("지포스 5070 Ti", {"NVIDIA GeForce RTX 5070 Ti"}),
+    ("엔비디아 5070Ti", {"NVIDIA GeForce RTX 5070 Ti"}),
+    ("RTX5080", {"NVIDIA GeForce RTX 5080"}),
+])
+def test_catalog_family_matches_finds_products_missing_the_series_word(text, expected):
+    from src.engine.owned_parts import catalog_family_matches
+
+    assert {c.name for c in catalog_family_matches(text, _gpu_pool())} == expected
+
+
+@pytest.mark.parametrize("text", ["RTX 6090", "엔비디아 6090", "엔비디아 그래픽카드", "16GB 그래픽카드", ""])
+def test_catalog_family_matches_does_not_invent_products_that_are_not_there(text):
+    from src.engine.owned_parts import catalog_family_matches
+
+    assert catalog_family_matches(text, _gpu_pool()) == []
+
+
+@pytest.mark.parametrize("agent", ["conditions", "result"])
+def test_search_unavailable_part_says_5070_is_in_the_catalog_instead_of_asking_to_search(monkeypatch, agent):
+    def boom(*_a, **_kw):
+        raise AssertionError("카탈로그에 있는 제품인데 외부 검색이 호출됨")
+
+    monkeypatch.setattr("src.repo.catalog_repo.load_candidates_by_slot_from_db", lambda conn: {"GPU": _gpu_pool()})
+    monkeypatch.setattr("src.services.live_spec_lookup.lookup", boom)
+    if agent == "conditions":
+        d = _draft("computer")
+        d.conn = object()
+    else:
+        from src.agent import result_agent as ra
+
+        d = ra.ResultSession.__new__(ra.ResultSession)
+        d.conn, d.search_confirmed, d.trace = object(), False, []
+        d.item = lambda slot: {"slot": "GPU"}
+        d._record = lambda call, out: out
+    out = d.search_unavailable_part("GPU", "엔비디아 5070")
+    assert ca.SEARCH_PERMISSION_MARKER not in out
+    assert "카탈로그에 있는 제품" in out and "RTX 5070" in out and "외부 검색을 묻지 마세요" in out
+
+
+# ── 부품 교체 요청은 조건이 아니다 (10/15 QA #36) ─────────────────────────────
+@pytest.mark.parametrize("text, swap", [
+    ("쿨러 바꿔줘", True), ("그래픽카드 더 좋은 걸로 바꿔줘", True), ("CPU 교체하고 싶어요", True), ("램 업그레이드", True),
+    ("예산 바꿔줘 200만원", False), ("용도를 작업용으로 변경", False), ("조용한 게 좋아요", False), ("흰색 케이스로 해주세요", False),
+])
+def test_part_swap_detection(text, swap):
+    assert ca.is_part_swap(text) is swap
+
+
+def test_part_swap_turn_refuses_conditions_but_keeps_brand_preference():
+    d = _draft("computer", {"category": "computer", "mode": "build", "purpose": "game", "budget_max": 1_500_000})
+    d.part_swap = True
+    assert d.set("priority", "performance").startswith("오류")      # "쿨러 바꿔줘"를 우선순위 답으로 읽지 않는다
+    assert not d.set("brand_pref", "intel").startswith("오류")        # "CPU는 인텔로 바꿔줘" 는 브랜드 선호
+    assert "priority" not in d.patches
+
+
+# ── 용도를 말하지 않은 막연한 말 — 용도를 '기타'로 짐작하지 않는다 (10/15 QA #22) ────────────────
+@pytest.mark.parametrize("text, unsaid", [
+    ("컴퓨터 사고 싶어요", True), ("잘 몰라요", True), ("아무거나", True), ("추천해줘", True), ("어떻게 써요?", True),
+    ("안녕", True), ("뭐라고 해야 돼?", True), (".", True),
+    ("기타 용도로 PC를 맞추고 싶어요", False),          # 첫 화면 '기타' 칩 문장
+    ("게임용 PC를 맞추고 싶어요", False), ("엘든링 돌릴 컴퓨터 추천해줘", True),   # 용도 낱말이 있으면 막연하지 않다 — 게임 제목은 모델이
+    ("주식 차트 볼 거", False), ("서버 돌릴 거예요", False), ("유튜브 보고 인강 들을 거", False),
+])
+def test_purpose_unsaid_detection(text, unsaid):
+    assert ca.is_purpose_unsaid(text) is unsaid
+
+
+def test_rule_13_is_in_the_prompt_only_for_a_vague_message_while_purpose_is_empty():
+    d = _draft("computer", {"category": "computer", "mode": "build"})
+    assert ca._purpose_rules(d) == []
+    d.purpose_unsaid = True
+    assert ca._purpose_rules(d) and ca._purpose_rules(d)[0].startswith("13.")
+    d.values["purpose"] = "game"
+    assert ca._purpose_rules(d) == []
+
+
+def test_vague_turn_refuses_purpose_other_but_not_a_named_purpose():
+    d = _draft("computer", {"category": "computer", "mode": "build"})
+    d.purpose_unsaid = True
+    assert d.set("purpose", "other").startswith("오류")             # "잘 몰라요"를 기타로 채우지 않는다
+    assert "purpose" not in d.patches
+    assert not d.set("purpose", "game").startswith("오류")          # "엘든링 돌릴 컴퓨터 추천해줘" 는 게임
+    assert d.patches["purpose"] == "game"
+
+
+@pytest.mark.parametrize("text, info", [
+    ("각 부품별 소음 기준이 어떻게 돼?", True), ("부품별 소음 측정 기준이랑 수치 알려줘", True), ("QHD랑 FHD 차이가 뭐야?", True),
+    ("조용한 게 좋은데 소음 기준이 뭐야?", False), ("성능 기준으로 골라줘", False), ("조용한 게 중요해요", False),
+])
+def test_info_question_detection(text, info):
+    assert ca.is_info_question(text) is info
+
+
+def test_info_question_turn_refuses_conditions():
+    d = _draft("computer", {"category": "computer", "mode": "build", "purpose": "game", "budget_max": 1_500_000})
+    d.info_question = True
+    assert d.set("priority", "quiet").startswith("오류")             # 소음 기준을 물었다고 조용함 우선으로 두지 않는다
+    assert "priority" not in d.patches
+
+
+def test_claim_without_a_change_is_replaced(monkeypatch):
+    import strands
+
+    class _Claims:
+        def __init__(self, *, tools, **_):
+            self.tools = {t.tool_name: t for t in tools}
+
+        def __call__(self, text):
+            self.tools["clear_condition"]("wanted_parts")          # 비어 있던 것을 비움 — 변화 아님
+            return "원하시는 쿨러 조건을 취소했습니다. 주로 어떤 용도로 쓰실 건가요?"
+
+    monkeypatch.setattr(strands, "Agent", _Claims)
+    monkeypatch.setattr(ca, "_model", lambda: None)
+    cat_def = load_category("computer")
+    turn = ca.run_turn("computer", cat_def, {"category": "computer", "mode": "build"}, [], "쿨러 바꿔줘",
+                       missing_fn=lambda v: compute_missing(cat_def, v),
+                       next_question_fn=lambda v: _next_question(cat_def, v))
+    assert turn.reply.startswith("그 말은 조건으로 반영하지 않았어요.")
+    assert "취소했습니다" not in turn.reply
+
+
+def test_extra_tool_result_tells_the_model_it_is_not_applied():
+    d = _draft("computer")
+    out = d.add_extra("흰색 케이스")
+    assert "자동 추천에는 반영되지 않는" in out

@@ -1,0 +1,289 @@
+"""/session HTTP handlers."""
+from __future__ import annotations
+from typing import Literal
+from uuid import UUID
+from fastapi import APIRouter, BackgroundTasks, Depends, Request, Response, status
+from src import schemas
+from src.auth.deps import Principal, optional_principal
+from src.clients.llm_guard import llm_request_slot
+from src.db import get_conn
+from src.errors import NotFound
+from src.repo.plan_repo import PlanRepo
+from src.services import recommendation_runner, recommendation_service, session_service
+
+router = APIRouter(prefix="/session", tags=["session"])
+
+@router.post("", response_model=schemas.SessionOut)
+def create(response: Response, principal: Principal = Depends(optional_principal)) -> schemas.SessionOut:
+    with get_conn() as conn:
+        result = session_service.create_session(conn, principal)
+    response.set_cookie(
+        "truefit_guest", result["browser_token"],
+        httponly=True, samesite="lax", max_age=60 * 60 * 24 * 180,
+    )
+    return schemas.SessionOut(list_id=result["list_id"])
+
+# /{list_id} 보다 먼저 등록해야 한다 — 아니면 "previous"가 UUID 검증에 걸려 422가 난다.
+@router.get("/previous", response_model=schemas.PreviousLookupOut)
+def previous(
+    category: str,
+    mode: str | None = None,
+    exclude: UUID | None = None,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.PreviousLookupOut:
+    with get_conn() as conn:
+        found = session_service.previous_conditions(conn, principal, category, mode, exclude)
+        hint = session_service.preference_hint(conn, principal, category)
+    return schemas.PreviousLookupOut(previous=found, preference_hint=hint)
+
+@router.post("/{list_id}/preference-hint/{signal_id}/respond")
+def preference_hint_respond(
+    list_id: UUID, signal_id: UUID, body: schemas.PreferenceHintRespondIn,
+    principal: Principal = Depends(optional_principal),
+) -> dict:
+    with get_conn() as conn:
+        return session_service.respond_preference_hint(conn, list_id, signal_id, body.accepted, principal)
+
+@router.get("/{list_id}", response_model=schemas.ConditionState)
+def get_session(
+    list_id: UUID,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.ConditionState:
+    with get_conn() as conn:
+        return schemas.ConditionState(**session_service.get_session_state(conn, list_id, principal))
+
+@router.post("/{list_id}/category", response_model=schemas.ConditionState)
+def choose_category(
+    list_id: UUID,
+    body: schemas.CategoryIn,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.ConditionState:
+    with get_conn() as conn:
+        return schemas.ConditionState(**session_service.choose_category(
+            conn, list_id, body.category, body.mode, principal,
+        ))
+
+@router.patch("/{list_id}/slot", response_model=schemas.ConditionState)
+def patch_slot(
+    list_id: UUID,
+    body: schemas.SlotPatchIn,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.ConditionState:
+    with get_conn() as conn:
+        return schemas.ConditionState(**session_service.patch_slot(
+            conn, list_id, body.field, body.value, principal,
+        ))
+
+@router.patch("/{list_id}/slots", response_model=schemas.ConditionState)
+def patch_slots(
+    list_id: UUID,
+    body: schemas.SlotsPatchIn,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.ConditionState:
+    with get_conn() as conn:
+        return schemas.ConditionState(**session_service.patch_slots(
+            conn, list_id, [(slot.field, slot.value) for slot in body.slots], principal,
+        ))
+
+@router.post("/{list_id}/message", response_model=schemas.ConditionState)
+def message(
+    list_id: UUID,
+    body: schemas.MessageIn,
+    principal: Principal = Depends(optional_principal),
+    _slot: None = Depends(llm_request_slot),
+) -> schemas.ConditionState:
+    with get_conn() as conn:
+        return schemas.ConditionState(**session_service.handle_message(conn, list_id, body.text, principal))
+
+@router.post("/{list_id}/answer", response_model=schemas.ConditionState)
+def answer(
+    list_id: UUID,
+    body: schemas.AnswerIn,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.ConditionState:
+    with get_conn() as conn:
+        return schemas.ConditionState(**session_service.handle_answer(
+            conn, list_id, body.question_id, body.selected, principal,
+        ))
+
+@router.post("/{list_id}/resume", response_model=schemas.ConditionState)
+def resume(
+    list_id: UUID,
+    body: schemas.ResumeIn,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.ConditionState:
+    with get_conn() as conn:
+        return schemas.ConditionState(**session_service.resume_previous(conn, list_id, body.from_list_id, principal))
+
+@router.post("/{list_id}/reset", response_model=schemas.ConditionState)
+def reset(
+    list_id: UUID,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.ConditionState:
+    with get_conn() as conn:
+        return schemas.ConditionState(**session_service.reset_conditions(conn, list_id, principal))
+
+@router.post("/{list_id}/recommend", response_model=schemas.RecommendAcceptedOut, status_code=status.HTTP_202_ACCEPTED)
+def recommend(
+    list_id: UUID,
+    body: schemas.RecommendIn = schemas.RecommendIn(),
+    background_tasks: BackgroundTasks = None,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.RecommendAcceptedOut:
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        accepted = recommendation_service.start_recommendation(
+            conn,
+            revision["id"],
+            strategy=body.strategy or "default",
+        )
+    background_tasks.add_task(recommendation_runner.dispatch, revision["id"], UUID(accepted["run_id"]))
+    return schemas.RecommendAcceptedOut(**accepted)
+
+@router.get("/{list_id}/result", response_model=schemas.RecommendResultOut)
+def result(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.RecommendResultOut:
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        stored = recommendation_service.get_stored_result(conn, revision["id"])
+    if stored is None:
+        raise NotFound("추천 실행 결과가 없습니다. 먼저 /recommend 를 호출하세요.")
+    return schemas.RecommendResultOut(**stored)
+
+@router.get("/{list_id}/result/status", response_model=schemas.ResultStatusOut)
+def result_status(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.ResultStatusOut:
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        state = recommendation_service.get_result_status(conn, revision["id"])
+    if state is None:
+        raise NotFound("추천 실행 결과가 없습니다. 먼저 /recommend 를 호출하세요.")
+    return schemas.ResultStatusOut(**state)
+
+@router.get("/{list_id}/previous-comparison", response_model=schemas.PreviousComparisonOut)
+def previous_comparison(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.PreviousComparisonOut:
+    from src.services.previous_compare import compare_with_previous
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        return schemas.PreviousComparisonOut(**compare_with_previous(conn, revision["id"]))
+
+@router.patch("/{list_id}/items/{item_id}", response_model=schemas.RecommendResultOut)
+def patch_item(list_id: UUID, item_id: UUID, body: schemas.ItemPatchIn, principal: Principal = Depends(optional_principal)) -> schemas.RecommendResultOut:
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        stored = recommendation_service.patch_item(conn, revision["id"], item_id, selected=body.selected, qty=body.qty, timing=None, user_id=principal.user_id)
+    return schemas.RecommendResultOut(**stored)
+
+@router.get("/{list_id}/items/{item_id}/alternatives", response_model=schemas.AlternativesOut)
+def alternatives(
+    list_id: UUID,
+    item_id: UUID,
+    principal: Principal = Depends(optional_principal),
+) -> schemas.AlternativesOut:
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        stored = recommendation_service.list_alternatives(conn, revision["id"], item_id)
+    return schemas.AlternativesOut(**stored)
+
+@router.post("/{list_id}/items/{item_id}/swap", response_model=schemas.RecommendResultOut)
+def swap(list_id: UUID, item_id: UUID, body: schemas.SwapIn, principal: Principal = Depends(optional_principal)) -> schemas.RecommendResultOut:
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        stored = recommendation_service.swap_item(conn, revision["id"], item_id, UUID(body.candidate_id), user_id=principal.user_id)
+    return schemas.RecommendResultOut(**stored)
+
+@router.get("/{list_id}/omitted-slots/{slot}/options", response_model=schemas.AlternativesOut)
+def omitted_slot_options(list_id: UUID, slot: Literal["GPU", "쿨러"], principal: Principal = Depends(optional_principal)) -> schemas.AlternativesOut:
+    """신규 조립에서 일부러 뺀 GPU·쿨러를 담을 때 고를 후보(요구 사양·호환을 통과한 것, 싼 순 최대 8개). result.omitted_slots 에 있는 슬롯만."""
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        stored = recommendation_service.list_omitted_options(conn, revision["id"], slot)
+    return schemas.AlternativesOut(**stored)
+
+@router.post("/{list_id}/omitted-slots/{slot}/add", response_model=schemas.RecommendResultOut)
+def omitted_slot_add(list_id: UUID, slot: Literal["GPU", "쿨러"], body: schemas.AddOmittedIn, principal: Principal = Depends(optional_principal)) -> schemas.RecommendResultOut:
+    """일부러 뺀 GPU·쿨러를 담는다 — 기본 배분의 그 슬롯 비율을 빌려 재검증한다. 응답은 갱신된 결과 전체."""
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        stored = recommendation_service.add_omitted_item(conn, revision["id"], slot, UUID(body.candidate_id), user_id=principal.user_id)
+    return schemas.RecommendResultOut(**stored)
+
+@router.post("/{list_id}/peripherals/recommend", response_model=schemas.PeripheralsOut)
+def recommend_peripherals(
+    list_id: UUID, body: schemas.PeripheralsRecommendIn, principal: Principal = Depends(optional_principal),
+) -> schemas.PeripheralsOut:
+    """주변기기(모니터·키보드·마우스·스피커) 추천 — 개발요청 6번. PC 견적 대화 없이 바로 호출할 수
+    있다. `pc_list_id`를 주면 그 PC 견적의 해상도를 묶어 모니터 교차검사를 추가로 켠다."""
+    from src.services import peripheral_history_service, peripherals_service
+
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        pc_context = (
+            peripherals_service.pc_context_from_list(conn, UUID(body.pc_list_id), principal)
+            if body.pc_list_id else None
+        )
+        payload = peripherals_service.recommend(conn, body, pc_context)
+        peripheral_history_service.record_recommend(conn, revision["conversation_id"], body, payload)
+    return schemas.PeripheralsOut(**payload)
+
+@router.post("/{list_id}/peripherals/chat", response_model=schemas.PeripheralChatOut)
+def chat_peripherals(
+    list_id: UUID, body: schemas.PeripheralChatIn, request: Request, principal: Principal = Depends(optional_principal),
+) -> schemas.PeripheralChatOut:
+    """주변기기 채팅 한 턴 — 문장 해석과 질문 답변을 한 번에. 이번에 새로 반영한 것·반영하지 못한 말·질문의 답·답장 문장을 서버가
+    만든다. 언어 모델을 쓰므로 `/peripherals/interpret` 와 같은 주소별 분당 요청 수 제한을 쓴다."""
+    from src.auth import ratelimit
+    from src.engine.peripheral_rules import interpretation_settings
+    from src.errors import RateLimited
+    from src.services import peripheral_chat_service, peripheral_history_service, peripherals_service
+
+    if not ratelimit.allow(f"peripheral-interpret:{ratelimit.client_ip(request)}",
+                           limit=interpretation_settings()["per_minute"], window_seconds=60):
+        raise RateLimited("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")
+    with get_conn() as conn:       # 소유 확인과 PC 맥락만 — 언어 모델을 부르는 동안 연결을 잡고 있지 않는다
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        pc_context = (
+            peripherals_service.pc_context_from_list(conn, UUID(body.pc_list_id), principal)
+            if body.pc_list_id else None
+        )
+    out = peripheral_chat_service.turn(
+        body.text, body.previous, body.kinds, pc_list_id=body.pc_list_id, pc_context=pc_context, open_conn=get_conn,
+    )
+    result = schemas.PeripheralChatOut(**out)
+    with get_conn() as conn:       # 답을 만든 뒤에 남긴다 — 처리하다 실패한 말은 남지 않는다(화면도 오류만 보여 준다)
+        peripheral_history_service.record_turn(conn, revision["conversation_id"], body.text, body.kinds, result.model_dump(mode="json"))
+    return result
+
+
+@router.get("/{list_id}/peripherals/messages", response_model=schemas.PeripheralHistoryOut)
+def peripheral_messages(list_id: UUID, principal: Principal = Depends(optional_principal)) -> schemas.PeripheralHistoryOut:
+    """주변기기 채팅 기록 — 다른 화면에 갔다 오거나 대화 내역에서 열었을 때 채팅과 마지막 조건을 되살린다.
+    `showing_results` 면 화면이 `interpretation` 으로 추천을 다시 받는다(추천 결과 자체는 저장하지 않는다 — 가격이 바뀐다)."""
+    from src.services import peripheral_history_service
+
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        stored = peripheral_history_service.history(conn, revision["conversation_id"])
+    return schemas.PeripheralHistoryOut(**stored)
+
+@router.post("/{list_id}/result-message", response_model=schemas.ResultMessageOut)
+def result_message(
+    list_id: UUID,
+    body: schemas.ResultMessageIn,
+    principal: Principal = Depends(optional_principal),
+    _slot: None = Depends(llm_request_slot),
+) -> schemas.ResultMessageOut:
+    with get_conn() as conn:
+        revision = session_service._owned(PlanRepo(conn), list_id, principal)
+        stored = recommendation_service.handle_result_message(conn, revision["id"], body.text, user_id=principal.user_id)
+    return schemas.ResultMessageOut(**stored)
+
+@router.post("/{list_id}/spec-file", response_model=schemas.ConditionState)
+def spec_file(
+    list_id: UUID,
+    body: schemas.SpecFileIn,
+    principal: Principal = Depends(optional_principal),
+    _slot: None = Depends(llm_request_slot),
+) -> schemas.ConditionState:
+    with get_conn() as conn:
+        return schemas.ConditionState(**session_service.attach_spec_file(
+            conn, list_id, body.file_name, body.content, principal,
+        ))

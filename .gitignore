@@ -1,0 +1,121 @@
+# ── Python ──
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+*.so
+
+# ── 가상환경 ──
+.venv/
+venv/
+env/
+ENV/
+# 잘못 생성된 디렉토리 (쉘 오류로 만들어진 '&&' 폴더 등) — git init 전에 삭제 권장
+&&/
+
+# ── 환경변수 / 시크릿 ──
+.env
+.env.*
+!.env.example
+
+# ── 테스트 / 타입 / 린트 캐시 ──
+.pytest_cache/
+.pytest_tmp/
+node_modules/
+.rag-files/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# ── DB (로컬) ──
+db/pgdata/
+db/pgenv/
+/pgdata/
+/pgenv/
+db/*.log
+pg.log
+*.dump
+*.sql.gz
+
+# ── 크롤러 캐시 ──
+scripts/.cache_specs/
+scripts/.render_cache/
+
+# ── IDE / 에디터 ──
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── 로그 / 임시 ──
+*.log
+logs/
+tmp/
+*.tmp
+
+# ── (선택) 데이터 생성 부산물 ──
+# 큐레이션 원본(parts_list.csv, scenarios/*.json, categories/*.yaml)은 커밋.
+# 설명서·평가 등 스크립트 실행 산출물은 로컬에서 재생성한다.
+generated/
+
+# ── 외부 데이터셋 파생물 (Amazon Reviews'23 엣지 표 · 라이선스 미확인) ──
+data/amazon23/
+
+# ── 팀 전달 원본 카탈로그 (로컬에서만 보관) ──
+/data/*.xlsx
+# 시드(db/seed_pc_parts_specs.py)의 원본이라 팀이 같이 받아야 한다 — 백업본(*.backup_*.xlsx)은 계속 제외
+!/data/parts_list_modify.xlsx
+/data/peripherals/*.csv
+
+# 리뷰 원문 데이터 — Git에 올리지 않고 팀 내 파일로 공유. data/reviews/README.md 참고
+data/reviews/*
+!data/reviews/README.md
+
+# 실제 리뷰 DB 시드 번들 — 원문/분석 결과를 포함하므로 별도 보안 채널로 공유.
+data/review_seed/*
+!data/review_seed/README.md
+
+# 실행 산출물: 로컬 보관용이며 저장소에 넣지 않는다.
+/outputs/
+
+# ── 지금 코드와 안 맞는 옛 기획/보고 문서 (로컬 보관용, git 추적 안 함) ──
+docs/history/*
+
+# ── 사양 추출 llm_live 회귀 테스트용 이미지: 저작권·개인정보 때문에 README만 추적 ──
+tests/fixtures/spec_images/*
+!tests/fixtures/spec_images/README.md
+
+# ── 내 로컬 전용 문서 (멘토링 정리 등, 팀과 공유하지 않음) ──
+docs/local/
+
+# ── 화면설계서(PPT) 제작 중간 산출물 ──
+.ppt-build/
+output/presentations/
+artifacts/screen-spec/
+
+# 커뮤니티 업로드 이미지(런타임 생성물)
+/data/uploads/
+/uploads/
+
+# 예시 글 스냅샷(분석·임베딩 결과 덤프) — 팀 내 파일로 공유. data/community_examples/README.md 참고
+data/community_examples/dump/
+
+# 예시 글 이미지 원본(PNG, 팀 내 파일로 공유 — 저장소에 올리지 않는다)
+/data/community_example_images_original/
+
+# 평가 라벨링 열쇠·시트(라벨러에게 따로 전달 — 저장소에 올리지 않는다)
+/data/eval_extraction/label_key.json
+/data/eval_extraction/label_sheets_*.xlsx
+/data/eval_extraction/model_runs/
+/data/eval_extraction/gold*.json

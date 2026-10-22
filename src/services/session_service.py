@@ -1,0 +1,743 @@
+"""세션 생성과 조건 대화 서비스 (계약: docs/frontend_외부수정요청.md §D-4-1)."""
+from __future__ import annotations
+import hashlib, logging, secrets, time
+import psycopg
+from uuid import UUID
+from src.agent import conditions_agent, spec_extraction_agent
+from src.auth.deps import Principal
+from src.categories import available_categories, load_category
+from src.engine import slot_rules
+from src.engine.brands import canonical_brand, canonical_slot, cpu_brand_pref
+from src.engine.lang import fmt_money, josa
+from src.engine.spec_text import parse_spec_text
+from src.errors import Conflict, FileTooLarge, NotFound, ValidationFailed
+from src.repo.plan_repo import RESUMED_FROM_KEY, PlanRepo
+from src.repo.preference_repo import PreferenceRepo
+from src.repo.user_repo import ConversationRepo
+
+log = logging.getLogger(__name__)
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _category(name: str) -> dict:
+    try:
+        return load_category(name)
+    except FileNotFoundError:
+        raise ValidationFailed("지원하지 않는 카테고리입니다.", field="category") from None
+
+
+def _owned(repo: PlanRepo, list_id: UUID, principal: Principal) -> dict:
+    revision = repo.get_current_revision(list_id)
+    if revision is None:
+        raise NotFound("목록을 찾을 수 없습니다.")
+    user_ok = principal.user_id is not None and revision["owner_user_id"] == principal.user_id
+    guest_ok = principal.browser_token is not None and revision["guest_session_hash"] == _token_hash(principal.browser_token)
+    if not (user_ok or guest_ok):
+        raise NotFound("목록을 찾을 수 없습니다.")
+    return revision
+
+
+# 앞 턴을 기다리는 최대 시간 — 턴 하나가 모델 호출(LLM_TIMEOUT_SECONDS 기본 45초)을 품고 있어서 그보다 조금 길게.
+_TURN_WAIT_SECONDS = 60
+_TURN_WAIT_LOG_SECONDS = 0.2      # 잠금을 바로 잡을 때는 수 ms — 이보다 길면 앞 턴을 기다린 것
+
+
+def _one_turn_at_a_time(conn, list_id: UUID) -> None:
+    """같은 목록의 조건 대화 턴은 한 번에 하나 — 앞 턴이 끝날 때까지 기다렸다가 그 결과(조건·대화)를 읽고 처리한다.
+
+    연달아 보내면 두 턴이 같은 옛 조건·대화 기록을 읽고 따로 답해, 늦게 도착한 답의 칩이 이미 답한 질문을
+    다시 물었다(10/15 QA #55). 거절(409)하지 않고 줄을 세우는 것은 테스트 기획의 기준("순서대로 처리")과 보낸 말을
+    잃지 않기 위해서다. 화면은 답을 기다리는 동안 보내기를 막으므로 여기서 기다리는 건 탭 두 개 같은 경우뿐이다.
+    _TURN_WAIT_SECONDS 를 넘기면 409. 트랜잭션이 끝나면 잠금이 저절로 풀린다."""
+    previous = conn.execute("SELECT current_setting('lock_timeout')").fetchone()[0]
+    conn.execute("SELECT set_config('lock_timeout', %s, true)", (f"{int(_TURN_WAIT_SECONDS * 1000)}ms",))
+    started = time.monotonic()
+    try:
+        conn.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"condition-turn:{list_id}",))
+    except psycopg.errors.LockNotAvailable:
+        log.warning("condition turn [%s] refused: previous turn still running after %ss", list_id, _TURN_WAIT_SECONDS)
+        raise Conflict("앞 메시지에 답하는 중이에요. 답이 온 뒤에 다시 보내 주세요.", code="turn_in_progress") from None
+    conn.execute("SELECT set_config('lock_timeout', %s, true)", (previous,))
+    # 줄을 섰다는 흔적 — 접속 기록에는 늦게 온 200 만 남는다. 경고 수준이라 로그 설정 없이도 서버 출력에 나온다.
+    waited = time.monotonic() - started
+    if waited >= _TURN_WAIT_LOG_SECONDS:
+        log.warning("condition turn [%s] waited %.1fs for the previous turn", list_id, waited)
+
+
+def create_session(conn, principal: Principal) -> dict:
+    token = principal.browser_token
+    reused = False
+    if principal.user_id is None:
+        if token and ConversationRepo(conn).guest_identity_known(_token_hash(token)):
+            reused = True
+        else:
+            token = secrets.token_urlsafe(32)
+    conversation_id = ConversationRepo(conn).create(
+        user_id=principal.user_id,
+        guest_session_hash=None if principal.user_id is not None else _token_hash(token),
+    )
+    plan = PlanRepo(conn).create_plan(conversation_id, "새 추천", principal.user_id)
+    version = PlanRepo(conn)._one(
+        "SELECT dv.id FROM config.domain_version dv "
+        "JOIN config.domain d ON d.id = dv.domain_id "
+        "WHERE d.status = 'active' AND d.code = ANY(%s) ORDER BY d.code, dv.version_no DESC LIMIT 1",
+        (available_categories(),),
+    )
+    if version is None:
+        raise ValidationFailed("게시된 도메인 버전이 없습니다.")
+    revision = PlanRepo(conn).new_revision(plan, version["id"], "새 추천")
+    PlanRepo(conn).set_current_revision(plan, revision)
+    return {"list_id": str(plan), "browser_token": None if principal.user_id is not None else token, "reused": reused}
+
+
+def _field_value(meta: dict, values: dict):
+    return values.get(meta["key"])
+
+
+def _option_label_map(cat_def: dict, field: str) -> dict:
+    question = next(
+        (q for q in cat_def.get("question_sets", []) if q["maps_to"] == field),
+        None,
+    )
+    if not question:
+        return {}
+    options = question.get("options") or []
+    values = question.get("values") or options
+    return {value: label for value, label in zip(values, options)}
+
+
+def _display(
+    meta: dict,
+    value,
+    option_labels: dict | None = None,
+) -> str | None:
+    if value in (None, ""):
+        return None
+    disp_map = meta.get("display")
+    if disp_map:
+        return disp_map.get(value, disp_map.get(str(value), str(value)))
+    if isinstance(value, list):
+        labels = option_labels or {}
+        return " · ".join("없음" if v == "none" else str(labels.get(v, v)) for v in value)
+    if isinstance(value, dict):
+        return " · ".join(f"{k}: {v}" for k, v in value.items())
+    if isinstance(value, bool):
+        return "예" if value else "아니오"
+    if meta["key"] == "budget_max" and isinstance(value, (int, float)):
+        return f"{int(value):,}원"
+    return str(value)
+
+
+def _wanted_display(wanted, mode) -> str | None:
+    """원하는 부품(카탈로그 밖, 실시간 검색으로 확인) — 이름과, 그것이 추천에 어떻게 반영되는지를 한 줄로.
+    신규 조립에서만 소켓·메모리 규격이 나머지 부품의 호환 조건이 된다(engine/wanted_parts.py)."""
+    from src.engine.wanted_parts import describe_hints, platform_hints
+
+    if not isinstance(wanted, dict) or not wanted:
+        return None
+    lines = []
+    for slot, info in wanted.items():
+        name = (info or {}).get("name") or slot
+        if mode == "upgrade":
+            effect = "기록만 해요"
+        else:
+            conditions = describe_hints(platform_hints({slot: {"fields": (info or {}).get("fields") or {}}}))
+            effect = f"{conditions} 기준으로 맞춰 추천해요" if conditions else "호환 조건은 달라지지 않아요"
+        lines.append(f"{slot} {name} ({effect})")
+    return " · ".join(lines)
+
+
+def _build_fields(cat_def: dict, values: dict) -> list[dict]:
+    mode = values.get("mode")
+    out = []
+    for meta in cat_def.get("fields", []):
+        if meta.get("mode_only") and meta["mode_only"] != mode:
+            continue
+        if meta.get("ask_when") and not _ask_applies(meta, values) and values.get(meta["key"]) is None:
+            continue                       # 필요 없는 조건부 필드는 화면 목록에 안 낸다
+        if meta.get("only_when_set") and not values.get(meta["key"]):
+            continue                       # 값이 생겼을 때만 보이는 필드(원하는 부품)
+        value = _field_value(meta, values)
+        status = "confirmed" if meta["key"] in values and value is not None else "missing"
+        # 사용자가 안 정했어도 엔진이 기본값으로 계산하는 필드(해상도 FHD_144 등)는 그 값을 "가정"으로 보여 준다 —
+        # 안 그러면 화면은 "확인 중"인데 실제로는 이미 그 기본값으로 추천이 만들어진다.
+        default = (cat_def.get("defaults") or {}).get(meta["key"])
+        if value is None and default is not None:
+            value, status = default, "assumed"
+        shown = (_wanted_display(value, mode) if meta["key"] == "wanted_parts"
+                 else _display(meta, value, _option_label_map(cat_def, meta["key"])))
+        out.append({
+            "key": meta["key"], "label": meta.get("label"), "value": value,
+            "display": shown,
+            "status": status, "editable": True,
+        })
+    return out
+
+
+def _ask_applies(meta: dict, values: dict) -> bool:
+    """ask_when 조건: 이 질문/필드가 지금 필요한가. 없으면 항상 필요.
+    - upgrade_parts_any: 고른 업그레이드 부품 중 하나라도 이 목록에 있을 때만
+    - unless_current_specs_any: 사양 파일에 이 부품이 이미 적혀 있으면 다시 묻지 않는다"""
+    cond = meta.get("ask_when")
+    if not cond:
+        return True
+    from src.engine.stage2_requirement import normalize_pc_slot
+
+    parts = {normalize_pc_slot(p) or str(p) for p in (values.get("upgrade_parts") or [])}
+    wanted = cond.get("upgrade_parts_any")
+    if wanted and not (parts & set(wanted)):
+        return False
+    known = values.get("current_specs")
+    given = {normalize_pc_slot(k) or str(k) for k, v in (known.items() if isinstance(known, dict) else []) if v}
+    return not (given & set(cond.get("unless_current_specs_any") or ()))
+
+
+def _required_keys(cat_def: dict, values: dict) -> list[str]:
+    req = list(cat_def.get("required_inputs", []))
+    for mode, extra in (cat_def.get("required_inputs_by_mode") or {}).items():
+        if values.get("mode") == mode:
+            req += extra
+    # 조건부 질문: 필요할 때만 필수가 된다("모르겠어요"도 답이라 채워지면 충족).
+    for q in cat_def.get("question_sets", []):
+        if q.get("ask_when") and (not q.get("mode_only") or q["mode_only"] == values.get("mode")) \
+                and _ask_applies(q, values) and q["maps_to"] not in req:
+            req.append(q["maps_to"])
+    return req
+
+
+def compute_missing(cat_def: dict, values: dict) -> list[str]:
+    return [k for k in _required_keys(cat_def, values) if k not in values or values[k] is None]
+
+
+def _next_question(cat_def: dict, values: dict) -> dict | None:
+    mode = values.get("mode")
+    missing = set(compute_missing(cat_def, values))
+    for q in cat_def.get("question_sets", []):
+        if q.get("mode_only") and q["mode_only"] != mode:
+            continue
+        if q["maps_to"] not in missing:
+            continue
+        options = q.get("options") or []
+        qvalues = q.get("values") or options
+        return {
+            "id": q["id"], "field": q["maps_to"], "text": q["label"],
+            "select": q["select"],
+            "options": [{"value": v, "label": o} for o, v in zip(options, qvalues)],
+        }
+    return None
+
+
+def _canonicalize_answer_values(question: dict, selected: list) -> list:
+    """질문 선택지를 API에 정의된 원래 타입으로 되돌린다.
+
+    HTML의 ``data-*`` 속성은 숫자와 불리언도 문자열로 만든다. ``values``가 있는
+    선택지는 표시 라벨이나 문자열화된 값을 받아도 YAML의 원래 값으로 정규화한다.
+    """
+    options = question.get("options") or []
+    values = question.get("values") or []
+    if not values:
+        return list(selected)
+
+    normalized = []
+    for item in selected:
+        canonical = next(
+            (value for option, value in zip(options, values)
+             if item == option or item == value or str(item).casefold() == str(value).casefold()),
+            item,
+        )
+        normalized.append(canonical)
+    return normalized
+
+
+def _messages_out(rows: list[dict]) -> list[dict]:
+    return [
+        {
+            "id": str(row["id"]),
+            "role": row["role"],
+            "text": row["content"],
+            "created_at": row["created_at"].isoformat(),
+        }
+        # 주변기기 추천 기록(peripheral_history_service, 빈 system 행)은 대화가 아니다
+        for row in rows if not (row["role"] == "system" and (row.get("metadata") or {}).get("channel") == "peripheral")
+    ]
+
+
+def _state(conn, list_id: UUID, principal: Principal) -> dict:
+    prepo = PlanRepo(conn)
+    revision = _owned(prepo, list_id, principal)
+    full = prepo.load_full(revision["id"])
+    values = {row["condition_key"]: row["value"].get("value") for row in full["conditions"]}
+    category = values.get("category")
+    message_rows = ConversationRepo(conn).messages(revision["conversation_id"])
+    if category is None:
+        return {"list_id": str(list_id), "category": None, "mode": None,
+                "messages": _messages_out(message_rows), "fields": [],
+                "next_question": None, "can_recommend": False, "accepts_spec_file": False,
+                "revision_id": str(revision["id"]), "lock_version": revision["lock_version"]}
+    cat_def = _category(category)
+    from src.services.recommendation_service import assess_budget_feasibility   # 순환 import 피해 지연 import
+    return {
+        "list_id": str(list_id), "category": category, "mode": values.get("mode"),
+        "messages": _messages_out(message_rows),
+        "fields": _build_fields(cat_def, values),
+        "next_question": _next_question(cat_def, values),
+        "can_recommend": not compute_missing(cat_def, values),
+        "accepts_spec_file": category == "computer" and values.get("mode") == "upgrade",
+        "budget_warning": assess_budget_feasibility(conn, category, values),
+        "revision_id": str(revision["id"]), "lock_version": revision["lock_version"],
+    }
+
+
+def get_session_state(conn, list_id: UUID, principal: Principal) -> dict:
+    return _state(conn, list_id, principal)
+
+
+def choose_category(
+    conn,
+    list_id: UUID,
+    category: str,
+    mode: str | None,
+    principal: Principal,
+) -> dict:
+    repo = PlanRepo(conn)
+    current = _owned(repo, list_id, principal)
+    cat_def = _category(category)
+    if mode is not None and mode not in cat_def["modes"]:
+        raise ValidationFailed("카테고리에 맞지 않는 mode입니다.", field="mode")
+    # mode가 question_sets 안에 있으면(예: 컴퓨터의 q_mode) 챗봇이 직접 물어본다 —
+    # 여기서 조용히 기본값을 채워버리면 그 질문이 영원히 안 나온다. 그런 질문이
+    # 없는 카테고리만 이전처럼 첫 mode로 즉시 확정한다.
+    mode_asked_in_chat = "mode" in cat_def.get("required_inputs", [])
+    if mode is None and not mode_asked_in_chat:
+        mode = cat_def["modes"][0]
+    values, previous_category = _current_values(repo, current["id"])
+    # A draft pins its domain version on first category selection.  Re-selecting
+    # the same category (for example to change mode) must not silently adopt a
+    # version published after the conversation started.
+    if previous_category != category:
+        repo.bind_domain_version(current["id"], category)
+    repo.upsert_condition(current["id"], "category", {"value": category}, "explicit")
+    if mode is not None:
+        repo.upsert_condition(current["id"], "mode", {"value": mode}, "explicit")
+    if previous_category is not None and previous_category != category:
+        for key in values:
+            if key not in {"category", "mode"}:
+                repo.clear_condition(current["id"], key)
+    nq = _next_question(cat_def, {"mode": mode})
+    if nq:
+        ConversationRepo(conn).add_message(current["conversation_id"], "assistant", nq["text"])
+    return _state(conn, list_id, principal)
+
+
+def patch_slot(
+    conn,
+    list_id: UUID,
+    field: str,
+    value,
+    principal: Principal,
+) -> dict:
+    repo = PlanRepo(conn)
+    current = _owned(repo, list_id, principal)
+    values, category = _current_values(repo, current["id"])
+    allowed = {"category", "mode"}
+    if category is not None:
+        cat_def = _category(category)
+        allowed |= set(cat_def.get("slot_schema") or {}) | {f["key"] for f in cat_def.get("fields") or []}
+    else:
+        allowed |= set(_category("computer").get("slot_schema") or {})
+    if field not in allowed:
+        raise ValidationFailed("알 수 없는 조건 항목입니다.", field="field")
+    if field == "budget_max":
+        try:
+            value = slot_rules.normalize_budget(value)
+        except ValueError as exc:
+            raise ValidationFailed(str(exc), field="value") from None
+    repo.upsert_condition(current["id"], field, {"value": value}, "explicit")
+    return _state(conn, list_id, principal)
+
+
+def patch_slots(conn, list_id: UUID, slots: list[tuple[str, object]], principal: Principal) -> dict:
+    """여러 조건을 순서대로 반영하고 최종 상태를 한 번만 만든다. 각 조건은 patch_slot 과 같게 저장된다 — 다른 점은
+    중간 상태(특히 카탈로그 전체를 읽는 예산 타당성 경고)를 조건마다 다시 계산하지 않는다는 것뿐이다."""
+    repo = PlanRepo(conn)
+    current = _owned(repo, list_id, principal)
+    for field, value in slots:
+        repo.upsert_condition(current["id"], field, {"value": value}, "explicit")
+    return _state(conn, list_id, principal)
+
+
+def _current_values(repo: PlanRepo, revision_id: UUID) -> tuple[dict, str | None]:
+    full = repo.load_full(revision_id)
+    values = {row["condition_key"]: row["value"].get("value") for row in full["conditions"]}
+    return values, values.get("category")
+
+
+_ALL_SET = "필요한 조건을 모두 확인했어요. 이 조건으로 추천을 받아보세요."
+
+
+def _budget_only_answer(cat_def: dict, values: dict, text: str) -> int | None:
+    """금액만 말한 답이면 그 예산(원). 예산 칸이 없는 카테고리·다른 말이 섞인 답은 None — 모델에 맡긴다."""
+    if not any(meta["key"] == "budget_max" for meta in cat_def.get("fields", [])):
+        return None
+    pending = _next_question(cat_def, values)
+    return slot_rules.parse_budget_answer(text, budget_turn=bool(pending) and pending["field"] == "budget_max")
+
+
+def _won_text(won: int) -> str:
+    return f"{won // 10_000:,}만 원" if won % 10_000 == 0 else fmt_money(won)
+
+
+def apply_explicit_preference_patches(conn, user_id: UUID | None, patches: list[dict]) -> int:
+    """조건 대화 에이전트가 이번 턴에 모은 record_brand_preference 호출들을 저장한다
+    (docs/사용자_선호비선호_기록_설계.md 파이프라인 A). 게스트(user_id 없음)는 저장하지 않는다(§7).
+    별도 함수로 뺀 이유: 에이전트 가용 여부(MOCK_MODE 등)와 무관하게 이 저장 로직만 단위 테스트할 수 있게."""
+    if user_id is None or not patches:
+        return 0
+    from src.repo.catalog_repo import PC_TYPE_TO_SLOT
+    type_of = {slot: t for t, slot in PC_TYPE_TO_SLOT.items()}
+    pref_repo = PreferenceRepo(conn)
+    for p in patches:
+        # 에이전트가 적은 "그래픽카드"·"인텔"을 교체 기록에서 추론한 신호와 같은 표기("GPU"·"Intel")로 맞춘다 —
+        # 안 맞추면 같은 브랜드가 다른 신호로 갈려 횟수가 나뉘고, 수락해도 CPU 조건에 안 담긴다.
+        slot = canonical_slot(p["slot"])
+        brands = [r[0] for r in conn.execute(
+            "SELECT DISTINCT brand FROM catalog.product WHERE product_type=%s", (type_of.get(slot, ""),)).fetchall()]
+        pref_repo.upsert_signal(user_id=user_id, dimension="brand", slot=slot,
+                                value=canonical_brand(p["value"], brands), direction=p["direction"], source="explicit_chat")
+    return len(patches)
+
+
+def handle_message(
+    conn,
+    list_id: UUID,
+    text: str,
+    principal: Principal,
+) -> dict:
+    """자유 텍스트 한 턴. 에이전트가 있으면 도구 호출로 조건을 뽑고 답변 문장까지 만든다.
+
+    에이전트가 없거나(MOCK_MODE·키 없음) 호출이 실패하면 규칙 추출(slot_rules)로 이번 턴을
+    처리한다. 실패는 로그에만 남는다 — 화면에서는 규칙 경로와 구분되지 않는다.
+    """
+    repo = PlanRepo(conn)
+    current = _owned(repo, list_id, principal)
+    _one_turn_at_a_time(conn, list_id)
+    values, category = _current_values(repo, current["id"])
+    if category is None:
+        raise Conflict("카테고리를 먼저 선택하세요.", code="category_required")
+    cat_def = _category(category)
+    convo = ConversationRepo(conn)
+    history = convo.messages(current["conversation_id"])     # 이번 메시지를 넣기 전
+    msg_id = convo.add_message(current["conversation_id"], "user", text)
+
+    reply: str | None = None
+    extracted: dict = {}
+    budget = _budget_only_answer(cat_def, values, text)
+    if budget is not None:
+        extracted = {"budget_max": budget}            # 금액만 — 모델 없이 바로 (10/15 QA #26)
+    elif conditions_agent.available():
+        try:
+            turn = conditions_agent.run_turn(
+                category, cat_def, values, history, text,
+                missing_fn=lambda v: compute_missing(cat_def, v),
+                next_question_fn=lambda v: _next_question(cat_def, v), conn=conn)
+            extracted, reply = turn.patches, turn.reply
+            log.info("conditions agent [%s]: %s", list_id, " | ".join(turn.trace) or "(도구 호출 없음)")
+            apply_explicit_preference_patches(conn, principal.user_id, turn.preference_patches)
+        except Exception as exc:  # 모델·네트워크 오류 — 이번 턴만 규칙으로
+            log.warning("conditions agent failed, falling back to slot_rules: %s", exc)
+    if reply is None and budget is None:
+        extracted = slot_rules.extract(category, text)
+
+    for key, value in extracted.items():
+        repo.upsert_condition(current["id"], key, {"value": value}, "extracted", msg_id)
+    values.update(extracted)
+
+    nq = _next_question(cat_def, values)
+    if budget is not None:
+        reply = f"예산 {_won_text(budget)}으로 반영했어요. " + (nq["text"] if nq else _ALL_SET)
+    elif reply is None:
+        if nq:
+            reply = nq["text"] if extracted else "죄송해요, 이해하지 못했어요. " + nq["text"]
+        else:
+            reply = _ALL_SET
+    convo.add_message(current["conversation_id"], "assistant", reply)
+    return _state(conn, list_id, principal)
+
+
+def handle_answer(
+    conn,
+    list_id: UUID,
+    question_id: str,
+    selected: list,
+    principal: Principal,
+) -> dict:
+    repo = PlanRepo(conn)
+    current = _owned(repo, list_id, principal)
+    _one_turn_at_a_time(conn, list_id)
+    values, category = _current_values(repo, current["id"])
+    if category is None:
+        raise Conflict("카테고리를 먼저 선택하세요.", code="category_required")
+    cat_def = _category(category)
+    q = next((q for q in cat_def.get("question_sets", []) if q["id"] == question_id), None)
+    if q is None:
+        raise ValidationFailed("알 수 없는 질문입니다.", field="question_id")
+
+    raw_selected = list(selected)
+    selected = _canonicalize_answer_values(q, raw_selected)
+    key = q["maps_to"]
+    none_opt = q.get("none_option")
+    if none_opt and list(selected) == [none_opt]:
+        value = ["none"]
+    elif q["select"] == "multi":
+        value = list(selected)
+    else:
+        value = selected[0] if selected else None
+
+    convo = ConversationRepo(conn)
+    option_labels = _option_label_map(cat_def, key)
+    user_text = ", ".join(str(option_labels.get(s, s)) for s in selected) if selected else "(선택 없음)"
+    msg_id = convo.add_message(current["conversation_id"], "user", user_text)
+    repo.upsert_condition(current["id"], key, {"value": value}, "explicit", msg_id)
+    values[key] = value
+
+    nq = _next_question(cat_def, values)
+    reply = nq["text"] if nq else _ALL_SET
+    convo.add_message(current["conversation_id"], "assistant", reply)
+    return _state(conn, list_id, principal)
+
+
+def reset_conditions(
+    conn,
+    list_id: UUID,
+    principal: Principal,
+) -> dict:
+    repo = PlanRepo(conn)
+    current = _owned(repo, list_id, principal)
+    full = repo.load_full(current["id"])
+    for row in full["conditions"]:
+        if row["condition_key"] not in ("category", "mode"):
+            repo.upsert_condition(current["id"], row["condition_key"], {"value": None}, "explicit")
+    ConversationRepo(conn).add_message(current["conversation_id"], "system", "조건을 초기화했어요.")
+    return _state(conn, list_id, principal)
+
+
+# ── 지난 세션 조건 이어가기 (A1: docs/채팅기록_다음세션_시나리오.md) ──
+# 요약 문장은 규칙으로 만든다 — 값과 표시는 _build_fields 가 쓰는 것과 같아서 화면의 조건 목록과 어긋나지 않는다.
+# 값은 사용자가 "이어서 하기"를 고를 때만 새 목록에 복사한다(자동 적용하지 않는다).
+_NOT_CARRIED = {"category", "mode", "spec_file_name"}    # 목록 자체의 선택이거나, 그때 첨부한 파일 이름
+_RESUME_USER_TEXT = "지난 조건으로 이어서 할게요"
+
+
+def _guest_hash(principal: Principal) -> str | None:
+    return _token_hash(principal.browser_token) if principal.browser_token else None
+
+
+def _carried_keys(cat_def: dict) -> set[str]:
+    keys = {m["key"] for m in cat_def.get("fields", [])} | {q["maps_to"] for q in cat_def.get("question_sets", [])}
+    return keys - _NOT_CARRIED
+
+
+def _date_label(ts) -> str:
+    from zoneinfo import ZoneInfo
+    local = ts.astimezone(ZoneInfo("Asia/Seoul"))
+    return f"{local.month}월 {local.day}일"
+
+
+def _carried_values(repo: PlanRepo, revision_id: UUID, cat_def: dict) -> dict:
+    values, _ = _current_values(repo, revision_id)
+    keys = _carried_keys(cat_def)
+    return {k: v for k, v in values.items() if k in keys and v not in (None, "", [])}
+
+
+def previous_conditions(conn, principal: Principal, category: str, mode: str | None = None,
+                        exclude_list_id: UUID | None = None) -> dict | None:
+    """이 사용자의 가장 최근 다른 목록에서 이어 쓸 조건. 없으면 None."""
+    if principal.user_id is None and principal.browser_token is None:
+        return None
+    cat_def = _category(category)
+    repo = PlanRepo(conn)
+    row = repo.latest_previous(user_id=principal.user_id, guest_session_hash=_guest_hash(principal),
+                               category=category, mode=mode, exclude_list_id=exclude_list_id)
+    if row is None:
+        return None
+    carried = _carried_values(repo, row["revision_id"], cat_def)
+    values, _ = _current_values(repo, row["revision_id"])
+    shown = [f for f in _build_fields(cat_def, {**carried, "mode": values.get("mode")})
+             if f["key"] in carried and f["display"]]
+    if not shown:
+        return None
+    date = _date_label(row["last_active_at"])
+    joined = " · ".join(f["display"] for f in shown)
+    return {
+        "list_id": str(row["list_id"]),
+        "name": row["name"],
+        "confirmed": row["state"] == "confirmed",
+        "last_active_at": row["last_active_at"].isoformat(),
+        "fields": [{"key": f["key"], "label": f["label"], "display": f["display"]} for f in shown],
+        "summary": f"지난번({date})엔 {joined} 기준으로 맞추셨어요. 이 조건에서 이어서 할까요?",
+    }
+
+
+def resume_previous(conn, list_id: UUID, from_list_id: UUID, principal: Principal) -> dict:
+    """지난 목록의 조건을 이 목록에 복사한다. 이 목록에서 이미 정한 값은 덮어쓰지 않는다."""
+    repo = PlanRepo(conn)
+    current = _owned(repo, list_id, principal)
+    source = _owned(repo, from_list_id, principal)
+    if list_id == from_list_id:
+        raise ValidationFailed("같은 목록에서는 이어갈 수 없습니다.", field="from_list_id")
+    values, category = _current_values(repo, current["id"])
+    if category is None:
+        raise Conflict("카테고리를 먼저 선택하세요.", code="category_required")
+    if _current_values(repo, source["id"])[1] != category:
+        raise ValidationFailed("카테고리가 다른 목록입니다.", field="from_list_id")
+    cat_def = _category(category)
+    carried = {k: v for k, v in _carried_values(repo, source["id"], cat_def).items() if values.get(k) is None}
+
+    convo = ConversationRepo(conn)
+    msg_id = convo.add_message(current["conversation_id"], "user", _RESUME_USER_TEXT)
+    for key, value in carried.items():
+        repo.upsert_condition(current["id"], key, {"value": value}, "inferred", msg_id)
+    # 어느 목록에서 이어왔는지 — 나중에 결과를 그 견적과 비교한다(B1). 추천 입력이 아니다.
+    repo.upsert_condition(current["id"], RESUMED_FROM_KEY, {"value": str(from_list_id)}, "inferred", msg_id,
+                          bump_version=False)
+    values.update(carried)
+    nq = _next_question(cat_def, values)
+    lead = "지난 조건을 가져왔어요. 바뀐 게 있으면 말씀해 주세요."
+    convo.add_message(current["conversation_id"], "assistant", f"{lead} {nq['text'] if nq else _ALL_SET}")
+    return _state(conn, list_id, principal)
+
+
+def _brand_pref_for(category: str | None, slot: str | None, value: str) -> str | None:
+    """선호 신호를 이번 목록의 brand_pref 조건으로 담을 수 있으면 그 값, 아니면 None.
+    brand_pref 는 CPU 브랜드 enum(slot_schema: intel·amd·none)이라 CPU 의 intel·amd 선호만 담긴다 — stage2 가
+    sockets_by_brand[brand] 로 읽는다. 되묻기 문구(묻는가)와 수락(담는가)이 같은 판정을 쓰게 한 곳에 둔다."""
+    allowed = set((((_category(category) if category else {}).get("slot_schema") or {})
+                   .get("brand_pref") or {}).get("values") or []) - {"none"}
+    pref = cpu_brand_pref(value)
+    return pref if canonical_slot(slot or "") == "CPU" and pref in allowed else None
+
+
+def _hint_summary(top: dict, avoid: dict | None, actionable: bool) -> str:
+    """관측한 사실만 쓴다. 추론 신호의 confidence 는 순 횟수(선호 - 비선호)라 "N번"이 실제 교체 횟수와 다를 수
+    있어 쓰지 않고, 문턱(3) 이상이면 사실인 "여러 번"으로 쓴다. 한 번 직접 말한 것은 "자주"가 아니라 "하셨어요".
+    반영할 수 없는 신호(CPU 가 아닌 슬롯·비선호)는 "할까요?"로 묻지 않는다 — "예"를 눌러도 아무것도 안 바뀐다."""
+    slot, brand = top["slot"], top["value"]
+    if top["source"] == "explicit_chat":
+        said = "좋다고" if top["direction"] == "prefer" else "별로라고"
+        lead = f"지난번에 {josa(slot, '은/는')} {josa(brand, '이/가')} {said} 하셨어요."
+    elif top["direction"] == "prefer" and avoid:
+        lead = f"지난 견적들에서 {josa(slot, '을/를')} {avoid['value']}에서 {josa(brand, '으로/로')} 여러 번 바꾸셨어요."
+    elif top["direction"] == "prefer":
+        lead = f"지난 견적들에서 {josa(slot, '을/를')} {josa(brand, '으로/로')} 여러 번 바꾸셨어요."
+    else:
+        lead = f"지난 견적들에서 {slot}의 {josa(brand, '을/를')} 여러 번 빼셨어요."
+    if actionable:
+        return f"{lead} 이번에도 {brand} 위주로 볼까요?"
+    return f"{lead} 이번 추천에는 아직 반영하지 못하지만 기억해 둘게요."
+
+
+# ── 반복 행동에서 추론한 선호 신호 되묻기 (B4: docs/사용자_선호비선호_기록_설계.md §6) ──
+# A1과 같은 원칙 — 자동 적용하지 않는다. "예"를 골라야 이 목록의 조건(brand_pref)이 된다.
+def preference_hint(conn, principal: Principal, category: str | None = None) -> dict | None:
+    """게스트에게는 안 준다 — 신호는 로그인 계정에만 쌓인다(§7).
+
+    배치(preference_signal_batch)는 관측될 때마다 바로 신호를 쌓지만(confidence=1부터),
+    여기서 min_confidence로 걸러서 REPEAT_THRESHOLD를 넘은 것만 보여준다 — "패턴으로
+    볼지"는 쌓는 시점이 아니라 보여주는 시점의 문턱이다(preference_signal_batch.py 참고).
+    actionable 은 "예"를 누르면 이번 목록 조건에 실제로 담기는지 — 화면이 묻는 버튼과 알리기만 하는 버튼을 가른다."""
+    if principal.user_id is None:
+        return None
+    from src.workers import preference_signal_batch
+    from src.workers.preference_signal_batch import REPEAT_THRESHOLD
+    # 보여 주기 직전에 이 사용자의 교체·제외 기록으로 신호를 다시 센다 — 배치를 부르는 스케줄러가 없어서
+    # 이게 없으면 행동에서 추론한 신호가 앱에서 하나도 생기지 않는다. 처음부터 세는 방식이라 몇 번 불러도 같다.
+    preference_signal_batch.run(conn, user_id=principal.user_id)
+    active = PreferenceRepo(conn).list_active(principal.user_id, dimension="brand",
+                                              min_confidence=REPEAT_THRESHOLD)
+    if not active:
+        return None
+    # 직접 말한 것을 먼저 — 명시적 신호가 행동 추론보다 강하다(3번 원칙과 같다: 추론은 말한 것을 덮지 않는다).
+    # 예전엔 횟수 순이라 한 번 말한 선호(1)가 다른 브랜드의 추론(3 이상)에 밀렸다. 같은 출처 안에서는 선호를
+    # 먼저("~로 바꾸셨어요"가 "~를 빼셨어요"보다 실행 가능한 제안이다), 그다음 횟수·최근 순(list_active 정렬).
+    top = min(active, key=lambda r: (r["source"] != "explicit_chat", r["direction"] != "prefer"))
+    avoid = None
+    if top["direction"] == "prefer" and top["source"] != "explicit_chat":
+        avoid = next((r for r in active if r["slot"] == top["slot"] and r["direction"] == "avoid"
+                      and r["source"] != "explicit_chat"), None)
+    actionable = top["direction"] == "prefer" and _brand_pref_for(category or "computer", top["slot"], top["value"]) is not None
+    return {"id": str(top["id"]), "dimension": top["dimension"], "slot": top["slot"],
+            "value": top["value"], "direction": top["direction"], "actionable": actionable,
+            "summary": _hint_summary(top, avoid, actionable)}
+
+
+def respond_preference_hint(conn, list_id: UUID, signal_id: UUID, accepted: bool, principal: Principal) -> dict:
+    """'아니요'는 신호를 dismiss만 한다(완전 삭제 안 함, §9). '예'는 이 목록의 brand_pref 조건도 채운다
+    — direction='avoid'만 있는 신호는 엔진의 brand_pref가 '선호 브랜드 하나' 형태라 직접 못 담는다(엔진
+    스코프, 이 설계 밖) — 그 경우는 신호 재확인(active 유지)만 하고 조건은 안 건드린다."""
+    if principal.user_id is None:
+        raise NotFound("로그인이 필요합니다.")
+    repo = PreferenceRepo(conn)
+    if not accepted:
+        repo.dismiss(principal.user_id, signal_id)
+        return {"list_id": str(list_id), "accepted": False}
+    signal = next((r for r in repo.list_active(principal.user_id) if r["id"] == signal_id), None)
+    if signal is None:
+        raise NotFound("이미 처리된 신호입니다.")
+    applied = False
+    if signal["direction"] == "prefer":
+        # 예전엔 슬롯과 무관하게 브랜드를 넣어서, GPU "NVIDIA"를 수락하면 다음 추천이 KeyError('nvidia')로 죽었다.
+        # 담을 수 있는 것(CPU 의 intel·amd)만 조건으로 쓰고, 나머지는 신호만 active 로 둔다(applied=False).
+        plan_repo = PlanRepo(conn)
+        current = _owned(plan_repo, list_id, principal)
+        _, category = _current_values(plan_repo, current["id"])
+        value = _brand_pref_for(category, signal["slot"], signal["value"])
+        if value is not None:
+            plan_repo.upsert_condition(current["id"], "brand_pref", {"value": value}, "inferred")
+            applied = True
+    return {"list_id": str(list_id), "accepted": True, "applied": applied}
+
+
+# ── 업그레이드 사양 파일 첨부 (§D-4-1: current_specs · spec_file_name) ──
+_ALLOWED_SPEC_EXTENSIONS = {"txt", "json", "csv", "md", "log", "nfo", "xml"}
+_MAX_SPEC_FILE_BYTES = 1_000_000
+_parse_spec_file = parse_spec_text   # 기존 이름 유지(테스트가 이 이름으로 import한다)
+
+
+def _extract_current_specs(content: str) -> dict:
+    """텍스트에서 슬롯별 사양을 뽑는다. LLM 추출(에이전트)이 있으면 그걸 먼저 쓰고, 없거나 실패하면
+    규칙 기반(key: value 줄)으로 이번 요청만 처리한다 — conditions_agent와 같은 fallback 원칙."""
+    if spec_extraction_agent.available():
+        try:
+            extracted = spec_extraction_agent.extract(content)
+            if extracted:
+                return extracted
+        except Exception as exc:  # noqa: BLE001 — 모델·네트워크 오류. 이번 요청만 규칙 경로로.
+            log.warning("spec extraction agent failed, falling back to rules: %s", exc)
+    return parse_spec_text(content)
+
+
+def attach_spec_file(
+    conn,
+    list_id: UUID,
+    file_name: str,
+    content: str,
+    principal: Principal,
+) -> dict:
+    repo = PlanRepo(conn)
+    current = _owned(repo, list_id, principal)
+    values, category = _current_values(repo, current["id"])
+    if category != "computer" or values.get("mode") != "upgrade":
+        raise ValidationFailed("사양 파일은 PC 업그레이드에서만 첨부할 수 있습니다.", code="spec_file_not_accepted")
+    ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+    if ext not in _ALLOWED_SPEC_EXTENSIONS:
+        raise ValidationFailed("지원하지 않는 파일 형식입니다.", field="file_name", code="unsupported_file")
+    if len(content.encode("utf-8")) > _MAX_SPEC_FILE_BYTES:
+        raise FileTooLarge("파일이 너무 큽니다(1MB 이하).", field="content")
+    specs = _extract_current_specs(content)
+    repo.upsert_condition(current["id"], "spec_file_name", {"value": file_name}, "explicit")
+    if specs:
+        repo.upsert_condition(current["id"], "current_specs", {"value": specs}, "extracted")
+    return _state(conn, list_id, principal)

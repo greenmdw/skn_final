@@ -1,0 +1,1633 @@
+"""API 요청/응답 모델 (pydantic).
+
+엔진 내부 DTO(src/dto.py)와 분리한다 — API 계약은 프론트와 협의 후 확정(기획서 §18-1).
+지금은 골격만. 필드는 화면흐름 명세 기준 최소.
+"""
+from __future__ import annotations
+
+from datetime import datetime
+from uuid import UUID
+from typing import Any, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
+from src.dto import PeripheralKind
+from src.dto import ReviewAspectContribution as ReviewAspectContributionDTO
+from src.dto import ReviewScoreDetail as ReviewScoreDetailDTO
+from src.engine.peripheral_intent import Interpretation as PeripheralInterpretation
+from src.engine.peripheral_intent import ResolvedKind as PeripheralResolvedKind
+
+
+# ── auth: 코드 로그인 (보류 — §G 재사용 예정) ──
+class RequestCodeIn(BaseModel):
+    email: str
+
+
+class VerifyCodeIn(BaseModel):
+    email: str
+    code: str
+
+
+class TokenOut(BaseModel):
+    token: str
+
+
+# ── auth: 이메일+비밀번호 (§A-4) ──
+class SignupIn(BaseModel):
+    email: str
+    password: str
+    display_name: str
+    terms_agreed: bool
+    privacy_agreed: bool
+    marketing_agreed: bool = False
+
+
+class LoginIn(BaseModel):
+    email: str
+    password: str
+    remember: bool = False
+
+
+class UserOut(BaseModel):
+    id: str
+    email: str
+    display_name: str
+    marketing_agreed: bool
+    created_at: datetime
+
+
+class UserEnvelopeOut(BaseModel):
+    """프론트 TF_AUTH가 `data.user`로 읽는다(frontend/js/api.js) — 사용자 응답은 항상 이 봉투로 감싼다."""
+
+    user: UserOut
+
+
+class ProfilePatchIn(BaseModel):
+    display_name: Optional[str] = None
+    email: Optional[str] = None
+    marketing_agreed: Optional[bool] = None
+    current_password: Optional[str] = None      # 이메일을 바꿀 때만 필요(로그인 ID 를 바꾸는 일이라 비밀번호를 다시 확인한다)
+
+
+class PasswordChangeIn(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class LogoutAllIn(BaseModel):
+    include_current: bool = False      # true 면 이 기기도 로그아웃(쿠키 삭제)
+
+
+class WithdrawIn(BaseModel):
+    password: str
+
+
+class EmailAvailabilityOut(BaseModel):
+    available: bool
+
+
+# ── session (S1~S3) ──
+class SessionOut(BaseModel):
+    list_id: str
+
+
+class CategoryIn(BaseModel):
+    category: Literal["computer"]
+    mode: Optional[str] = None
+
+
+class MessageIn(BaseModel):
+    text: str = Field(max_length=500)
+
+
+class AnswerIn(BaseModel):
+    question_id: str
+    selected: list[Any]
+
+
+class SlotPatchIn(BaseModel):
+    field: str
+    value: Any | None = None
+
+
+class SlotsPatchIn(BaseModel):
+    """여러 조건을 한 번에 반영한다(PATCH /session/{id}/slots) — 조건마다 PATCH 를 보내면 응답마다 예산 경고를 다시 계산했다."""
+    slots: list[SlotPatchIn] = Field(min_length=1, max_length=20)
+
+
+class ResultStatusOut(BaseModel):
+    """GET /session/{id}/result/status — 폴링용 가벼운 상태. 전체 결과를 조립하지 않는다."""
+    run_id: str
+    status: str                      # running | done | failed
+    explanation_status: str          # pending | ready | failed
+    # 부품표는 done 인데 요약·이유·사용 가이드 중 아직 오는 것이 있으면 true
+    postprocess_pending: bool = False
+    result_version: str
+    error: RecommendErrorOut | None = None
+
+
+# ── PC 견적 점검: 사양 텍스트 매칭 미리보기 (세션 없이 호출) ──
+class OwnedPartsPreviewIn(BaseModel):
+    # 슬롯 이름(원문 그대로, 예: "CPU"·"그래픽카드") -> 사용자가 적은 자유 텍스트.
+    current_specs: dict[str, str] = Field(default_factory=dict)
+    # 자유 형식 텍스트(업로드 파일 전체·붙여넣은 견적 설명). 있으면 슬롯별로 추출해 current_specs에
+    # 채운다 — 같은 슬롯이 current_specs에도 이미 있으면 그 값(명시값)을 우선한다.
+    text: str | None = None
+    # 견적·부품 목록이 찍힌 화면 캡처. "data:image/png;base64,..." 형식의 데이터 URL 그대로 —
+    # text와 동시에 오면 이걸 우선한다. 처리 후 저장하지 않는다(요청 처리 중에만 메모리에 존재).
+    image_data_url: str | None = None
+
+
+class OwnedPartsPreviewRow(BaseModel):
+    part: str
+    original: str
+    matched: str
+    matched_note: str
+    state: Literal["ok", "warn"]
+    # state(ok/warn)보다 세분화된 값 — 화면이 "확정"과 "모호함"을 구분해서 보여줄 때 쓴다.
+    # confirmed=단일 확정 · ambiguous=후보 여럿 동점(공통값만 사용, candidate_count 참고) ·
+    # candidate=가장 비슷한 제품(다른 제품일 수 있음) · inferred=글·모델명 규칙으로 일부만 읽음 ·
+    # unmatched=대응 자체를 못 찾음.
+    match_status: Literal["confirmed", "ambiguous", "candidate", "inferred", "unmatched"] = "confirmed"
+    candidate_count: int | None = None   # match_status가 ambiguous일 때만(동점 후보 개수)
+    # "live" 면 이 행의 값(전부 또는 일부)이 실시간 검색 결과다 — 카탈로그 정식 값이 아니다. 상태(ok/warn)는 그대로다.
+    value_source: Literal["live"] | None = None
+
+
+class OwnedPartsPreviewOut(BaseModel):
+    rows: list[OwnedPartsPreviewRow] = Field(default_factory=list)
+
+
+# ── PC 견적 점검: 비교 분석 결과 저장 (CHK-04·CHK-09) ──
+class QuoteCompatCheckOut(BaseModel):
+    axis: str
+    label: str
+    state: Literal["ok", "fail", "unknown", "skipped"]   # unknown = 스펙을 몰라 확인 못 함(비호환 아님)
+    detail: str
+
+
+class QuoteCompatOut(BaseModel):
+    checks: list[QuoteCompatCheckOut] = Field(default_factory=list)
+    summary: dict[str, int] = Field(default_factory=dict)
+    incompatible: list[str] = Field(default_factory=list)   # 확정된 비호환 검사(axis)만
+
+
+class QuotePriceRowOut(BaseModel):
+    part: str
+    matched: str | None = None          # 카탈로그와 같은 제품으로 확정된 경우의 카탈로그 이름
+    quoted: int | None = None           # 견적에 적힌 가격(원)
+    catalog: int | None = None          # 우리 카탈로그 가격(원)
+    quantity: int = 1                   # 견적 한 줄의 개수("16GB x2" = 2) — 카탈로그 가격을 이 개수에 맞춰 견줌
+    diff: int | None = None
+    diff_pct: float | None = None
+    state: Literal["cheaper", "similar", "pricier", "no_quote_price", "no_catalog"]
+    detail: str
+
+
+class QuotePricesOut(BaseModel):
+    available: bool                     # False = 견적에 가격이 없어 비교하지 않음(P10)
+    reason: str | None = None
+    rows: list[QuotePriceRowOut] = Field(default_factory=list)
+    summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class QuoteConditionsIn(BaseModel):
+    """용도 대비 균형(CHK-06)을 판단할 사용자 조건 — 추천 조건과 같은 값 체계."""
+    purpose: Literal["game", "creation", "office", "study", "other"] | None = None
+    resolution: Literal["FHD_144", "QHD_165", "4K"] | None = None
+    priority: Literal["performance", "value", "quiet"] | None = None    # 안 주면 추천엔진 기본 가중치(우리 추천 비교용)
+    games: list[str] = Field(default_factory=list, max_length=15)
+    budget_max: int | None = Field(default=None, ge=0, le=100_000_000)
+
+
+class QuoteDraftConditionsPatchIn(BaseModel):
+    """초안의 조건을 일부만 바꾼다 — 보낸 키만 바뀌고, 값이 null(games 는 빈 목록)이면 그 조건을 지운다."""
+    expected_version: int
+    conditions: QuoteConditionsIn
+
+
+class QuoteBalanceRowOut(BaseModel):
+    part: str
+    aspect: str                                         # 성능 등급 · VRAM · 용량 · 예산 · 예산 비중
+    state: Literal["short", "excess", "ok", "unknown"]  # 부족 · 과함 · 충족 · 확인 못 함
+    detail: str
+    measured: float | None = None
+    target: float | None = None
+
+
+class QuoteBalanceOut(BaseModel):
+    available: bool                                     # False = 조건이 없어 판단하지 않음
+    reason: str | None = None
+    requirement: dict[str, Any] | None = None           # 판단 기준(용도·해상도 → 요구 등급·용량)
+    rows: list[QuoteBalanceRowOut] = Field(default_factory=list)
+    summary: dict[str, int] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
+
+
+class QuoteCompareSideOut(BaseModel):
+    name: str | None = None
+    price: int | None = None
+    perf_tier: float | None = None
+    confirmed: bool | None = None       # 견적 쪽만 — 카탈로그와 같은 제품으로 확정됐는가
+    quantity: int | None = None
+
+
+class QuoteCompareRowOut(BaseModel):
+    part: str
+    quote: QuoteCompareSideOut | None = None     # None = 견적에 이 부품이 없음
+    ours: QuoteCompareSideOut
+    same_product: bool
+    price_diff: int | None = None                # 견적 − 우리 추천
+    price_diff_pct: float | None = None
+    price_state: Literal["cheaper", "similar", "pricier"] | None = None
+    tier_diff: float | None = None
+    detail: str
+
+
+class QuoteCompareOut(BaseModel):
+    available: bool                              # False = 같은 조건을 만들 수 없어 비교하지 않음
+    reason: str | None = None
+    conditions_used: dict[str, Any] | None = None
+    ours: dict[str, Any] | None = None           # 우리 추천 구성(items · total · link_check · incompatible)
+    rows: list[QuoteCompareRowOut] = Field(default_factory=list)
+    summary: dict[str, Any] = Field(default_factory=dict)
+    notes: list[str] = Field(default_factory=list)
+
+
+class LiveSpecLookupOut(BaseModel):
+    """DB 미보유 부품 실시간 검색 결과(docs/미보유부품_실시간스펙검색_설계.md §5).
+    relevant=False거나 supported_fields가 전부 비어 있으면 화면은 "찾지 못했다"로 보여야 한다 —
+    카탈로그 정식 등재 값이 아니라는 안내도 같이 표시한다(프론트 몫, 5단계)."""
+
+    slot: str
+    query: str
+    relevant: bool
+    supported_fields: dict[str, Any]
+    source_url: str | None = None
+    # 임시 부품 저장소 메타(설계 §9): 언제 확인한 값인지, 사람이 확인했는지, 저장소에서 가져왔는지.
+    fetched_at: str | None = None
+    status: Literal["unreviewed", "confirmed", "rejected"] = "unreviewed"
+    cached: bool = False
+    # 참고가(LIVE_REFERENCE_PRICE=1 이고 만료 전일 때만) — 합계·가격 비교·후보와 무관한 참고 표시용.
+    reference_price: int | None = None
+    reference_price_source_url: str | None = None
+    reference_price_at: str | None = None
+
+
+class QuoteChatContextIn(BaseModel):
+    type: Literal["saved_quote_comparison"]
+    comparison_id: UUID
+
+
+class QuoteChatIn(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+    client_message_id: str | None = Field(default=None, max_length=100)   # 같은 요청의 재전송이면 저장된 답을 돌려준다
+    context: QuoteChatContextIn | None = None                             # 저장 견적 비교에 대한 질문
+
+
+class QuoteGuideRefOut(BaseModel):
+    id: str
+    slot: str
+    kind: Literal["care", "install"]
+    text: str
+    score: float | None = None
+
+
+class QuoteChatOut(BaseModel):
+    reply: str
+    evidence: list[str] = Field(default_factory=list)      # 답의 근거가 된 분석 블록(호환 검사 · 가격 비교 …)
+    via: Literal["agent", "rules"]                          # 어느 경로로 답했는가
+    message_id: str | None = None
+    answer_id: str | None = None
+    guide_refs: list[QuoteGuideRefOut] = Field(default_factory=list)
+    visuals: list[dict[str, Any]] = Field(default_factory=list)     # 서버가 조립한 표·제품 카드·호환 자료
+    display_target: Literal["saved_comparison_explanation", "chat"] = "chat"
+    duplicate_of: str | None = None                                  # 같은 질문이면 재사용한 원래 답의 answer_id
+    action: dict[str, Any] | None = None                             # 채팅으로 한 동작 {kind, label, undo} — 동작이 아니면 null
+    created_at: str | None = None
+
+
+class QuoteChatMessageOut(BaseModel):
+    id: str
+    role: Literal["user", "assistant", "system"]
+    text: str
+    created_at: str
+    # 저장 견적 비교 질문의 복원 정보 — 새로고침 뒤에도 질문별 해설과 자료를 그대로 보인다(없으면 비어 있다).
+    comparison_id: str | None = None
+    answer_id: str | None = None
+    evidence: list[str] = Field(default_factory=list)
+    guide_refs: list[QuoteGuideRefOut] = Field(default_factory=list)
+    visuals: list[dict[str, Any]] = Field(default_factory=list)
+    via: Literal["agent", "rules"] | None = None
+    display_target: Literal["saved_comparison_explanation", "chat"] | None = None
+    duplicate_of: str | None = None
+    action: dict[str, Any] | None = None
+
+
+# BE-09 저장 견적 비교
+class QuoteSavedComparisonIn(BaseModel):
+    saved_list_id: UUID
+    saved_revision_no: int | None = Field(default=None, ge=1)
+
+
+class QuoteComparisonProductOut(BaseModel):
+    product_id: str | None = None
+    product_key: str | None = None
+    name: str | None = None
+    image_url: str | None = None
+    quantity: int = 1
+    line_total: int | None = None
+
+
+class QuoteComparisonRowOut(BaseModel):
+    category: str
+    same_product: bool                                  # 문자열이 아니라 카탈로그 제품 키로 판정
+    received: QuoteComparisonProductOut | None = None
+    saved: QuoteComparisonProductOut | None = None
+    price_diff: int | None = None                       # 저장 견적 − 받은 견적(품목 합계 기준)
+
+
+class QuoteComparisonSummaryOut(BaseModel):
+    changed_count: int
+    largest_price_difference_category: str | None = None
+    text: str
+
+
+class QuoteSavedComparisonOut(BaseModel):
+    comparison_id: str
+    received_total: int
+    saved_total: int
+    total_diff: int                                      # 가격이 양쪽에 모두 있는 부품(comparable_categories)만의 차이(저장 − 받은)
+    comparable_categories: list[str] = Field(default_factory=list)
+    excluded_received_categories: list[str] = Field(default_factory=list)   # 받은 견적에 가격이 없어 합계에서 뺀 부품군
+    rows: list[QuoteComparisonRowOut]
+    brief_summary: QuoteComparisonSummaryOut
+    saved: dict[str, Any] = Field(default_factory=dict)                      # 비교한 저장 견적(list_id·revision_no·name)
+    labels: dict[str, str] = Field(default_factory=dict)                     # received/saved 쪽의 이름(견적 이름 — 없으면 받은 견적/저장 견적)
+    sides: dict[str, Any] | None = None                                      # 견적끼리 비교할 때 각 견적의 합계·호환 요약
+    criteria: list[dict[str, Any]] | None = None                             # 견적끼리 비교할 때 기준별 값(호환·용도·등급·총액) — 종합 우열은 없다
+    kind: str | None = None
+    computed_at: str
+
+
+class QuoteChatHistoryOut(BaseModel):
+    messages: list[QuoteChatMessageOut] = Field(default_factory=list)
+
+
+class QuoteReviewInputOut(BaseModel):
+    current_specs: dict[str, str] = Field(default_factory=dict)
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    input_hash: str
+
+
+class QuoteReviewOut(BaseModel):
+    list_id: str
+    version: int
+    input: QuoteReviewInputOut
+    parts: list[OwnedPartsPreviewRow] = Field(default_factory=list)   # 인식·카탈로그 매칭 표
+    compat: QuoteCompatOut
+    prices: QuotePricesOut | None = None    # 가격 비교(CHK-05) — 이 기능 이전에 저장된 결과에는 없다
+    balance: QuoteBalanceOut | None = None  # 용도 대비 균형(CHK-06) — 이 기능 이전에 저장된 결과에는 없다
+    compare: QuoteCompareOut | None = None  # 우리 추천과 비교(CHK-07) — 이 기능 이전에 저장된 결과에는 없다
+    computed_at: str
+
+
+# ── 받은 견적 점검: 여러 장 업로드 초안 (docs 개발요청서 BE-01~04·07) ──
+class QuoteCapabilitiesOut(BaseModel):
+    image_extraction: bool
+    supported_types: list[str]
+    max_files: int
+    max_file_bytes: int
+    max_total_bytes: int
+    text_max_chars: int
+
+
+class QuoteDraftSourceOut(BaseModel):
+    id: str
+    type: Literal["image", "text", "replacement", "manual"]
+    file_name: str | None = None
+    sort_order: int
+    status: Literal["completed", "failed"]
+    error_code: str | None = None
+    quote_total: int | None = None                       # 사진에 적힌 견적 총액(원). 부품별 가격이 없는 견적의 가격 안내에 쓴다
+    quality_warning: str | None = None                   # 사진이 작거나 흐릴 때의 안내 — 이 사진에서 읽은 부품은 자동 확정하지 않는다
+    ignored_lines: list[str] = Field(default_factory=list)   # 튜닝·액세서리처럼 메인 부품이 아니라 분석에서 뺀 줄
+
+
+class MatchReasonOut(BaseModel):
+    """항목이 카탈로그 제품으로 확정되지 않은 이유(확정이면 항목의 match_reason 이 null) — 코드 의미는 src/engine/match_reason.py."""
+    code: Literal["not_in_catalog", "variant_mismatch", "ambiguous", "insufficient_info", "uncertain_reading", "low_quality_photo"]
+    message: str
+    nearest: dict[str, Any] | None = None                # 가장 가까운 제품과 연결하지 않은 이유(name, why_not, key_specs)
+    candidates: list[dict[str, Any]] = Field(default_factory=list)   # 고를 수 있는 후보(name, key_specs) 최대 3개
+
+
+class QuoteDraftItemOut(BaseModel):
+    id: str
+    category: str
+    raw_text: str
+    normalized_name: str                                 # 상품코드·가격이 없는 이름
+    product_code: str | None = None
+    quantity: int = 1
+    quote_unit_price: int | None = None
+    quote_line_total: int | None = None
+    quote_price_type: Literal["unit", "line_total", "unknown"] = "unknown"
+    matched_product_id: str | None = None                # 카탈로그와 확정 대응(confirmed)일 때만
+    matched_product_key: str | None = None               # 저장 견적과 "같은 제품"을 가를 때 쓰는 키(제품 ID와 한 쌍)
+    matched_name: str | None = None
+    image_url: str | None = None                         # catalog.product.image_url, 없으면 null
+    match_status: Literal["confirmed", "ambiguous", "candidate", "inferred", "unmatched"] = "unmatched"
+    match_via: Literal["model"] | None = None            # "model" = 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾아 확정했다(화면에 근거를 보인다)
+    uncertain: bool = False                              # 사진 글자가 흐려 읽은 이름이 틀렸을 수 있다 — 카탈로그 확정을 하지 않는다
+    candidate_count: int | None = None
+    match_reason: MatchReasonOut | None = None           # 왜 "제품 확인 필요"인지 — 확정된 항목은 null
+    source_ids: list[str] = Field(default_factory=list)
+    selected_for_analysis: bool = False
+    user_edited: bool = False
+    # 이 항목의 실시간 검색 값이 임시 저장소에 있다(저장되지 않는 표시 — 응답을 만들 때마다 저장소를 읽어 채운다).
+    live_value: bool = False
+
+
+class QuoteDraftGroupOut(BaseModel):
+    """견적 묶음 — 올린 이미지(텍스트) 하나가 견적 하나. 서로 다른 견적을 올렸을 때 묶음별로 분석·비교한다."""
+    id: str
+    name: str
+    source_ids: list[str]
+    item_ids: list[str]
+
+
+class SourceRelationOut(BaseModel):
+    """올린 사진들의 관계 판정. applies=false(사진 1장)이면 나머지는 무시한다."""
+    applies: bool
+    mode: Literal["single", "separate"]            # single=한 견적을 나눠 찍은 여러 장, separate=서로 다른 견적
+    confidence: Literal["high", "low"]             # low 이면 사용자가 확인하기 전까지 일반 분석을 막는다(409)
+    confirmed: bool = False                        # 사용자가 직접 확인했다
+    reasons: list[str] = Field(default_factory=list)   # 고른 쪽을 받치는 근거
+    doubts: list[str] = Field(default_factory=list)    # 반대쪽을 받치는 근거(애매함의 이유)
+
+
+class QuoteSourceRelationPatchIn(BaseModel):
+    expected_version: int
+    mode: Literal["single", "separate"]
+
+
+class QuoteDraftOut(BaseModel):
+    draft_id: str
+    version: int
+    sources: list[QuoteDraftSourceOut]
+    items: list[QuoteDraftItemOut]
+    selected_item_by_category: dict[str, str] = Field(default_factory=dict)
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    question: str | None = None
+    partial_success: bool = False
+    groups: list[QuoteDraftGroupOut] = Field(default_factory=list)
+    # 올린 사진이 서로 다른 견적처럼 보이는지(separate) 한 견적의 여러 장처럼 보이는지(single) — 화면의 기본 선택일 뿐이다
+    source_mode_hint: Literal["single", "separate"] = "single"
+    source_relation: SourceRelationOut | None = None
+    analysis_stale: bool = False        # 분석한 뒤 조건이 바뀌었다 — 화면이 "다시 분석하기"를 권한다(분석한 적이 없으면 false)
+    confirmed: bool = False             # 이미 확정한 견적 — 고치거나 다시 분석할 수 없고 저장된 결과만 볼 수 있다
+    created_at: str
+
+
+class QuoteDraftAnalysisIn(BaseModel):
+    source_ids: list[str] | None = Field(default=None, max_length=10)   # 주면 그 견적(이미지)의 항목만 분석
+
+
+class LiveLookupBatchIn(BaseModel):
+    item_ids: list[str] = Field(min_length=1, max_length=20)      # 개수 상한은 서버 설정(LIVE_LOOKUP_BATCH_MAX)이 따로 검사한다
+
+
+class LiveLookupBatchItemOut(BaseModel):
+    item_id: str
+    # found 찾음 · not_found 못 찾음 · failed 검색을 못 했다(message) · skipped 이미 카탈로그에 대응됐거나 항목이 없다
+    state: Literal["found", "not_found", "failed", "skipped"]
+    message: str | None = None
+    result: LiveSpecLookupOut | None = None
+
+
+class LiveLookupBatchOut(BaseModel):
+    items: list[LiveLookupBatchItemOut]
+    found: int = 0
+    not_found: int = 0
+    failed: int = 0
+    skipped: int = 0
+
+
+class QuoteQuoteComparisonIn(BaseModel):
+    a_source_ids: list[str] = Field(min_length=1, max_length=10)
+    b_source_ids: list[str] = Field(min_length=1, max_length=10)
+
+
+class QuoteDraftItemEdit(BaseModel):
+    id: str
+    delete: bool = False                                  # true 면 이 항목을 지운다(다른 필드는 무시)
+    category: str | None = None                           # 부품군을 잘못 읽었을 때 바꾼다(그 부품군 카탈로그에서 다시 맞춘다)
+    normalized_name: str | None = Field(default=None, max_length=200)
+    quantity: int | None = Field(default=None, ge=1, le=20)
+    quote_line_total: int | None = Field(default=None, ge=0, le=100_000_000)
+
+
+class QuoteDraftItemAddIn(BaseModel):
+    expected_version: int
+    category: str
+    raw_text: str = Field(min_length=1, max_length=300)    # "제품명 수량 가격"을 적은 그대로 — 읽은 항목과 같은 방식으로 나눈다
+    source_id: str | None = None                          # 주면 그 견적(이미지)의 항목으로
+
+
+class QuoteDraftPatchIn(BaseModel):
+    expected_version: int
+    items: list[QuoteDraftItemEdit] = Field(default_factory=list, max_length=50)
+    selected_item_by_category: dict[str, str] | None = None
+
+
+class PriceViewOut(BaseModel):
+    """가격을 화면에 어떻게 보일지(서버가 정한다): line=부품별 가격이 있다, total_only=사진 총액만, none=가격 정보 없음."""
+    mode: Literal["line", "total_only", "none"]
+    quote_total: int | None = None            # 사진에 적힌 총액
+    line_total: int | None = None             # 부품별 가격이 있는 항목의 합계
+    priced_count: int = 0
+    total_count: int = 0
+    catalog_total: int | None = None          # 카탈로그로 확정된 부품만의 합계(참고)
+    catalog_parts: int | None = None
+    label: str                                # 화면에 그대로 쓸 이름("사진 총액", "가격 정보 없음" 등)
+    note: str | None = None
+
+
+class QuotePriceExcludedOut(BaseModel):
+    category: str
+    item_id: str
+    reason: str
+
+
+class QuoteDraftPriceRowOut(BaseModel):
+    category: str
+    item_id: str
+    quantity: int
+    quote_unit_price: int | None = None
+    quote_line_total: int | None = None
+    quote_price_type: Literal["unit", "line_total", "unknown"] = "unknown"
+    catalog_unit_price: int | None = None
+    catalog_line_total: int | None = None
+    catalog_checked_at: str | None = None
+    catalog_status: Literal["available", "out_of_stock", "no_price", "unmatched"]
+    diff_line_total: int | None = None
+
+
+class QuoteDraftAnalysisOut(QuoteReviewOut):
+    used_items: list[QuoteDraftItemOut] = Field(default_factory=list)   # 분석에 쓴 항목(분석 기준으로 고른 것)
+    question: str | None = None
+    draft_version: int
+    price_excluded: list[QuotePriceExcludedOut] = Field(default_factory=list)   # 가격이 없어 합계에서 뺀 항목
+    price_rows: list[QuoteDraftPriceRowOut] = Field(default_factory=list)            # 항목별 견적·카탈로그 가격(BE-08)
+    price_view: PriceViewOut | None = None                                           # 가격을 어떻게 보일지(0원 대신 "가격 정보 없음")
+
+
+# BE-05 분석 전 제품 비교 · BE-06 교체 영향 미리보기
+# ── 조건 대화 (§D-4-1) ──
+class MessageOut(BaseModel):
+    id: str
+    role: str
+    text: str
+    created_at: str
+
+
+class FieldOut(BaseModel):
+    key: str
+    label: str
+    value: Any = None
+    display: str | None = None
+    status: str            # confirmed | assumed | missing
+    editable: bool = True
+
+
+class NextQuestionOut(BaseModel):
+    id: str
+    field: str
+    text: str
+    select: str             # single | multi | free
+    options: list[dict] = Field(default_factory=list)
+
+
+class BudgetWarningOut(BaseModel):
+    """추천 전 예산 사전 경고 — 요구 성능의 최저가 합계(하한)가 예산과 어떻게 맞는지."""
+
+    level: Literal["tight", "infeasible", "ok"]   # ok 는 예산 문제는 없고 message 만 있는 경우(요구를 채우는 후보 없음)
+    message: str | None = None
+    estimated_min: int
+    budget: int
+
+
+class ConditionState(BaseModel):
+    list_id: str
+    category: str | None = None
+    mode: str | None = None
+    revision_id: str | None = None
+    lock_version: int | None = None
+    messages: list[MessageOut] = Field(default_factory=list)
+    fields: list[FieldOut] = Field(default_factory=list)
+    next_question: NextQuestionOut | None = None
+    can_recommend: bool = False
+    accepts_spec_file: bool = False
+    budget_warning: BudgetWarningOut | None = None   # 예산이 빠듯/불가능할 때만 채운다
+
+
+class PreviousFieldOut(BaseModel):
+    key: str
+    label: str | None = None
+    display: str
+
+
+class PreviousConditionsOut(BaseModel):
+    """GET /session/previous — 지난 목록에서 이어 쓸 조건(A1). 값은 resume 을 부를 때만 복사된다."""
+    list_id: str
+    name: str
+    confirmed: bool
+    last_active_at: str
+    fields: list[PreviousFieldOut]
+    summary: str
+
+
+class PreferenceHintOut(BaseModel):
+    """GET /session/previous — 반복 행동에서 추론한 선호 신호(B4, docs/사용자_선호비선호_기록_설계.md).
+    자동 적용하지 않는다 — 사용자가 응답해야(POST .../preference-hint/{id}/respond) 조건에 반영된다."""
+    id: str
+    dimension: str
+    slot: str
+    value: str
+    direction: str
+    # "예"를 누르면 이번 목록 조건(brand_pref)에 실제로 담기는지 — 아니면 문구가 묻지 않고 알리기만 한다
+    actionable: bool = False
+    summary: str
+
+
+class PreviousLookupOut(BaseModel):
+    previous: PreviousConditionsOut | None = None
+    preference_hint: PreferenceHintOut | None = None
+
+
+class PreferenceHintRespondIn(BaseModel):
+    accepted: bool
+
+
+class ResumeIn(BaseModel):
+    from_list_id: UUID
+
+
+class PreviousComparisonOut(BaseModel):
+    """GET /session/{id}/previous-comparison — 이전 견적과 비교(B1). available=False 면 reason 만 있다.
+    reasons 는 {slot, label, kind(requirement|unexplained), claim, evidence[], source} — 문장(text)은 이것만 가지고 만든다."""
+    available: bool
+    reason: str | None = None
+    text: str
+    previous_list_id: str | None = None
+    previous_label: str | None = None
+    condition_changes: list[dict] = Field(default_factory=list)
+    part_changes: list[dict] = Field(default_factory=list)
+    unchanged: list[str] = Field(default_factory=list)
+    reasons: list[dict] = Field(default_factory=list)
+    totals: dict | None = None
+    caveats: list[str] = Field(default_factory=list)
+
+
+# ── recommend / result (§D-4-2) ──
+class RecommendIn(BaseModel):
+    strategy: Optional[Literal["default", "alternative"]] = "default"
+
+
+class RecommendAcceptedOut(BaseModel):
+    """POST /recommend 의 202 응답 — 실행을 접수했을 뿐, 결과는 GET /result 로 폴링."""
+
+    run_id: str
+    status: str = "running"
+
+
+class ProgressStepOut(BaseModel):
+    step: str
+    label: str
+    status: str          # done | running | pending
+
+
+class TextStatusOut(BaseModel):
+    """LLM 등 비동기로 채워지는 문장 필드 공통 모양."""
+
+    status: str           # pending | ready | failed
+    text: str | None = None
+
+
+class ExplanationOut(BaseModel):
+    status: str            # pending | ready | failed
+    headline: str | None = None
+    text: str | None = None
+    # 추천 당시 구성이 어느 축(가격·성능·리뷰)에서 점수를 얻었는지, 합 100(%). 교체 뒤에도 그대로다.
+    contribution: dict[str, int] | None = None
+
+
+class ProductOut(BaseModel):
+    product_key: str
+    variant_id: str | None = None
+    name: str
+    brand: str = ""
+    spec_summary: str | None = None
+    image_url: str | None = None
+    purchase_url: str | None = None
+
+
+class ReviewSignalRatioOut(BaseModel):
+    ratio: float
+    median: float | None = None          # 대조군(비슷한 부품) 중앙값 — 막대그래프 기준선용
+
+
+class ReviewSignalBurst7Out(BaseModel):
+    count: int
+    ratio: float
+    launch_week: bool
+    median: float | None = None
+
+
+class ReviewSignalCountRatioOut(BaseModel):
+    count: int
+    ratio: float
+    baseline: float | None = None        # 데모 상품 전체의 2개+ 비율 — 이 지표는 중앙값이 아니라 기준선과 비교한다
+
+
+class ReviewSignalSharedReviewersOut(BaseModel):
+    count: int
+    linked_products: int
+    median_count: int | None = None
+    median_linked_products: int | None = None
+
+
+class ReviewSignalsOut(BaseModel):
+    """관계·행동 축 관측값을 문장이 아니라 숫자로 — 프론트가 막대그래프를 그리는 데 쓴다
+    (docs/개발요청_리뷰클렌징_요약_구조화.md 요청 A). 개별 신호를 못 채우면 그 키만 None.
+    median·baseline 은 "비슷한 부품은 보통 얼마인가" — 값만 있으면 유저가 크고 작음을 판단할 수 없다."""
+
+    rating5_share: ReviewSignalRatioOut | None = None
+    burst7: ReviewSignalBurst7Out | None = None
+    suspect_2plus: ReviewSignalCountRatioOut | None = None
+    shared_reviewers: ReviewSignalSharedReviewersOut | None = None
+
+
+class ReviewPlainOut(BaseModel):
+    """관측을 유저가 읽을 문장으로 (docs/리뷰관측_문장_초안.md). 숫자는 signals 와 같은 산출물, 말은 템플릿.
+
+    3층: headline(한 줄) → points(사기 전에 살펴볼 점 — 중앙값을 넘어 뽑힌 것만) → details(나머지 지표) +
+    sources(산출물 원문 — GET /reviews/summary 의 summaries 와 같은 문장, 검토자용) + verify_url.
+    reason 이 있으면 관측이 없는 경우 — headline 이 그 사유 한 줄이고 points·details·sources 는 비어 있다.
+    """
+
+    headline: str
+    points: list[str] = []
+    details: list[str] = []
+    sources: list[str] = []
+    verify_url: str | None = None
+    reason: str | None = None            # below_threshold | out_of_period | no_match | unmapped | unavailable
+
+
+class ReviewBriefOut(BaseModel):
+    total_count: int | None = None       # 관측 산출물에 없는 상품은 모르는 값 — None (표시용 추정값을 넣지 않는다)
+    # 검수 후 평점·제외 비율은 판정기가 없어 못 낸다(docs/decisions/0001) — 항상 null. 수집처 평균 별점(rating_raw)만 낸다.
+    excluded_ratio: float | None = None
+    rating_refined: float | None = None
+    # 수집처 구매자 별점의 단순 평균과 그 평점 건수 — 검수 전 값이다. 건수가 적어도 평균을 내므로 늘 건수와 같이 읽는다.
+    rating_raw: float | None = None
+    rating_count: int | None = None
+    signals: ReviewSignalsOut | None = None
+    cleansing_summary: TextStatusOut | None = None
+    plain: ReviewPlainOut | None = None
+
+
+class RecommendationReviewOut(BaseModel):
+    """추천 당시 snapshot. 별점/리뷰 총수 및 설명 생성 상태와 독립적이다."""
+
+    status: Literal["ready", "unavailable", "failed"] = "unavailable"
+    reason: str | None = "snapshot_missing"
+    source_run_id: str | None = None
+    product_id: str | None = None
+    variant_id: str | None = None
+    selection_source: Literal["automatic", "user_swap", "alternative"] = "automatic"
+    applied_to_ranking: bool = False
+    request_conditions: dict[str, Any] = Field(default_factory=dict)
+    rank_weight: float | None = None
+    rank_contribution: float | None = None
+    rank_score: float | None = None
+    detail: ReviewScoreDetailDTO | None = None
+
+
+class FitAxisOut(BaseModel):
+    """축별 추천 적합도(100점 표시). `weighted_points` 는 가중치를 곱한 기여분이며, 합이 100%인 `explanation.contribution` 과 다른 값이다."""
+    axis: str
+    points: float
+    weight: float
+    weighted_points: float
+
+
+class FitOut(BaseModel):
+    """추천 적합도 — 리뷰 계산 snapshot 의 반올림 없는 원본에서 한 번만 반올림한 0~100점. 예산 비중(budget_share)과 별개다.
+
+    scored: score·axes 가 있다 / legacy_method: 옛 방식 run 이라 점수를 100점으로 바꾸지 않는다 /
+    unavailable: 새 방식인데 snapshot 값이 없거나 유효하지 않다(reason 코드)."""
+    status: Literal["scored", "legacy_method", "unavailable"] = "unavailable"
+    score: float | None = None
+    axes: list[FitAxisOut] = Field(default_factory=list)
+    method_version: str | None = None
+    reason: str | None = None       # snapshot_missing | candidate_not_in_snapshot | invalid_snapshot | snapshot_identity_mismatch
+
+
+class ItemOut(BaseModel):
+    item_id: str
+    slot: str
+    slot_label: str
+    product: ProductOut
+    price: int
+    price_source: str = "synthetic"       # synthetic | observed
+    price_observed_at: str | None = None
+    qty: int = 1
+    selected: bool = True
+    budget_share: float | None = None
+    review: ReviewBriefOut | None = None
+    review_detail: RecommendationReviewOut = Field(default_factory=RecommendationReviewOut)
+    original_review_detail: RecommendationReviewOut | None = None
+    fit: FitOut = Field(default_factory=FitOut)
+    reason: TextStatusOut
+    checks: TextStatusOut
+    # 사용 가이드 검색 상태(pending | ready | failed | unavailable). checks.status 는 코드 점검 문구 때문에 항상 ready 다.
+    guide_status: str = "ready"
+    alternatives_count: int = 0
+
+
+class TotalsOut(BaseModel):
+    selected_price: int
+    selected_units: int
+    budget_remaining: int | None = None
+    over_budget: bool = False
+    # 점수가 있는 선택 부품의 snapshot 원본 점수 평균(100점 표시). of 는 선택된 부품 수, count 는 그중 점수가 있는 수.
+    avg_fit_score: float | None = None
+    avg_fit_score_count: int = 0
+    avg_fit_score_of: int = 0
+
+
+class VerificationIssueOut(BaseModel):
+    axis: str
+    severity: str            # minor | major
+    text: str
+
+
+class VerificationOut(BaseModel):
+    status: str               # pending | ready | failed
+    confidence: int | None = None
+    issues: list[VerificationIssueOut] = Field(default_factory=list)
+
+
+class ItemPatchIn(BaseModel):
+    selected: Optional[bool] = None
+    qty: Optional[int] = Field(default=None, ge=1, le=99)
+
+
+class AlternativeOut(BaseModel):
+    candidate_id: str
+    label: str
+    current: bool = False
+    product: ProductOut
+    price: int            # RAM 은 2개 구성 전체 가격(qty 만큼 산 가격)
+    price_delta: int
+    qty: int = 1
+    review: ReviewBriefOut | None = None
+    review_detail: RecommendationReviewOut = Field(default_factory=RecommendationReviewOut)
+
+
+class AlternativesOut(BaseModel):
+    items: list[AlternativeOut] = Field(default_factory=list)
+
+
+class PeripheralsRecommendIn(BaseModel):
+    """개발요청 6번 — 주변기기 추천. PC 견적 대화(category 선택)를 거치지 않고 바로 호출한다.
+
+    예전 입력(PC 견적 용도 `purpose`, `priority`, `noise_sensitive`)은 2026-10-14 에 없앴다. 목적·상황은 `purposes`·`situations`
+    로 받고(조용해야 함 = `situations: ["quiet_place"]`), PC 견적 용도는 `pc_list_id` 로 묶은 PC 견적에서 읽는다.
+    보내도 오류는 아니지만(알 수 없는 필드는 무시된다) 아무 영향이 없다."""
+
+    kinds: list[PeripheralKind] = Field(min_length=1)
+    budget_max: Optional[int] = Field(default=None, ge=0)
+    resolution: Optional[str] = None
+    # 주면 그 PC 견적의 해상도·용도·GPU 스펙을 pc_context로 묶어 모니터 교차검사를 추가로 켠다
+    # (principal 소유가 아니거나 못 찾으면 조용히 무시 — 독립 추천으로 그냥 진행한다).
+    pc_list_id: Optional[str] = None
+    # 견적 입력(POST /peripherals/interpret 의 결과를 그대로 넘긴다). 목록에 없는 값은 오류 없이 무시하고
+    # 응답의 ignored_inputs 로 알린다. 목적·상황에서 풀린 조건은 선호로만 쓰고, 거르는 것은 stated 뿐이다.
+    purposes: list[str] = Field(default_factory=list)
+    # 목적 → 그 목적을 말할 때의 종류(해석의 purpose_kinds 를 그대로). 없는 목적은 모든 종류에 적용한다.
+    purpose_kinds: dict[str, list[str]] = Field(default_factory=dict)
+    situations: list[str] = Field(default_factory=list)
+    stated: dict[str, list[str]] = Field(default_factory=dict)       # 종류 → 직접 말한 스펙 조건 이름
+    kind_budget: dict[str, int] = Field(default_factory=dict)        # 종류 → 예산 상한(원). 합산 예산은 budget_max
+    kind_budget_min: dict[str, int] = Field(default_factory=dict)    # 종류 → 최소 가격(원). "6만원 이상" — 미만 후보는 거른다
+    # 선호·기피 브랜드(종류 → 브랜드 이름). 선호는 브랜드 축에서 1점, 기피는 후보에서 뺀다.
+    brand_like: dict[str, list[str]] = Field(default_factory=dict)
+    brand_avoid: dict[str, list[str]] = Field(default_factory=dict)
+    # 뺄 제품(종류 → 제품 이름). 채팅의 "다른 걸로 바꿔줘"가 그때의 1위를 넣는다 — 후보에서 뺀다.
+    exclude: dict[str, list[str]] = Field(default_factory=dict)
+    # 강조하는 축(종류 → 축 이름: 리뷰·가격·브랜드·무상AS 또는 그 종류의 스펙 기준 이름). 강조한 축 가중치 ×1.5.
+    emphasis: dict[str, list[str]] = Field(default_factory=dict)
+    # 손 크기(문장 해석의 hand_size 를 그대로 넘긴다). 체감 점수가 같은 손 크기 사용기 작성자를 묶는 데 쓴다(QA PQA-004).
+    hand_size: Optional[Literal["small", "medium", "large"]] = None
+
+
+class PeripheralProductOut(BaseModel):
+    name: str
+    brand: str
+    variant_id: str | None = None
+    product_url: str | None = None
+    image_url: str | None = None
+
+
+class PeripheralRequirementRowOut(BaseModel):
+    key: str
+    label: str
+    value: str
+
+
+class PeripheralCheckOut(BaseModel):
+    axis: str
+    label: str
+    state: str          # ok | unknown | fail
+    detail: str
+
+
+class PeripheralReviewContributionOut(ReviewAspectContributionDTO):
+    """주변기기 외부 리뷰 항목 — PC 응답과 공유하는 DTO 에 주변기기 표시 값(대표 문장·갈림)만 더한 것."""
+
+    quote: dict[str, str] | None = None      # 대표 문장 {text, direction}: 다수 방향의 한글 문장, 없으면 None
+    dissent: bool = False                    # 적은 쪽 의견도 적지 않다(화면은 "갈리는 점"을 따로 보일 수 있다)
+
+
+class PeripheralReviewOut(ReviewScoreDetailDTO):
+    contributions: list[PeripheralReviewContributionOut] = Field(default_factory=list)
+
+
+class PeripheralAlternativeOut(BaseModel):
+    name: str
+    price: int
+    diff: int
+    review: PeripheralReviewOut | None = None
+    review_weight: float = 0.0
+    review_note: str = "리뷰 점수 미반영"
+    evidence_count: int | None = None        # 이 대안의 리뷰 근거(관측) 수
+    score: float | None = None
+    why_not_first: str | None = None         # 1위가 아닌 이유 한 줄(없으면 숨긴다)
+    # 1위 대신 이 대안을 견적에 담을 때 쓴다(1위의 product 와 같은 값). 카탈로그에 없으면 None.
+    variant_id: str | None = None
+    brand: str | None = None
+    image_url: str | None = None
+    product_url: str | None = None
+    # 결과 화면(재설계): 이 대안을 큰 카드로 올릴 때 1위와 같은 정보량을 보이기 위한 값(1위 항목과 같은 모양)
+    key_specs: list[dict[str, str]] = Field(default_factory=list)
+    requested: list[dict[str, Any]] = Field(default_factory=list)
+    price_position: dict[str, int] | None = None
+    feel: dict[str, Any] | None = None
+    score_detail: dict[str, Any] | None = None
+
+
+class PeripheralItemOut(BaseModel):
+    kind: PeripheralKind
+    kind_label: str
+    product: PeripheralProductOut
+    price: int
+    price_source: str
+    price_note: str
+    requirement: list[PeripheralRequirementRowOut] = Field(default_factory=list)
+    checks: list[PeripheralCheckOut] = Field(default_factory=list)
+    reason: TextStatusOut
+    alternatives: list[PeripheralAlternativeOut] = Field(default_factory=list)
+    guide: TextStatusOut
+    review: PeripheralReviewOut | None = None
+    review_weight: float = 0.0
+    review_note: str
+    feel: dict[str, Any] | None = None       # 체감 근거 블록. None 이면 보여 줄 근거가 없다
+    feel_note: str | None = None             # feel 이 None 일 때만 있다("스펙과 가격 기준 추천")
+    score_detail: dict[str, Any] | None = None   # 축별 값·가중치·기여분, 감점, 근거 수, 가중 이유("어떻게 골랐나요?")
+    evidence_count: int | None = None            # 리뷰 근거(관측) 수 — 화면은 "근거 N건"
+    evidence_penalty: float | None = None        # 근거 부족 감점(0이면 없음)
+    close_call: bool = False                     # 1·2위가 접전이다(한 응답에서 최대 2개 품목)
+    # 결과 화면(재설계): 필수 스펙 한 줄, 사용자가 말한 항목별 근거 연결, 통과한 후보 안에서 싼 순서 {rank, of}
+    key_specs: list[dict[str, str]] = Field(default_factory=list)
+    requested: list[dict[str, Any]] = Field(default_factory=list)
+    price_position: dict[str, int] | None = None
+
+
+class PeripheralEmptyOut(BaseModel):
+    kind: str
+    reason: str
+
+
+class PeripheralTotalsOut(BaseModel):
+    reference_price: int
+    note: str
+
+
+class PeripheralAdjustChipOut(BaseModel):
+    """"더 맞추기" 칩 하나. 누르면 `add` 를 추천 입력(purposes·situations·stated)에 더해 다시 부르면 된다.
+    눌렀을 때 지금 보이는 순서가 바뀌는 칩만 나온다(`moved` 는 바뀌는 자리 수)."""
+
+    kind: PeripheralKind
+    id: str
+    label: str
+    add: dict[str, Any]
+    moved: int
+
+
+class PeripheralNoticeOut(BaseModel):
+    """채팅으로 알릴 유의사항(QA PQA-001). 추천은 그대로 하고 주의할 점만 말한다 — 화면은 text 를 채팅에 그대로 보여 준다."""
+    kind: str
+    code: str        # pc_unknown · gpu_4k · gpu_high_res · low_refresh · over_budget(kind="budget")
+    text: str
+
+
+class PeripheralsOut(BaseModel):
+    status: Literal["ready", "empty", "skipped"]
+    items: list[PeripheralItemOut] = Field(default_factory=list)
+    empty: list[PeripheralEmptyOut] = Field(default_factory=list)
+    notices: list[PeripheralNoticeOut] = Field(default_factory=list)
+    totals: PeripheralTotalsOut
+    ignored_inputs: list[str] = Field(default_factory=list)    # 목록에 없어 반영하지 않은 목적·상황·조건 이름
+    adjust_chips: list[PeripheralAdjustChipOut] = Field(default_factory=list)    # "더 맞추기" 칩(최대 3개)
+
+
+class PeripheralCatalogItemOut(BaseModel):
+    """제품 검색(GET /peripherals/catalog/search)의 한 항목. options 는 제안 목록일 뿐이다."""
+
+    product_id: str
+    kind: PeripheralKind
+    brand: str
+    model: str
+    image_url: str | None = None
+    options: list[str] = Field(default_factory=list)
+
+
+class PeripheralCatalogSearchOut(BaseModel):
+    items: list[PeripheralCatalogItemOut] = Field(default_factory=list)
+
+
+class PeripheralInterpretIn(BaseModel):
+    """POST /peripherals/interpret — 견적 문장 한 줄. 이어서 말하면 이전 해석(`previous`)에 더해진다."""
+
+    text: str = Field(min_length=1, max_length=2000)    # 서버가 설정의 글자 수 상한으로 한 번 더 자른다
+    previous: dict[str, Any] | None = None             # 직전 응답의 interpretation 을 그대로 돌려보낸다
+    kinds: list[PeripheralKind] | None = None    # 종류 카드로 고른 값
+
+
+class PeripheralChatIn(PeripheralInterpretIn):
+    """POST /session/{id}/peripherals/chat — 채팅 한 턴. 해석 입력에 묶을 PC 견적(`pc_list_id`)을 더했다."""
+
+    pc_list_id: Optional[str] = None
+
+
+class PeripheralInterpretOut(BaseModel):
+    interpretation: PeripheralInterpretation
+    resolved: dict[str, PeripheralResolvedKind] = Field(default_factory=dict)    # 종류 → 풀이 결과
+    needs_kind: bool                       # True 면 화면이 "어떤 기기를 찾으세요?" 카드를 띄운다
+    source: Literal["llm", "rules"]        # 어떻게 읽었는가(규칙은 모델을 쓰지 못했을 때)
+    truncated: bool = False                # 문장이 길어 앞부분만 읽었는가
+
+
+class PeripheralNewConditionOut(BaseModel):
+    kind: str          # 종류 이름 또는 "*"(종류와 무관한 항목: 예산 합계·손 크기)
+    label: str
+
+
+class PeripheralAnswerOut(BaseModel):
+    """질문의 답. text 는 설정·추천 결과·스펙·사용기에서만 만든 문장이다 — 화면은 그대로 보여 준다."""
+    type: str          # term · compat · capabilities · conditions · compare · why · spec · review · other
+    topic: str | None = None
+    text: str
+    kinds: list[PeripheralKind] = Field(default_factory=list)
+    chips: list[str] = Field(default_factory=list)       # 이어서 물어볼 만한 문장
+
+
+class PeripheralTurnOut(BaseModel):
+    """채팅 한 턴의 서버 답장(QA PQA-012·013·014). reply 는 아래를 순서대로 이은 문장이다."""
+    new_conditions: list[PeripheralNewConditionOut] = Field(default_factory=list)   # 이번 문장에서 새로 반영한 것
+    not_reflected: list[str] = Field(default_factory=list)       # 반영하지 못한 말과 이유
+    notes: list[str] = Field(default_factory=list)               # 어떻게 읽었는지·함께 고를 수 없어 정리한 조건
+    answer: PeripheralAnswerOut | None = None
+    # 결과 화면 명령(빼기·취소·다른 걸로·더 싸게·처음부터 — peripheral_commands). 화면은 removed_conditions 나 new_conditions 가
+    # 있으면 받은 interpretation 으로 추천을 다시 받고, reset 이면 결과를 지우고 첫 화면으로 돌아간다.
+    command: str | None = None                                   # reset · remove · swap · relative_budget · cheaper · None
+    removed_conditions: list[PeripheralNewConditionOut] = Field(default_factory=list)   # 이번 문장으로 뺀 것
+    reset: bool = False
+    reply: str
+    chips: list[str] = Field(default_factory=list)               # 이번 답 뒤에 보여 줄 질문 칩
+    result_chips: list[str] = Field(default_factory=list)        # 추천 결과가 나온 뒤에 보여 줄 질문 칩
+
+
+class PeripheralChatOut(PeripheralInterpretOut):
+    turn: PeripheralTurnOut
+
+
+class PeripheralHistoryMessageOut(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str
+    at: str
+
+
+class PeripheralHistoryOut(BaseModel):
+    """GET /session/{id}/peripherals/messages — 저장된 주변기기 채팅과 마지막 상태(peripheral_history_service)."""
+    messages: list[PeripheralHistoryMessageOut] = Field(default_factory=list)
+    interpretation: PeripheralInterpretation
+    resolved: dict[str, PeripheralResolvedKind] = Field(default_factory=dict)
+    showing_results: bool = False          # 마지막으로 추천을 받은 상태였는가("처음부터 다시" 뒤면 False)
+    notices: list[str] = Field(default_factory=list)   # 마지막 추천 때 채팅에 말한 유의사항(다시 받을 때 되풀이하지 않게)
+
+
+class SwapIn(BaseModel):
+    candidate_id: str
+
+
+class ResultMessageIn(BaseModel):
+    text: str = Field(max_length=300)
+
+
+class SpecFileIn(BaseModel):
+    file_name: str
+    content: str = Field(max_length=1_000_000)
+
+
+class RecommendErrorOut(BaseModel):
+    """code: candidates_insufficient(슬롯별 후보 부족 — slots 에 사유·보완 시도) | recommend_failed(일반 실패)."""
+    code: str
+    message: str
+    slots: dict[str, Any] = Field(default_factory=dict)
+
+
+class EligibilityOut(BaseModel):
+    """추천 적격성(저장된 "추천 적격성" 단계). not_recommendable 이면 정상 추천이 아니라 확인용 구성이다.
+    reasons[].missing 은 필수 호환 정보 미확인(required_info_missing)의 구매·유지 부품 슬롯·키다. 현재 상태의 기준은 이 필드다 —
+    요약 문장(explanation)은 엔진이 처음 고른 구성 기준이라 교체 뒤에도 다시 쓰지 않는다."""
+    status: str                                   # recommendable | not_recommendable
+    detail: str = ""
+    reasons: list[dict[str, Any]] = Field(default_factory=list)   # code, axes, text, missing?
+    enrichment: dict[str, Any] | None = None
+
+
+class MarginsOut(BaseModel):
+    """조합 여유(저장된 "조합 여유" 단계) — 전력·크기·냉각 여유의 수치·단위·계산식·출처. 점수·통과 보장이 아니다."""
+    model_config = ConfigDict(extra="allow")
+    detail: str = ""
+    version: Any = None
+    power: dict[str, Any] = Field(default_factory=dict)
+    size: dict[str, Any] = Field(default_factory=dict)
+    cooling: Any = None
+
+
+class CompatCheckOut(BaseModel):
+    """호환 검사 1건 — 무엇을 무엇과 비교했고 결과가 어땠는지(화면의 "호환성 점검 상세")."""
+    axis: str                 # socket | memory | motherboard_case | gpu_len | cooler_height | cooler_socket | bios | power | psu_form | gpu_connector | budget
+    label: str
+    state: str                # ok | unknown(스펙을 몰라 확인 못 함) | fail(확정 비호환) | skipped(이번 견적에서 바뀌지 않는 부품이라 보지 않음)
+    detail: str
+
+
+class BudgetNoticeOut(BaseModel):
+    """예산 안내 — 예산을 많이 남긴 새 구성(이유와 쓰는 길) 또는 예산을 넘은 구성(얼마나 넘었는지, remaining 이 음수)에 채운다."""
+
+    message: str
+    budget: int
+    spent: int
+    remaining: int
+    # 남은 예산으로 성능을 올리려면 다시 추천받을 우선순위. 이미 성능 우선이면 null(다시 추천받을 우선순위가 없다)
+    suggest_priority: Literal["performance"] | None = "performance"
+
+
+class OmittedSlotOut(BaseModel):
+    """신규 조립에서 용도 배분이 0%라 일부러 견적에 넣지 않은 슬롯(GPU·쿨러)과 그 이유, 구매 전 확인 안내."""
+
+    slot: Literal["GPU", "쿨러"]
+    slot_label: str                    # 화면 표기: 그래픽카드 | CPU 쿨러
+    reason: Literal["integrated_graphics", "box_cooler"]
+    reason_text: str                   # 내장 그래픽 사용 | CPU 기본 쿨러 사용
+    notes: list[str] = Field(default_factory=list)    # 메인보드 영상 출력·정품 박스 포장 형태 확인 안내
+
+
+class BorrowedAllocOut(BaseModel):
+    """배분 0%인 슬롯을 다시 넣을 때 기본 배분에서 빌려 온 비율(합 1로 다시 정규화하기 전의 기본 비율)과 이유."""
+
+    slot: str
+    ratio: float
+    reason: Literal["wanted_part", "result_chat", "quiet_priority", "noise_sensitive", "upgrade_selected"]
+    reason_text: str
+
+
+class AddOmittedIn(BaseModel):
+    candidate_id: str                  # GET .../omitted-slots/{slot}/options 가 돌려준 candidate_id
+
+
+class RecommendResultOut(BaseModel):
+    """저장된 추천 실행 결과의 공개 API 계약 (docs/frontend_외부수정요청.md §D-4-2)."""
+
+    list_id: str
+    revision_id: str | None = None
+    lock_version: int | None = None
+    run_id: str
+    status: str                      # running | done | failed
+    # 결과 내용 버전 — GET /result/status 의 result_version 과 같으면 다시 받을 필요가 없다.
+    result_version: str | None = None
+    progress: list[ProgressStepOut] = Field(default_factory=list)
+    category: str
+    conditions_summary: str = ""
+    budget_max: int | None = None
+    items: list[ItemOut] = Field(default_factory=list)
+    # 신규 조립에서 용도 배분 0%라 일부러 뺀 GPU·쿨러(items 에 없다). 없으면 빈 목록. 결과 대화·화면에서 담으면 사라진다.
+    omitted_slots: list[OmittedSlotOut] = Field(default_factory=list)
+    # 배분 0%인 슬롯을 다시 넣어 기본 배분의 비율을 빌려 쓴 기록(없으면 빈 목록).
+    borrowed_alloc: list[BorrowedAllocOut] = Field(default_factory=list)
+    totals: TotalsOut | None = None
+    verification: VerificationOut = Field(default_factory=lambda: VerificationOut(status="pending"))
+    compat_checks: list[CompatCheckOut] = Field(default_factory=list)     # PC 호환 검사별 상세 (done 일 때만)
+    explanation: ExplanationOut = Field(default_factory=lambda: ExplanationOut(status="pending"))
+    eligibility: EligibilityOut | None = None          # PC 추천 적격성 (done 일 때만, 없으면 None)
+    margins: MarginsOut | None = None                  # PC 조합 여유 (done 일 때만, 없으면 None)
+    budget_notice: BudgetNoticeOut | None = None       # 예산이 많이 남았고 그 이유가 우선순위일 때만 (done 일 때만)
+    reasoning_log: list[dict] = Field(default_factory=list)
+    data_notice: str = "상품·가격·리뷰는 합성 데이터입니다."
+    # 04 리스트 확정 "메모" 초기값 — 조건·구성·직접 바꾼 것·확인 필요 사항을 코드가 정리한 문장 (done 일 때만)
+    memo_suggestion: str = ""
+    # 결과 채팅 아래 질문 칩(P2-2) — 이 구성에서 채팅이 답할 수 있는 질문 최대 3개. 누르면 그 문장을 그대로 보낸다 (done 일 때만)
+    suggested_questions: list[str] = Field(default_factory=list)
+    error: RecommendErrorOut | None = None
+
+
+class ResultMessageOut(BaseModel):
+    reply: str
+    result: RecommendResultOut
+
+
+# ── 사이드바 목록 · 확정(S5-a) · 리포트(S5-b) · 가격 알림 (§D-4-3) ──
+class ReportSummaryOut(BaseModel):
+    """목록 하나에 딸린 확정 견적서 하나(= 확정된 revision). revision_no 로 리포트·히스토리를 연다."""
+
+    revision_no: int
+    name: str
+    confirmed_at: datetime
+    total: int
+    item_count: int            # 본체 부품 수만(개발요청 11번)
+    peripheral_count: int = 0  # 주변기기 수(개발요청 11번)
+    planned_purchase_at: str | None = None
+
+
+class ListSummaryOut(BaseModel):
+    list_id: str
+    name: str
+    category: Optional[str] = None
+    stage: Literal["category", "conditions", "results", "report"]   # 현재 revision 기준(새 견적서 작성 중이면 그 단계)
+    chat: Literal["computer", "peripheral"] = "computer"   # 주변기기 채팅 기록이 있는 목록이면 peripheral
+    updated_at: datetime
+    # 대화 목록(패널 "대화 내역")용 — 제목 대신 첫 사용자 말, 대화까지 포함한 마지막 활동, 조건 요약
+    last_active_at: datetime | None = None
+    first_message: str | None = None
+    conditions_summary: str = ""
+    # 가장 최근 확정 견적서 기준 — 목록에서 리포트를 따로 부르지 않아도 되게(개발요청 6번)
+    total: int | None = None
+    planned_purchase_at: str | None = None
+    item_count: int | None = None
+    reports: list[ReportSummaryOut] = Field(default_factory=list)
+
+
+class ListsOut(BaseModel):
+    items: list[ListSummaryOut] = Field(default_factory=list)
+
+
+class ListRenameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+
+class ReportRenameIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+
+
+class NewRevisionIn(BaseModel):
+    """개발요청 14번 — 안 주면(기본) 지금처럼 현재 견적서를 복사한다."""
+
+    from_revision_no: Optional[int] = Field(default=None, ge=1)
+
+
+class ConfirmPeripheralIn(BaseModel):
+    """개발요청 11번 — 확정 시 같이 얼릴 주변기기 1건. 가격은 서버가 variant_id로 다시 조회해
+    매긴다(클라이언트가 보낸 가격은 안 믿는다)."""
+
+    kind: PeripheralKind
+    variant_id: str
+    qty: int = Field(default=1, ge=1, le=99)
+    # 화면이 확정 때 보이던 주변기기 설명(스펙 한 줄·요청 근거·점수 축·사용기)을 그대로 보낸다(QA 10/16 #5 스냅샷). 서버는 해석하지 않고
+    # 가격 계산에도 쓰지 않는다. dict 가 아니거나 JSON 이 32KB 를 넘으면 저장하지 않고 버린다(확정은 성공) — 그래서 타입을 Any 로 둔다.
+    view: Any = None
+
+
+class QuoteConfirmIn(BaseModel):
+    """받은 견적 점검 확정 — 교체 목록은 서버가 들고 있으므로 부품은 보내지 않는다."""
+
+    expected_version: int
+    name: str = Field(min_length=1, max_length=60)
+    planned_purchase_at: Optional[str] = None
+    target_amount: Optional[int] = Field(default=None, ge=0)
+    memo: str = Field(default="", max_length=1000)
+
+
+class ConfirmIn(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    planned_purchase_at: Optional[str] = None
+    target_amount: Optional[int] = Field(default=None, ge=0)
+    memo: str = Field(default="", max_length=1000)
+    peripherals: list[ConfirmPeripheralIn] = Field(default_factory=list)
+
+
+class ReportProductOut(BaseModel):
+    product_key: str
+    name: str
+    image_url: str | None = None
+    purchase_url: str | None = None
+
+
+class ReportItemOut(BaseModel):
+    slot: str
+    slot_label: str
+    product: ReportProductOut
+    price: int            # 단가 — 줄 금액은 price × qty
+    qty: int = 1
+    review: ReviewBriefOut | None = None
+    review_detail: RecommendationReviewOut = Field(default_factory=RecommendationReviewOut)
+    original_review_detail: RecommendationReviewOut | None = None
+    evidence_text: str | None = None
+
+
+class ReportPeripheralOut(BaseModel):
+    """개발요청 11번 — 확정 견적서에 같이 얼린 주변기기 한 줄."""
+
+    kind: PeripheralKind
+    product: ReportProductOut
+    # 불러온 견적을 주변기기 화면에서 다시 담을 때 쓴다 — 없으면 화면이 담을 품목이 없다고 거른다(QA 10/16 #4).
+    variant_id: str
+    price: int            # 단가 — 줄 금액은 price × qty, 참고가(reference_snapshot)
+    qty: int = 1
+    # 확정할 때 화면이 보낸 설명(ConfirmPeripheralIn.view)을 그대로 돌려준다 — 서버는 해석하지 않는다. 없으면 null.
+    view: dict[str, Any] | None = None
+
+
+class KeptPartOut(BaseModel):
+    """받은 견적에서 바꾸지 않고 유지한 부품 — 견적에 적힌 그대로다. 가격을 몰랐으면 line_amount 는 null."""
+
+    slot: str
+    slot_label: str
+    source_text: str
+    name: str
+    match_status: str | None = None
+    image_url: str | None = None
+    product_id: str | None = None        # 카탈로그 제품으로 확인된 부품만(이전에 확정한 리포트에는 없다)
+    product_key: str | None = None
+    qty: int = 1
+    line_amount: int | None = None
+
+
+class ReportOut(BaseModel):
+    source: Literal["recommendation", "quote_check"] = "recommendation"
+    kept_parts: list[KeptPartOut] = Field(default_factory=list)
+    quote_check: dict | None = None     # 받은 견적 점검에서 만든 견적서일 때만: 교체 전/후 점검 요약
+    list_id: str
+    revision_no: int = 1
+    name: str
+    category: str
+    owner_display_name: str
+    planned_purchase_at: str | None = None
+    target_amount: int | None = None
+    memo: str = ""
+    total: int             # 본체 + 주변기기 합계(개발요청 11번)
+    confirmed_at: str
+    items: list[ReportItemOut] = Field(default_factory=list)
+    peripherals: list[ReportPeripheralOut] = Field(default_factory=list)
+    data_notice: str = "상품·가격·리뷰는 합성 데이터입니다."
+
+
+class HistoryEventOut(BaseModel):
+    at: str
+    kind: str          # condition | request | recommend | swap | remove | confirm
+    text: str          # 그 결과 — 알아들은 조건, 바뀐 부품("GPU A → B"), "바뀐 것 없음" …
+    quote: str | None = None   # 그 결과를 만든 사용자 말
+
+
+class HistoryStepOut(BaseModel):
+    """이렇게 정해졌어요 — 결과를 바꾼 것만 한 단계씩(src/services/history_journey.py)."""
+
+    kind: str          # start | change | swap | remove | unapplied | confirm
+    text: str
+    quote: str | None = None                                  # 그 단계를 만든 사용자 말
+    changes: list[str] = Field(default_factory=list)          # 바뀐 부품(무엇 → 무엇, 가격 차이)
+    notes: list[str] = Field(default_factory=list)            # 까닭·기본값·반영 못 한 것
+
+
+class ListHistoryOut(BaseModel):
+    """견적 리스트 히스토리 — 확정된 목록이 만들어진 여정. 단계·사건은 코드가, 요약 문장은 LLM(폴백 규칙)이."""
+
+    summary: TextStatusOut
+    steps: list[HistoryStepOut] = Field(default_factory=list)
+    events: list[HistoryEventOut] = Field(default_factory=list)
+
+
+# ── reviews (A7) ──
+class ReviewTelemetry(BaseModel):
+    """리뷰 작성 폼의 계측값 — 횟수와 시간뿐, 타이핑 내용은 받지 않는다.
+
+    리뷰 진위 축 중 유일하게 소급 수집이 불가능한 것이라 폼이 생기는 지금 넣는다.
+    `review_revision.usage_context.telemetry` 로 저장된다 (테이블 변경 없음).
+    양성 신호로만 쓴다 — "붙여넣기 없음" 은 무죄 증거가 아니다 (보고 타이핑하는 우회가 너무 쉽다).
+    정수 외의 값·모르는 키는 거부한다: 본문이나 키 입력 내용이 이 경로로 들어오면 안 된다.
+    """
+    model_config = ConfigDict(extra="forbid")
+
+    paste_count: int = Field(0, ge=0, description="붙여넣기 이벤트 수")
+    paste_chars: int = Field(0, ge=0, description="붙여넣은 글자 수 합계 (내용 아님)")
+    typing_ms: int = Field(0, ge=0, description="키 입력이 있었던 시간 합계 (ms)")
+    edit_count: int = Field(0, ge=0, description="삭제·수정 이벤트 수")
+    compose_ms: int = Field(0, ge=0, description="폼을 연 뒤 제출까지 (ms)")
+
+
+class PartReviewIn(BaseModel):
+    variant_id: str
+    rating: int
+    title: str
+    body: str
+    axis_scores: dict[str, Any] = Field(default_factory=dict)
+    telemetry: Optional[ReviewTelemetry] = None
+
+
+class BuildReviewIn(BaseModel):
+    build_version_id: str
+    rating: int
+    title: str
+    body: str
+    axis_scores: dict[str, Any] = Field(default_factory=dict)
+    telemetry: Optional[ReviewTelemetry] = None
+
+
+class ProductRiskOut(BaseModel):
+    """상품 단위 관측 사실. 점수 없음 — 검토자가 확인·반박할 수 있는 문장과 대조군 중앙값."""
+    score: None = None
+    evidence: list[str] = []
+    reliable_range: Optional[bool] = None
+    controls: dict[str, float] = {}
+    control_scope: Optional[str] = None
+    product_ref: Optional[str] = None            # 관측이 붙은 외부 상품 식별자 (예: ASIN)
+    verify_url: Optional[str] = None
+
+
+class SyntheticDemoOut(BaseModel):
+    """합성 데모값 블록 — 화면은 반드시 '합성 데모값' 표지와 함께 보여준다. 실사용자 노출 금지."""
+    is_synthetic: Literal[True] = True
+    note: str
+    cleaned_rating: Optional[float] = None
+    cleanse_ratio: Optional[float] = None
+    removed_count: Optional[int] = None
+    rating_dist: dict[str, Any] = {}
+    axis_scores: dict[str, Any] = {}
+    top_summaries: list[dict[str, Any]] = []
+    sources: list[dict[str, Any]] = []
+    collected_at: Optional[str] = None
+
+
+class ReviewSummaryOut(BaseModel):
+    """S5 리뷰 상세 — 프론트 계약(`docs/frontend_외부수정요청.md` §D-4-2 `ReviewSummary`) 의 이름을 따른다.
+
+    평점은 수집처 평균 별점(`rating_raw`, 건수 `rating_count`)만 낸다. 검수 후 평점(`rating_refined`)은
+    판정기가 없어 못 낸다.
+
+    **못 내는 값도 이름을 바꾸지 않고 null 로 둔다.** 전에는 이름을 달리 지었는데(`total_reviews`·
+    `orig_rating`), 화면이 계약 이름을 읽으므로 실제로 낼 수 있는 리뷰 건수까지 **"리뷰 0건"** 으로
+    나갔다. 없는 값을 0 으로 단정하는 것이 빈 칸보다 나쁘다.
+
+    낼 수 없는 것과 이유:
+
+    - `excluded_count` · `excluded_ratio` · `rating_refined` — 판정기가 없다(`docs/decisions/0001`).
+      관계·행동 축은 상품 단위 신호라 **개별 리뷰를 하나도 빼지 않는다.** 몰림 15건을 `excluded_count`
+      에 넣으면 화면이 "449건 중 15건 제외" 로 그려서 우리가 그 15건을 조작으로 판정하고 뺐다는
+      말이 된다. 몰림은 출시·이벤트·인플루언서 언급·재입고로도 생긴다(몰림 2배 초과 상품 915개 중
+      109개(11.9%)가 출시 첫 주였고, 그 밖의 설명은 이 데이터로 가릴 수 없다)
+    - `distribution_refined` — "후" 가 없으므로 없다
+    - `distribution_raw` — 산출물에 5점·1점 비율만 있고 4·3·2 가 없다. 부분만 내면 화면이 나머지를
+      0% 로 그려서 없는 분포를 단정한다
+
+    실측과 합성은 섞지 않는다 — 합성값은 `synthetic_demo` 안에만, `is_synthetic` 표지와 함께.
+
+    P8: `excluded_count`·`excluded_ratio`·`rating_refined`·`distribution_refined`는
+    더 이상 항상 null이 아니다 — evidence.review_aggregate에 검수 승인된 파일 기반
+    분석(review_service._db_backed_analysis)이 있으면 실제 값을 낸다. 판정기가 없는
+    관계·행동 축 관측 경로(PC 부품)는 그 분석이 없으므로 계속 null만 낸다 — 필드
+    타입만 넓혔을 뿐 기존 PC 경로의 동작은 바뀌지 않는다.
+    """
+    product_key: str
+    total_count: int = 0
+    excluded_count: Optional[int] = None
+    excluded_ratio: Optional[float] = None
+    rating_raw: Optional[float] = None
+    rating_count: Optional[int] = None   # rating_raw 를 낸 구매자 별점 건수(합성 제외)
+    rating_refined: Optional[float] = None
+    distribution_raw: dict[str, float] = {}
+    distribution_refined: dict[str, float] = {}
+    summaries: list[dict[str, Any]] = []
+    data_notice: str
+    analysis_version: Optional[str] = None
+    status: str = "unavailable"          # unavailable | ready — DB 분석 유무
+    # ── 계약 밖 추가 ──
+    product_name: Optional[str] = None
+    product_manipulation_risk: ProductRiskOut
+    synthetic_demo: Optional[SyntheticDemoOut] = None
+    # 우리 카탈로그 부품의 항목별 관측 문장("냉각 성능 — 좋다는 리뷰 7건 · 아쉽다는 리뷰 0건"). 리뷰 본문이 아니라 건수다.
+    aspect_facts: list[str] = []
+
+
+# ── 리뷰 검색 (GET /reviews/search) ──
+class ReviewSearchHitOut(BaseModel):
+    review_id: str
+    body: str                                  # 리뷰 원문 전체 — 실제 리뷰는 중앙값 50자라 발췌하지 않는다
+    posted_at: Optional[datetime] = None
+    similarity: float                          # 질문과의 코사인 유사도. 정렬·하한에만 쓰고 추천 점수가 아니다
+
+
+class ReviewSearchCoverageOut(BaseModel):
+    reviews: int                               # 이 상품의 실제 리뷰 수(합성 제외)
+    embedded: int                              # 그중 검색 준비(embedding)가 된 수 — reviews보다 작으면 일부만 검색했다
+
+
+class ReviewSearchProductOut(BaseModel):
+    product_id: str
+    # ok: 관련 리뷰 있음 · no_match: 리뷰는 있으나 관련 리뷰 없음(평가가 나쁘다는 뜻이 아니다)
+    # no_reviews: 실제 리뷰 없음 · not_indexed: 리뷰는 있으나 아직 embedding 전
+    status: Literal["ok", "no_match", "no_reviews", "not_indexed"]
+    coverage: ReviewSearchCoverageOut
+    hits: list[ReviewSearchHitOut] = Field(default_factory=list)
+
+
+class ReviewSearchOut(BaseModel):
+    """상품별로 질문과 뜻이 가까운 실제 리뷰(src/services/review_search.py). products는 요청한 순서를 따른다."""
+    query: str                                 # 정규화한 질문(NFKC·공백 정리)
+    min_similarity: float                      # 이번 검색에 적용한 관련도 하한
+    products: list[ReviewSearchProductOut]
+
+
+# ── 재기획 2단계: 교체 대상 추천과 교체 목록 ─────────────────────────────────────────
+class ReplacementReasonOut(BaseModel):
+    code: Literal["incompatible", "game_unmet", "balance_short", "unknown_info", "excess"]
+    text: str
+
+
+class ReplacementCandidateOut(BaseModel):
+    product_id: str | None = None
+    product_key: str | None = None
+    name: str
+    price: int | None = None
+    price_delta: int | None = None                       # 현재 부품과의 가격 차이(현재 가격을 모르면 null)
+    perf_tier: float | int | None = None
+    grade_label: str | None = None                       # 성능 척도 이름("성능 등급"·"용량"·"정격 용량") — 척도가 없는 부품군은 null
+    grade_change: float | None = None                    # 그 척도의 변화(현재 대비)
+    specs: list[dict[str, Any]] = Field(default_factory=list)
+    resolves: list[str] = Field(default_factory=list)    # 이 후보가 풀어 주는 이유 문장
+    resolves_all: bool = True                            # false 면 일부만 풀어 준다
+    recommend_score: float | None = None                 # 새 컴퓨터 본체 추천과 같은 점수(0~1). 점수를 못 매겼으면 null(가격순)
+    cautions: list[str] = Field(default_factory=list)    # 후보 카드에 붙일 주의("성능이 낮아요", "현재 부품의 성능을 몰라 비교하지 못했어요")
+
+
+class ReplacementTargetOut(BaseModel):
+    slot: str
+    current_name: str | None = None
+    current_confirmed: bool
+    kind: Literal["replace", "verify", "keep"]           # 바꾸기 / 먼저 확인 / 유지
+    rank: int | None = None                              # replace 의 순서(1부터)
+    priority: int | None = None                          # 1 비호환 · 2 게임 미달 · 3 용도 부족
+    reasons: list[ReplacementReasonOut] = Field(default_factory=list)
+    candidates: list[ReplacementCandidateOut] = Field(default_factory=list)
+    note: str | None = None
+    savings: list[ReplacementCandidateOut] = Field(default_factory=list)   # 과한 부품의 절감 후보(가성비 우선일 때만, 선택 사항)
+    savings_note: str | None = None
+
+
+class ReplacementTargetsOut(BaseModel):
+    conditions: dict[str, Any] = Field(default_factory=dict)
+    counts: dict[str, int] = Field(default_factory=dict)
+    targets: list[ReplacementTargetOut] = Field(default_factory=list)
+    draft_version: int
+    analysis_stale: bool = False
+
+
+class ReplacementPutIn(BaseModel):
+    expected_version: int
+    candidate_product_id: str
+
+
+class ReplacementDeleteIn(BaseModel):
+    expected_version: int
+
+
+class ReplacementStateOut(BaseModel):
+    replacements: list[dict[str, Any]] = Field(default_factory=list)      # {slot, candidate, from, price_delta, warnings[]}
+    compat: dict[str, Any] = Field(default_factory=dict)                  # before/after 개수, new_issues, resolved_issues
+    balance: dict[str, Any] = Field(default_factory=dict)
+    games: list[dict[str, Any]] = Field(default_factory=list)
+    price: dict[str, Any] = Field(default_factory=dict)                   # delta_total, unpriced_slots
+    draft_version: int
+    analysis_stale: bool = False

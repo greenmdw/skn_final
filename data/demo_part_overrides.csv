@@ -1,0 +1,30 @@
+product_key,price,perf_tier,socket,mem_type,form_factor,supports_form_factors,vram_gb,capacity_gb,protocol,wattage_w,efficiency_rating,module_config
+amd-ryzen-7-7700,320000,7,AM5,,,,,,,,,
+amd-ryzen-5-7600,240000,6,AM5,,,,,,,,,
+nvidia-geforce-rtx-4070-super,480000,8,,,,,12,,,,,
+g.skill-flare-x5-ddr5-6000-cl36-32gb-(2x16),90000,8,,DDR5,,,,32,,,,16GB × 2
+asus-tuf-gaming-b650-plus-wifi,155000,9,AM5,DDR5,ATX,,,,,,,
+wd-black-sn770-1tb,100000,8,,,,,,1000,NVMe,,,
+corsair-rm750e,90000,8,,,,,,,,750,80+ Gold,
+fractal-design-north,72000,9,,,,"ATX,mATX,ITX",,,,,,
+noctua-nh-d15,58000,9,,,,,,,,,,
+nzxt-h5-flow,75000,7,,,,"ATX,mATX,ITX",,,,,,
+samsung-ddr5-5600-32gb-(2x16),,,,DDR5,,,,32,,,,16GB × 2
+g.skill-trident-z5-rgb-ddr5-6000-cl30-32gb-(2x16),,,,DDR5,,,,32,,,,16GB × 2
+samsung-ddr4-3200-16gb-(2x8),,,,DDR4,,,,16,,,,8GB × 2
+g.skill-ripjaws-v-ddr4-3600-32gb-(2x16),,,,DDR4,,,,32,,,,16GB × 2
+nvidia-geforce-rtx-4060,,,,,,,8,,,,,
+nvidia-geforce-rtx-4070-ti-super,,,,,,,16,,,,,
+nvidia-geforce-rtx-5070-ti,,,,,,,16,,,,,
+nvidia-geforce-rtx-5080,,,,,,,16,,,,,
+nvidia-geforce-rtx-5090,,,,,,,32,,,,,
+amd-radeon-rx-7600,,,,,,,8,,,,,
+amd-radeon-rx-7800-xt,,,,,,,16,,,,,
+amd-radeon-rx-9070-xt,,,,,,,16,,,,,
+samsung-990-pro-1tb,,,,,,,,1000,NVMe,,,
+samsung-990-pro-2tb,,,,,,,,2000,NVMe,,,
+crucial-mx500-1tb,,,,,,,,1000,SATA,,,
+corsair-rm650e,,,,,,,,,,650,80+ Gold,
+corsair-rm850e,,,,,,,,,,850,80+ Gold,
+msi-mpg-a1000g-pcie5,,,,,,,,,,1000,80+ Gold,
+corsair-sf750,,,,,,,,,,750,80+ Platinum,

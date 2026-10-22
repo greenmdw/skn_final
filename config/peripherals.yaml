@@ -1,0 +1,945 @@
+# 주변기기(모니터·키보드·마우스·스피커) 정의 — 추천엔진 구현계획 §3.3 E8.
+#
+# 왜 config/categories/ 밖에 있는가: src/categories.py의 available_categories()가
+# categories/*.yaml 파일 이름을 그대로 세션의 카테고리 선택지로 훑는다(categories.py:40).
+# 이 파일을 그 디렉터리 안에 두면 "peripherals"가 새 카테고리로 화면에 나타난다.
+# 주변기기는 독립된 카테고리가 아니라 "computer" 요청의 부속 결과다(Category는 여전히
+# "computer" 하나뿐, src/dto.py) — 그래서 정의 파일도 카테고리 디렉터리 밖에 둔다.
+#
+# 가격의 성격: 여기서 다루는 가격은 전부 catalog.peripheral_price_snapshot 관측이며,
+# 판매처·관측일을 모른다("reference_snapshot"). PC 부품의 offer/offer_observation과
+# 달리 구매 가능한 가격이 아니고, PC 총액에도 합산하지 않는다(계획 §3.3, R-3).
+# 판매처·관측일이 있는 가격이 offer 경로로 들어오면(R-3) price_source가 "observed"로
+# 바뀐다 — 그 전까지 이 파일이 다루는 값은 전부 참고가다.
+#
+# E8 에서 채운 것은 kinds(스펙 컬럼 매핑)와 ranking(가중치), E9 가 채운 것은 parsing 이다.
+# requirements(요구사양 룩업)는 E10, verify(모니터↔PC 교차 검사)는 E12 가 채웠다.
+# hard_filters·preferences 절은 쓰지 않는다 — E11 은 requirements.<kind>.hard/soft 를 그대로
+# 평가한다. 로더(src/engine/peripheral_rules.py)는 두 이름을 "알려진 선택 절"로 예약만 해 둔다.
+schema_version: 1
+rule_set_version: peripheral-rules-v7   # v2: verify 절(E12) 추가 · v3: 견적 입력 절 추가, requirements.soft 제거 · v4: 변별력 없던 스펙 임계값 보정(해상도·응답속도·폴링레이트) · v5: QA 해석 보강(4K·QHD·유선·노래, 2026-10-15) · v6: chat 절 추가(질문 답변) · v7: 인용 표시 규칙(feel.quote_similarity_max, 결과 화면 재설계) + display.key_specs·axis_labels
+
+kinds:
+  monitor:
+    label: 모니터
+    product_type: monitor   # catalog.product.product_type (docker exec db psql로 확인, db/seed_peripherals.py와 일치)
+    spec_table: catalog.monitor_spec
+    # DB 컬럼 → 엔진 spec 키. 값이 원문 텍스트(파싱 전)인 컬럼은 `_raw` 접미사를 붙여
+    # 이미 구조화된 값(숫자·불리언·배열)과 구분한다. 텍스트 해석은 E9(peripheral_parse.py)가 한다.
+    # product_url·manual_reference는 스펙이 아니라 출처 메타데이터라 여기 넣지 않는다
+    # (src/dto.py Candidate.provenance 주석과 같은 원칙 — 섞으면 [3-B] data_gap 감점이 메타데이터를 스펙으로 센다).
+    columns:
+      model_code: model_code_raw
+      screen_size_inch: screen_size_inch
+      resolution: resolution_raw            # 예: "2560x1440" → E9가 (w, h, class)로 해석
+      max_refresh_hz: refresh_hz            # 이미 숫자라 파싱 불필요
+      panel: panel_raw
+      response_ms_gtg: response_ms_gtg
+      brightness_nit: brightness_nit
+      curvature: curvature_raw
+      hdmi_version: hdmi_version_raw
+      hdmi_ports: hdmi_ports
+      dp_version: dp_version_raw
+      dp_ports: dp_ports
+      dp_connector: dp_connector_raw
+      usb_c_video_input: usb_c_video_input_raw
+      usb_c_power_w: usb_c_power_w
+      vesa_mount_mm: vesa_mount_mm_raw
+      port_limits: port_limits_raw
+      note: note_raw
+      weight_g: weight_g
+      size_mm: size_mm_raw
+
+  keyboard:
+    label: 키보드
+    product_type: keyboard
+    spec_table: catalog.keyboard_spec
+    columns:
+      switch_kind: switch_kind_raw
+      switch_method: switch_method_raw      # E10 소음 선호(quiet/noise_sensitive)가 볼 클릭형 여부
+      rapid_trigger: rapid_trigger          # 이미 boolean
+      connectivity: connectivity            # 이미 text[]
+      weight_g: weight_g
+      size_mm: size_mm_raw
+      connectivity_interface: connectivity_interface
+      key_force_min_g: key_force_min_g      # 0016(B-8) — 가벼운 키압 판정(<= 45g)
+      key_force_max_g: key_force_max_g      #               묵직한 키압 판정(>= 50g). 값 없는 상품은 키를 넣지 않는다(모름)
+
+  mouse:
+    label: 마우스
+    product_type: mouse
+    spec_table: catalog.mouse_spec
+    columns:
+      model_number: model_number_raw
+      category_label: category_label_raw
+      form_factor: form_factor_raw
+      sensor: sensor_raw
+      dpi_range: dpi_range_raw              # 예: "100~8,000" → E9가 최댓값만 취함
+      polling_rate: polling_rate_raw        # 예: "125~2,000Hz" → E9가 최댓값(2000)만 취함. 84행 중 57행 공란(C6)
+      button_count: button_count_raw
+      switch_click: switch_click_raw
+      connectivity: connectivity
+      battery_power: battery_power_raw
+      color_options: color_options_raw
+      weight_g: weight_g
+      size_mm: size_mm_raw
+      connectivity_interface: connectivity_interface
+
+  speaker:
+    label: 스피커
+    product_type: speaker
+    spec_table: catalog.speaker_spec
+    columns:
+      speaker_form: speaker_form_raw
+      connectivity: connectivity
+      channels: channels_raw                # 예: "2.1" → E9가 채널 수로 해석
+      output_power: output_power_raw        # 예: "10W x2" → E9가 총 출력으로 해석
+      impedance: impedance_raw
+      signal_noise_ratio: signal_noise_ratio_raw
+      sensitivity: sensitivity_raw
+      power_source: power_source_raw
+      enclosure: enclosure_raw
+      note: note_raw
+      weight_g: weight_g
+      size_mm: size_mm_raw
+      connectivity_interface: connectivity_interface
+
+# 종류별 랭킹. 점수 S = Σ(축 가중치 × 축 값) − Pending 감점 − 스펙 결손 감점 − 근거 부족 감점 (기획 3.1).
+#   criteria — 스펙 기준(품목마다 3~4개). 기준 이름 → 그 기준이 보는 스펙 키. 한 스펙 키는 한 기준에만 속한다.
+#              기준의 값은 사용자가 말한(또는 목적에서 풀린) 소프트 조건을 그 기준의 키로 판정한 가중 평균이고,
+#              조건이 없는 기준은 모든 후보가 0.5 라 후보를 가르지 않는다.
+#   weights  — 축 가중치(합 1) = 스펙 기준들 + 리뷰 + 가격 + 브랜드 + 무상AS. 사용자가 아무것도 강조하지 않았을 때의 값이다.
+#              요청에 따라 ① 강조한 축 ×1.5 ② 직접 말한 소프트 조건이 있는 스펙 기준 ×2 ③ 합 1로 정규화(peripheral_select).
+# "리뷰" 축의 값은 체감 적합도 R 이다(src/engine/peripheral_feel.py). 사용기 근거가 없으면 외부 리뷰로 계산한 R 이다.
+# 가격 축은 종류별 예산이 있으면 그 안에서의 위치, 없으면 후보 중앙값 대비다. 브랜드·무상AS 는 데이터가 없는 동안 모든
+# 후보가 0.5 라 순위에 영향을 주지 않는다. 값은 전부 잠정치다(기획 3.2) — 사용기가 쌓인 뒤 재조정 대상이다.
+ranking:
+  monitor:
+    criteria:
+      화면: [screen_size_inch, resolution_h]
+      움직임: [refresh_hz, response_ms_gtg]
+      화질사양: [panel_raw, brightness_nit]
+      연결: [usb_c_video, usb_c_power_w]
+    weights: {화면: 0.20, 움직임: 0.10, 화질사양: 0.10, 연결: 0.05, 리뷰: 0.22, 가격: 0.23, 브랜드: 0.04, 무상AS: 0.06}   # 잠정값
+  keyboard:
+    criteria:
+      스위치소음: [switch_clicky, switch_magnetic, rapid_trigger, key_force_min_g, key_force_max_g]
+      배열크기: [size_longest_mm, size_height_mm]
+      연결: [connectivity_wireless, connectivity_bluetooth]
+    weights: {스위치소음: 0.12, 배열크기: 0.10, 연결: 0.08, 리뷰: 0.35, 가격: 0.27, 브랜드: 0.04, 무상AS: 0.04}   # 잠정값
+  mouse:
+    criteria:
+      손맞춤: [size_longest_mm, weight_g, form_factor_raw]
+      연결: [connectivity_wired, connectivity_wireless, connectivity_bluetooth]
+      기능: [button_count, polling_hz_max]
+    weights: {손맞춤: 0.15, 연결: 0.07, 기능: 0.08, 리뷰: 0.35, 가격: 0.27, 브랜드: 0.04, 무상AS: 0.04}   # 잠정값
+  speaker:
+    criteria:
+      형태크기: [size_longest_mm, speaker_form_raw]
+      출력채널: [output_w, channels]
+      연결전원: [connectivity_bluetooth, power_source_raw]
+    weights: {형태크기: 0.15, 출력채널: 0.10, 연결전원: 0.10, 리뷰: 0.25, 가격: 0.32, 브랜드: 0.04, 무상AS: 0.04}   # 잠정값
+
+# 근거 부족 감점(기획 3.8): 리뷰 관측이 evidence_min_n 건 미만인 상품에 evidence_penalty × max(0, 1 − n / evidence_min_n) 을 뺀다.
+# 스펙 결손 감점: 판정에 쓰는 키가 비어 있고 같은 종류의 다른 후보 중 그 키를 가진 것이 있으면 키당 missing_key_penalty,
+# 최대 missing_key_penalty_max. 기준 가중 배수: 직접 말한 소프트 조건이 있는 스펙 기준 ×stated_criterion_boost,
+# 강조한 축 ×emphasis_boost. 기준 값에서 직접 말한 조건은 가중 stated_pref_weight, 목적에서 풀린 조건은 1.
+scoring:
+  evidence_penalty: 0.10
+  evidence_min_n: 5
+  missing_key_penalty: 0.05
+  missing_key_penalty_max: 0.15
+  stated_criterion_boost: 2.0
+  emphasis_boost: 1.5
+  stated_pref_weight: 2.0
+  close_call_margin: 0.02       # 1·2위 점수 차가 이 안이면 접전(응답의 close_call)
+  close_call_max_items: 2       # 한 응답에서 접전으로 표시하는 품목은 최대 이만큼(점수 차가 작은 순)
+  # 점수식 2차(2026-10-14). 모두 잠정치다.
+  price_weight_without_budget: 0.5   # ① 예산(종류별·전체)을 말하지 않으면 가격 축 가중을 이 배수로 줄이고 나머지에 재분배한다
+  brand_like_weight: 0.15            # ③ 선호 브랜드를 말했을 때 브랜드 축의 기본 가중(강조 ×emphasis_boost 가 이어서 붙는다)
+  review_spread_min_candidates: 4    # ② 후보가 이 수 이상일 때만 리뷰 값을 후보 안 min-max 로 펴서 비교한다(적으면 과하게 벌어진다)
+  review_spread_min_span: 0.30       # ② 후보 안 리뷰 값의 범위가 이보다 좁으면 이 폭으로 본다(작은 차이를 0~1 로 과장하지 않는다)
+  review_unevidenced_quantile: 0.25  # ② 리뷰 근거가 0건인 상품의 리뷰 값을 근거 있는 후보 값의 이 분위수(이하)로 둔다
+
+# E9 — 원문 스펙 텍스트 파서(src/engine/peripheral_parse.py)가 쓰는 분류표.
+# resolution_classes: 모니터 해상도 "WxH" → 등급 이름. data/peripherals/monitor_processed.csv
+# 실측 8종 해상도(1920x1080·2560x1440·3440x1440·3840x2160·5120x1440·5120x2160·5120x2880·
+# 6144x3456) 중 여기 없는 조합(5K 계열, 6144x3456 등)은 파싱 실패가 아니라 class="OTHER"로
+# 분류된다(계획 §3.3 E9) — 미분류일 뿐 원문 파싱 자체는 성공했다는 뜻이라 None과 구분한다.
+# 코드가 아니라 여기 값을 바꾸면 등급 분류가 바뀐다(peripheral_rules.py 로더가 형식을 검증).
+parsing:
+  resolution_classes:
+    FHD: [[1920, 1080]]
+    QHD: [[2560, 1440]]
+    QHD_WIDE: [[3440, 1440]]
+    UHD: [[3840, 2160]]
+
+# E10 — 종류별 요구사양 룩업(추천엔진_구현계획 §3.3 E10). 하드 조건은 monitor 에만 둔다 —
+# PC 견적과의 호환(해상도·주사율)이라 목적에서 추론한 것이 아니다. 값은 **잠정값**이다.
+# 나머지 셋(키보드·마우스·스피커)은 데이터 결손이 커서(마우스 폴링레이트 84행 중 57행 공란 — C6)
+# 하드 조건을 걸지 않는다. 선호는 아래 spec_conditions·purposes 가 맡는다(견적 입력 설계 5장).
+# 코드는 src/engine/peripheral_requirement.py.
+requirements:
+  monitor:
+    # 하드: PC 조건 resolution(FHD_144/QHD_165/4K) → 허용 resolution_class 목록 + 주사율
+    # 하한. "이상"이 아니라 "일치"로 두는 이유(계획 §3.3): PC 의 GPU 등급이 이 해상도를
+    # 목표로 잡혔다. 4K 모니터를 FHD 용 GPU 에 붙이면 성능 목표가 어긋난다.
+    hard:
+      # 해상도 enum → "정등급"(주 등급) 하나. 등급 이름은 위 parsing.resolution_classes 에
+      # 있어야 한다(로더 검증).
+      resolution_class_by_res:
+        FHD_144: FHD
+        QHD_165: QHD
+        "4K": UHD
+      # 정등급 → 하드 조건에 실제로 허용할 resolution_class 목록. 기본은 정등급 자기
+      # 자신만 포함한다 — QHD_165 에 QHD_WIDE(3440x1440)를 포함하지 않는다.
+      # 이유: GPU 목표가 16:9 QHD(2560x1440, 약 369만 화소) 기준으로 잡혔는데 QHD_WIDE 는
+      # 3440x1440(약 495만 화소)로 화소가 약 34% 더 많다 — 같은 GPU 등급으로는 목표
+      # 프레임을 못 미친다. 울트라와이드를 포함하도록 정책이 바뀌면 이 표에 QHD_WIDE 를
+      # 추가하면 된다(코드 변경 없음).
+      res_class_members:
+        FHD: [FHD]
+        QHD: [QHD]
+        UHD: [UHD]
+      # 해상도 enum → 주사율 하한(Hz). 계획 표: FHD_144→144, QHD_165→165, 4K→60(게임이면 120).
+      refresh_min_hz_by_res:
+        FHD_144: 144
+        QHD_165: 165
+        "4K": 60
+      # {해상도: {purpose: 하한}} — 있으면 refresh_min_hz_by_res 값을 덮어쓴다.
+      # purpose 는 PC 견적의 용도(computer.yaml slot_schema)다. 주변기기 목적(purposes)과 다른 말이다.
+      refresh_min_hz_purpose_override:
+        "4K":
+          game: 120
+
+# ── 견적 입력(docs/local/견적_입력_설계.md 4~5장, 개발_확정사양.md 8장) ───────────────────
+# 사용자가 한 문장으로 말한 것을 "정해진 목록 안의 값"으로만 읽는다. 아래 절들이 그 목록이다.
+# 값을 바꾸면 해석 결과가 바뀌므로 rule_set_version 을 함께 올린다(문장 해석 저장 키에 들어간다).
+# 임계값(g·mm·nit 등)은 전부 **잠정값**이다 — 카탈로그 분포를 보고 임시로 둔 값이고 실제 사용 뒤 조정한다.
+#
+# spec_conditions: 종류별 닫힌 목록. 한 항목 = 이름 붙은 스펙 조건 하나.
+#   prefs  — 평가기({key, op, value}) 형식. key 는 해당 종류의 판정 가능 키여야 한다(로더 검증).
+#   words  — 사용자가 이 조건을 직접 말할 때 쓰는 낱말(소문자 부분 일치). 단어 규칙과 모델 프롬프트가 쓴다.
+#   filter — true 면 사용자가 **직접 말했을 때** 후보를 거른다(고른 제품이 사라져도 되는 조건).
+#            false 면 직접 말해도 선호로만 쓴다(임계값이 잠정이라 거르면 오히려 제품이 사라지는 조건).
+#            목적에서 풀린 조건은 filter 값과 무관하게 항상 선호로만 쓴다(설계 5.1).
+#   ＊ 표시는 이 설계에서 새로 정의한 7개다(견적 입력 설계 8장).
+spec_conditions:
+  monitor:
+    high_resolution:   # ＊
+      label: 높은 해상도
+      words: [고해상도, 해상도 높, 높은 해상도, 4k, uhd, "3840"]     # QA PQA-007: "4K 모니터"·"4K" 칩
+      filter: false
+      prefs: [{key: resolution_h, op: min, value: 2160}]          # 4K 이상. 잠정(1440 은 카탈로그 97% 통과라 변별력이 없었다)
+    qhd:
+      label: QHD 해상도
+      words: [qhd, wqhd, 1440p]                                   # QA PQA-007: "QHD 165Hz" 칩·문장
+      filter: false
+      prefs: [{key: resolution_h, op: equals, value: 1440}]       # 2560x1440·3440x1440·5120x1440
+    high_refresh:
+      label: 높은 주사율
+      words: [고주사율, 주사율 높, 144hz, 165hz, 240hz]
+      filter: false
+      prefs: [{key: refresh_hz, op: min, value: 144}]             # 잠정
+    fast_response:
+      label: 빠른 응답속도
+      words: [응답속도]
+      filter: false
+      prefs: [{key: response_ms_gtg, op: max, value: 1}]          # GTG ms. 잠정(5 는 카탈로그 100% 통과)
+    large_screen:
+      label: 큰 화면
+      words: [큰 화면, 대형]
+      filter: false
+      prefs: [{key: screen_size_inch, op: min, value: 32}]        # 잠정
+    oled:
+      label: OLED
+      words: [oled, 올레드]
+      filter: true
+      prefs: [{key: panel_raw, op: contains_any, value: [OLED]}]
+    ips:
+      label: IPS
+      words: [ips]
+      filter: true
+      prefs: [{key: panel_raw, op: contains_any, value: [IPS]}]
+    usb_c:             # ＊
+      label: USB-C 영상·충전
+      words: [usb-c, c타입, 썬더볼트]
+      filter: false
+      prefs:
+        - {key: usb_c_video, op: equals, value: true}
+        - {key: usb_c_power_w, op: min, value: 60}                # W. 잠정
+    bright:            # ＊
+      label: 높은 밝기
+      words: [밝은 모니터, 밝기 높, 높은 밝기]
+      filter: false
+      prefs: [{key: brightness_nit, op: min, value: 400}]         # nit. 잠정
+  keyboard:
+    wireless:
+      label: 무선
+      words: [무선]
+      filter: true
+      prefs: [{key: connectivity_wireless, op: equals, value: true}]
+    bluetooth:
+      label: 블루투스
+      words: [블루투스]
+      filter: true
+      prefs: [{key: connectivity_bluetooth, op: equals, value: true}]
+    quiet_switch:
+      label: 조용한 스위치
+      words: [저소음 스위치, 저소음축, 저소음 축, 무소음 스위치]
+      filter: false
+      prefs: [{key: switch_clicky, op: equals, value: false}]
+    rapid_trigger:
+      label: 래피드 트리거
+      words: [래피드 트리거, 래피드트리거]
+      filter: true
+      prefs: [{key: rapid_trigger, op: equals, value: true}]
+    magnetic:
+      label: 마그네틱(자석축)
+      words: [마그네틱, 자석축, 홀 이펙트]
+      filter: true
+      prefs: [{key: switch_magnetic, op: equals, value: true}]
+    full_size:
+      label: 풀배열
+      words: [풀배열, 풀사이즈]
+      filter: false
+      # 카탈로그에 배열 컬럼이 없어 가로 길이로 근사한다. 잠정
+      prefs: [{key: size_longest_mm, op: min, value: 430}]
+    compact:
+      label: 텐키리스·컴팩트
+      words: [텐키리스, 컴팩트]
+      filter: false
+      prefs: [{key: size_longest_mm, op: max, value: 380}]        # 잠정
+    low_height:        # ＊
+      label: 낮은 높이
+      words: [저상, 로우프로파일, 낮은 키보드]
+      filter: false
+      prefs: [{key: size_height_mm, op: max, value: 30}]          # mm. 잠정
+    # 키압(요청서 B-8, 0016). 스위치를 고르는 상품은 키압이 범위(min~max)로 적혀 있어, 가벼운 쪽은 가장 가벼운 스위치(min)로,
+    # 묵직한 쪽은 가장 묵직한 스위치(max)로 판정한다 — 45~60g 처럼 두 조건을 모두 충족하는 상품이 있을 수 있다.
+    # 값이 없는 상품은 Pending(모름 = 0.5)이라 가볍다고도 무겁다고도 판정하지 않는다. 둘 다 거르지 않는 선호 조건이다.
+    light_key_force:
+      label: 가벼운 키압
+      words: [가벼운 키압, 키압이 가벼, 키압 가벼, 가벼운 타건, 가볍게 눌리, 가벼운 키감]
+      # 어순·조사가 달라도 읽는다("타건감이 가벼운"). "가벼운 키보드"는 휴대용일 수 있어 target 에 키보드를 넣지 않는다(QA PQA-005)
+      near:
+        - {feel: [가벼, 가볍, 살짝], target: [키압, 타건, 키감, 누르, 눌러, 눌리], window: 10}
+      filter: false
+      prefs: [{key: key_force_min_g, op: max, value: 45}]         # g. 잠정(요청서 B-8)
+    heavy_key_force:
+      label: 묵직한 키압
+      words: [묵직한 키압, 키압이 묵직, 키압 묵직, 키압이 높, 키압 높, 묵직한 타건, 묵직한 키감, 무거운 키압]
+      # "타건감 묵직한", "묵직한 키보드"(QA PQA-005). "무거운 키보드"는 본체 무게일 수 있어 키보드와는 "묵직"만 묶는다
+      near:
+        - {feel: [묵직, 무거, 무겁, 단단, 빡빡], target: [키압, 타건, 키감, 누르, 눌러, 눌리], window: 10}
+        - {feel: [묵직], target: [키보드], window: 10}
+      filter: false
+      prefs: [{key: key_force_max_g, op: min, value: 50}]         # g. 잠정(요청서 B-8)
+  mouse:
+    wired:
+      label: 유선
+      words: [유선]                                               # QA PQA-017("유선 마우스 3만원"). 키보드는 41종 중 39종이 유선이라 두지 않는다
+      filter: true
+      prefs: [{key: connectivity_wired, op: equals, value: true}]
+    wireless:
+      label: 무선
+      words: [무선]
+      filter: true
+      prefs: [{key: connectivity_wireless, op: equals, value: true}]
+    bluetooth:
+      label: 블루투스
+      words: [블루투스]
+      filter: true
+      prefs: [{key: connectivity_bluetooth, op: equals, value: true}]
+    lightweight:
+      label: 가벼운 무게
+      words: [경량, 가벼운, 가벼워]
+      exclude: [가벼운 키압, 가벼운 타건, 가벼운 키감]                 # 키보드 키압 표현이 마우스 무게로 새지 않게(QA PQA-006)
+      filter: false
+      prefs: [{key: weight_g, op: max, value: 80}]                # g. 잠정
+    high_polling:
+      label: 높은 폴링레이트
+      words: [폴링, 4000hz, 8000hz]
+      filter: false
+      prefs: [{key: polling_hz_max, op: min, value: 4000}]        # Hz. 잠정(1000 은 값이 있는 제품의 96% 통과)
+    small_size:        # ＊
+      label: 작은 크기
+      words: [작은 마우스, 작은 크기, 미니]
+      filter: false
+      prefs: [{key: size_longest_mm, op: max, value: 110}]        # mm. 잠정
+    many_buttons:      # ＊
+      label: 버튼 많음
+      words: [버튼 많]
+      filter: false
+      prefs: [{key: button_count, op: min, value: 8}]             # 잠정
+    vertical_trackball:  # ＊
+      label: 버티컬·트랙볼 형태
+      words: [버티컬, 트랙볼]
+      filter: true
+      prefs: [{key: form_factor_raw, op: contains_any, value: [버티컬, 트랙볼]}]
+  speaker:
+    bluetooth:
+      label: 블루투스
+      words: [블루투스]
+      filter: true
+      prefs: [{key: connectivity_bluetooth, op: equals, value: true}]
+    usb_power:
+      label: USB 전원
+      words: [usb 전원, usb로]
+      filter: true
+      prefs: [{key: power_source_raw, op: contains_any, value: [USB]}]
+    small_size:
+      label: 작은 크기
+      words: [작은 스피커, 컴팩트]
+      filter: false
+      prefs: [{key: size_longest_mm, op: max, value: 200}]        # mm. 잠정
+    high_output:
+      label: 높은 출력
+      words: [출력 높, 고출력]
+      filter: false
+      prefs: [{key: output_w, op: min, value: 20}]                # W. 잠정
+    bookshelf:
+      label: 북셸프
+      words: [북셸프]
+      filter: true
+      prefs: [{key: speaker_form_raw, op: contains_any, value: [북셸프]}]
+    channel_2_1:
+      label: 2.1 채널
+      words: ["2.1"]
+      filter: false
+      prefs: [{key: channels, op: min, value: 2.1}]
+
+# purposes: 종류별 목적 목록과 풀이(견적 입력 설계 5.3~5.6). 목적 하나는 세 군데로 풀린다.
+#   prefer — 선호 스펙(spec_conditions 이름). 이 값만 이 단계의 스펙 선호 계산에 쓴다.
+#   feel   — 중요해지는 체감. 체감 점수를 계산하는 단계(구현 순서 6)가 쓴다. 지금은 화면 설명용 이름이다.
+#   taste  — 취향의 쪽. 위와 같다.
+#   words  — 단어 규칙(언어 모델을 쓸 수 없을 때)과 모델 프롬프트의 예시가 되는 낱말. 부분 일치, 소문자.
+# "게임용"이라고만 말하면 game 으로 읽는다. 스펙을 좁히지 않고(prefer 없음) 체감 중요도만 올린다(설계 5.1).
+# 같은 이름의 목적이 여러 종류에 있으면(game, fps, wrist, multi_device …) 한 번 말한 것이 모든 종류에 적용된다.
+purposes:
+  mouse:
+    office:
+      {label: 사무·문서, words: [사무, 문서, 엑셀, 업무], prefer: [wireless], feel: [손목 피로, 휠, 배터리], taste: [클릭 조용한 쪽]}
+    portable:
+      {label: 휴대, words: [들고, 휴대, 카페, 출장], prefer: [wireless, bluetooth, lightweight, small_size], feel: [연결 안정성, 배터리], taste: [크기 작은 쪽]}
+    game:
+      {label: 게임(일반), words: [게임], prefer: [], feel: [그립 안정감, 클릭], taste: []}
+    fps:
+      {label: 경쟁 게임, words: [배그, 발로란트, fps, 오버워치, 카스], prefer: [lightweight, high_polling], feel: [그립 안정감, 클릭, 미끄러짐], taste: [무게 가벼운 쪽]}
+    many_buttons:
+      {label: 버튼을 많이 쓰는 게임·작업, words: [mmo, 단축키, 버튼 많], prefer: [many_buttons], feel: [사이드 버튼, 그립], taste: []}
+    wrist:
+      {label: 손목 부담 줄이기, words: [손목], prefer: [vertical_trackball], feel: [손목 피로, 적응 기간], taste: []}
+    multi_device:
+      {label: 여러 기기 오가며, words: [번갈아, 여러 기기, 노트북이랑, 기기 오가], prefer: [bluetooth], feel: [연결 안정성·전환], taste: []}
+  keyboard:
+    typing:
+      {label: 장문 타이핑·코딩, words: [글 많이, 타이핑, 코딩, 개발자], prefer: [], feel: [타건감, 손목 피로], taste: []}
+    numbers:
+      {label: 사무·숫자 입력, words: [회계, 엑셀, 숫자, 텐키], exclude: [텐키리스], prefer: [full_size], feel: [배열 적응], taste: [소리 조용한 쪽]}   # exclude: QA PQA-006
+    game:
+      {label: 게임(일반), words: [게임], prefer: [], feel: [입력 반응, 타건감], taste: []}
+    fps:
+      {label: 경쟁 게임, words: [fps, 리듬 게임, 발로란트, 배그], prefer: [rapid_trigger, magnetic, light_key_force], feel: [입력 반응, 설정 편의], taste: [키압 가벼운 쪽]}
+    quiet_place:
+      {label: 조용한 곳, words: [사무실, 밤에, 조용, 저소음], prefer: [quiet_switch], feel: [타건 소리, 큰 키 잡음], taste: [소리 조용한 쪽]}
+    wrist:
+      {label: 손목 편한 것, words: [손목], prefer: [low_height], feel: [손목 피로], taste: []}
+    multi_device:
+      {label: 여러 기기 오가며, words: [태블릿, 번갈아, 여러 기기], prefer: [bluetooth], feel: [연결 안정성·전환], taste: []}
+    small_desk:
+      {label: 좁은 책상·휴대, words: [책상이 작, 좁은 책상, 컴팩트, 텐키리스], prefer: [compact], feel: [배열 적응], taste: []}
+  monitor:
+    docs:
+      {label: 문서·코딩, words: [문서, 코딩, 사무], prefer: [high_resolution], feel: [글자 가독성, 눈 피로, 스탠드], taste: [색감 자연스러운 쪽]}
+    game:
+      {label: 게임(일반), words: [게임], prefer: [high_refresh], feel: [잔상, 화질], taste: []}
+    fps:
+      {label: 경쟁 게임, words: [fps, 프레임], prefer: [high_refresh, fast_response], feel: [잔상], taste: []}
+    immersive:
+      {label: 몰입 게임·영화, words: [영화, rpg, 몰입], prefer: [large_screen, oled], feel: [검은색 표현, 빛샘], taste: [색감 선명한 쪽]}
+    creative:
+      {label: 사진·영상 작업, words: [편집, 디자인, 사진, 영상 작업], prefer: [ips, high_resolution], feel: [색 정확도, 균일도], taste: [색감 자연스러운 쪽],
+       exclude: [디자인 예쁜, 디자인이 예쁜, 디자인 이쁜, 디자인이 이쁜, 예쁜 디자인, 이쁜 디자인, 디자인 좋은, 디자인이 좋은, 디자인 깔끔, 디자인이 깔끔, 디자인이 중요, 디자인 중요]}   # 외관을 말한 "디자인"은 작업이 아니다(10/17 실측)
+    laptop:
+      {label: 노트북 연결, words: [맥북, 노트북에, 노트북과], prefer: [usb_c], feel: [연결 안정성], taste: []}
+    bright_room:
+      {label: 밝은 방, words: [창가, 거실, 밝은 방], prefer: [bright], feel: [밝기 체감, 반사], taste: []}
+  speaker:
+    desk_casual:
+      {label: 책상 위 가벼운 감상, words: [유튜브, 배경 음악], prefer: [small_size, usb_power], feel: [잡음, 조작 편의], taste: []}
+    room:
+      {label: 방 전체·거실, words: [거실, 크게, 방 전체], prefer: [high_output, bookshelf], feel: [음량 여유], taste: [저음 넉넉한 쪽]}
+    music:
+      {label: 음악 감상, words: [음악, 노래, 음감], prefer: [bookshelf], feel: [음질, 악기 구분], taste: []}   # 노래·음감: QA PQA-019
+    movie_game:
+      {label: 영화·게임, words: [영화, 타격감], prefer: [high_output, channel_2_1], feel: [저음, 음량], taste: [저음 넉넉한 쪽]}
+    voice:
+      {label: 회의·음성, words: [화상회의, 회의], prefer: [], feel: [목소리 또렷함, 잡음], taste: [소리 또렷한 쪽]}
+    low_volume:
+      {label: 작은 음량·밤, words: [밤에 작게, 작게 들], prefer: [], feel: [작은 음량에서의 소리, 잡음], taste: []}
+    multi_device:
+      {label: 여러 기기 연결, words: [폰도, 여러 기기], prefer: [bluetooth], feel: [연결 안정성], taste: []}
+
+# conflicts: 함께 있을 수 없는 스펙 조건 쌍(QA PQA-006). 풀이에서 둘 다 풀리면 직접 말한 쪽만 남긴다.
+# 둘 다 직접 말했거나 둘 다 목적에서 풀렸으면 둘 다 빼고 응답의 conflicts 로 알린다(채팅에서 되묻는다).
+# 가벼운·묵직한 키압은 넣지 않는다 — 키압이 범위(45~60g)로 적힌 상품은 둘 다 충족할 수 있다(위 키압 조건 주석).
+conflicts:
+  keyboard:
+    - [compact, full_size]
+
+# situations: 종류를 가리지 않는 공통 상황(견적 입력 설계 5.2). 스펙 선호는 위 purposes 에 같은 이름이 있는
+# 종류에서만 풀린다(quiet_place·portable·small_desk). 나머지 영향(체감 중요도, 같은 조건 묶음)은 체감 점수 단계가 쓴다.
+#   same_condition_group — 같은 조건 작성자를 묶는 기준으로 쓰는지. trending·design 은 요청자가 바라는 것일 뿐이다.
+situations:
+  quiet_place:  {label: 조용해야 함, words: [밤에, 사무실, 조용, 저소음, 애가 자], same_condition_group: true}
+  mic:          {label: 마이크 사용, words: [회의, 방송, 마이크], same_condition_group: true}
+  small_desk:   {label: 좁은 책상, words: [책상이 작, 좁은 책상], same_condition_group: true}
+  portable:     {label: 들고 다님, words: [들고, 카페, 출장, 휴대], same_condition_group: true}
+  trending:     {label: 요즘 많이 쓰는 것, words: [요즘, 인기], same_condition_group: false}
+  design:       {label: 디자인이 중요, words: [예쁜, 디자인, 어울리는], same_condition_group: false,
+                 exclude: [디자인 작업, 디자인용, 디자인 일, 그래픽 디자인, 디자인 툴]}   # 작업을 말한 "디자인"은 외관이 아니다(10/17)
+
+# PC 견적의 용도(computer.yaml purpose)를 주변기기 목적으로 옮기는 표. PC 견적에서 넘어온 경우 용도를 미리
+# 채우는 데 쓴다(견적 입력 설계 2장). 목록에 없는 값(other)은 아무 목적도 만들지 않는다.
+pc_purpose_map:
+  game: [game]
+  creation: [creative]
+  office: [office, docs]
+  study: [docs]
+
+# feel: 체감 점수 계산(개발_확정사양.md 4~6장). 코드는 src/engine/peripheral_feel.py.
+# 외부 리뷰의 큰 속성(종류당 5개)에서 출발값을 가져오고, 커뮤니티 사용기의 세부 속성 표로 보정해 체감 적합도 R 을 만든다.
+# 숫자는 확정 사양 11장의 **잠정값**이다. 예시 글로는 식이 의도대로 움직이는지만 확인하고 값은 실제 사용기가 쌓인 뒤 정한다.
+#
+#   k           — 같은 조건 묶음과 나머지 묶음을 섞는 강도(평가·성향 공통)           (사양 6.2, 6.3)
+#   kb          — 커뮤니티 전체 평균(기준 높이 B)을 외부 평균 m 쪽으로 당기는 강도       (사양 6.1)
+#   k0_default  — 외부 점수를 m 쪽으로 당기는 강도. 종류·속성별 추정값은 k0 표         (사양 6.1)
+#   default_m   — 외부 리뷰와 연결되지 않는 속성의 m(중립)
+#   purpose_boost — 목적·상황이 가리키는 체감 속성의 중요도 배수. 목적이 여럿이어도 한 번만 곱한다(합치는 방식 미정)
+#   split_ratio — 두 쪽 이상에 작성자가 있고 적은 쪽이 이 비율 이상이면 "갈린다"          (사양 6.3)
+#   same_condition_many·recent_months·trending_margin·quotes_per_attribute·rrf_k·search_limit — 근거 표시(사양 6.6, 7장)
+#   neutral_taste — 근거 없는 성향 적합도, 성향 두 단계 계산의 출발값                     (사양 6.3, 6.4)
+feel:
+  k: 4
+  kb: 20
+  k0_default: 8
+  default_m: 0.5
+  purpose_boost: 2.0
+  split_ratio: 0.25
+  neutral_taste: 0.5
+  same_condition_many: 3        # 같은 조건의 글이 이 편수 이상이면 "여럿"으로 보고 사람 수를 그대로 보여 준다(사양 7장)
+  recent_months: 3              # "최근 사용기 수"를 세는 기간(개월)
+  trending_margin: 0.02         # "요즘 많이 쓰는" 을 말했을 때 1위와 점수 차가 이 안인 후보끼리만 최근 글 수로 순서를 바꾼다
+  quotes_per_attribute: 2       # 속성마다 보여 줄 인용 문장 수의 상한
+  quote_similarity_max: 0.3     # 한 제품에서 이미 고른 문장과 글자 2-gram 자카드 유사도가 이 이상이면 같은 말로 보고 건너뛴다
+  rrf_k: 60                     # 문장 검색에서 단어 일치와 임베딩 순위를 합치는 상수: 1 / (rrf_k + 순위)
+  search_limit: 5               # 문장 검색 결과 수의 상한
+  post_max_chars: 4000          # 사용기 분석에 쓰는 본문의 길이 상한(넘으면 앞부분만 분석하고 잘랐다고 기록한다)
+  post_max_items: 40            # 글 하나에서 받는 근거 문장 수의 상한
+  durability_min_months: 6      # 내구성은 사용 기간이 이 개월 수 이상이라고 밝힌 글의 문장만 센다(사양 4.2)
+  hand_small_below_cm: 17.5     # 손 길이 cm 가 이보다 작으면 작은 편(사양 4.1)
+  hand_large_above_cm: 19       # 이보다 크면 큰 편
+  # 외부 큰 속성별 k0 추정값(재현: docs/local/k_추정_스크립트.py). 표에 없는 속성은 k0_default.
+  k0:
+    keyboard:
+      typing_feel: 12.8
+      typing_noise: 5.0
+      physical_usability: 5.2
+      controls_usability: 3.5
+      connection_stability: 2.5
+  # 세부 속성(사양 4.2)과 성향 축(사양 4.3). 코드는 사용기 저장·분석(구현 순서 5)과 맞춘다.
+  #   type      — rating(좋음/아쉬움) | taste(어느 쪽인가)
+  #   external  — 출발값을 가져올 외부 큰 속성(config/review_aspect_profiles.yaml 의 aspect_code). 없으면 null(대응표 잠정)
+  #   group     — 같은 조건 묶음의 기준(사양 6.2): hand 손 크기 · quiet 조용해야 함/마이크 · bright 밝은 방 ·
+  #               none 묶지 않음 · purpose 요청자와 같은 목적
+  #   aliases   — purposes 표의 feel 이름이 이 속성을 가리키는 말(견적 입력 설계 5장). 목록에 없는 이름은 가리키는 속성이 없다
+  #   tags      — sound: 조용해야 함·마이크 상황에서 중요도가 오르는 소리 속성
+  #   only_when — design: 요청자가 디자인을 말했을 때만 점수에 넣는다(사양 4.2)
+  #   sides / taste_labels — 성향 축의 쪽 이름, purposes 표의 taste 이름이 가리키는 쪽
+  attributes:
+    mouse:
+      grip:        {label: 그립 안정감, type: rating, external: ergonomics, group: hand, aliases: [그립 안정감, 그립]}
+      click:       {label: 클릭, type: rating, external: controls_usability, group: purpose, aliases: [클릭]}
+      wheel:       {label: 휠, type: rating, external: controls_usability, group: purpose, aliases: [휠]}
+      side_button: {label: 사이드 버튼, type: rating, external: controls_usability, group: purpose, aliases: [사이드 버튼]}
+      wireless:    {label: 무선 안정성, type: rating, external: connection_stability, group: none, aliases: [연결 안정성, 연결 안정성·전환]}
+      battery:     {label: 배터리, type: rating, external: battery_runtime, group: none, aliases: [배터리]}
+      wrist:       {label: 손목 피로, type: rating, external: ergonomics, group: purpose, aliases: [손목 피로]}
+      adaptation:  {label: 적응 기간, type: rating, external: ergonomics, group: purpose, aliases: [적응 기간]}
+      software:    {label: 설정 프로그램, type: rating, external: controls_usability, group: none, aliases: []}
+      durability:  {label: 내구성, type: rating, external: null, group: none, aliases: []}
+      build:       {label: 마감·만듦새, type: rating, external: null, group: none, aliases: []}
+      looks:       {label: 외관 만족, type: rating, external: null, group: none, aliases: [], only_when: design}
+      size_feel:   {label: 크기 체감, type: taste, group: hand, aliases: [], sides: {small: 작은 편, big: 큰 편}, taste_labels: {크기 작은 쪽: small}}
+      weight_feel: {label: 무게 체감, type: taste, group: purpose, aliases: [], sides: {light: 가벼운 편, heavy: 묵직한 편}, taste_labels: {무게 가벼운 쪽: light}}
+      click_sound: {label: 클릭 소리, type: taste, group: quiet, aliases: [], tags: [sound], sides: {quiet: 조용한 편, loud: 또렷한 편}, taste_labels: {클릭 조용한 쪽: quiet}}
+      glide:       {label: 미끄러짐, type: taste, group: purpose, aliases: [미끄러짐], sides: {fast: 빠른 편, brake: 제동이 있는 편}, taste_labels: {}}
+    keyboard:
+      key_noise:   {label: 큰 키 잡음, type: rating, external: typing_noise, group: quiet, aliases: [큰 키 잡음, 타건 소리], tags: [sound]}
+      hollow:      {label: 통울림, type: rating, external: typing_noise, group: quiet, aliases: [타건 소리], tags: [sound]}
+      typing_feel: {label: 타건감, type: rating, external: typing_feel, group: purpose, aliases: [타건감]}
+      input_response: {label: 입력 반응, type: rating, external: typing_feel, group: purpose, aliases: [입력 반응]}
+      wireless:    {label: 무선 안정성·전환, type: rating, external: connection_stability, group: none, aliases: [연결 안정성·전환]}
+      wrist:       {label: 손목 피로, type: rating, external: physical_usability, group: purpose, aliases: [손목 피로]}
+      layout:      {label: 배열 적응, type: rating, external: physical_usability, group: purpose, aliases: [배열 적응]}
+      software:    {label: 설정 프로그램, type: rating, external: controls_usability, group: none, aliases: [설정 편의]}
+      durability:  {label: 내구성, type: rating, external: null, group: none, aliases: []}
+      build:       {label: 마감·만듦새, type: rating, external: null, group: none, aliases: []}
+      looks:       {label: 외관 만족, type: rating, external: null, group: none, aliases: [], only_when: design}
+      key_force:   {label: 키압 체감, type: taste, group: purpose, aliases: [], sides: {light: 가벼운 편, heavy: 묵직한 편}, taste_labels: {키압 가벼운 쪽: light}}
+      sound_volume: {label: 소리 크기, type: taste, group: quiet, aliases: [], tags: [sound], sides: {quiet: 조용한 편, loud: 큰 편}, taste_labels: {소리 조용한 쪽: quiet}}
+      sound_tone:  {label: 소리 톤, type: taste, group: quiet, aliases: [], tags: [sound], sides: {low: 낮은 편, high: 높은 편}, taste_labels: {}}
+      rebound:     {label: 반발감, type: taste, group: purpose, aliases: [], sides: {soft: 부드러운 편, firm: 단단한 편}, taste_labels: {}}
+    monitor:
+      light_bleed: {label: 빛샘·균일도, type: rating, external: image_quality, group: purpose, aliases: [빛샘, 균일도]}
+      ghosting:    {label: 잔상, type: rating, external: motion_response, group: purpose, aliases: [잔상]}
+      readability: {label: 글자 가독성, type: rating, external: image_quality, group: purpose, aliases: [글자 가독성]}
+      stand:       {label: 스탠드, type: rating, external: controls_ergonomics, group: none, aliases: [스탠드]}
+      eye_strain:  {label: 눈 피로, type: rating, external: image_quality, group: bright, aliases: [눈 피로]}
+      image_quality: {label: 화질, type: rating, external: image_quality, group: purpose, aliases: [화질]}
+      black_level: {label: 검은색 표현, type: rating, external: image_quality, group: purpose, aliases: [검은색 표현]}
+      color_accuracy: {label: 색 정확도, type: rating, external: image_quality, group: purpose, aliases: [색 정확도]}
+      brightness_feel: {label: 밝기 체감, type: rating, external: image_quality, group: bright, aliases: [밝기 체감]}
+      reflection:  {label: 반사, type: rating, external: image_quality, group: bright, aliases: [반사]}
+      connection:  {label: 연결 안정성, type: rating, external: connection_stability, group: none, aliases: [연결 안정성]}
+      initial_quality: {label: 초기 품질, type: rating, external: functional_reliability, group: none, aliases: []}
+      durability:  {label: 내구성, type: rating, external: functional_reliability, group: none, aliases: []}
+      build:       {label: 마감·만듦새, type: rating, external: null, group: none, aliases: []}
+      looks:       {label: 외관 만족, type: rating, external: null, group: none, aliases: [], only_when: design}
+      color:       {label: 색감, type: taste, group: purpose, aliases: [], sides: {natural: 자연스러운 편, vivid: 선명한 편}, taste_labels: {색감 자연스러운 쪽: natural, 색감 선명한 쪽: vivid}}
+    speaker:
+      noise:       {label: 잡음, type: rating, external: unwanted_noise, group: quiet, aliases: [잡음], tags: [sound]}
+      volume_headroom: {label: 음량 여유, type: rating, external: output_level, group: purpose, aliases: [음량 여유, 음량]}
+      sound_quality: {label: 음질, type: rating, external: sound_quality, group: purpose, aliases: [음질]}
+      instrument_separation: {label: 악기 구분, type: rating, external: sound_quality, group: purpose, aliases: [악기 구분]}
+      bass:        {label: 저음, type: rating, external: sound_quality, group: purpose, aliases: [저음]}
+      voice_clarity: {label: 목소리 또렷함, type: rating, external: sound_quality, group: purpose, aliases: [목소리 또렷함]}
+      low_volume_sound: {label: 작은 음량에서의 소리, type: rating, external: sound_quality, group: purpose, aliases: [작은 음량에서의 소리]}
+      connection:  {label: 연결 안정성, type: rating, external: connection_controls, group: none, aliases: [연결 안정성]}
+      controls:    {label: 조작 편의, type: rating, external: connection_controls, group: none, aliases: [조작 편의]}
+      durability:  {label: 내구성, type: rating, external: functional_reliability, group: none, aliases: []}
+      build:       {label: 마감·만듦새, type: rating, external: null, group: none, aliases: []}
+      looks:       {label: 외관 만족, type: rating, external: null, group: none, aliases: [], only_when: design}
+      balance:     {label: 소리 밸런스, type: taste, group: purpose, aliases: [], sides: {bass: 저음 쪽, treble: 고음 쪽}, taste_labels: {저음 넉넉한 쪽: bass}}
+      clarity:     {label: 소리 또렷함, type: taste, group: purpose, aliases: [], sides: {clear: 또렷한 편, warm: 부드러운 편}, taste_labels: {소리 또렷한 쪽: clear}}
+
+# adjust_chips: 추천 결과 아래 "더 맞추기" 칩의 후보(견적 입력 설계 6.2, 5장의 칩 목록).
+# 칩 하나 = 눌렀을 때 입력에 더해지는 값(add). 서버는 후보마다 "더했을 때 지금 보이는 순서(1위와 대안 2개)가
+# 바뀌는가"를 계산해서 바꾸는 것만, 최대 3개 내보낸다(src/engine/peripheral_suggest.py). 이미 말한 조건의 칩은 내지 않는다.
+# 키압 칩(키보드)은 키압 컬럼(요청서 B-8, 0016)이 들어와 더했다. 손 크기 칩은 아직 없다 — 손 크기는 체감 점수가
+# 같은 조건 작성자를 가를 때만 순서가 바뀌므로, 사용기가 쌓인 뒤에 더한다.
+#   add.purposes / add.situations — 목적·상황 코드. add.stated — 직접 말한 스펙 조건 이름(그 종류의 spec_conditions).
+adjust_chips:
+  monitor:
+    - {id: bright_room, label: 방이 밝은 편이에요, add: {purposes: [bright_room]}}
+    - {id: small_desk, label: 책상이 좁아요, add: {situations: [small_desk]}}
+  keyboard:
+    - {id: quiet_place, label: 조용해야 해요, add: {situations: [quiet_place]}}
+    - {id: numbers, label: 숫자 키가 필요해요, add: {purposes: [numbers]}}
+    - {id: light_key_force, label: 키압이 가벼웠으면 해요, add: {stated: [light_key_force]}}
+    - {id: heavy_key_force, label: 키압이 묵직했으면 해요, add: {stated: [heavy_key_force]}}
+  mouse:
+    - {id: quiet_place, label: 조용해야 해요, add: {situations: [quiet_place]}}
+  speaker:
+    - {id: desk_casual, label: 책상 위에서 써요, add: {purposes: [desk_casual]}}
+    - {id: room, label: 방 전체에 울려야 해요, add: {purposes: [room]}}
+    - {id: low_volume, label: 밤에 작게 들어요, add: {purposes: [low_volume]}}
+
+# chat: 채팅 한 턴의 질문 답변과 설명(QA PQA-012·013·014, docs/local/주변기기_추천_QA_기획.md 2.3절).
+# 질문 종류는 낱말로 가르고(언어 모델이 꺼져 있어도 돈다), 답 문장은 **여기 적힌 글과 추천 결과·스펙·사용기에서만** 만든다.
+# 언어 모델은 질문 종류를 고르는 데만 쓰고 답 문장을 쓰지 않는다 — 없는 사실을 지어낼 수 없게 하려는 것이다.
+#   markers        — 이 말이 있어야 질문으로 본다("무게 가벼운 마우스 추천"처럼 질문이 아닌 문장을 조건으로 읽게 한다)
+#   request_words  — 질문 안에 이 말이 있으면 조건도 함께 말한 문장으로 보고 조건을 지우지 않는다
+#   types          — 질문 종류별 낱말. 위에서부터 먼저 맞는 종류가 된다. spec·review 는 topics 로 이어서 가른다
+#   spec_topics    — 스펙 질문 주제: 낱말 → 라벨과 스펙 키(그 상품에 값이 있는 키만 답한다), 값 꼴(unit)
+#   spec_summary   — 주제 없이 "스펙이 어때?"라고 물으면 답할 스펙 주제(종류별)
+#   review_topics  — 사용기 질문 주제: 낱말 → 체감 속성 코드(feel.attributes). 근거가 없으면 없다고 답한다
+#   glossary       — 용어 설명(words 로 찾는다). 카탈로그 값이 아니라 일반 설명이다
+#   unsupported    — 아직 조건으로 고를 수 없는 말과 그 설명(단어 규칙이 못 읽은 말도 사용자에게 알린다)
+#   chips          — 다음에 물어볼 문장. 모두 위 낱말로 같은 종류에 읽혀야 한다(시험이 확인한다)
+chat:
+  # 결과 화면 명령(src/engine/peripheral_commands.py). 낱말로만 가른다 — 모델을 부르지 않는다.
+  #   reset   — 조건을 모두 지우고 첫 화면으로(고른 품목은 둔다)
+  #   remove  — 문장에서 읽은 조건(없으면 이름이 나온 품목)을 뺀다. 브랜드 이름이 있으면 기피 브랜드라 명령으로 보지 않는다
+  #   swap    — 조건 낱말 없이 "다른 걸로" — 그 품목의 지금 1위를 뺄 제품(exclude)에 넣는다
+  #   cheaper — 금액 없이 "더 싼 걸로" — 지금 1위보다 싼 쪽으로 그 품목 예산을 낮춘다
+  #   relative — "3만원 더 싸게"·"5만원 올려줘" — 지금 예산(없으면 지금 1위 가격)에서 그만큼 빼거나 더한다
+  commands:
+    reset: [처음부터, 초기화, 리셋, 다시 시작, 새로 시작, 전부 취소, 다 취소, 조건 다 지워, 조건 다 빼, 조건 전부, 조건 모두, 전부 지워, 다 지워]
+    remove: [빼, 지워, 없애, 취소, 제외, 필요 없, 필요없, 안 살, 안살, 안 사도]
+    swap: [다른 걸로, 다른 거, 다른 것, 다른 제품, 다른 모델, 딴 거, 딴 걸, 바꿔, 별로, 맘에 안, 마음에 안]
+    cheaper: [더 싼, 더 싸게, 더 저렴, 좀 싼, 좀 싸게, 조금 싼, 조금 싸게, 싼 걸로, 싼 거로, 싼 거 없, 싼 걸 없]
+    budget_words: [예산, 가격 제한, 금액 제한]
+  markers: ["?", "？", 뭐야, 뭔데, 뭔가요, 뭐예요, 뭘까, 어때, 어떻게, 얼마나, 되나, 인가요, 일까, 나눌 수 있, 왜, 맞나, 알려줘, 설명해, 무슨 뜻]   # "있어요"·"돼요"·"차이"처럼 평서문에도 흔한 말은 넣지 않는다
+  request_words: [추천, 찾아, 좋겠, 원해, 싶어, 해줘, 해 줘, 골라, 이면, 으로 해]
+  types:
+    term: {words: [뭐야, 뭔가요, 무슨 뜻, 설명해, 뭔데, 뭐예요, 이란, 가 뭐]}
+    compat: {words: [내 컴퓨터, 내 pc, 내 피씨, 호환, 맞아, 맞나, 연결 돼, 연결돼]}
+    capabilities: {words: [대답할, 대답 할, 할 수 있는, 할수 있는, 도와줄, 사용법, 어떻게 쓰, 뭘 해, 뭐 해]}
+    conditions: {words: [어떤 조건, 무슨 조건, 조건으로, 어떤 기준, 어떤 말, 뭐라고 말, 뭘 말]}
+    compare: {words: [차이, 비교, 뭐가 달라, 더 나은, 2위, 두 번째, 다른 선택지]}
+    why: {words: [왜 이, 왜 골, 왜 추천, 왜 1위, 이유, 근거]}
+    spec: {words: [스펙, 사양]}                      # 주제 낱말(spec_topics)이 있어도 같은 종류다
+    review: {words: [후기, 리뷰, 사용기, 평가, 평이, 쓰는 사람]}   # 주제 낱말(review_topics)이 있어도 같은 종류다
+  spec_topics:
+    weight: {label: 무게, words: [무게, 무거, 몇 g, 몇g], keys: [weight_g], unit: g}
+    size: {label: 크기, words: [크기, 사이즈, 길이], keys: [size_longest_mm], unit: mm}
+    refresh: {label: 주사율, words: [주사율, hz], keys: [refresh_hz], unit: Hz}
+    resolution: {label: 해상도, words: [해상도], keys: [resolution_raw]}
+    screen: {label: 화면 크기, words: [인치], keys: [screen_size_inch], unit: 인치}
+    panel: {label: 패널, words: [패널], keys: [panel_raw]}
+    response: {label: 응답속도, words: [응답속도], keys: [response_ms_gtg], unit: ms}
+    brightness: {label: 밝기, words: [밝기, 니트], keys: [brightness_nit], unit: nit}
+    usb_c: {label: USB-C, words: [usb-c, c타입, 충전], keys: [usb_c_video, usb_c_power_w]}
+    polling: {label: 폴링레이트, words: [폴링], keys: [polling_hz_max], unit: Hz}
+    dpi: {label: DPI, words: [dpi], keys: [dpi_max]}
+    buttons: {label: 버튼 수, words: [버튼], keys: [button_count], unit: 개}
+    battery: {label: 배터리, words: [배터리], keys: [battery_power_raw]}
+    connection: {label: 연결 방식, words: [무선, 블루투스, 유선, 연결 방식], keys: [connectivity_wired, connectivity_wireless, connectivity_bluetooth]}
+    switch: {label: 스위치, words: [스위치], keys: [switch_kind_raw, switch_method_raw]}
+    rapid_trigger: {label: 래피드 트리거, words: [래피드], keys: [rapid_trigger]}
+    key_force: {label: 키압, words: [키압], keys: [key_force_min_g, key_force_max_g], unit: g}
+    output: {label: 출력, words: [출력, 와트], keys: [output_w], unit: W}
+    channels: {label: 채널, words: [채널], keys: [channels]}
+    power: {label: 전원, words: [전원], keys: [power_source_raw]}
+  spec_summary:
+    monitor: [screen, resolution, refresh, panel, usb_c]
+    keyboard: [switch, size, weight, connection]
+    mouse: [weight, size, connection, polling]
+    speaker: [output, channels, connection, power]
+  review_topics:
+    sound: {label: 소리, words: [소리, 소음, 시끄, 조용], attributes: [key_noise, hollow, sound_volume, click_sound, noise]}
+    feel: {label: 타건감, words: [타건, 키감, 키압], attributes: [typing_feel, input_response, key_force, rebound]}
+    grip: {label: 그립·손 맞춤, words: [그립, 손에, 손목, 쥐], attributes: [grip, wrist, size_feel, weight_feel]}
+    battery: {label: 배터리, words: [배터리], attributes: [battery]}
+    connection: {label: 연결 안정성, words: [연결, 끊김, 끊기], attributes: [wireless, connection]}
+    image: {label: 화질, words: [화질, 색감, 선명], attributes: [image_quality, color, color_accuracy, black_level, readability, brightness_feel]}
+    ghosting: {label: 잔상, words: [잔상], attributes: [ghosting]}
+    audio: {label: 음질, words: [음질, 저음, 고음, 음색], attributes: [sound_quality, bass, balance, clarity, instrument_separation]}
+  glossary:
+    래피드 트리거:
+      words: [래피드 트리거, 래피드트리거]
+      text: 키를 눌렀다 떼는 움직임을 정해진 깊이가 아니라 움직이는 대로 바로 읽어서, 살짝만 떼도 입력이 끊기고 다시 누르면 곧바로 입력되게 하는 기능이에요. 빠른 반응이 중요한 FPS·리듬 게임에서 쓰고, 자석(홀 이펙트) 스위치 키보드가 주로 지원해요.
+    폴링레이트:
+      words: [폴링레이트, 폴링 레이트, 폴링]
+      text: 마우스가 PC에 위치를 알려 주는 횟수예요(1초에 몇 번, Hz). 1000Hz는 1ms마다 한 번이에요. 높을수록 커서가 더 매끄럽지만 일반 사용에서는 체감 차이가 크지 않아요.
+    주사율:
+      words: [주사율]
+      text: 1초에 화면이 몇 번 바뀌는지(Hz)예요. 60Hz보다 144Hz·240Hz가 움직임이 부드럽고 빠른 게임에서 차이가 나요. 모니터만 높다고 되는 게 아니라 PC(그래픽카드)가 그만큼 프레임을 만들어야 해요.
+    응답속도:
+      words: [응답속도, 응답 속도]
+      text: 화면의 한 점이 색을 바꾸는 데 걸리는 시간(ms)이에요. 짧을수록 빠르게 움직이는 장면의 잔상이 줄어요. 보통 GTG 기준으로 적어요.
+    패널:
+      words: [패널, ips, oled, 올레드]
+      text: IPS는 색이 정확하고 보는 각도에 강해 문서·사진 작업에 많이 쓰고, VA는 명암비가 높아 영화에 어울려요. OLED는 검은색이 완전히 꺼져 명암과 응답속도가 좋지만 가격이 높고 같은 화면을 오래 띄우면 잔상(번인)에 주의해야 해요.
+    해상도:
+      words: [해상도, qhd, fhd, uhd]
+      text: 화면의 가로·세로 점 수예요. FHD(1920x1080), QHD(2560x1440), 4K(3840x2160)처럼 높을수록 선명하지만 그래픽카드 부담도 커져요.
+    키압:
+      words: [키압]
+      text: 키를 눌러 입력이 되기까지 필요한 힘(g)이에요. 숫자가 작을수록 가볍게 눌려요. 보통 45g 이하는 가벼운 편, 50g 이상은 묵직한 편으로 봐요.
+    마그네틱 스위치:
+      words: [마그네틱, 자석축, 홀 이펙트]
+      text: 자석과 센서로 키가 눌린 깊이를 읽는 스위치예요. 입력 지점을 바꿀 수 있고 래피드 트리거를 지원하는 제품이 많아요.
+    텐키리스:
+      words: [텐키리스]
+      text: 숫자 키패드(텐키)가 없는 키보드예요. 가로가 짧아 책상이 좁거나 마우스를 가까이 쓰고 싶을 때 좋고, 숫자를 많이 입력하면 불편해요.
+    풀배열:
+      words: [풀배열, 풀사이즈]
+      text: 숫자 키패드까지 모두 있는 키보드예요. 엑셀·회계처럼 숫자 입력이 많은 일에 편해요.
+    로우프로파일:
+      words: [로우프로파일, 저상]
+      text: 키가 낮은(저상) 키보드예요. 손목을 덜 꺾어도 되고 휴대하기 좋지만 키가 얕게 눌려 타건감이 다를 수 있어요.
+    DPI:
+      words: [dpi]
+      text: 마우스를 한 번 움직일 때 커서가 얼마나 움직이는지(감도)를 나타내는 값이에요. 높다고 좋은 것이 아니라 해상도와 취향에 맞춰 조절해서 써요.
+    버티컬 마우스:
+      words: [버티컬, 트랙볼]
+      text: 손을 세워 쥐도록 만든 마우스(버티컬)나 공을 굴려 쓰는 마우스(트랙볼)예요. 손목 비틀림이 줄어 손목이 불편한 분이 쓰지만 적응 기간이 필요해요.
+    북셸프 스피커:
+      words: [북셸프]
+      text: 책장이나 책상 위에 올려 쓰는 중형 스피커예요. 작은 위성 스피커보다 소리가 풍부해서 음악 감상에 많이 써요.
+    2.1채널:
+      words: ["2.1"]
+      text: 좌우 스피커 두 개에 저음을 맡는 서브우퍼가 더해진 구성이에요. 영화·게임에서 저음이 풍부해져요.
+    USB-C 영상·충전:
+      words: [usb-c, c타입, 썬더볼트]
+      text: USB-C 케이블 하나로 영상 신호와 충전을 함께 보내는 기능이에요. 노트북을 모니터에 연결할 때 케이블이 줄어요. 모니터가 영상 입력과 충전 와트(W)를 모두 지원하는지 확인해야 해요.
+  unsupported:
+    - words: [청축, 갈축, 적축, 흑축, 딸깍]
+      text: 스위치 색(청축·갈축 등)은 아직 조건으로 고를 수 없어요. 결과 카드의 스위치 종류를 확인하시거나 "조용한 키보드"처럼 소리로 말씀해 주세요.
+    - words: [사운드바, 우퍼]
+      text: 사운드바·우퍼는 아직 조건으로 고를 수 없어요. 저음이 필요하시면 "2.1채널 스피커"나 "영화 볼 스피커"라고 말씀해 주세요.
+    - words: [성능 우선, 성능우선, 성능 위주, 비싼 거, 비싼거, 비싼 걸]
+      text: '"성능 우선"·"비싼 거"는 아직 조건으로 읽지 못해요. 예산을 "30만 원 이하"처럼 말씀하시거나 "후기 좋은 걸로"처럼 말씀해 주세요.'
+    # {words}: 문장에서 걸린 낱말들. 종류 이름을 품은 말(마우스패드·모니터암)은 종류로 읽지 않는다(peripheral_intent).
+    - words: [헤드셋, 이어폰, 웹캠, 게임패드, 마우스패드, 마우스 패드, 장패드, 모니터암, 모니터 암]
+      text: '{words} 같은 기기는 아직 찾을 수 없어요. 모니터·키보드·마우스·스피커를 도와 드릴 수 있어요.'
+
+    - words: [rgb, 조명, 불빛]
+      text: 조명·색상은 아직 조건으로 고를 수 없어요.
+  answers:
+    capabilities: 모니터·키보드·마우스·스피커 추천을 도와요. 쓰는 목적이나 원하는 느낌을 말씀해 주시면 조건으로 읽어 반영하고, 추천 결과가 나오면 왜 골랐는지·다른 선택지와의 차이·스펙·사용기 근거를 물어보실 수 있어요.
+    other: 그 질문에는 답하기 어려워요. 모니터·키보드·마우스·스피커 추천의 조건이나 추천 결과에 대해 물어봐 주세요.
+    no_result: 추천 결과가 있어야 답할 수 있어요. 품목을 고르고 조건을 말씀해 주시면 추천해 드릴게요.
+    no_kind: 어떤 기기에 대한 질문인지 알 수 없어요. 아래에서 골라 주세요.
+    no_pc: PC 견적을 연결하지 않아 내 PC와 맞는지는 확인할 수 없어요. PC 견적을 먼저 만들거나 쓰시는 PC 사양을 알려 주세요.
+    no_cross_check: 이 품목은 PC와 따로 맞춰 볼 항목이 없어요. 연결 방식(유선·무선·블루투스)만 확인해 주세요.
+    # 아무 조건도 읽지 못한 턴의 뒷말 — "그냥 아무거나 괜찮은 걸로"·"잘 몰라요"에서 막히지 않게(10/17 실측)
+    nothing_no_kind: 아래에서 기기를 고르시면 조건을 말하지 않아도 후기·가격으로 무난한 제품을 골라 드려요.
+    nothing_with_kind: 조건 없이 바로 추천받으셔도 돼요 — 후기·가격으로 무난한 제품을 골라 드려요.
+  examples:                        # 종류별 말하기 예문(조건 안내 답변 끝에 붙인다). 시험이 모두 조건으로 읽히는지 확인한다
+    monitor: 게임용 4K 모니터 50만원 이하
+    keyboard: 사무실에서 쓸 조용한 무선 키보드 10만원 이하
+    mouse: 발로란트 할 가벼운 무선 마우스 5만원 이하
+    speaker: 책상 위에서 음악 들을 블루투스 스피커 3만원 이하
+  chips:
+    start:
+      - 모니터는 어떤 조건으로 나눌 수 있어?
+      - 키보드는 어떤 조건으로 나눌 수 있어?
+      - 너가 대답할 수 있는 게 뭐야?
+    after_result:
+      - 왜 이걸 1위로 골랐어?
+      - 1위랑 2위 차이가 뭐야?
+      - 스펙이 어떻게 돼?
+      - 소리는 어때?
+
+# interpretation: 문장 해석의 남용 방어(견적 입력 설계 10장). 값은 잠정이다.
+interpretation:
+  max_chars: 300          # 이보다 긴 문장은 앞부분만 해석한다
+  cache_size: 512         # 같은 문장(공백·대소문자 정리)을 다시 해석하지 않기 위한 서버 안 저장 개수
+  per_minute: 20          # 주소별 분당 요청 수
+
+# 강조 축·브랜드를 문장에서 읽는 낱말(기획 3.3·3.7). 언어 모델을 쓰지 못할 때 단어 규칙(peripheral_intent.interpret_by_words)이
+# 쓰고, 모델 경로는 같은 목록을 enum 으로 받는다. 강조는 그 축의 가중치에 scoring.emphasis_boost(×1.5)를 곱한다.
+#   words              — 축 이름 → 그 축을 강조하는 말. 축은 가격·리뷰·무상AS(브랜드는 선호 브랜드를 말하면 저절로 강조).
+#   brand_avoid_words  — 브랜드 이름 뒤 8자 안에 이 말이 있으면 기피(그 브랜드를 후보에서 뺀다), 없으면 선호.
+#   brands             — 카탈로그 브랜드 이름 → 사용자가 말하는 이름들(소문자). 여기 없는 브랜드는 읽지 않는다.
+emphasis:
+  words:
+    가격: [가성비, 저렴, 싸게, 싼 것, 예산이 빠듯, 예산 빠듯, 값싼]
+    리뷰: [후기 좋은, 평이 좋은, 평 좋은, 리뷰 좋은, 평점 높은, 비싸도 좋은, 오래 쓸]
+    무상AS: [as가 중요, a/s가 중요, as 중요, 고장 나면, 무상 as, 보증]
+  brand_avoid_words: [말고, 말구, 빼고, 제외, 싫어, 별로, 안 쓰]
+  brands:
+    A4Tech: [a4tech, 에이포테크]
+    ASUS: [asus, 에이수스, 아수스]
+    Dell: [dell, 델]
+    HP: [hp, 에이치피]
+    Lenovo: [lenovo, 레노버]
+    Logitech: [logitech, 로지텍]
+    Rapoo: [rapoo, 라푸]
+    Razer: [razer, 레이저]
+    SteelSeries: [steelseries, 스틸시리즈]
+    한성: [한성]
+    AULA: [aula, 아울라]
+    Corsair: [corsair, 커세어]
+    DrunkDeer: [drunkdeer, 드렁크디어]
+    Leopold: [leopold, 레오폴드]
+    Wooting: [wooting, 우팅]
+    Acer: [acer, 에이서]
+    Alienware: [alienware, 에일리언웨어]
+    Apple: [apple, 애플]
+    BenQ: [benq, 벤큐]
+    GIGABYTE: [gigabyte, 기가바이트]
+    LG: [lg, 엘지]
+    MSI: [msi, 엠에스아이]
+    Samsung: [samsung, 삼성]
+    Abko: [abko, 앱코]
+    Britz: [britz, 브리츠]
+    Canston: [canston, 캔스톤]
+    Creative: [creative, 크리에이티브]
+    Edifier: [edifier, 에디파이어]
+    Micronics: [micronics, 마이크로닉스]
+
+# E12 — 모니터↔PC 교차 검사(추천엔진_구현계획 §3.3 E12). 코드는 src/engine/peripheral_cross.py.
+# 결과는 모니터 품목의 쟁점으로만 들어가고 PC 세트 신뢰도에는 영향을 주지 않는다.
+#
+# port_modes: 단자 버전 → 그 버전이 (DSC 없이) 낼 수 있는 해상도 등급별 최대 주사율(Hz).
+# **잠정값이며 출처 확인이 필요하다** — HDMI Forum·VESA 규격의 대역폭(HDMI 1.4 10.2Gbps,
+# 2.0 18Gbps, 2.1 48Gbps / DP 1.2 21.6Gbps, 1.4 32.4Gbps, 2.1 80Gbps)에서 8bit 색·일반
+# 블랭킹을 가정해 어림한 값이다. 표에 없는 등급(QHD_WIDE·OTHER)은 판정하지 않고 Pending이다.
+# 버전은 "주.부" 문자열로 적는다. 실제 버전이 표에 없으면(예: 2.0b) 그 이하 중 가장 높은
+# 버전의 행을 쓴다(peripheral_cross.mode_row).
+#
+# 그래픽카드 쪽 단자 데이터(gpu_spec 의 hdmi_version/dp_version/포트 수)는 아직 카탈로그에
+# 없다(R-1). 그래서 지금은 단자 검사가 항상 Pending 이다. GPU 후보 specs 에 gpu_keys 의 키가
+# 생기면(catalog_repo SELECT 추가만으로) 코드 변경 없이 ok/fail 로 판정된다.
+verify:
+  gpu_keys:
+    hdmi_version: hdmi_version
+    hdmi_ports: hdmi_ports
+    dp_version: dp_version
+    dp_ports: dp_ports
+    usb_c_video_out: usb_c_video_out     # USB-C(DP Alt)/Thunderbolt 영상 출력 여부(bool)
+  port_modes:                            # 잠정값 — 출처 필요
+    hdmi:
+      "1.4": {FHD: 120, QHD: 75, UHD: 30}
+      "2.0": {FHD: 240, QHD: 144, UHD: 60}
+      "2.1": {FHD: 360, QHD: 240, UHD: 144}
+    dp:
+      "1.2": {FHD: 240, QHD: 165, UHD: 60}
+      "1.4": {FHD: 360, QHD: 240, UHD: 120}
+      "2.1": {FHD: 480, QHD: 360, UHD: 240}
+
+# display: 결과 화면이 그대로 쓰는 표시 값(결과 화면 재설계). 순위·점수 계산에는 쓰지 않는다. 코드는 src/engine/peripheral_display.py.
+#   key_specs       — 종류별로 카드에 한 줄로 보이는 필수 스펙, 이 순서대로. 값이 없는 항목은 응답에서 뺀다.
+#                     spec: 스펙 키 하나(숫자는 unit 을 붙인다) / parts: 텍스트 스펙 여러 개를 sep 로 이음 / flags: 참인 스펙의 표시를 "·" 로 이음
+#   axis_labels     — 점수 축 이름(내부 이름 → 사용자말). 가중치 축을 모두 덮어야 한다
+#   requested_labels — "요청하신 ○○" 에 쓰는 이름. 상황·목적 코드나 직접 말한 조건 이름으로 찾고, 없으면 설정의 label 을 쓴다
+#   requested_feel  — 직접 말한 조건이 가리키는 체감 속성(사용기·외부 리뷰 근거를 이 속성에서 가져온다). 종류 → 조건 → 속성 코드
+display:
+  key_specs:
+    monitor:
+      - {key: size,       label: 크기,       spec: screen_size_inch, unit: 인치}
+      - {key: resolution, label: 해상도,     spec: resolution_raw}
+      - {key: refresh,    label: 주사율,     spec: refresh_hz, unit: Hz}
+      - {key: panel,      label: 패널,       spec: panel_raw}
+      - {key: response,   label: 응답속도,   spec: response_ms_gtg, unit: ms}
+      - {key: usb_c,      label: USB-C 영상, flags: {usb_c_video: 지원}}
+    keyboard:
+      - {key: switch,  label: 스위치,   parts: [switch_method_raw, switch_kind_raw], sep: " · "}
+      - {key: length,  label: 가로 길이, spec: size_longest_mm, unit: mm}
+      - {key: weight,  label: 무게,     spec: weight_g, unit: g}
+      - {key: connect, label: 연결,     flags: {connectivity_wired: 유선, connectivity_wireless: 무선, connectivity_bluetooth: 블루투스}}
+    mouse:
+      - {key: weight,  label: 무게,     spec: weight_g, unit: g}
+      - {key: length,  label: 길이,     spec: size_longest_mm, unit: mm}
+      - {key: connect, label: 연결,     flags: {connectivity_wired: 유선, connectivity_wireless: 무선, connectivity_bluetooth: 블루투스}}
+      - {key: polling, label: 폴링레이트, spec: polling_hz_max, unit: Hz}
+      - {key: battery, label: 전원,     spec: battery_power_raw}
+    speaker:
+      - {key: form,    label: 형태,     spec: speaker_form_raw}
+      - {key: output,  label: 출력,     spec: output_w, unit: W}
+      - {key: channels, label: 채널,    spec: channels}
+      - {key: connect, label: 연결,     flags: {connectivity_wired: 유선, connectivity_wireless: 무선, connectivity_bluetooth: 블루투스}}
+      - {key: power,   label: 전원,     spec: power_source_raw}
+  axis_labels:
+    리뷰: 후기·사용기
+    가격: 가격
+    브랜드: 브랜드
+    무상AS: 무상 A/S
+    화면: 화면 사양
+    움직임: 움직임 사양
+    화질사양: 화질 사양
+    연결: 연결
+    스위치소음: 스위치·소음
+    배열크기: 배열·크기
+    손맞춤: 손에 맞는 정도
+    기능: 기능
+    형태크기: 형태·크기
+    출력채널: 출력·채널
+    연결전원: 연결·전원
+  requested_labels:
+    quiet_place: 조용한
+    mic: 마이크를 쓰는
+    design: 디자인이 예쁜
+    portable: 들고 다니는
+    lightweight: 가벼운
+  requested_feel:
+    monitor: {high_refresh: [ghosting], fast_response: [ghosting], bright: [brightness_feel]}
+    keyboard: {wireless: [wireless], bluetooth: [wireless], quiet_switch: [key_noise, hollow, sound_volume],
+               light_key_force: [key_force], heavy_key_force: [key_force], compact: [layout], full_size: [layout]}
+    mouse: {wireless: [wireless], bluetooth: [wireless]}
+    speaker: {high_output: [volume_headroom], bluetooth: [connection]}
