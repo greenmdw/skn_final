@@ -1,0 +1,153 @@
+"""/auth/* — 이메일+비밀번호 로그인 (docs/frontend_외부수정요청.md §A-4).
+
+`request-code`/`verify`(이메일 코드)는 이번 흐름에서 쓰지 않는다. 삭제하지 않고 보류한다
+(비밀번호 재설정·이메일 인증 재사용 예정, §G).
+"""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Request, Response
+
+from src import schemas
+from src.auth import ratelimit
+from src.auth.deps import Principal, optional_principal
+from src.config import (
+    COOKIE_NAME, COOKIE_SECURE, EMAIL_CHECK_LIMIT_PER_MIN, JWT_TTL_DAYS, LOGIN_LIMIT_PER_MIN_IP, SIGNUP_LIMIT_PER_MIN_IP,
+)
+from src.db import get_conn
+from src.errors import RateLimited
+from src.services import auth_service
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+_client_ip = ratelimit.client_ip
+
+
+def _limit_by_ip(request: Request, kind: str, per_min: int) -> None:
+    """같은 IP 의 분당 시도 한도. 계정 잠금과 별개로 여러 계정을 돌려 가며 시도하는 것을 막는다."""
+    if not ratelimit.allow(f"{kind}:{_client_ip(request)}", limit=per_min, window_seconds=60):
+        raise RateLimited("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")
+
+
+def _set_session_cookie(response: Response, token: str, *, remember: bool) -> None:
+    max_age = JWT_TTL_DAYS * 86_400 if remember else None
+    response.set_cookie(
+        COOKIE_NAME, token,
+        httponly=True, samesite="lax", secure=COOKIE_SECURE, path="/", max_age=max_age,
+    )
+
+
+@router.post("/request-code")
+def request_code(body: schemas.RequestCodeIn) -> dict:
+    """코드 발송. 이메일 존재 여부와 무관하게 항상 200."""
+    auth_service.request_login_code(body.email)
+    return {"ok": True}
+
+
+@router.post("/verify", response_model=schemas.TokenOut)
+def verify(body: schemas.VerifyCodeIn) -> schemas.TokenOut:
+    """코드 검증 → JWT + browser_token 병합."""
+    raise NotImplementedError
+
+
+@router.post("/signup", response_model=schemas.UserEnvelopeOut, status_code=201)
+def signup(
+    body: schemas.SignupIn, request: Request, response: Response, principal: Principal = Depends(optional_principal)
+) -> schemas.UserEnvelopeOut:
+    _limit_by_ip(request, "signup", SIGNUP_LIMIT_PER_MIN_IP)
+    with get_conn() as conn:
+        user, token = auth_service.signup(
+            conn, principal,
+            email=body.email, password=body.password, display_name=body.display_name,
+            terms_agreed=body.terms_agreed, privacy_agreed=body.privacy_agreed,
+            marketing_agreed=body.marketing_agreed,
+        )
+    _set_session_cookie(response, token, remember=True)
+    return schemas.UserEnvelopeOut(user=schemas.UserOut(**user))
+
+
+@router.post("/login", response_model=schemas.UserEnvelopeOut)
+def login(
+    body: schemas.LoginIn, request: Request, response: Response, principal: Principal = Depends(optional_principal)
+) -> schemas.UserEnvelopeOut:
+    _limit_by_ip(request, "login", LOGIN_LIMIT_PER_MIN_IP)
+    with get_conn() as conn:
+        user, token = auth_service.login(
+            conn, principal, email=body.email, password=body.password, remember=body.remember
+        )
+    _set_session_cookie(response, token, remember=body.remember)
+    return schemas.UserEnvelopeOut(user=schemas.UserOut(**user))
+
+
+@router.post("/logout", status_code=204)
+def logout(response: Response, principal: Principal = Depends(optional_principal)) -> None:
+    """쿠키를 지우고, 이 기기의 로그인 토큰을 서버에서도 폐기한다(로그인 상태가 아니어도 204)."""
+    with get_conn() as conn:
+        auth_service.logout(conn, principal)
+    response.delete_cookie(COOKIE_NAME, path="/")
+
+
+@router.post("/logout-all", status_code=204)
+def logout_all(
+    body: schemas.LogoutAllIn, response: Response, principal: Principal = Depends(optional_principal)
+) -> None:
+    """모든 기기에서 로그아웃. 기본(include_current=false)은 지금 쓰는 기기는 로그인을 유지하고 다른 기기만 끝낸다."""
+    with get_conn() as conn:
+        token = auth_service.logout_all(conn, principal, include_current=body.include_current)
+    if token is None:
+        response.delete_cookie(COOKIE_NAME, path="/")
+    else:
+        _set_session_cookie(response, token, remember=True)
+
+
+@router.get("/me", response_model=schemas.UserEnvelopeOut)
+def me(principal: Principal = Depends(optional_principal)) -> schemas.UserEnvelopeOut:
+    with get_conn() as conn:
+        user = auth_service.get_me(conn, principal)
+    return schemas.UserEnvelopeOut(user=schemas.UserOut(**user))
+
+
+@router.patch("/me", response_model=schemas.UserEnvelopeOut)
+def update_profile(
+    body: schemas.ProfilePatchIn, request: Request, principal: Principal = Depends(optional_principal)
+) -> schemas.UserEnvelopeOut:
+    if body.email is not None:
+        _limit_by_ip(request, "credential-check", LOGIN_LIMIT_PER_MIN_IP)       # 현재 비밀번호를 대 보는 시도를 막는다
+    with get_conn() as conn:
+        user = auth_service.update_profile(
+            conn, principal,
+            display_name=body.display_name, email=body.email, marketing_agreed=body.marketing_agreed,
+            current_password=body.current_password,
+        )
+    return schemas.UserEnvelopeOut(user=schemas.UserOut(**user))
+
+
+@router.post("/password", status_code=204)
+def change_password(
+    body: schemas.PasswordChangeIn, request: Request, response: Response, principal: Principal = Depends(optional_principal)
+) -> None:
+    _limit_by_ip(request, "credential-check", LOGIN_LIMIT_PER_MIN_IP)
+    with get_conn() as conn:
+        token = auth_service.change_password(
+            conn, principal, current_password=body.current_password, new_password=body.new_password
+        )
+    _set_session_cookie(response, token, remember=True)
+
+
+@router.post("/withdraw", status_code=204)
+def withdraw(
+    body: schemas.WithdrawIn, request: Request, response: Response, principal: Principal = Depends(optional_principal)
+) -> None:
+    _limit_by_ip(request, "credential-check", LOGIN_LIMIT_PER_MIN_IP)
+    with get_conn() as conn:
+        auth_service.withdraw(conn, principal, password=body.password)
+    response.delete_cookie(COOKIE_NAME, path="/")
+
+
+@router.get("/email-availability", response_model=schemas.EmailAvailabilityOut)
+def email_availability(email: str, request: Request) -> schemas.EmailAvailabilityOut:
+    # 가입 여부를 캐 가는 열거 공격을 막는다 — IP당 분당 EMAIL_CHECK_LIMIT_PER_MIN 회(§A-4).
+    if not ratelimit.allow(f"email-availability:{_client_ip(request)}", limit=EMAIL_CHECK_LIMIT_PER_MIN, window_seconds=60):
+        raise RateLimited("요청이 너무 많습니다. 잠시 후 다시 시도해주세요.")
+    with get_conn() as conn:
+        available = auth_service.check_email_availability(conn, email)
+    return schemas.EmailAvailabilityOut(available=available)

@@ -1,0 +1,361 @@
+// 화면 모델(CurrentPlan · SavedSetup)과 백엔드 모델 사이의 순수 변환 함수 모음.
+// 프레임워크·네트워크에 기대지 않아 Node 로 바로 테스트한다(web/tests/mapping.test.mjs) — 그래서 타입만 import 한다.
+import type { BudgetNotice, BudgetWarning, ChatChoice, CheckDraft, CompatCheck, CompatNotice, ConditionField, ContributionShare, CurrentPlan, DeskState, PartKey, PeripheralSnapshot, PlanItem, PlanMode, ReviewRow, SavedSetup } from '../../state/types'
+import type { AlternativeOption } from '../types'
+import type { WireAlternative, WireCompatCheck, WireConditionState, WireField, WireItem, WireNextQuestion, WireOwnedPartsPreviewRow, WireReport, WireReportItem, WireResult, WireReview, WireText } from './wire'
+
+// ── 슬롯 ────────────────────────────────────────────────────────────────────
+// 백엔드 슬롯 이름(config/categories/computer.yaml 의 slot_structure)과 화면의 부품 키.
+const SLOT_KEY: Record<string, PartKey> = {
+  CPU: 'cpu', GPU: 'gpu', RAM: 'ram', 메인보드: 'board', 저장장치: 'ssd', 파워: 'psu', 케이스: 'case', 쿨러: 'cooler',
+}
+const SHORT_LABEL: Record<PartKey, string> = {
+  cpu: 'CPU', gpu: 'GPU', ram: 'RAM', board: 'MB', ssd: 'SSD', psu: 'PSU', case: 'CASE', cooler: 'COOL', monitor: 'MON',
+}
+export function slotKey(slot: string): PartKey | null {
+  return SLOT_KEY[slot] ?? null
+}
+
+// ── 조건: 화면의 자유 문장 → 백엔드 슬롯 값 ───────────────────────────────────
+// 백엔드는 이 필드를 검증 없이 저장하므로(session_service.patch_slot) 허용 값으로 정확히 바꿔 보낸다.
+export type Purpose = 'game' | 'creation' | 'office' | 'study' | 'other'
+export type Priority = 'performance' | 'value' | 'quiet'
+export type Resolution = 'FHD_144' | 'QHD_165' | '4K'
+
+export function purposeFromText(text: string): Purpose {
+  // 게임 제목만 적고 "게임"이라는 말은 안 쓴 문장("사이버펑크 2077 FHD 돌아가는 PC")도 게임 용도다. 용도가 other 로 가면
+  // plans.ts 가 games 를 서버에 안 보내서 게임 요구사양(GPU 등급 등)이 통째로 빠진다.
+  if (/게임|겜|배그|배틀그라운드|롤|리그|발로란트|오버워치|FPS|gaming|game/i.test(text) || gamesFromText(text).length) return 'game'
+  if (/영상|편집|렌더|프리미어|모델링|3D|디자인|작업|creat|edit|render/i.test(text)) return 'creation'
+  if (/사무|문서|오피스|업무|엑셀|office/i.test(text)) return 'office'
+  if (/학습|공부|인강|학생|수업|study/i.test(text)) return 'study'
+  return 'other'
+}
+
+// 문장에서 게임 제목을 찾는다. 백엔드 요구사양 표(config/computer_verification_rules.yaml 의 game_titles)가 알아보는
+// 이름으로 바꿔 보낸다 — 두 곳의 이름을 함께 고쳐야 한다. 표에 없는 게임은 여기서도 못 찾는다(서버가 알리는 건 찾은 것 중 모르는 것뿐).
+const GAME_TITLES: [string, RegExp][] = [
+  ['발로란트', /발로란트|valorant/i],
+  ['리그 오브 레전드', /리그\s*오브\s*레전드|(?<![가-힣])롤(?:(?![가-힣])|(?=이랑|이나|이|을|은|도|과|만|로|에|하고|하는|해))|(?<![a-z])lol(?![a-z])/i],
+  ['오버워치', /오버워치|overwatch/i],
+  ['메이플스토리', /메이플|maplestory/i],
+  ['로스트아크', /로스트\s*아크|lost\s*ark/i],
+  ['마인크래프트', /마인\s*크래프트|minecraft/i],
+  ['배틀그라운드', /배틀\s*그라운드|(?<![가-힣])배그|pubg/i],
+  ['엘든링', /엘든\s*링|elden\s*ring/i],
+  ['디아블로 4', /디아블로\s*4|diablo\s*(iv|4)/i],
+  ['워존', /워존|warzone/i],
+  ['발더스 게이트 3', /발더스\s*게이트|baldur/i],
+  ['사이버펑크 2077', /사이버\s*펑크|cyberpunk/i],
+  ['검은 신화: 오공', /검은\s*신화|black\s*myth/i],
+  ['몬스터 헌터 와일즈', /몬스터\s*헌터|몬헌|monster\s*hunter/i],
+  ['스타필드', /스타필드|starfield/i],
+]
+
+export function gamesFromText(text: string): string[] {
+  return GAME_TITLES.filter(([, pattern]) => pattern.test(text)).map(([name]) => name)
+}
+
+// 채팅 선택지('저소음 우선' · '균형형' · '성능 우선')와 자유 문장 모두를 받는다.
+export function priorityFromText(text: string): Priority {
+  if (/저소음|조용|소음/.test(text)) return 'quiet'
+  if (/성능/.test(text)) return 'performance'
+  return 'value'
+}
+
+// 해상도·주사율 목표. 백엔드에는 QHD 144Hz / QHD 60Hz 단계가 없어 초당 처리 화소수가 가까운 단계로 근사한다:
+// QHD 144Hz ≈ 5.3억 화소/초 → QHD_165(6.1억), QHD 60Hz ≈ 2.2억 → FHD_144(3.0억). 모르면 null(백엔드 기본값 사용).
+export function resolutionFromText(text: string): Resolution | null {
+  if (/4K|UHD|2160/i.test(text)) return '4K'
+  if (/QHD|1440/i.test(text)) return /60\s*Hz/i.test(text) ? 'FHD_144' : 'QHD_165'
+  if (/FHD|1080/i.test(text)) return 'FHD_144'
+  return null
+}
+
+// 점검 질문에서 바꾸려는 부품(백엔드 슬롯 이름)을 찾는다. 못 찾으면 GPU — 화면의 업그레이드 흐름이 GPU 를 전제로 한다.
+export function upgradePartsFromText(text: string): string[] {
+  const rules: [string, RegExp][] = [
+    ['GPU', /GPU|그래픽|지포스|라데온|RTX|GTX|\bRX\s?\d/i],
+    ['CPU', /CPU|프로세서|씨피유|라이젠|인텔/i],
+    ['RAM', /RAM|램|메모리/i],
+    ['저장장치', /SSD|저장|스토리지|NVMe/i],
+    ['파워', /파워|PSU|전원/i],
+  ]
+  const found = rules.filter(([, pattern]) => pattern.test(text)).map(([slot]) => slot)
+  return found.length ? found : ['GPU']
+}
+
+// 점검 화면의 부품 행 → 백엔드가 읽는 current_specs(슬롯 → 사용자가 쓴 문자열). 화면 전용 라벨(BOARD·SSD)은
+// 백엔드 슬롯 이름으로 바꾼다. DISPLAY(모니터)만 뺀다 — computer의 slot_structure에 모니터 슬롯이 없다.
+// BOARD·SSD 말고는 애초에 백엔드 슬롯 이름(CPU·GPU·RAM·메인보드·저장장치·파워·케이스·쿨러) 그대로 쓴다 —
+// 파일에서 뽑은 행(reviewRowsFromWire)은 이미 그 이름으로 온다.
+const ROW_SLOT: Record<string, string> = { BOARD: '메인보드', SSD: '저장장치' }
+const BACKEND_SLOTS = new Set(['CPU', 'GPU', 'RAM', '메인보드', '저장장치', '파워', '케이스', '쿨러'])
+/** 점검 표의 부품 행이 백엔드 어떤 슬롯에 대응하는지. 대응이 없으면(모니터 등) null — 서버 검증 대상이 아니다. */
+export function backendSlotFromRowPart(part: string): string | null {
+  return ROW_SLOT[part] ?? (BACKEND_SLOTS.has(part) ? part : null)
+}
+export function currentSpecsFromRows(rows: ReviewRow[]): Record<string, string> {
+  const specs: Record<string, string> = {}
+  for (const row of rows) {
+    const slot = backendSlotFromRowPart(row.part)
+    const text = row.original.trim()
+    if (slot && text) specs[slot] = text
+  }
+  return specs
+}
+
+// ── 견적 점검: 사양 텍스트 매칭 미리보기(POST /pc/owned-parts/preview) → 화면 표 ─────────────────
+// originalNote는 "이 텍스트를 어떻게 얻었는지"(파일에서 읽음/사용자 입력)라 문맥마다 다르다 —
+// 호출자(파일 업로드·행 수정)가 채운다. 여기서는 매칭 판정(matched·state)만 옮긴다.
+const PREVIEW_STATE_LABEL: Record<'ok' | 'warn', string> = { ok: '확인', warn: '확인 필요' }
+export function reviewRowsFromWire(rows: WireOwnedPartsPreviewRow[]): ReviewRow[] {
+  return rows.map(r => ({
+    part: r.part, original: r.original, originalNote: '',
+    matched: r.matched, matchedNote: r.matched_note,
+    state: r.state, stateLabel: PREVIEW_STATE_LABEL[r.state],
+    matchStatus: r.match_status, valueSource: r.value_source ?? null,
+  }))
+}
+
+// ── 조건 대화 세션 응답 → 화면 모델 ─────────────────────────────────────────────
+// /session/{id}/message · /slot 이 돌려주는 ConditionState(src.schemas)를 화면이 쓰는 모양으로 바꾼다.
+// 판정(무엇이 채워졌는지)은 서버가 하고, 여기는 필드 이름만 옮긴다 — "정보 없음"과 "값이 있다"를 섞지 않는다.
+const FIELD_STATUS = new Set(['confirmed', 'assumed', 'missing'])
+
+export function fieldsFromWire(fields: WireField[]): ConditionField[] {
+  return fields.map(f => ({
+    key: f.key, label: f.label, value: f.value, display: f.display,
+    status: (FIELD_STATUS.has(f.status) ? f.status : 'missing') as ConditionField['status'],
+  }))
+}
+
+/** 다음 질문이 객관식(single/multi)이면 선택지 칩으로, 자유 텍스트 질문이거나 더 물을 게 없으면 undefined. */
+export function choicesFromWire(question: WireNextQuestion | null): ChatChoice[] | undefined {
+  if (!question || question.select === 'free' || !question.options.length) return undefined
+  return question.options.map(o => ({ label: String(o.label ?? o.value), value: String(o.value), questionId: question.id }))
+}
+
+/** 이번 턴에 대한 챗봇 답변 — 방금 쌓인 마지막 assistant 메시지. 없으면(응답 형식이 어긋나면) 빈 문자열. */
+export function replyTextFromWire(state: WireConditionState): string {
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    if (state.messages[i].role === 'assistant') return state.messages[i].text
+  }
+  return ''
+}
+
+// ── 추천 결과 → 화면 구성 ────────────────────────────────────────────────────
+function reasonText(reason: WireText): string {
+  if (reason.status === 'ready' && reason.text) return reason.text
+  if (reason.status === 'failed') return '추천 이유를 만들지 못했습니다.'
+  return '추천 이유를 정리하고 있습니다.'
+}
+
+// 평균은 평점 건수와 함께만 보여 준다(건수 없는 평균은 얼마나 믿을지 알 수 없다). 건수가 없으면 '-'로 둔다.
+// 화면은 "★ 4.9 · 리뷰 27건" 처럼 리뷰 수를 함께 쓰므로, 별점이 있는 리뷰 수가 리뷰 수와 다를 때만 "(별점 25건)" 을 붙인다.
+// rating_refined 는 건수가 rating_count 와 다르지만, 서버가 아직 null 로만 내므로 예비 값으로만 읽는다.
+function ratingText(review: WireReview | null): string {
+  if (review?.rating_count == null) return '-'
+  const value = review.rating_raw ?? review.rating_refined
+  if (value == null) return '-'
+  return review.rating_count === review.total_count
+    ? value.toFixed(1)
+    : `${value.toFixed(1)} (별점 ${review.rating_count.toLocaleString('ko-KR')}건)`
+}
+
+function ratingCountOf(review: WireReview | null): number | null {
+  return review?.rating_count ?? null
+}
+
+// 리뷰 관측이 없는 상품은 "없음"이지 0건이 아니다 — 모르는 값을 지어내지 않는다.
+function reviewsText(review: WireReview | null): string {
+  return review?.total_count != null ? review.total_count.toLocaleString('ko-KR') + '건' : '없음'
+}
+
+function priceSourceText(item: WireItem): string {
+  if (item.price_source === 'observed') return item.price_observed_at ? '수집 가격 · ' + item.price_observed_at.slice(0, 10) : '수집 가격'
+  return '데모 가격'
+}
+
+export function itemFromWire(item: WireItem): PlanItem {
+  const key = slotKey(item.slot)
+  const tags = [item.price_source === 'observed' ? '수집 가격' : '데모 가격']
+  if (item.alternatives_count > 0) tags.push('대안 ' + item.alternatives_count + '개')
+  return {
+    id: item.item_id, key, type: item.slot_label, name: item.product.name, productKey: item.product.product_key ?? null,
+    price: item.price * item.qty, qty: item.qty, unitPrice: item.price,
+    meta: item.slot_label + ' · ' + (item.product.spec_summary || item.product.brand || item.product.name),
+    source: priceSourceText(item),
+    score: item.budget_share != null ? '예산의 ' + Math.round(item.budget_share * 100) + '%' : '',
+    fit: reasonText(item.reason),
+    fitPending: item.reason.status === 'pending',
+    reasonTitle: item.slot_label + ' 추천 이유',
+    tags, checks: checksFromWire(item.checks),
+    rating: ratingText(item.review), ratingCount: ratingCountOf(item.review), reviews: reviewsText(item.review),
+    label: key ? SHORT_LABEL[key] : item.slot_label.slice(0, 4),
+    imageUrl: item.product.image_url ?? null, purchaseUrl: item.product.purchase_url ?? null,
+  }
+}
+
+/** 서버 대안 목록 → 화면용. 리뷰 관측이 없는 대안은 "없음"이지 0건이 아니다. */
+export function alternativesFromWire(items: WireAlternative[]): AlternativeOption[] {
+  return items.map(a => ({
+    candidateId: a.candidate_id, label: a.label, current: a.current,
+    name: a.product.name, brand: a.product.brand, specSummary: a.product.spec_summary ?? null, imageUrl: a.product.image_url ?? null,
+    price: a.price, priceDelta: a.price_delta,
+    rating: ratingText(a.review), ratingCount: ratingCountOf(a.review), reviews: reviewsText(a.review),
+  }))
+}
+
+/** 선택한 부품의 추천 근거를 묻는 말인지. 바꾸라는 요청이 섞여 있으면 서버가 처리한다. */
+export function wantsPartExplanation(text: string): boolean {
+  return /근거|이유|자세|상세|왜|설명/.test(text) && !/바꿔|바꾸|교체|변경|빼|넣|담/.test(text)
+}
+
+/** 이미 받아 둔 서버 응답(이름·추천 이유·가격)으로 만든 답 — 서버 호출 없이 바로 답한다. */
+export function partExplanation(part: PlanItem): string {
+  return [part.name, part.reasonTitle, part.fit, '가격: ' + part.price.toLocaleString('ko-KR') + '원'].filter(Boolean).join('\n')
+}
+
+/** 서버가 " · " 로 이어 붙인 구매 전 확인 문장을 항목별로 나눈다. 준비 전(pending)·실패면 빈 목록. */
+export function checksFromWire(checks: WireItem['checks']): string[] {
+  if (!checks || checks.status !== 'ready' || !checks.text) return []
+  return checks.text.split(' · ').map(part => part.trim()).filter(Boolean)
+}
+
+/** 세트 검증 쟁점 → 화면 안내. major(확정 문제)와 minor(확인 못 한 항목)로 나눈다. */
+export function compatFromWire(verification: WireResult['verification']): CompatNotice | undefined {
+  if (!verification || verification.status !== 'ready') return undefined
+  const texts = (severity: 'major' | 'minor') => verification.issues.filter(issue => (issue.severity === 'major') === (severity === 'major'))
+    .map(issue => issue.axis === 'budget' || issue.axis === '예산' ? '예산이 초과되었습니다.' : issue.text)
+  return { problems: texts('major'), unchecked: texts('minor') }
+}
+
+/** 서버가 준 축별 기여도(합 100) → 큰 순서로 화면용 목록. 없거나 비어 있으면 undefined(가짜 값을 채우지 않는다). */
+export function contributionFromWire(explanation: WireResult['explanation'] | undefined): ContributionShare[] | undefined {
+  const raw = explanation?.contribution
+  if (!raw) return undefined
+  const shares = Object.entries(raw).map(([axis, percent]) => ({ axis, percent })).sort((a, b) => b.percent - a.percent)
+  return shares.length ? shares : undefined
+}
+
+/** 서버가 만든 "예산을 남긴 이유" 안내 → 화면용. 없으면 undefined. */
+export function budgetNoticeFromWire(notice: WireResult['budget_notice']): BudgetNotice | undefined {
+  return notice?.message
+    ? { message: notice.message, remaining: notice.remaining, suggestPriority: notice.suggest_priority ?? undefined }
+    : undefined
+}
+
+/** 조건 세션의 예산 사전 경고 → 화면용. 보여 줄 문장이 없으면 경고가 아니다. */
+export function budgetWarningFromWire(warning: WireConditionState['budget_warning']): BudgetWarning | null {
+  return warning?.message ? { level: warning.level, message: warning.message } : null
+}
+
+/** 서버의 호환 검사 상세 → 화면 목록. 모르는 state 는 unknown 으로 본다(단정하지 않는다). */
+export function compatChecksFromWire(checks: WireCompatCheck[] | null | undefined): CompatCheck[] | undefined {
+  if (!checks || !checks.length) return undefined
+  const known = ['ok', 'unknown', 'fail', 'skipped']
+  return checks.map(c => ({ axis: c.axis, label: c.label, detail: c.detail, state: (known.includes(c.state) ? c.state : 'unknown') as CompatCheck['state'] }))
+}
+
+export interface PlanContext {
+  mode: PlanMode
+  budget: number | null
+  conditions: { intent: string; performance: string; quiet: string }
+  checkSnapshot: CheckDraft | null
+}
+
+export function planFromResult(result: WireResult, context: PlanContext): CurrentPlan {
+  // 서버는 뺀 부품(selected: false)도 함께 준다. 합계·확정에 쓰는 items 에는 선택된 것만 넣고, 뺀 것은 excluded 에 따로 둔다.
+  const all = result.items.map((item, order) => ({ ...itemFromWire(item), order, selected: item.selected }))
+  const strip = ({ selected: _selected, ...item }: (typeof all)[number]) => item
+  return {
+    id: result.list_id, mode: context.mode,
+    items: all.filter(item => item.selected).map(strip),
+    excluded: all.filter(item => !item.selected).map(strip),
+    compat: compatFromWire(result.verification),
+    compatChecks: compatChecksFromWire(result.compat_checks),
+    contribution: contributionFromWire(result.explanation),
+    budgetNotice: budgetNoticeFromWire(result.budget_notice),
+    budget: context.budget, conditions: { ...context.conditions },
+    checkSnapshot: context.checkSnapshot ? structuredClone(context.checkSnapshot) : null,
+  }
+}
+
+// ── 확정한 리포트 → 저장한 구성 ───────────────────────────────────────────────
+/** 서버에 없는 화면 전용 값(책상 치수 · 점검 초안 · 입력한 조건 문장). 확정할 때 이 브라우저에 따로 보관한다. */
+export interface SetupExtras {
+  mode: PlanMode
+  budget: number | null
+  conditions: { intent: string; performance: string; quiet: string }
+  checkSnapshot: CheckDraft | null
+  desk: DeskState
+  checkDraft: CheckDraft
+}
+
+export const DEFAULT_DESK: DeskState = { deskUnlocked: false, deskWidth: 1400, deskDepth: 700, deskHeight: 740 }
+
+function reportItem(item: WireReportItem, index: number): PlanItem {
+  const key = slotKey(item.slot)
+  return {
+    id: item.slot + '-' + index, key, type: item.slot_label, name: item.product.name,
+    price: item.price * item.qty, qty: item.qty, unitPrice: item.price,
+    meta: item.slot_label, source: '확정 시점 가격',
+    score: '', fit: item.evidence_text ?? '', reasonTitle: item.slot_label + ' 추천 이유', tags: [],
+    rating: ratingText(item.review), ratingCount: ratingCountOf(item.review), reviews: reviewsText(item.review),
+    label: key ? SHORT_LABEL[key] : item.slot_label.slice(0, 4),
+    imageUrl: item.product.image_url ?? null, purchaseUrl: item.product.purchase_url ?? null,
+  }
+}
+
+function keptItem(part: NonNullable<WireReport['kept_parts']>[number], index: number): PlanItem {
+  const key = slotKey(part.slot)
+  return {
+    id: 'kept-' + part.slot + '-' + index, key, type: part.slot_label, name: part.name,
+    price: part.line_amount ?? 0, qty: part.qty, unitPrice: part.line_amount != null ? Math.round(part.line_amount / Math.max(part.qty, 1)) : undefined,
+    meta: part.slot_label, source: '견적에 적힌 그대로', score: '', fit: '', reasonTitle: '', tags: [], rating: '', reviews: '',
+    label: key ? SHORT_LABEL[key] : part.slot_label.slice(0, 4), imageUrl: part.image_url, purchaseUrl: null,
+    kept: true, noPrice: part.line_amount == null,
+  }
+}
+
+function dateOnly(value: string | null, fallbackIso: string): string {
+  const source = value && /^\d{4}-\d{2}-\d{2}/.test(value) ? value : fallbackIso
+  return source.slice(0, 10)
+}
+
+export function setupFromReport(report: WireReport, extras: SetupExtras | undefined): SavedSetup {
+  const plan: CurrentPlan = {
+    id: report.list_id, mode: extras?.mode ?? 'new',
+    items: [...report.items.map(reportItem), ...(report.kept_parts ?? []).map(keptItem)],
+    budget: extras?.budget ?? null,
+    conditions: extras?.conditions ?? { intent: '', performance: '', quiet: '' },
+    checkSnapshot: extras?.checkSnapshot ?? null,
+  }
+  return {
+    id: report.list_id, revisionNo: report.revision_no, title: report.name,
+    date: dateOnly(report.planned_purchase_at, report.confirmed_at),
+    target: report.target_amount ?? report.total, memo: report.memo,
+    savedAt: report.confirmed_at, plan,
+    desk: extras?.desk ?? { ...DEFAULT_DESK },
+    checkDraft: extras?.checkDraft ?? { question: '', budget: '', rows: [] },
+    peripherals: (report.peripherals ?? []).map(item => ({
+      kind: item.kind, name: item.product.name, price: item.price, qty: item.qty, variantId: item.variant_id ?? null,
+      imageUrl: item.product.image_url, productUrl: item.product.purchase_url,
+      view: snapshotFromWire(item.view),
+    })),
+  }
+}
+
+/** 서버가 보관해 돌려주는 확정 때의 주변기기 설명. 모양이 맞지 않거나 모르는 버전이면 없는 것으로 본다. */
+function snapshotFromWire(raw: unknown): PeripheralSnapshot | null {
+  if (!raw || typeof raw !== 'object') return null
+  const view = raw as Partial<PeripheralSnapshot>
+  if (view.v !== 1 || !Array.isArray(view.keySpecs) || !Array.isArray(view.requested)) return null
+  return {
+    v: 1, rank: Number(view.rank) || 1, keySpecs: view.keySpecs, requested: view.requested, pricePosition: view.pricePosition ?? null,
+    scoreAxes: Array.isArray(view.scoreAxes) ? view.scoreAxes : [], feel: view.feel ?? null,
+    reviewAspects: Array.isArray(view.reviewAspects) ? view.reviewAspects : [], requirement: Array.isArray(view.requirement) ? view.requirement : [],
+    ...(typeof view.sessionId === 'string' ? { sessionId: view.sessionId } : {}),
+  }
+}

@@ -1,0 +1,212 @@
+"""견적 점검: 자유 텍스트(업로드 파일·유튜브 견적 설명 등)에서 PC 부품 사양을 슬롯별로 뽑는다.
+
+§D-3 "판정·수치는 코드, LLM은 서술" 과 같은 경계 — 여기서는 서술이 아니라 "추출"이지만 원칙은
+같다: 텍스트에서 슬롯별 문구를 뽑을 뿐, 그 문구가 실제 어떤 카탈로그 제품인지·호환되는지는
+판단하지 않는다. 판정은 owned_parts.resolve_owned_parts(=견적 점검 매칭 미리보기)가 한다.
+
+conditions_agent와 같은 필요 조건(MOCK_MODE=0, OPENAI_API_KEY·LLM_MODEL)에
+SPEC_EXTRACTION_AGENT=1까지 필요하다. `available()`이 False이거나 `extract()`가 예외를
+올리면 호출자(session_service·pc_check 라우터)가 규칙 기반 파서(src.engine.spec_text)로
+이번 요청만 처리한다 — call_llm과 같은 "구조화 출력 검증 실패 시 규칙 템플릿" 원칙이다.
+"""
+from __future__ import annotations
+
+import re
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+from src.clients.llm_client import call_llm, call_llm_vision
+from src.config import (
+    LLM_MODEL, LLM_PROVIDER, MOCK_MODE, OPENAI_API_KEY, SPEC_EXTRACTION_AGENT, SPEC_EXTRACTION_IMAGE_MODEL,
+)
+from src.engine.prompts import (
+    SPEC_EXTRACTION_IMAGE_SYSTEM, SPEC_EXTRACTION_ITEMS_IMAGE_SYSTEM, SPEC_EXTRACTION_ITEMS_TEXT_SYSTEM, SPEC_EXTRACTION_SYSTEM,
+)
+
+# 사용자가 붙여넣을 만한 견적 설명(유튜브 설명란 등)은 길 수 있다 — 토큰·비용 상한.
+_MAX_INPUT_CHARS = 4000
+
+
+class _SpecExtraction(BaseModel):
+    """슬롯 이름을 그대로 필드명으로 쓴다 — computer의 slot_structure와 한 글자도 다르면 안 된다."""
+
+    CPU: str | None = None
+    GPU: str | None = None
+    RAM: str | None = None
+    메인보드: str | None = None
+    저장장치: str | None = None
+    파워: str | None = None
+    케이스: str | None = None
+    쿨러: str | None = None
+
+
+# 이미지 전용 영문 스키마. 실측(2026-09-22): gpt-4o-mini에 비전 입력 + 한글 필드명을 같이 주면
+# 구조화 출력이 깨진다(필드명이 제어문자로 뭉개짐) — 텍스트 입력에서는 안 생기는 문제다. 그래서
+# 이미지만 영문 슬롯명으로 받고 여기서 한글 슬롯으로 옮긴다.
+class _SpecExtractionImage(BaseModel):
+    cpu: str | None = None
+    gpu: str | None = None
+    ram: str | None = None
+    motherboard: str | None = None
+    storage: str | None = None
+    psu: str | None = None
+    case_: str | None = None
+    cooler: str | None = None
+
+
+_IMAGE_SLOT_MAP = {"cpu": "CPU", "gpu": "GPU", "ram": "RAM", "motherboard": "메인보드",
+                   "storage": "저장장치", "psu": "파워", "case_": "케이스", "cooler": "쿨러"}
+
+
+# 입력(이미지·텍스트)에 섞인 "AI 에게 하는 지시문"(U-06). 프롬프트가 1차 방어이고, 모델이 그 문장을 부품 항목으로 옮겨 와도
+# 여기서 한 번 더 버린다 — 부품명·모델번호에는 나오지 않는 말만 쓴다.
+_INJECTION_CUES = re.compile(
+    r"ignore\s+(?:all\s+|the\s+)?(?:previous|prior|above)|disregard|system\s*:|(?:system|developer)\s+prompt|instructions?"
+    r"|이전\s*지시|지시(?:를|문|사항)?\s*(?:무시|따라)|무조건|이\s*이미지를\s*읽는|읽는\s*AI|AI\s*(?:는|가|에게|야)"
+    r"|(?:인식|답변?|출력|말|적)\s*(?:해|하세요|하십시오|해라|해줘|해\s*주세요)|모든\s*가격",
+    re.IGNORECASE)
+
+
+def looks_like_injected_instruction(text: str) -> bool:
+    return bool(_INJECTION_CUES.search(text or ""))
+
+
+def available() -> bool:
+    return (not MOCK_MODE and SPEC_EXTRACTION_AGENT and LLM_PROVIDER == "openai"
+            and bool(OPENAI_API_KEY) and bool(LLM_MODEL))
+
+
+def _clean(draft: _SpecExtraction) -> dict[str, str]:
+    return {slot: value.strip() for slot, value in draft.model_dump().items()
+            if value and value.strip() and not looks_like_injected_instruction(value)}
+
+
+def extract(text: str) -> dict[str, str]:
+    """텍스트에서 슬롯별 사양 문구를 뽑는다. 값이 없거나 공백뿐인 슬롯은 결과에서 뺀다.
+
+    호출 전에 `available()`을 보는 건 호출자 몫이다. 이 함수 자체는 실패하면 예외를 그대로
+    올린다 — 규칙 경로로 바꿀지는 호출자가 정한다(conditions_agent.run_turn과 같은 계약)."""
+    draft = _SpecExtraction.model_validate(
+        call_llm(text[:_MAX_INPUT_CHARS], system=SPEC_EXTRACTION_SYSTEM, output_schema=_SpecExtraction.model_json_schema()))
+    return _clean(draft)
+
+
+def extract_from_image(image_data_url: str) -> dict[str, str]:
+    """스크린샷 1장(견적·부품 목록이 찍힌 화면)에서 슬롯별 사양 문구를 뽑는다. 텍스트 추출과 같은
+    판정 경계를 쓴다 — 다른 건 입력이 이미지라는 것과, 그래서 영문 스키마를 쓰고 한글 슬롯으로
+    다시 옮긴다는 것뿐이다(위 _SpecExtractionImage 주석 참고).
+
+    비전 호출은 가끔 답을 {"properties": {...}} 로 한 번 더 감싼다(관측된 동작, 텍스트 입력에서는
+    안 그런다) — 스키마의 필드명이 최상위에 하나도 없으면 그 감싼 값을 대신 검증한다.
+
+    텍스트 경로(extract)와 달리 규칙 기반 fallback이 없다 — 이미지에서 문구를 규칙으로 뽑을 방법이
+    없다. `available()`이 False이거나 이 함수가 예외를 올리면, 호출자는 "확인 못 함"으로 알려야
+    한다(조용히 빈 결과로 넘기면 "사진에 아무것도 없었다"와 "서버가 못 봤다"가 구분이 안 된다).
+    이미지 원본은 호출이 끝나면 버려진다 — 저장하지 않는다."""
+    # 이미지 추출만 더 큰 모델을 쓴다(SPEC_EXTRACTION_IMAGE_MODEL, 기본 gpt-4o) — 평소 대화·설명
+    # 문장은 그대로 LLM_MODEL(가벼운 모델)을 쓴다. 캡처 속 모델번호를 다른 실존 제품 번호로
+    # 잘못 읽는(환각) 사례가 LLM_MODEL에서 실측돼, 저빈도·이미지 1장짜리 호출만 비용을 더 쓴다.
+    raw = call_llm_vision(image_data_url, system=SPEC_EXTRACTION_IMAGE_SYSTEM,
+                          output_schema=_SpecExtractionImage.model_json_schema(),
+                          model=SPEC_EXTRACTION_IMAGE_MODEL, temperature=0)
+    if isinstance(raw, dict) and not (set(raw) & set(_IMAGE_SLOT_MAP)) and isinstance(raw.get("properties"), dict):
+        raw = raw["properties"]
+    draft = _SpecExtractionImage.model_validate(raw)
+    return {_IMAGE_SLOT_MAP[slot]: value.strip()
+            for slot, value in draft.model_dump().items()
+            if value and value.strip() and not looks_like_injected_instruction(value)}
+
+
+# ── 여러 제품 보존(받은 견적 점검 — 여러 장 업로드) ──────────────────────────────────────────────
+class _ImageItem(BaseModel):
+    category: Literal["cpu", "gpu", "ram", "motherboard", "storage", "psu", "case", "cooler", "other"]   # other = 튜닝·액세서리·케이블 등 메인 부품이 아닌 것
+    raw_text: str
+    uncertain: bool = False        # 글자가 흐리거나 확신이 없어 읽은 이름이 틀렸을 수 있다 — 호출자가 카탈로그 확정을 하지 않는다
+
+
+class _SpecExtractionItems(BaseModel):
+    items: list[_ImageItem] = Field(default_factory=list)
+    quote_total: int | None = None  # 견적에 적힌 합계(총액) 금액(원). 안 보이면 null — 항목 가격이 아니다
+
+
+class ExtractedItems(list):
+    """이미지에서 읽은 항목 목록(그냥 list 처럼 쓴다) + 견적 총액. 총액은 `.quote_total` 로만 읽는다(없으면 None)."""
+
+    quote_total: int | None = None
+
+
+_ITEM_SLOT_MAP = {**_IMAGE_SLOT_MAP, "case": "케이스", "other": "기타"}
+
+
+# 여러 제품 보존용 텍스트 추출은 슬롯당 하나로 줄이는 extract 보다 긴 입력을 받는다(제품이 여럿이라 줄 수가 많다).
+_MAX_ITEMS_INPUT_CHARS = 12000
+
+
+def extract_items(text: str) -> list[dict[str, str]]:
+    """텍스트에서 적힌 부품을 **전부** [{"category": 슬롯, "raw_text": 원문}]으로 — 같은 부품군의 서로 다른 제품을 그대로 둔다.
+    `extract`와 같은 경계(판단 안 함, 예외는 호출자가 규칙 경로로 처리)."""
+    raw = call_llm(text[:_MAX_ITEMS_INPUT_CHARS], system=SPEC_EXTRACTION_ITEMS_TEXT_SYSTEM,
+                   output_schema=_SpecExtractionItems.model_json_schema())
+    parsed = _SpecExtractionItems.model_validate(raw)
+    return [_item_dict(i) for i in parsed.items if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text)]
+
+
+def _item_dict(item: _ImageItem) -> dict:
+    out = {"category": _ITEM_SLOT_MAP[item.category], "raw_text": item.raw_text.strip()}
+    if item.uncertain:             # 불확실한 것만 표시한다 — 나머지 항목의 모양은 그대로
+        out["uncertain"] = True
+    return out
+
+
+# 견적 합계로 믿을 수 있는 범위 — 글자 오독으로 터무니없는 값이 총액이 되지 않게 한다(조립 PC 한 대 기준).
+_QUOTE_TOTAL_MIN, _QUOTE_TOTAL_MAX = 100_000, 100_000_000
+
+
+def extract_items_from_image(image_data_url: str) -> list[dict[str, str]]:
+    """이미지 1장에서 보이는 부품을 **전부** [{"category": 슬롯, "raw_text": 원문}]으로. 슬롯당 하나로 줄이는
+    extract_from_image 와 달리 같은 부품군의 서로 다른 제품을 그대로 둔다. 판정 경계·실패 계약은 같다 —
+    판단은 안 하고, 예외는 호출자가 처리하며, 이미지 원본은 저장하지 않는다."""
+    raw = call_llm_vision(image_data_url, system=SPEC_EXTRACTION_ITEMS_IMAGE_SYSTEM,
+                          output_schema=_SpecExtractionItems.model_json_schema(),
+                          model=SPEC_EXTRACTION_IMAGE_MODEL, temperature=0)
+    if isinstance(raw, dict) and "items" not in raw and isinstance(raw.get("properties"), dict):
+        raw = raw["properties"]
+    parsed = _SpecExtractionItems.model_validate(raw)
+    found = ExtractedItems(_item_dict(i) for i in parsed.items
+                           if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text))
+    if parsed.quote_total and _QUOTE_TOTAL_MIN <= parsed.quote_total <= _QUOTE_TOTAL_MAX:
+        found.quote_total = int(parsed.quote_total)
+    if any(i.get("uncertain") for i in found):
+        _reread_uncertain(image_data_url, found)
+    return found
+
+
+_REREAD_MIN_SIMILARITY = 0.5     # 다시 읽은 줄이 원래 줄과 이 정도는 닮아야 같은 줄로 본다
+
+
+def _reread_uncertain(image_data_url: str, found: "ExtractedItems") -> None:
+    """글자가 불확실하다고 표시된 줄만 한 번 더 읽는다(그 사진에서만 비전 호출 1회 추가). 다시 읽은 결과가 또렷하면(uncertain 아님)
+    그 줄을 바꾸고, 여전히 불확실하거나 같은 줄을 못 찾으면 원래 읽은 값과 uncertain 표시를 그대로 둔다. 실패해도 첫 판독을 쓴다."""
+    from difflib import SequenceMatcher
+
+    doubtful = [i for i in found if i.get("uncertain")]
+    listing = "\n".join(f"- ({i['category']}) {i['raw_text']}" for i in doubtful)
+    system = (SPEC_EXTRACTION_ITEMS_IMAGE_SYSTEM + "\n\n[다시 읽기] 아래 줄은 첫 판독에서 글자가 불확실했습니다. 이미지에서 같은 줄을 찾아 "
+              "글자를 한 글자씩 천천히 다시 읽고, 이 줄들만 items에 담아 답합니다(다른 줄·quote_total 은 null/빈 값). "
+              "그래도 확신이 없으면 uncertain 을 true 로 둡니다.\n" + listing)
+    try:
+        raw = call_llm_vision(image_data_url, system=system, output_schema=_SpecExtractionItems.model_json_schema(),
+                              model=SPEC_EXTRACTION_IMAGE_MODEL, temperature=0)
+        if isinstance(raw, dict) and "items" not in raw and isinstance(raw.get("properties"), dict):
+            raw = raw["properties"]
+        again = [_item_dict(i) for i in _SpecExtractionItems.model_validate(raw).items
+                 if i.raw_text and i.raw_text.strip() and not looks_like_injected_instruction(i.raw_text)]
+    except Exception:  # noqa: BLE001 — 재독 실패는 첫 판독으로 간다
+        return
+    for old in doubtful:
+        best = max((a for a in again if a["category"] == old["category"] and not a.get("uncertain")),
+                   key=lambda a: SequenceMatcher(None, a["raw_text"].casefold(), old["raw_text"].casefold()).ratio(), default=None)
+        if best is not None and SequenceMatcher(None, best["raw_text"].casefold(), old["raw_text"].casefold()).ratio() >= _REREAD_MIN_SIMILARITY:
+            old["raw_text"] = best["raw_text"]
+            old.pop("uncertain", None)

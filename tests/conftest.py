@@ -1,0 +1,242 @@
+"""테스트 공통 설정 — 외부 호출 차단, DB 대기 상한, 개발 DB 보호.
+
+1. MOCK_MODE=1 이 기본이다. 로컬 `.env` 가 MOCK_MODE=0 이어도(python-dotenv 는 이미 있는 환경변수를 덮지
+   않는다) 테스트는 실제 LLM 을 부르지 않는다. 실호출이 필요하면 셸에서 MOCK_MODE=0 을 명시한다.
+2. PGCONNECT_TIMEOUT=3 이 기본이다. DB 가 꺼져 있을 때 접속 시도가 OS 타임아웃(20초 이상)까지 매달려
+   전체 스위트가 20분씩 걸리던 문제를 막는다.
+3. 기본적으로 로컬 PostgreSQL 서버에 고유한 truefit_test_<UUID> DB를 만들고 setup_all.py를 적용한 뒤
+   테스트 종료 시 강제 삭제한다. 서버가 없을 때 DB를 필수로 요구하려면 TRUEFIT_REQUIRE_TEST_DB=1을 쓴다.
+   자동 생성을 끄려면 TRUEFIT_AUTO_TEST_DB=0, 준비된 DB를 쓰려면 TEST_DATABASE_URL을 지정한다.
+4. 개발 DB 보호. 이름에 "test"가 없는 DB 접속은 차단한다. 보호 해제는 TRUEFIT_ALLOW_ANY_DB=1이다.
+"""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+from uuid import uuid4
+
+# src.config 를 import 하기 전에 정한다(config 가 .env 를 읽되 이미 있는 환경변수는 덮지 않는다).
+os.environ.setdefault("MOCK_MODE", "1")
+# 추천 실행을 요청 뒤 같은 스레드에서 끝까지 돌린다 — 테스트가 POST /recommend 직후 결과를 읽는다(운영은 전용 작업자 풀).
+os.environ.setdefault("RECOMMEND_SYNC", "1")
+# HTTP TestClient uses http://testserver. Keep local production .env settings
+# from disabling /dev or marking session cookies Secure in default test runs.
+# Explicit settings supplied by the test runner still take precedence.
+os.environ.setdefault("APP_ENV", "development")
+os.environ.setdefault("AUTH_COOKIE_SECURE", "0")
+os.environ.setdefault("COOKIE_SECURE", "0")
+os.environ.setdefault("PGCONNECT_TIMEOUT", "3")
+_TEST_URL = os.environ.get("TEST_DATABASE_URL")
+if _TEST_URL:
+    os.environ["DATABASE_URL"] = _TEST_URL
+    os.environ["RAG_TEST_DATABASE_URL"] = _TEST_URL
+
+import psycopg  # noqa: E402
+import pytest  # noqa: E402
+from psycopg import sql  # noqa: E402
+from psycopg.conninfo import conninfo_to_dict, make_conninfo  # noqa: E402
+
+_ALLOW_ANY = os.environ.get("TRUEFIT_ALLOW_ANY_DB") == "1"
+_ROOT = Path(__file__).resolve().parents[1]
+_AUTO_DB: tuple[str, str] | None = None
+_REAL_CONNECT = psycopg.Connection.__dict__["connect"].__func__
+_BLOCKED = {"count": 0, "targets": set()}
+_MESSAGE = ("개발 DB 보호: '{db}' 는 테스트용 DB 가 아니라 접속을 차단했습니다. TEST_DATABASE_URL 로 이름에 'test' 가 "
+            "들어간 일회용 DB 를 지정하세요(준비: db/setup_all.py). 의도한 것이면 TRUEFIT_ALLOW_ANY_DB=1.")
+
+
+def _is_test_db(name: str | None) -> bool:
+    return bool(name) and "test" in name.lower()
+
+
+def _dbname(conninfo: str = "", kwargs: dict | None = None) -> str | None:
+    if kwargs and kwargs.get("dbname"):
+        return kwargs["dbname"]
+    try:
+        return conninfo_to_dict(conninfo or "").get("dbname")
+    except Exception:  # noqa: BLE001 — 읽지 못하면 보호 쪽으로(차단)
+        return None
+
+
+def _deny(name: str | None) -> None:
+    _BLOCKED["count"] += 1
+    _BLOCKED["targets"].add(name or "?")
+    raise psycopg.OperationalError(_MESSAGE.format(db=name or "?"))
+
+
+def pytest_configure(config):
+    global _AUTO_DB
+    if os.environ.get("TRUEFIT_AUTO_TEST_DB", "1") != "0" and not _TEST_URL:
+        template = os.environ.get("DATABASE_URL", "postgresql://truefit:truefit@127.0.0.1:5432/truefit")
+        params = conninfo_to_dict(template)
+        name = f"truefit_test_{uuid4().hex[:12]}"
+        admin_params = {**params, "dbname": "postgres", "connect_timeout": "3"}
+        try:
+            with psycopg.connect(**admin_params, autocommit=True) as admin:
+                admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))
+        except psycopg.OperationalError as exc:
+            if os.environ.get("TRUEFIT_REQUIRE_TEST_DB") == "1":
+                raise pytest.UsageError(f"자동 테스트 DB 생성 실패: {exc}") from exc
+        else:
+            test_params = {**params, "dbname": name}
+            test_url = make_conninfo(**test_params)
+            os.environ["DATABASE_URL"] = test_url
+            os.environ["RAG_TEST_DATABASE_URL"] = test_url
+            result = subprocess.run(
+                [sys.executable, "db/setup_all.py"], cwd=_ROOT,
+                env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8"},
+                capture_output=True, text=True, encoding="utf-8",
+            )
+            if result.returncode:
+                with psycopg.connect(**admin_params, autocommit=True) as admin:
+                    admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
+                raise pytest.UsageError(f"자동 테스트 DB 준비 실패:\n{result.stdout}\n{result.stderr}")
+            _AUTO_DB = (make_conninfo(**admin_params), name)
+
+    if _ALLOW_ANY:
+        return
+    real = _REAL_CONNECT                                       # 원래 classmethod 함수
+
+    def guarded(cls, conninfo="", *args, **kwargs):
+        name = _dbname(conninfo, kwargs)
+        if not _is_test_db(name):
+            _deny(name)
+        return real(cls, conninfo, *args, **kwargs)
+
+    psycopg.Connection.connect = classmethod(guarded)
+    psycopg.connect = psycopg.Connection.connect              # psycopg.connect 는 별칭이라 따로 다시 묶는다
+
+    import src.db as db_module                                # 풀: 호출마다 3초 기다리지 않고 즉시 거절
+
+    real_pool = db_module.get_pool
+
+    def guarded_pool():
+        from src.config import DATABASE_URL
+
+        name = _dbname(DATABASE_URL)
+        if not _is_test_db(name):
+            _deny(name)
+        return real_pool()
+
+    db_module.get_pool = guarded_pool
+
+
+def pytest_unconfigure(config):
+    if _AUTO_DB:
+        admin_url, name = _AUTO_DB
+        with _REAL_CONNECT(psycopg.Connection, admin_url, autocommit=True) as admin:
+            admin.execute(sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(name)))
+
+
+def _skip_if_blocked(before: int, exc: BaseException) -> None:
+    if _BLOCKED["count"] > before and not isinstance(exc, (KeyboardInterrupt, SystemExit)):
+        if os.environ.get("TRUEFIT_REQUIRE_TEST_DB") == "1":
+            raise pytest.UsageError("필수 테스트 DB 접속이 개발 DB 보호에 의해 차단됐습니다.") from exc
+        pytest.skip("개발 DB 보호로 DB 접속이 차단됐습니다 — TEST_DATABASE_URL 로 일회용 DB 를 지정하면 돕니다.")
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_setup(item):
+    before = _BLOCKED["count"]
+    try:
+        return (yield)
+    except BaseException as exc:  # noqa: BLE001
+        _skip_if_blocked(before, exc)
+        raise
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item):
+    before = _BLOCKED["count"]
+    try:
+        return (yield)
+    except BaseException as exc:  # noqa: BLE001
+        _skip_if_blocked(before, exc)
+        raise
+
+
+def pytest_report_header(config):
+    from src.config import DATABASE_URL
+
+    name = _dbname(DATABASE_URL)
+    if _ALLOW_ANY:
+        return f"DB: {name} — 개발 DB 보호 해제(TRUEFIT_ALLOW_ANY_DB=1)"
+    if _is_test_db(name):
+        return f"DB: {name} (일회용 테스트 DB) — DB 테스트가 실행됩니다"
+    return f"DB: {name} (개발 DB) — 접속 차단, DB 가 필요한 테스트는 skip 됩니다. TEST_DATABASE_URL 로 일회용 DB 를 지정하세요"
+
+
+def pytest_terminal_summary(terminalreporter):
+    if _BLOCKED["count"]:
+        terminalreporter.write_line(
+            f"개발 DB 보호: {_BLOCKED['count']}번의 접속 시도를 차단했습니다({', '.join(sorted(_BLOCKED['targets']))}). "
+            "DB 가 필요한 테스트는 skip 됐습니다 — TEST_DATABASE_URL=<이름에 test 가 든 DB> 로 실행하세요.")
+
+
+# Recommendation-success regressions now require an explicit review aggregate input.
+# Keep that prerequisite out of review import/schema tests, whose empty baseline is
+# intentional, and out of tests that verify recommendation readiness failures.
+_REVIEW_SUCCESS_MODULES = {
+    'test_alternatives_compat', 'test_budget_warning_and_contribution_http',
+    'test_chat08_result_history', 'test_confirm_qty_timing_http', 'test_confirm_reason_fallback',
+    'test_feedback_events', 'test_fit_score', 'test_history_journey', 'test_list_history_http',
+    'test_list_revisions_http', 'test_list_service',
+    'test_peripheral_line_confirm_http', 'test_peripherals_recommend_http',
+    'test_pipeline_http_smoke', 'test_postprocess_swap_race', 'test_preference_signal',
+    'test_report_delete_rename_http', 'test_research_loop', 'test_result_status_http', 'test_result_advice', 'test_result_interaction',
+    'test_reverify_after_swap', 'test_revise_confirmed_report',
+    'test_revision_from_old_report_http', 'test_session_resume_http',
+    'test_upgrade_mode', 'test_upgrade_notes', 'test_upgrade_questions',
+}
+
+
+@pytest.fixture(scope='module', autouse=True)
+def recommendation_review_prerequisite(request):
+    if request.module.__name__.rsplit('.', 1)[-1] not in _REVIEW_SUCCESS_MODULES:
+        yield
+        return
+    # 이 목록의 모듈엔 DB가 필요 없는 순수 단위 테스트도 섞여 있다(예: test_alternatives_compat.py의
+    # 폼팩터 이름 정규화 테스트) — DATABASE_URL이 없는 "빠른 테스트" 모드(AGENTS.md)에서도 모듈
+    # 전체가 import·수집되므로, 여기서 바로 KeyError로 죽이지 않고 그 모듈의 DB 의존 테스트만
+    # 알아서 스킵되게 둔다(각 테스트의 pytest.mark.db/skipif가 담당).
+    dsn = os.environ.get('DATABASE_URL')
+    if not dsn:
+        yield
+        return
+    from review_ranking_seed import neutral_review_prerequisite
+
+    with neutral_review_prerequisite(dsn):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_request_rate_limits():
+    """인메모리 요청 한도(분당 N회)가 테스트 사이에 새지 않게 한다 — 한도에 닿는 건 그 한도를 시험하는 테스트만이어야 한다.
+    안 그러면 같은 IP(testclient)로 /pc/*를 부르는 테스트가 한 번에 많이 돌 때 앞선 테스트 때문에 429로 실패한다."""
+    from src.auth import ratelimit
+    ratelimit.reset_all()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _session_check_no_cache(monkeypatch):
+    """로그인 토큰 폐기 확인 결과를 프로세스에 두는 캐시가 테스트 사이에 새지 않게 하고, 요청마다 DB 로 확인하게 한다."""
+    from src.auth import session_check
+    monkeypatch.setattr(session_check, "TTL_SECONDS", 0.0)
+    session_check.reset_cache()
+    yield
+    session_check.reset_cache()
+
+
+@pytest.fixture(autouse=True)
+def _relax_quote_conditions(request, monkeypatch):
+    """받은 견적 분석은 용도가 있어야 하지만(`quote_draft_service.require_conditions`), 다른 것을 시험하는 수백 개 테스트가 조건 없이
+    초안을 분석한다 — 그 규칙 자체를 시험하는 테스트(`@pytest.mark.enforce_conditions`)만 실제 규칙을 쓴다."""
+    if request.node.get_closest_marker("enforce_conditions"):
+        yield
+        return
+    from src.services import quote_draft_service
+    monkeypatch.setattr(quote_draft_service, "require_conditions", lambda conditions: None)
+    yield

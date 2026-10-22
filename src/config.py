@@ -1,0 +1,299 @@
+"""전역 설정값 모음 (Truefit).
+
+실제 배포 시 환경변수(.env / 컨테이너 환경변수)로 주입한다.
+스켈레톤 단계에서는 MOCK_MODE 가 켜져 있어 외부 호출(LLM·임베딩)을 전부 가짜로 대체한다.
+특정 클라우드/모델 벤더 이름은 코드에 넣지 않는다 — 전부 env 로 주입한다.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# .env → 프로세스 환경. 이미 설정된 실제 환경변수는 덮지 않는다(override=False 가 기본).
+# 경로를 명시한다 — 실행 위치가 프로젝트 루트가 아닐 때도 같은 파일을 읽어야 한다.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+APP_NAME: str = "Truefit"
+
+# --------------------------------------------------------------------------
+# 모드
+# --------------------------------------------------------------------------
+# "1" 이면 외부 호출을 하지 않고 고정된 가짜 데이터를 돌려준다. 실제 개발이 시작되면 0.
+MOCK_MODE: bool = os.getenv("MOCK_MODE", "1") == "1"
+
+# --------------------------------------------------------------------------
+# LLM / 임베딩 (벤더 중립 — 값은 배포 시 주입)
+# --------------------------------------------------------------------------
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "mock")   # mock | openai
+LLM_MODEL: str = os.getenv("LLM_MODEL", "")             # 경량 대화 모델 식별자 — 대화·설명 문장 등 평소 호출
+# 견적 점검 이미지(스크린샷) 사양 추출 전용 모델. 과거 gpt-4o-mini는 캡처 속 모델번호·제품
+# 코드를 다른 실존 제품 번호로 잘못 읽는(환각) 사례가 실측 확인됐다(예: "9800X3D"를 "7800X3D"로).
+# 실측 비교(2026-10-01, 테스트 이미지 4장·32개 필드): gpt-4o+temperature=0+엄격한 프롬프트는
+# 오류 8개(25%)였는데, gpt-6-luna는 오류 2~3개(약 10%)로 더 정확했고 토큰 단가도 더 싸다
+# (gpt-6-luna $0.10/$0.50 vs gpt-4o-mini $0.15/$0.60, 100만 토큰당). 2026-10-01부터 LLM_MODEL
+# 기본값도 gpt-6-luna로 바뀌어 보통은 이 둘이 같은 값이지만, 이미지 추출만 별도로 바꿀 수 있도록
+# 독립된 변수로 남겨둔다.
+SPEC_EXTRACTION_IMAGE_MODEL: str = os.getenv("SPEC_EXTRACTION_IMAGE_MODEL", "gpt-6-luna")
+LLM_REGION: str = os.getenv("LLM_REGION", "")
+OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "") # 텍스트 임베딩 모델 식별자
+# 조건 대화 에이전트(src/agent/conditions_agent.py, Strands Agents SDK). "1" 이면 /session/{id}/message 의
+# 자유 텍스트를 LLM 도구 호출로 조건에 반영한다. 기본 "0" — 계약 §D-3([1]은 규칙 기반)이 아직 유효해서
+# 프론트 담당자 합의 전까지는 opt-in. MOCK_MODE=1 이거나 OPENAI_API_KEY·LLM_MODEL 이 비면 켜도 규칙 경로.
+CONDITIONS_AGENT: bool = os.getenv("CONDITIONS_AGENT", "0") == "1"
+# 결과 화면 대화 에이전트(src/agent/result_agent.py, Strands). "1" 이면 /session/{id}/result-message 의
+# 자유 텍스트를 LLM 도구 호출(후보 조회·교체·담기/빼기·수량·시점·근거 설명)로 처리한다. 기본 "0" — 규칙 경로.
+RESULT_AGENT: bool = os.getenv("RESULT_AGENT", "0") == "1"
+QUOTE_REVIEW_AGENT: bool = os.getenv("QUOTE_REVIEW_AGENT", "0") == "1"    # 견적 점검 되묻기(CHAT-04) — 꺼져 있으면 규칙 경로
+# 견적 점검 사양 추출 에이전트(src/agent/spec_extraction_agent.py). "1"이면 업로드한 사양 파일·자유 텍스트
+# (유튜브 견적 설명 등)에서 부품별 문구를 LLM 구조화 출력으로 뽑는다. 기본 "0" — opt-in. MOCK_MODE=1이거나
+# OPENAI_API_KEY·LLM_MODEL이 비면 켜도 규칙 기반 파서(key: value 줄만 인식, src/engine/spec_text.py)로 간다.
+SPEC_EXTRACTION_AGENT: bool = os.getenv("SPEC_EXTRACTION_AGENT", "0") == "1"
+PERIPHERAL_INTENT_AGENT: bool = os.getenv("PERIPHERAL_INTENT_AGENT", "0") == "1"    # 주변기기 견적 문장 해석 — 꺼져 있으면 단어 규칙
+PERIPHERAL_POST_DAILY_LIMIT: int = int(os.getenv("PERIPHERAL_POST_DAILY_LIMIT", "200"))    # 하루에 분석을 시작하는 글 수 상한
+PERIPHERAL_POST_INTERVAL_SECONDS: int = int(os.getenv("PERIPHERAL_POST_INTERVAL_SECONDS", "60"))    # 분석 작업의 확인 주기
+# 사용기 분석 모델 호출 한 번의 제한(초). 여러 제품 글처럼 출력이 긴 호출은 기본 LLM_TIMEOUT_SECONDS(45)에 못 끝난다(평균 34초, 긴 글 90초+).
+PERIPHERAL_POST_LLM_TIMEOUT_SECONDS: float = float(os.getenv("PERIPHERAL_POST_LLM_TIMEOUT_SECONDS", "150"))
+PERIPHERAL_POST_FULL_SCAN_SECONDS: int = int(os.getenv("PERIPHERAL_POST_FULL_SCAN_SECONDS", "3600"))  # 전체 글을 훑어 놓친 변경을 찾는 안전망 주기
+PERIPHERAL_POST_AGENT: bool = os.getenv("PERIPHERAL_POST_AGENT", "0") == "1"    # 사용기 글 분석(체감 문장 추출) — 꺼져 있으면 분석하지 않는다
+# DB 미보유 부품·주변기기 실시간 스펙 검색(docs/미보유부품_실시간스펙검색_설계.md). "1"이면 pc_check에서
+# 카탈로그에 "대응 안 됨"으로 뜬 부품을 사용자가 버튼으로 눌렀을 때 웹 검색+LLM 검증을 시도한다. 기본
+# "0" — opt-in. 자동 트리거가 아니라 버튼 트리거다(§2 — 로그인 없이 호출 가능한 엔드포인트라 비용·남용
+# 리스크 때문에 사용자 확인을 거친다).
+LIVE_PART_LOOKUP: bool = os.getenv("LIVE_PART_LOOKUP", "0") == "1"
+# catalog.live_spec_lookup_cache 신선도(설계 §9.3). 찾은 결과는 신제품 스펙이 잘 안 바뀌어 오래(90일),
+# 못 찾은 결과는 출시 후 다시 찾을 수 있게 짧게(7일) 둔다. 사람이 confirmed 한 행은 만료가 없다.
+LIVE_SPEC_LOOKUP_FOUND_TTL_DAYS: int = int(os.getenv("LIVE_SPEC_LOOKUP_FOUND_TTL_DAYS", "90"))
+LIVE_SPEC_LOOKUP_NOTFOUND_TTL_DAYS: int = int(os.getenv(
+    "LIVE_SPEC_LOOKUP_NOTFOUND_TTL_DAYS", os.getenv("LIVE_SPEC_LOOKUP_TTL_DAYS", "7")))
+# 참고가(설계 §9.7) — 검색 결과에서 금액도 읽어 별도 필드에만 보관한다. 정확도 평가를 통과하기 전까지
+# 기본 꺼짐. 켜도 offer_observation·가격 비교·합계·후보 선정에는 연결되지 않는다. 가격은 스펙보다
+# 빨리 변해서 이 일수가 지난 참고가는 화면에 내지 않는다(스펙 캐시는 그대로 쓴다).
+# 서비스 전체(사용자·IP 무관)의 검색 상한 — OpenAI 분당 토큰 한도(계정 200k TPM)가 근본 제약이다. 웹 검색 1회가 평균
+# 약 1만 7천 토큰이고(2026-10-05 실측, search_context_size 를 낮춰도 줄지 않음) 대화·검증 호출도 같은 한도를 쓴다.
+# 한도에 닿아 429 가 나기 전에 우리가 먼저 "검색이 몰려 있어요"로 안내한다. 저장소 적중은 이 한도에 들지 않는다.
+# 인메모리라 서버 프로세스마다 따로 센다(여러 프로세스면 합이 이 값의 배수가 된다).
+# 기본값 6 유지: 12 로 올리면 1분에 약 20만 토큰이라 계정 한도(200k TPM)와 같아져 다른 서비스(대화·검증)의 호출이 429 를 맞을 수 있다(재기획 6.8 의 12 는
+# 비용·소요 시간을 측정하기 전의 가정이었다). 일괄 검색이 이 한도에 걸린 항목은 "검색이 몰려 있어요"로 실패 표시되고 나머지는 계속된다.
+LIVE_LOOKUP_GLOBAL_LIMIT_PER_MIN: int = int(os.getenv("LIVE_LOOKUP_GLOBAL_LIMIT_PER_MIN", "6"))
+LIVE_LOOKUP_MAX_CONCURRENCY: int = int(os.getenv("LIVE_LOOKUP_MAX_CONCURRENCY", "2"))
+# 일괄 검색 한 번에 찾을 수 있는 항목 수(재기획 6.8, 가정). 요청 1번이 사용자 한도 1회이므로 항목 수가 곧 비용 상한이다.
+LIVE_LOOKUP_BATCH_MAX: int = int(os.getenv("LIVE_LOOKUP_BATCH_MAX", "6"))
+# 삭제 표시한 대화·견적서를 영구 삭제하기까지의 보관 일수(재기획 6.7, 가정)와 정리 작업의 반복 주기.
+PURGE_DELETED_AFTER_DAYS: int = int(os.getenv("PURGE_DELETED_AFTER_DAYS", "30"))
+PURGE_INTERVAL_SECONDS: int = int(os.getenv("PURGE_INTERVAL_SECONDS", "86400"))
+# 받은 견적 점검 — 여러 장 업로드(초안). 이미지 한 장이 비전 호출 한 번(분당 토큰 한도를 같이 쓴다)이라 3장까지만 받는다.
+QUOTE_DRAFT_MAX_FILES: int = int(os.getenv("QUOTE_DRAFT_MAX_FILES", "3"))
+QUOTE_DRAFT_MAX_FILE_BYTES: int = int(os.getenv("QUOTE_DRAFT_MAX_FILE_BYTES", str(10 * 1024 * 1024)))
+QUOTE_DRAFT_MAX_TOTAL_BYTES: int = int(os.getenv("QUOTE_DRAFT_MAX_TOTAL_BYTES", str(30 * 1024 * 1024)))
+LIVE_REFERENCE_PRICE: bool = os.getenv("LIVE_REFERENCE_PRICE", "0") == "1"
+LIVE_REFERENCE_PRICE_TTL_DAYS: int = int(os.getenv("LIVE_REFERENCE_PRICE_TTL_DAYS", "2"))
+
+# --------------------------------------------------------------------------
+# DB / 인증
+# --------------------------------------------------------------------------
+DATABASE_URL: str = os.getenv(
+    "DATABASE_URL", "postgresql://truefit:truefit@localhost:5432/truefit"
+)
+JWT_SECRET: str = os.getenv("JWT_SECRET", "dev-only-change-me")
+JWT_TTL_DAYS: int = int(os.getenv("JWT_TTL_DAYS", "14"))
+# `src.auth.origin`과 앱 시작 훅은 기존 공개 API이므로, 새 쿠키 설정과 함께
+# 유지한다. 환경 변수가 없을 때는 로컬 개발 설정을 사용한다.
+APP_ENV: str = os.getenv("APP_ENV", "development")
+IS_PRODUCTION: bool = APP_ENV == "production"
+AUTH_COOKIE_SECURE: bool = IS_PRODUCTION or os.getenv("AUTH_COOKIE_SECURE", "0") == "1"
+_DEV_DEFAULT_ORIGINS = ("http://localhost:5173", "http://127.0.0.1:5173")
+
+# DB 커넥션 풀. 요청 하나가 연결을 잡는 시간은 짧아야 하지만(LLM 대기 중에는 잡지 않는다) 동시에 도는 요청이 풀보다 많으면
+# 줄을 선다. 기다려도 못 얻으면(DB_POOL_TIMEOUT 초) 500 이 아니라 503(+재시도 안내)으로 답한다. 서버 프로세스마다 따로 센다 —
+# (프로세스 수 × DB_POOL_MAX)가 DB 의 max_connections 를 넘지 않게 한다.
+DB_POOL_MIN: int = int(os.getenv("DB_POOL_MIN", "8"))
+DB_POOL_MAX: int = int(os.getenv("DB_POOL_MAX", "20"))
+DB_POOL_TIMEOUT: float = float(os.getenv("DB_POOL_TIMEOUT", "5"))
+
+# LLM 보호 — 모델 API 가 느리거나 몰릴 때 서버가 같이 무너지지 않게 한다. 전부 서버 프로세스마다 따로 센다.
+# · *_TIMEOUT: 한 번의 호출을 기다리는 최대 시간(초). 넘으면 호출 쪽의 규칙 경로로 넘어간다(기존 OpenAI 기본값은 600초).
+# · LLM_MAX_CONCURRENCY: 동시에 날아가는 모델 호출 수. 넘으면 LLM_QUEUE_TIMEOUT 초까지 줄을 서고, 그래도 못 타면 규칙 경로.
+# · LLM_REQUEST_MAX: LLM 을 기다리며 DB 연결을 쥐는 요청(조건 대화·결과 대화·견적 점검 되묻기·실시간 검색 등)의 동시 수.
+#   풀의 절반 아래로 묶어 두어야 나머지 요청(목록·리포트·결과 폴링)이 풀 고갈로 막히지 않는다.
+LLM_TIMEOUT_SECONDS: float = float(os.getenv("LLM_TIMEOUT_SECONDS", "45"))
+# 에이전트(조건·결과·견적 점검 대화, Strands)의 모델 호출 자동 재시도 횟수. OpenAI SDK 기본은 2회라 시간 초과(45초) 한 번이 최악 3배로
+# 늘어난다(2026-10-19 재현: 응답 없는 서버에 1번이 3번 호출, 부하 시험의 50~77초 꼬리 지연과 같은 모양). 0 이면 한 번 시간 초과에서
+# 바로 규칙 경로로 넘어간다. 빠른 일시 오류(429·5xx)까지 재시도하려면 1 로 올린다 — 대신 최악 지연이 길어진다.
+LLM_AGENT_MAX_RETRIES: int = max(0, int(os.getenv("LLM_AGENT_MAX_RETRIES", "0")))
+LLM_VISION_TIMEOUT_SECONDS: float = float(os.getenv("LLM_VISION_TIMEOUT_SECONDS", "90"))
+LLM_SEARCH_TIMEOUT_SECONDS: float = float(os.getenv("LLM_SEARCH_TIMEOUT_SECONDS", "60"))
+LLM_MAX_CONCURRENCY: int = int(os.getenv("LLM_MAX_CONCURRENCY", "12"))
+LLM_QUEUE_TIMEOUT_SECONDS: float = float(os.getenv("LLM_QUEUE_TIMEOUT_SECONDS", "10"))
+LLM_REQUEST_MAX: int = int(os.getenv("LLM_REQUEST_MAX", str(max(1, DB_POOL_MAX // 2))))
+# 백그라운드 작업(추천 설명 문장)은 사람이 기다리는 요청이 아니라서 모델 호출 자리를 더 오래 기다린다.
+LLM_BACKGROUND_QUEUE_TIMEOUT_SECONDS: float = float(os.getenv("LLM_BACKGROUND_QUEUE_TIMEOUT_SECONDS", "120"))
+
+# 추천 실행 — 요청 스레드 풀(40개)과 분리한 전용 작업자. 엔진 단계는 CPU 를 쓰고 DB 연결을 쥐므로 동시에 RECOMMEND_WORKERS 개만 돌고
+# 나머지는 줄을 선다(30건이 한꺼번에 돌면 서로 CPU 를 나눠 20초로 늘어지고 연결 20개를 그만큼 쥐어 다른 요청이 막혔다).
+# 설명 단계(LLM)는 DB 연결 없이 RECOMMEND_EXPLAIN_WORKERS 개까지 따로 돈다 — LLM_MAX_CONCURRENCY 이하로 둔다.
+# RECOMMEND_SYNC=1 이면 요청 뒤 같은 스레드에서 끝까지 돌린다(테스트용 — 결과를 바로 읽을 수 있다).
+RECOMMEND_WORKERS: int = int(os.getenv("RECOMMEND_WORKERS", "4"))
+RECOMMEND_EXPLAIN_WORKERS: int = int(os.getenv("RECOMMEND_EXPLAIN_WORKERS", "8"))
+RECOMMEND_SYNC: bool = os.getenv("RECOMMEND_SYNC", "0") == "1"
+# 백그라운드 작업(추천 실행)은 요청 풀과 따로 연결을 가진다 — 폴링 요청이 풀을 채워도 추천 실행이 연결을 못 얻어 실패하지 않게 한다.
+# (요청 풀 DB_POOL_MAX + 이 값)이 서버 프로세스 하나의 연결 수다.
+DB_BACKGROUND_POOL_MAX: int = int(os.getenv("DB_BACKGROUND_POOL_MAX", str(RECOMMEND_WORKERS + RECOMMEND_EXPLAIN_WORKERS)))
+# 서버가 재시작되거나 작업이 사라져 running/pending 으로 남은 실행을 실패로 정리한다. 이 시간보다 오래된 것만(다른 프로세스가
+# 정상으로 돌리는 중일 수 있다). 시작 직후 한 번은 더 짧은 기준을 쓴다.
+RECOMMEND_STALE_SECONDS: int = int(os.getenv("RECOMMEND_STALE_SECONDS", "600"))
+RECOMMEND_STARTUP_STALE_SECONDS: int = int(os.getenv("RECOMMEND_STARTUP_STALE_SECONDS", "60"))
+RECOMMEND_REAP_INTERVAL_SECONDS: int = int(os.getenv("RECOMMEND_REAP_INTERVAL_SECONDS", "60"))
+
+
+def _with_dev_origins(configured: list[str], is_production: bool) -> list[str]:
+    """개발요청 12번 — 개발 서버는 화면(5173)과 API(8000)가 다른 origin이라
+    OriginCheckMiddleware에 항상 걸린다. .env의 ALLOWED_ORIGINS를 직접 적어야만 풀렸는데,
+    처음 프론트를 띄우는 사람마다 매번 부딪히는 문제라 운영이 아닐 때는 둘 다 기본으로
+    허용한다. 운영(`is_production`)은 전과 같다 — 설정이 비면 서버 자기 origin만 허용."""
+    if is_production:
+        return configured
+    out = list(configured)
+    for dev_origin in _DEV_DEFAULT_ORIGINS:
+        if dev_origin not in out:
+            out.append(dev_origin)
+    return out
+
+
+ALLOWED_ORIGINS: list[str] = _with_dev_origins([
+    origin.strip() for origin in os.getenv("ALLOWED_ORIGINS", "").split(",") if origin.strip()
+], IS_PRODUCTION)
+AUTH_CODE_TTL_MIN: int = 10
+AUTH_CODE_MAX_ATTEMPTS: int = 5
+
+# 이메일+비밀번호 로그인 (docs/frontend_외부수정요청.md §A)
+COOKIE_NAME: str = os.getenv("COOKIE_NAME", "truefit_session")
+COOKIE_SECURE: bool = AUTH_COOKIE_SECURE or os.getenv("COOKIE_SECURE", "0") == "1"
+SESSION_TTL_HOURS: int = int(os.getenv("SESSION_TTL_HOURS", "12"))
+LOGIN_MAX_FAILURES: int = int(os.getenv("LOGIN_MAX_FAILURES", "5"))
+LOGIN_LOCK_MINUTES: int = int(os.getenv("LOGIN_LOCK_MINUTES", "15"))
+TERMS_VERSION: str = os.getenv("TERMS_VERSION", "2026-09-11")
+EMAIL_CHECK_LIMIT_PER_MIN: int = int(os.getenv("EMAIL_CHECK_LIMIT_PER_MIN", "30"))
+# 로그인·가입 시도 한도(같은 IP 기준, 분당). 계정 잠금(LOGIN_MAX_FAILURES)은 계정 하나에 대한 연타만 막는다 — 여러 계정을 돌려 가며
+# 비밀번호를 시도하거나 대량 가입하는 것은 IP 한도가 막는다. 한 공유기·학교 안의 정상 사용자도 쓰도록 넉넉하게 둔다.
+LOGIN_LIMIT_PER_MIN_IP: int = int(os.getenv("LOGIN_LIMIT_PER_MIN_IP", "20"))
+SIGNUP_LIMIT_PER_MIN_IP: int = int(os.getenv("SIGNUP_LIMIT_PER_MIN_IP", "10"))
+# 마이페이지 서버 저장(/me/pc·/me/data·/lists/{id}/extras) 쓰기 한도(사용자별 분당) — 작성 중 상태를 자동 저장하는 화면도 쓰므로 넉넉하게 둔다
+ME_WRITE_LIMIT_PER_MIN: int = int(os.getenv("ME_WRITE_LIMIT_PER_MIN", "120"))
+# 로그인 토큰이 폐기(로그아웃·비밀번호 변경·탈퇴)됐는지 DB 로 확인한 결과를 프로세스 안에 두는 시간(초). 0 이면 요청마다 확인한다.
+# 다른 워커 프로세스에서 일어난 폐기는 이 시간만큼 늦게 반영된다.
+SESSION_CHECK_TTL_SECONDS: float = float(os.getenv("SESSION_CHECK_TTL_SECONDS", "5"))
+# 견적 점검(pc_check) 생성·수정·대화 — 비로그인 호출 가능이라 남용 방지가 없었다(발견 사항,
+# docs/전체_테스트_시나리오_실행_기획.md §10). LLM 호출(이미지·텍스트 추출, 대화)이 끼어 있어
+# email-availability보다 더 비싼 호출이라 기본 한도를 더 낮게 둔다.
+PC_CHECK_LIMIT_PER_MIN: int = int(os.getenv("PC_CHECK_LIMIT_PER_MIN", "10"))
+# 실시간 부품 검색(버튼 트리거, docs/미보유부품_실시간스펙검색_설계.md) 전용 한도 — 검색+검증
+# 두 번의 LLM 호출이 들어 PC_CHECK_LIMIT_PER_MIN보다 호출당 비용이 크다. 캐시 히트는 이 한도에
+# 걸려도 비용이 없지만(검색·LLM을 안 부름), 카운터 자체는 구분해 가장 비싼 경로를 더 보수적으로 막는다.
+LIVE_PART_LOOKUP_LIMIT_PER_MIN: int = int(os.getenv("LIVE_PART_LOOKUP_LIMIT_PER_MIN", "5"))
+# ALB 같은 프록시 뒤에서는 request.client 가 프록시 주소라 모든 사용자가 한도를 공유한다 — 프록시가 붙이는
+# X-Forwarded-For 를 믿어도 되는 배포에서만 1 로 켠다(직접 노출된 서버에서 켜면 헤더로 한도를 우회할 수 있다).
+TRUST_FORWARDED_FOR: bool = os.getenv("TRUST_FORWARDED_FOR", "0") == "1"
+
+
+def assert_production_secret_safe() -> None:
+    """운영 환경에서 개발용 기본 JWT secret으로 기동하지 않는다."""
+    if IS_PRODUCTION and JWT_SECRET == "dev-only-change-me":
+        raise RuntimeError("APP_ENV=production 에서는 JWT_SECRET 환경변수를 반드시 설정해야 합니다.")
+
+# --------------------------------------------------------------------------
+# 파이프라인 파라미터
+# --------------------------------------------------------------------------
+CONFIDENCE_THRESHOLD: int = 80        # [3-C] 이 점수 미만 → 재탐색
+MAX_DEBATE_ROUNDS: int = 3            # 검사AI↔변호인AI 고정 라운드 하드캡
+MAX_RESEARCH_ROUNDS: int = 3          # 재탐색 루프 최대 라운드
+TOP_N_IMPACT: int = 5                 # GPU·CPU 등 영향 큰 슬롯의 상위 후보 수
+TOP_N_DEFAULT: int = 3                # 그 외 슬롯
+CLEANSE_RATIO_THRESHOLD: float = 0.20 # [3-C] 리뷰 근거 가중치 하락 트리거
+PENDING_SCORE_PENALTY: float = 0.20   # [3-B] Pending 후보 스코어 감점
+
+# --------------------------------------------------------------------------
+# 경로
+# --------------------------------------------------------------------------
+ROOT: Path = Path(__file__).resolve().parent.parent
+DATA_DIR: Path = ROOT / "data"
+CONFIG_DIR: Path = ROOT / "config"
+CATEGORY_DIR: Path = CONFIG_DIR / "categories"
+# 주변기기 정의(E8) — categories/ 밖. available_categories()가 categories/*.yaml만 세션
+# 카테고리 선택지로 훑으므로, 여기 두면 프론트 카테고리 화면에 새 항목이 생기지 않는다.
+PERIPHERAL_RULES_PATH: Path = CONFIG_DIR / "peripherals.yaml"
+SCENARIO_DIR: Path = DATA_DIR / "scenarios"
+WEB_DIST_DIR: Path = ROOT / "web" / "dist"   # 새 React 프론트 빌드 결과(cd web && npm run build)
+
+# 리뷰 관계·행동 축 — 배치(review_cleanse_worker) 산출물과 데모 부품 ↔ ASIN 매핑.
+# 산출 JSON 이 없으면 ProductRiskStore 는 None 이고 호출자는 "관측 없음" 으로 다룬다
+REVIEW_RISK_JSON: Path = DATA_DIR / "amazon23" / "pcparts_product_risk.json"   # 대조군 = PC 부품 (Computer Components|Data Storage)
+PARTS_ASIN_MAP: Path = DATA_DIR / "parts_asin_map.csv"
+REVIEW_SUMMARIES_DEMO: Path = DATA_DIR / "review_summaries.json"     # 합성 데모 (is_synthetic=true) — 항목별 평가·요약 3건 (PC)
+REVIEW_AXIS_EXCESS: float = 2.0       # [3-B] 관측값이 대조군 중앙값의 몇 배를 넘으면 "검토 필요" 로 보는가 (영어 실측 라벨에서만 확인한 랭킹용 문턱)
+# 산출물의 meta.control_scope 가 이 값과 다르면 관측을 쓰지 않는다.
+# 대조군은 같은 부류여야 한다 — 전체 중앙값을 PC 부품에 대면 다작 계정 비율만으로 절반이 걸린다.
+# 틀린 대조군은 에러를 내지 않고 "틀린 중앙값과 비교한 관측 사실" 을 내므로 조용히 지나간다.
+REVIEW_RISK_CONTROL_SCOPE: str = "Computer Components|Data Storage"
+# 규칙 기반 "의심 지표 2개+ 리뷰 수". 조작 판정이 아니다 — 리뷰 단위 라벨이 없어 정밀도를 못 잰다.
+# 파일이 자기 방법·한계를 담고 있다(method · limits · baseline). 없으면 이 문장을 내지 않는다.
+REVIEW_SUSPECT_COUNTS: Path = DATA_DIR / "review_suspect_counts.json"
+
+# [3-C] "구매 전 확인" — 부품 사용 가이드·주의 문구 RAG(임베딩 검색). 합성 작성 문서,
+# 소량(16개)이라 벡터DB 없이 인메모리 코사인 검색으로 충분하다. RAG_EMBEDDING_PROVIDER(bedrock)와
+# 무관한 별도 기능 — 이미 동작 확인된 OpenAI 키를 그대로 쓴다.
+CARE_GUIDES_JSON: Path = DATA_DIR / "pc_care_guides.json"
+CARE_GUIDE_EMBEDDING_MODEL: str = os.getenv("CARE_GUIDE_EMBEDDING_MODEL", "text-embedding-3-small")
+# 가이드 임베딩 요청 한 번의 제한 시간·재시도. SDK 기본값(600초·2회)이면 응답이 멈췄을 때 견적 후처리가 수 분 매달린다.
+CARE_GUIDE_EMBED_TIMEOUT_S: float = float(os.getenv("CARE_GUIDE_EMBED_TIMEOUT_S", "10"))
+CARE_GUIDE_EMBED_MAX_RETRIES: int = int(os.getenv("CARE_GUIDE_EMBED_MAX_RETRIES", "1"))
+
+# 견적 설명 문장(LLM) 전체 시간 예산 — JSON 재생성·의미 재생성·HTTP 재시도를 모두 이 안에서 쓴다. 넘기면 규칙 문장으로
+# 내려간다(부품표는 이미 공개된 뒤라 사용자는 표를 보고 있다). 요청 한 번의 상한은 남은 예산과 아래 값 중 작은 쪽이다.
+EXPLANATION_DEADLINE_S: float = float(os.getenv("EXPLANATION_DEADLINE_S", "25"))
+LLM_REQUEST_TIMEOUT_S: float = float(os.getenv("LLM_REQUEST_TIMEOUT_S", "20"))
+# 세트 검증 쟁점 문장(LLM) 시간 예산 — 검증 한 번(verify_build)의 모든 쟁점이 함께 쓴다. 이 호출은 부품표 저장 트랜잭션과 부품
+# 교체·수량 변경 요청 안에서 DB 연결·행 잠금을 쥔 채 돌므로 짧게 둔다. 넘기면 규칙 문장으로 내려간다.
+ISSUE_SENTENCE_DEADLINE_S: float = float(os.getenv("ISSUE_SENTENCE_DEADLINE_S", "5"))
+
+# 리뷰 임베딩 백필(evidence.review_embedding, 0008_review_aspect.sql) — 문서·질의 공통 모델/차원은
+# 그 마이그레이션에서 팀이 이미 합의했다(OpenAI text-embedding-3-small, 1536차원). 컬럼이
+# vector(1536)로 고정돼 있어 차원은 상수로 두고 바꾸지 않는다 — 바꾸려면 새 컬럼/마이그레이션이 필요하다.
+REVIEW_EMBEDDING_MODEL: str = os.getenv("REVIEW_EMBEDDING_MODEL", "text-embedding-3-small")
+REVIEW_EMBEDDING_DIMENSIONS: int = 1536
+# 배치 워커(src/workers/review_embedding_batch.py)가 한 번에 임베딩 API를 호출하고 커밋하는 단위.
+REVIEW_EMBEDDING_BATCH_SIZE: int = int(os.getenv("REVIEW_EMBEDDING_BATCH_SIZE", "100"))
+
+# 리뷰 검색(GET /reviews/search, src/services/review_search.py) — 상품별로 질문과 뜻이 가까운 실제 리뷰를
+# 찾는다. 관련도 하한 0.2는 실데이터 평가(scripts/eval_review_search.py)에서
+# F1이 가장 높은 값이다 — 상위 3건에 든 정답의 98.7%를 남기고 확실히 무관한 결과만 자른다. 유사도 분포가 정답과
+# 비정답 사이에서 많이 겹쳐 하한을 올려도 정밀도는 거의 오르지 않고 정답만 버린다(0.3이면 정답 23%를 버림).
+# 코사인 유사도 기준이며 MOCK_MODE의 해시 벡터와는 값의 범위가 다르다.
+REVIEW_SEARCH_MIN_SIMILARITY: float = float(os.getenv("REVIEW_SEARCH_MIN_SIMILARITY", "0.2"))
+REVIEW_SEARCH_MAX_PRODUCTS: int = 5       # 한 번에 검색할 상품 수 — 비교 질문(2~3개)에 여유를 둔 값
+REVIEW_SEARCH_MAX_QUERY_CHARS: int = 200
+REVIEW_SEARCH_DEFAULT_LIMIT: int = 3      # 상품당 돌려줄 리뷰 수(상품당 리뷰 중앙값 8건)
+REVIEW_SEARCH_MAX_LIMIT: int = 10
+# 로그인 없이 부르는 공개 API인데 요청마다 유료 embedding 호출이 하나 생긴다(같은 질문은 캐시) — IP별 분당 한도.
+REVIEW_SEARCH_LIMIT_PER_MIN: int = int(os.getenv("REVIEW_SEARCH_LIMIT_PER_MIN", "20"))
+
+# ── 일반 커뮤니티(/community) ──────────────────────────────────────────────────────────
+# 관리자: 숨김·복원·예시 글 표시(is_example)를 할 수 있는 사용자 id(쉼표로 구분). 비워 두면 관리자가 없다.
+COMMUNITY_ADMIN_USER_IDS: frozenset[str] = frozenset(
+    x.strip() for x in os.getenv("COMMUNITY_ADMIN_USER_IDS", "").split(",") if x.strip())
+# 금칙어(쉼표로 구분, 소문자 비교). 비워 두면 검사하지 않는다.
+COMMUNITY_BANNED_WORDS: tuple[str, ...] = tuple(
+    x.strip().lower() for x in os.getenv("COMMUNITY_BANNED_WORDS", "").split(",") if x.strip())
+# 사용자별 분당 한도
+COMMUNITY_POST_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_POST_LIMIT_PER_MIN", "5"))
+COMMUNITY_COMMENT_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_COMMENT_LIMIT_PER_MIN", "20"))
+COMMUNITY_LIKE_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_LIKE_LIMIT_PER_MIN", "60"))
+# 이미지 첨부: 저장 폴더(배포 폴더 밖 볼륨 권장), 파일당 최대 바이트, 글당 최대 장수, 긴 변 최대 px, 연결 안 된 임시 이미지 보관 시간
+COMMUNITY_UPLOAD_DIR: str = os.getenv("COMMUNITY_UPLOAD_DIR", "data/uploads/community")
+COMMUNITY_IMAGE_MAX_BYTES: int = int(os.getenv("COMMUNITY_IMAGE_MAX_BYTES", str(5 * 1024 * 1024)))
+COMMUNITY_IMAGE_MAX_PER_POST: int = int(os.getenv("COMMUNITY_IMAGE_MAX_PER_POST", "5"))
+COMMUNITY_IMAGE_MAX_SIDE_PX: int = int(os.getenv("COMMUNITY_IMAGE_MAX_SIDE_PX", "1600"))
+COMMUNITY_IMAGE_ORPHAN_HOURS: int = int(os.getenv("COMMUNITY_IMAGE_ORPHAN_HOURS", "24"))
+COMMUNITY_UPLOAD_LIMIT_PER_MIN: int = int(os.getenv("COMMUNITY_UPLOAD_LIMIT_PER_MIN", "10"))

@@ -1,0 +1,124 @@
+/* 플래너 왼쪽 접이식 패널 (SidePanel.tsx). planner.css 의 색 변수(.pl-root)를 그대로 쓴다. */
+.sp-root { width: 288px; flex: none; background: var(--panel); border-right: 1px solid var(--line); transition: width .2s ease; position: relative; z-index: 2; }
+.sp-root.collapsed { width: 56px; }
+.sp-inner { height: 100%; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+.sp-head, .sp-menu { padding: 8px; display: flex; flex-direction: column; gap: 4px; }
+.sp-menu { padding-top: 0; }
+
+.sp-row { display: flex; align-items: center; gap: 12px; width: 100%; height: 40px; padding: 0 8px; border: 0; border-radius: 10px; background: transparent; color: var(--text); font-size: 13px; text-align: left; white-space: nowrap; cursor: pointer; text-decoration: none; }
+.sp-row:hover { background: var(--ink); }
+.sp-row.new { background: var(--grad); color: #fff; font-weight: 600; }
+.sp-row.new:hover { filter: brightness(1.06); }
+.sp-row.nav.on { background: var(--ink); box-shadow: inset 2px 0 0 var(--mint); }
+.sp-ico { flex: none; }
+.sp-lbl { overflow: hidden; text-overflow: ellipsis; }
+.sp-row.icon-only { width: 40px; justify-content: center; padding: 0; }
+
+.sp-list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 8px; scrollbar-width: none; -ms-overflow-style: none; }
+/* 스크롤은 되지만 막대는 보이지 않게 한다 */
+.sp-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.sp-group { font-size: 11px; font-weight: 600; color: var(--muted); padding: 12px 8px 4px; }
+.sp-group-toggle { display: flex; align-items: center; gap: 6px; width: 100%; margin: 0; border: 0; border-radius: 6px; background: transparent; font-family: inherit; text-align: left; cursor: pointer; }
+.sp-group-toggle:hover { color: var(--text); background: color-mix(in srgb, var(--mint) 6%, transparent); }
+.sp-group-chev { flex: none; width: 10px; font-size: 8px; line-height: 1; transition: transform .15s; }
+.sp-group-chev.open { transform: rotate(90deg); }
+.sp-group-label { flex: 1; min-width: 0; }
+.sp-group-count { flex: none; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--muted) 16%, transparent); font-size: 10px; font-weight: 600; }
+.sp-item { position: relative; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; color: var(--text); text-decoration: none; }
+.sp-item:hover, .sp-item.on { background: var(--ink); }
+.sp-item.on { box-shadow: inset 2px 0 0 var(--mint); }
+.sp-name { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-meta { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sp-note { font-size: 12px; line-height: 1.6; color: var(--muted); padding: 8px 10px; }
+.sp-note a { color: var(--mint); font-weight: 700; text-decoration: none; }
+.sp-note.bad { color: #ff8f8f; }
+
+.sp-user { position: relative; border-top: 1px solid var(--line); padding: 8px; }
+.sp-row.who { height: 48px; padding: 0 6px; }
+.sp-avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--grad); color: #fff; font-weight: 800; font-size: 13px; display: grid; place-items: center; flex: none; }
+.sp-who { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
+.sp-who b { font-size: 13px; overflow: hidden; text-overflow: ellipsis; }
+.sp-who small { font-size: 11px; color: var(--muted); }
+.sp-pop { position: absolute; left: 8px; right: 8px; bottom: 60px; background: var(--panel2); border: 1px solid var(--line2); border-radius: 12px; padding: 6px; box-shadow: 0 10px 30px rgba(0,0,0,.6); }
+.sp-pop button, .sp-pop a { display: flex; align-items: center; width: 100%; height: 36px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--text); font-size: 13px; text-align: left; cursor: pointer; text-decoration: none; }
+.sp-pop button:hover, .sp-pop a:hover { background: var(--ink); }
+.sp-pop .out { color: #ff8f8f; }
+
+/* 접힘: 아이콘 한 줄만 */
+.sp-root.collapsed .sp-lbl, .sp-root.collapsed .sp-list { display: none; }
+.sp-root.collapsed .sp-head, .sp-root.collapsed .sp-menu { align-items: center; }
+.sp-root.collapsed .sp-row { width: 40px; padding: 0; justify-content: center; }
+.sp-root.collapsed .sp-user { display: flex; justify-content: center; margin-top: auto; }
+.sp-root.collapsed .sp-inner { justify-content: flex-start; overflow: visible; }
+.sp-root.collapsed .sp-row[data-tip] { position: relative; }
+.sp-root.collapsed .sp-row[data-tip]:hover::after { content: attr(data-tip); position: absolute; left: 48px; top: 50%; transform: translateY(-50%); white-space: nowrap; background: #000; border: 1px solid var(--line2); border-radius: 7px; padding: 5px 9px; font-size: 12px; font-weight: 600; z-index: 60; color: var(--text); pointer-events: none; }
+.sp-root.collapsed .sp-user { position: absolute; left: 0; right: 0; bottom: 0; }
+.sp-root.collapsed .sp-pop { left: 60px; right: auto; bottom: 8px; min-width: 140px; }
+
+/* 메뉴 줄 아래 목록 */
+.sp-root.collapsed .sp-filters { display: none; }
+
+@media (max-width: 900px) { .sp-root:not(.collapsed) { position: absolute; top: 0; bottom: 0; left: 0; box-shadow: 8px 0 24px rgba(0,0,0,.5); } .pl-body { position: relative; padding-left: 56px; } .sp-root.collapsed { position: absolute; top: 0; bottom: 0; left: 0; } }
+@media print { .sp-root { display: none; } }
+
+/* 대화 한 줄: 접기/펼치기(▶) · 견적서 수 */
+.sp-conv { flex-direction: row; align-items: center; gap: 4px; padding: 2px 6px 2px 2px; }
+.sp-conv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: stretch; gap: 2px; border: 0; background: transparent; color: inherit; text-align: left; padding: 6px 4px; cursor: pointer; font: inherit; }
+.sp-chev { flex: none; width: 22px; height: 28px; border: 0; background: transparent; color: var(--muted); font-size: 9px; cursor: pointer; transition: transform .15s; }
+.sp-chev.open { transform: rotate(90deg); }
+.sp-chev.none { visibility: hidden; cursor: default; }
+.sp-count { flex: none; display: inline-flex; align-items: center; gap: 5px; font-size: 14px; font-weight: 700; color: var(--mint); border: 0; background: transparent; padding: 4px 6px; border-radius: 8px; cursor: pointer; font-family: inherit; }
+.sp-count:hover { background: var(--panel2); }
+.sp-conv-main .sp-meta { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* 대화 이름·우클릭 메뉴·제목 바꾸기 입력 */
+.sp-conv { outline: none; }
+.sp-conv:focus-visible { box-shadow: inset 0 0 0 2px var(--mint); }
+.sp-conv.ctx { background: var(--ink); box-shadow: inset 0 0 0 1px var(--line2); }
+.sp-conv-name { font-weight: 600; }
+.sp-rename { flex: 1; min-width: 0; height: 30px; margin: 4px 0; padding: 0 8px; border: 1px solid var(--mint); border-radius: 7px; background: var(--ink); color: var(--text); font-size: 13px; outline: none; }
+.sp-ctxmenu { position: fixed; z-index: 50; min-width: 150px; background: var(--panel2); border: 1px solid var(--line2); border-radius: 10px; padding: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.8); }
+.sp-ctxmenu button { display: flex; align-items: center; width: 100%; height: 34px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--text); font-size: 13px; text-align: left; cursor: pointer; }
+.sp-ctxmenu button:hover { background: var(--ink); }
+.sp-ctxmenu .out { color: #ff8f8f; }
+.sp-ctxmenu .sep { height: 1px; background: var(--line); margin: 3px 4px; }
+
+/* 견적서 묶음: 대화 아래에 세로선으로 이어진 카드형 행. 세로선은 마지막 견적서의 가로 연결선에서 끝난다. */
+.sp-sheets { margin: 2px 0 8px 22px; padding-left: 14px; display: flex; flex-direction: column; gap: 4px; }
+.sp-sheet { position: relative; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px; background: var(--panel2); border: 1px solid transparent; color: var(--text); text-decoration: none; }
+.sp-sheet::before { content: ""; position: absolute; left: -14px; top: 50%; width: 12px; border-top: 2px solid var(--line); }
+.sp-sheet::after { content: ""; position: absolute; left: -14px; top: -4px; height: calc(100% + 4px); border-left: 2px solid var(--line); }
+.sp-sheet:last-child::after { height: calc(50% + 4px); }
+.sp-sheet:hover { border-color: var(--line2); }
+.sp-sheet.on { background: rgba(62,98,255,.08); border-color: var(--mint); }
+.sp-sheet-ico { flex: none; display: inline-flex; color: var(--info); }
+.sp-sheet.on .sp-sheet-ico { color: var(--mint); }
+.sp-sheet-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.sp-sheet-main .sp-name { font-size: 12.5px; font-weight: 500; }
+.sp-sheet-main .sp-meta { white-space: normal; line-height: 1.45; }
+.sp-sheet-price { flex: none; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sp-sheet.on .sp-sheet-price { color: var(--mint); }
+
+/* 저장한 견적: 정렬·종류 필터와 시간 순 나열 */
+.sp-filters { padding: 8px 10px 6px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--line); }
+.sp-frow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sp-flabel { width: 34px; flex: none; font-size: 11px; font-weight: 600; color: var(--muted); }
+.sp-chip { height: 26px; padding: 0 10px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+.sp-chip:hover { color: var(--text); border-color: var(--line2); }
+.sp-chip.on { background: rgba(62,98,255,.12); border-color: var(--mint); color: var(--mint); }
+.sp-count-line { font-size: 11px; color: var(--muted); padding: 8px 10px 2px; }
+.sp-flat { display: flex; flex-direction: column; gap: 5px; padding: 4px 0; }
+
+/* 폭 조절 손잡이: 패널 오른쪽 가장자리에 붙는 얇은 세로 띠 */
+.pl-resizable { position: relative; }
+.pl-resizer { position: absolute; top: 0; bottom: 0; right: -3px; width: 7px; z-index: 5; cursor: col-resize; touch-action: none; outline: none; }
+.pl-resizer::after { content: ""; position: absolute; top: 0; bottom: 0; left: 3px; width: 1px; background: transparent; transition: background .12s; }
+.pl-resizer:hover::after, .pl-resizer:focus-visible::after, .pl-resizer.on::after { background: var(--mint); width: 2px; left: 2.5px; }
+body.pl-resizing { cursor: col-resize; user-select: none; }
+body.pl-resizing .sp-root { transition: none; }
+/* 좁은 화면은 planner.css 의 고정 폭을 그대로 쓰고 손잡이를 숨긴다 */
+@media (max-width: 900px) { .pl-resizer { display: none; } .pl-chat.pl-resizable { width: 300px !important; } }
+@media (max-width: 720px) { .pl-chat.pl-resizable { width: 100% !important; } }
+.sp-sheet.ctx { background: var(--ink); box-shadow: inset 0 0 0 1px var(--line2); }
+.sp-sheet.editing { border-color: var(--mint); background: var(--ink); }
+.sp-sheet .sp-rename { height: 26px; margin: 0; font-size: 12.5px; }

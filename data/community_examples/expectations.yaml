@@ -1,0 +1,74 @@
+# 예시 글 정답표 — 분석 결과가 이 표와 맞는지 `scripts/check_example_expectations.py` 가 비교한다.
+#
+# 출처: docs/local/예시_사용기_작성_기획.md 5장 표의 "좋게 쓸 것 / 아쉽게 쓸 것 / 성향" 열을 속성 코드로 옮긴 것이다.
+# 글쓴이가 그렇게 쓰도록 기획한 값이지 실제 정답이 아니다. 불일치는 추출 오류일 수도, 글이 기획과 다르게 쓰였을 수도 있다.
+#
+# 쓰는 법
+#   must      그 글에서 이 제품에 대해 반드시 나와야 하는 근거: 속성 코드 → 값(또는 값 목록).
+#             평가 속성(grip, click, wheel, side_button, wireless, battery, wrist, adaptation, software, durability, build, looks)의
+#             값은 good / bad / mixed, 성향 속성의 값은 쪽 코드다
+#             (weight_feel: light|heavy, size_feel: small|big, click_sound: quiet|loud, glide: fast|brake).
+#   must_not  나오면 안 되는 근거(같은 형식). 필요한 글에만 적는다.
+#   ""애매한 것""(예: 정밀 드래그가 느리다)은 속성 코드에 1:1로 대응하지 않아 적지 않았다 — 사람이 읽고 판단한다.
+#
+# 글 번호가 `-4` 로 끝나는 글은 작성자 조건(손 크기·목적·상황)을 밝히지 않는 글이라 별도 규칙(hidden_conditions)으로 점검한다.
+
+version: 1
+reference_date: 2026-10-12          # 기획표의 기준일("최근 3개월 사용기 수")
+
+# 근거가 0건이어야 하는 글(사용기가 아닌 글)
+no_evidence: [F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F13, F14, F15, F16]
+
+# 사용 기간을 6개월 이상 밝힌 글만 내구성 근거를 낼 수 있다(config/peripherals.yaml feel.durability_min_months).
+durability_allowed: [A2-1, A9-4, C1-4, C2-4, C3-4, D1-4, D5-4, D6-4]   # 사용 기간 6개월 이상(제목·본문). 기획서 "오래 쓴 글" + 6개월 글
+
+posts:
+  A1-1: {product: "Logitech G PRO X SUPERLIGHT 2", must: {weight_feel: light, grip: good, wireless: good, battery: good}}
+  A1-2: {product: "Logitech G PRO X SUPERLIGHT 2", must: {click: good, weight_feel: light, size_feel: big}}
+  A1-3: {product: "Logitech G PRO X SUPERLIGHT 2", must: {battery: good, wireless: good, grip: bad, size_feel: small, weight_feel: light}}
+  A1-4: {product: "Logitech G PRO X SUPERLIGHT 2", must: {wireless: good, battery: good, click_sound: loud, weight_feel: light}}
+
+  A2-1: {product: "Razer DeathAdder V3 Pro", must: {grip: good, weight_feel: light, durability: good, wireless: bad, size_feel: big}}
+  A2-2: {product: "Razer DeathAdder V3 Pro", must: {grip: good, battery: good, size_feel: big}}
+  A2-3: {product: "Razer DeathAdder V3 Pro", must: {click: good, weight_feel: light, side_button: bad, grip: bad, size_feel: big}}
+  A2-4: {product: "Razer DeathAdder V3 Pro", must: {grip: good, wrist: good, click_sound: loud}}
+
+  A3-1: {product: "Logitech MX Master 3S", must: {grip: good, wheel: good, click_sound: quiet, weight_feel: heavy}}
+  A3-2: {product: "Logitech MX Master 3S", must: {click_sound: quiet, battery: good, grip: bad, size_feel: big, weight_feel: heavy}}
+  A3-3: {product: "Logitech MX Master 3S", must: {weight_feel: heavy}}
+  A3-4: {product: "Logitech MX Master 3S", must: {wheel: good, battery: good, weight_feel: heavy}}
+
+  A4-1: {product: "Logitech Lift", must: {wrist: good, adaptation: good, click_sound: quiet}}
+  A4-2: {product: "Logitech Lift", must: {wrist: good, click_sound: quiet}}
+  A4-3: {product: "Logitech Lift", must: {click_sound: quiet, battery: good, grip: bad, size_feel: small}}
+  A4-4: {product: "Logitech Lift", must: {wrist: good, click_sound: quiet, weight_feel: heavy}}
+
+  A5-1: {product: "Razer Cobra", must: {grip: good, weight_feel: light, size_feel: small}}
+  A5-2: {product: "Razer Cobra", must: {weight_feel: light, click_sound: loud}}
+  A5-3: {product: "Razer Cobra", must: {click: good, grip: bad, wrist: bad, size_feel: small}}
+  A5-4: {product: "Razer Cobra", must: {weight_feel: light, size_feel: small}}
+
+  A6-1: {product: "Logitech MX Vertical", must: {grip: good, wrist: good, battery: good, size_feel: big}}
+  A6-2: {product: "Logitech MX Vertical", must: {wrist: good, size_feel: big}}
+  A6-3: {product: "Logitech MX Vertical", must: {wrist: good, grip: bad, size_feel: big}}
+  A6-4: {product: "Logitech MX Vertical", must: {wrist: good, adaptation: good}}
+
+  A7-1: {product: "Logitech G502 X", must: {side_button: good, grip: good, size_feel: big}}
+  A7-2: {product: "Logitech G502 X", must: {side_button: good}}
+  A7-3: {product: "Logitech G502 X", must: {click: good, grip: bad, side_button: bad, size_feel: big, weight_feel: heavy}}
+  A7-4: {product: "Logitech G502 X", must: {side_button: good, click_sound: loud}}
+
+  A8-1: {product: "Razer Basilisk V3 X HyperSpeed", must: {grip: good, battery: good, weight_feel: heavy}}
+  A8-2: {product: "Razer Basilisk V3 X HyperSpeed", must: {grip: good, wireless: good, wheel: bad, size_feel: big}}
+  A8-3: {product: "Razer Basilisk V3 X HyperSpeed", must: {side_button: bad, size_feel: big, weight_feel: heavy}}
+  A8-4: {product: "Razer Basilisk V3 X HyperSpeed", must: {battery: [good, bad], grip: good}}
+
+  A9-1: {product: "Logitech G304", must: {size_feel: small, battery: good}}
+  A9-2: {product: "Logitech G304", must: {size_feel: small, wireless: bad, click_sound: loud}}
+  A9-3: {product: "Logitech G304", must: {wireless: good, grip: bad, size_feel: small}}
+  A9-4: {product: "Logitech G304", must: {grip: good, battery: bad}}
+
+  A10-1: {product: "Logitech ERGO M575S", must: {wrist: good, adaptation: good, size_feel: big}}
+  A10-2: {product: "Logitech ERGO M575S", must: {wrist: good, click_sound: quiet, size_feel: big}}
+  A10-3: {product: "Logitech ERGO M575S", must: {}}
+  A10-4: {product: "Logitech ERGO M575S", must: {wrist: good}}

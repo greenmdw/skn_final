@@ -1,0 +1,283 @@
+# PC requirement, ranking, and set-compatibility policy. Change schema_version when
+# the structure changes; change rule_set_version when policy values change.
+schema_version: 1
+rule_set_version: computer-rules-v14
+
+requirements:
+  default_resolution: FHD_144
+  game_tiers:  # resolution: GPU tier, CPU tier, RAM GB, VRAM GB
+    FHD_144: {gpu: 6, cpu: 6, ram_gb: 16, vram_gb: 8}
+    QHD_165: {gpu: 7, cpu: 5, ram_gb: 16, vram_gb: 12}
+    4K: {gpu: 9, cpu: 5, ram_gb: 32, vram_gb: 16}
+  # 게임 제목별 권장 사양 하한(용도가 game 일 때만). 위 game_tiers(해상도)와 같은 1~10 눈금이며, 해상도 요구와
+  # 요소별 큰 값을 취한다 — 가벼운 게임은 해상도 요구가 이미 넘으므로 결과가 바뀌지 않고, 무거운 게임만 올린다.
+  # 2026-10-12 갱신: 공식 '권장' 사양(FHD)을 data/game_requirements.json 에 수집하고, 그 안의 tier_conversion 근거로 등급을 다시 옮겼다.
+  # 규칙: 권장 목록 중 가장 낮은 GPU·CPU 와 성능이 비슷한 카탈로그 부품이 속한 등급(벤치마크 점수로 검증하지 않은 클래스 판단).
+  # 승인(2026-10-12, 사용자): 15개 모두 approved — 13개는 승인 시트, 마인크래프트·오버워치 2 는 새 공식 출처로 교체한 뒤 재승인. 승인은 기획서 ENG-05.
+  # 표에 없는 제목은 해상도 기준 그대로 구성하고 그 사실을 화면 안내에 남긴다. aliases 는 공백·대소문자를
+  # 무시하고 비교한다(2글자 이하 별칭은 완전 일치만).
+  game_titles:
+    valorant:      {aliases: [발로란트, valorant], tier: {gpu: 3, cpu: 4, ram_gb: 4, vram_gb: 1}, status: approved, source: {url: "https://support.riotgames.com/en-us/valorant/support-tools/minimum-recommended-pc-specs", excerpt: "권장: CPU Intel i3-4150 / AMD Ryzen 3 1200; GPU NVIDIA Geforce GT 730 / AMD Radeon R7 240; RAM 4GB", checked_at: '2026-10-12'}}
+    lol:           {aliases: [리그오브레전드, 롤, lol, leagueoflegends], tier: {gpu: 3, cpu: 4, ram_gb: 4, vram_gb: 2}, status: approved, source: {url: "https://support.riotgames.com/ko/league-of-legends/performance/minimum-and-recommended-system-requirements-league-of-legends", excerpt: "권장: CPU Intel Core i5-8250 / AMD Ryzen 3 1200; GPU NVIDIA GeForce 560 / AMD Radeon HD 6950 / Intel UHD 630 (DX11급 하드웨어); RAM 4GB", checked_at: '2026-10-12'}}
+    overwatch2:    {aliases: [오버워치, 오버워치2, overwatch], tier: {gpu: 3, cpu: 4, ram_gb: 8, vram_gb: 4}, status: approved, source: {url: "https://overwatch.nexon.com/support/spec", excerpt: "권장: CPU Intel Core i7 또는 AMD Ryzen 5; GPU NVIDIA GeForce GTX 1060 / GTX 1650 또는 AMD R9 380 / RX 6400 또는 Intel Arc A770; RAM 8GB", checked_at: '2026-10-12'}}
+    maplestory:    {aliases: [메이플스토리, 메이플, maplestory], tier: {gpu: 3, cpu: 4, ram_gb: 8, vram_gb: 1}, status: approved, source: {url: "https://maplestory.nexon.com/Common/PDS/Download/PCCheck", excerpt: "권장: CPU Pentium Dual Core급 이상; GPU Geforce GT 430 / Radeon HD 5670 이상 (Shader 3.0 이상 지원 그래픽카드); RAM 8GB", checked_at: '2026-10-12'}}
+    lostark:       {aliases: [로스트아크, lostark], tier: {gpu: 5, cpu: 4, ram_gb: 16, vram_gb: 6}, status: approved, source: {url: "https://lostark.game.onstove.com/Download", excerpt: "권장: CPU Intel Core i5-9400 또는 AMD Ryzen5 2600; GPU Nvidia Geforce GTX 1660 Super / AMD Radeon RX 6600; RAM 16GB", checked_at: '2026-10-12'}}
+    minecraft:     {aliases: [마인크래프트, 마크, minecraft], tier: {gpu: 5, cpu: 6, ram_gb: 16, vram_gb: 6}, status: approved, source: {url: "https://www.minecraft.net/ko-kr/store/minecraft-java-bedrock-edition-pc?tabs=%7B%22details%22%3A1%7D", excerpt: "권장: CPU Intel Core i5-12400, AMD Ryzen 5 5600 또는 Apple M2 Pro; GPU NVIDIA GeForce RTX 2060, AMD Radeon RX 5600 XT, Intel Arc A580 또는 Apple M2 Pro; RAM 16GB", checked_at: '2026-10-12'}}
+    pubg:          {aliases: [배틀그라운드, 배그, pubg], tier: {gpu: 3, cpu: 4, ram_gb: 16, vram_gb: 3}, status: approved, source: {url: "https://store.steampowered.com/app/578080/", excerpt: "권장: CPU Intel Core i5-6600K / AMD Ryzen 5 1600; GPU NVIDIA GeForce GTX 1060 3GB / AMD Radeon RX 580 4GB; RAM 16GB", checked_at: '2026-10-12'}}
+    eldenring:     {aliases: [엘든링, 엘든 링, eldenring], tier: {gpu: 5, cpu: 4, ram_gb: 16, vram_gb: 8}, status: approved, source: {url: "https://store.steampowered.com/app/1245620/", excerpt: "권장: CPU INTEL CORE I7-8700K or AMD RYZEN 5 3600X; GPU NVIDIA GEFORCE GTX 1070 8 GB or AMD RADEON RX VEGA 56 8 GB; RAM 16GB", checked_at: '2026-10-12'}}
+    diablo4:       {aliases: [디아블로4, 디아블로 4, diablo4], tier: {gpu: 3, cpu: 4, ram_gb: 16, vram_gb: 4}, status: approved, source: {url: "https://store.steampowered.com/app/2344520/", excerpt: "권장: CPU Intel® Core™ i5-4670K 또는 AMD Ryzen™ 1300X; GPU NVIDIA® GeForce® GTX 970 또는 Intel® Arc™ A750 또는 AMD Radeon™ RX 470; RAM 16GB", checked_at: '2026-10-12'}}
+    warzone:       {aliases: [워존, 콜오브듀티, callofdutywarzone, warzone], tier: {gpu: 3, cpu: 4, ram_gb: 12, vram_gb: 3}, status: approved, source: {url: "https://store.steampowered.com/app/1962663/", excerpt: "권장: CPU Intel® Core™ i5-6600K / Core™ i7-4770 또는 AMD Ryzen™ 5 1400; GPU NVIDIA® GeForce® GTX 1060 또는 AMD Radeon™ RX 580 - DirectX 12.0 호환 시스템; RAM 12GB", checked_at: '2026-10-12'}}
+    bg3:           {aliases: [발더스게이트3, baldursgate3, bg3], tier: {gpu: 5, cpu: 4, ram_gb: 16, vram_gb: 8}, status: approved, source: {url: "https://store.steampowered.com/app/1086940/", excerpt: "권장: CPU Intel i7 8700K / AMD r5 3600; GPU Nvidia 2060 Super / RX 5700 XT / Intel Arc A580 (8GB+ of VRAM); RAM 16GB", checked_at: '2026-10-12'}}
+    cyberpunk:     {aliases: [사이버펑크, 사이버펑크2077, cyberpunk2077, cyberpunk], tier: {gpu: 5, cpu: 7, ram_gb: 16, vram_gb: 8}, status: approved, source: {url: "https://store.steampowered.com/app/1091500/", excerpt: "권장: CPU Core i7-12700 or Ryzen 7 7800X3D; GPU GeForce RTX 2060 SUPER or Radeon RX 5700 XT or Arc A770; RAM 16GB", checked_at: '2026-10-12'}}
+    wukong:        {aliases: [검은신화오공, 검은신화, 블랙미스오공, blackmythwukong], tier: {gpu: 5, cpu: 4, ram_gb: 16, vram_gb: 6}, status: approved, source: {url: "https://store.steampowered.com/app/2358720/", excerpt: "권장: CPU Intel Core i7-9700 / AMD Ryzen 5 5500; GPU NVIDIA GeForce RTX 2060 / AMD Radeon RX 5700 XT / INTEL Arc A750; RAM 16GB", checked_at: '2026-10-12'}}
+    monsterhunter: {aliases: [몬스터헌터와일즈, 몬헌와일즈, 몬헌, monsterhunterwilds], tier: {gpu: 5, cpu: 4, ram_gb: 16, vram_gb: 8}, status: approved, source: {url: "https://store.steampowered.com/app/2246340/", excerpt: "권장: CPU Intel® Core™ i5-10400 or Intel® Core™ i3-12100 or AMD Ryzen™ 5 3600; GPU NVIDIA® GeForce® RTX 2060 Super(VRAM 8GB) or　AMD Radeon™  RX 6600(VRAM 8GB); RAM 16GB", checked_at: '2026-10-12'}}
+    starfield:     {aliases: [스타필드, starfield], tier: {gpu: 6, cpu: 4, ram_gb: 16, vram_gb: 8}, status: approved, source: {url: "https://store.steampowered.com/app/1716740/", excerpt: "권장: CPU AMD Ryzen 5 3600X, Intel i5-10600K; GPU AMD Radeon RX 6800 XT, NVIDIA GeForce RTX 2080; RAM 16GB", checked_at: '2026-10-12'}}
+  # DB 카탈로그에는 CPU/GPU 성능 실측이 없어, 수집된 제조사 등급(lineup)을 임시 티어로 쓴다.
+  # game_tiers/ideal_tiers 와 같은 1~10 눈금이다. 같은 등급 안의 세대·모델 차이는 구분하지
+  # 못하는 거친 대용품이며, 벤치마크 수집 뒤 실측 티어로 교체한다. 표에 없는 등급(GPU의
+  # Workstation 등)은 티어를 비워 두어 판정 보류(Pending)로 남긴다. CPU의 "(Gaming)" 접미는
+  # 떼고 본다.
+  lineup_perf_tier:
+    gpu: {Budget: 3, Entry: 5, Mainstream: 6, Mid-Range: 7, High-End: 8, Enthusiast: 9, Flagship: 9, Ultra Flagship: 10}
+    cpu: {Entry: 4, Mainstream: 6, Mid-Range: 7, High-End: 8, Enthusiast: 9, Flagship: 9, Ultra Flagship: 10}
+  # 용도별 요구 프로필 — 2026-09-21 사용자 확인 반영(숫자는 카탈로그 공급 여건 기준이며 바뀔 수 있다).
+  # 여기 없는 용도(game, 미지정)는 위 game_tiers 를 해상도로 골라 쓴다. 프로필에 적은
+  # 키만 이 문서의 같은 이름 값을 덮어쓰고 tier 는 game_tiers 를 대신한다. 사무·학습은 게임용
+  # 하한(DDR5·최신 소켓·1TB·Gold·750W)을 걷어 낸다. 배분이 0 인 GPU·쿨러 슬롯은 신규 조립에서 견적에 넣지 않는다
+  # (computer-rules-v14, 아래 budget_allocation 주석). 그 슬롯의 tier·estimated_power_w 는 외장 GPU 를 다시 넣는 경우
+  # (원하는 부품·결과 대화·업그레이드)를 위해 남겨 둔다.
+  purpose_profiles:
+    office:
+      tier: {gpu: 3, cpu: 4, ram_gb: 16, vram_gb: 4}
+      ram_type: null                     # DDR4/DDR5 모두 허용 — 메인보드와의 일치는 호환 검사가 본다
+      storage_capacity_gb_min: 500
+      psu_efficiency_min: Bronze
+      estimated_power_w: {cpu: 65, gpu: 75, other: 75}
+      sockets_by_brand:
+        intel: [LGA1700, LGA1851]
+        amd: [AM4, AM5]
+        none: [LGA1700, LGA1851, AM4, AM5]
+      # 사무·학습·기타는 이 한 벌의 배분을 함께 쓴다(&office_alloc, 2026-10-15 통일). 근거는 사무 견적 시장 조사뿐이다.
+      # computer-rules-v14: 시장 값 그대로 GPU 0%·쿨러 0%. 배분 0 은 "그 슬롯을 사지 않는다"는 뜻이다 — 신규 조립(mode=build)에서
+      # 이 슬롯은 견적에서 빠지고 대신 CPU 가 내장 그래픽(GPU)·정품 박스 기본 쿨러(쿨러, verification.box_cooler_max_tdp_w 이하 TDP)를 갖춰야 한다.
+      # 예외: 원하는 부품(wanted_parts)·결과 대화로 GPU 를 정하면 GPU, 저소음·소음 민감이면 쿨러, 업그레이드에서 고른 슬롯은 산다 —
+      # 이때는 아래 기본 배분(requirements.budget_allocation)의 그 슬롯 비율을 빌려 합 1 로 다시 맞춘다.
+      # GPU·쿨러 외 슬롯의 0 은 설정 오류다(대신할 부품이 없다).
+      budget_allocation: &office_alloc {GPU: 0, CPU: 0.29, 메인보드: 0.12, RAM: 0.25, 저장장치: 0.24, 파워: 0.07, 케이스: 0.03, 쿨러: 0}
+    study:
+      tier: {gpu: 3, cpu: 6, ram_gb: 16, vram_gb: 4}
+      ram_type: null
+      storage_capacity_gb_min: 500
+      psu_efficiency_min: Bronze
+      estimated_power_w: {cpu: 65, gpu: 75, other: 75}
+      sockets_by_brand:
+        intel: [LGA1700, LGA1851]
+        amd: [AM4, AM5]
+        none: [LGA1700, LGA1851, AM4, AM5]
+      budget_allocation: *office_alloc
+    other:                               # 기타: 용도를 특정하지 못한 범용 — 학습과 같은 수준(2026-09-21 결정)
+      tier: {gpu: 3, cpu: 6, ram_gb: 16, vram_gb: 4}
+      ram_type: null
+      storage_capacity_gb_min: 500
+      psu_efficiency_min: Bronze
+      estimated_power_w: {cpu: 65, gpu: 75, other: 75}
+      sockets_by_brand:
+        intel: [LGA1700, LGA1851]
+        amd: [AM4, AM5]
+        none: [LGA1700, LGA1851, AM4, AM5]
+      budget_allocation: *office_alloc
+    creation:                            # 창작: CPU·RAM 우선, GPU 는 중간 등급
+      tier: {gpu: 6, cpu: 8, ram_gb: 32, vram_gb: 8}
+      estimated_power_w: {cpu: 150, gpu: 200, other: 75}
+      budget_allocation: {GPU: 0.34, CPU: 0.13, 메인보드: 0.08, RAM: 0.25, 저장장치: 0.13, 파워: 0.03, 케이스: 0.02, 쿨러: 0.02}   # 디자인 견적 시장 조사
+  sockets_by_brand:
+    intel: [LGA1851]
+    amd: [AM5]
+    none: [LGA1851, AM5]
+  estimated_power_w: {cpu: 125, gpu: 300, other: 75}
+  psu_headroom_multiplier: 1.5
+  psu_standard_wattages: [550, 650, 750, 850, 1000, 1200]
+  ram_type: DDR5
+  motherboard_form_factors: [ATX, mATX]
+  storage_protocol: NVMe
+  storage_capacity_gb_min: 1000
+  psu_efficiency_min: Gold
+  case_form: ATX_mid
+  # 슬롯별 예산 배분 — 가격 축의 참고 예산 B(총예산 × 비율)이며 지출 상한이 아니다. 게임·미지정은 이 값을,
+  # 사무·학습·기타·창작은 purpose_profiles 의 값을 쓴다. 이 기본 배분의 GPU·쿨러는 0 보다 커야 한다 — 다른 배분에서 0 인
+  # 슬롯을 다시 넣을 때(wanted_parts·결과 대화·저소음·업그레이드) 이 비율을 빌려 쓴다.
+  # 2026-10-15: 국내 견적 시장 조사(퀘이사존 PC조립/견적 게시판, 2026-06~10, 용도별 10건, 견적왕 현금가)의
+  # 용도별 부품 비중 중앙값을 합 100%로 비례 조정해 1% 단위로 반올림했다. 근거와 이전 값은
+  # docs/validation/market_budget_share_20261015.md. RAM 비중은 2026년 DDR5 가격 급등이 반영된 값이다.
+  budget_allocation:
+    GPU: 0.37
+    CPU: 0.14
+    메인보드: 0.07
+    RAM: 0.21
+    저장장치: 0.14
+    파워: 0.04
+    케이스: 0.02
+    쿨러: 0.01
+
+verification:
+  efficiency_order: [Standard, Bronze, Silver, Gold, Platinum, Titanium]
+  # The strings remain part of RequirementSpec for the existing API/log contract.
+  link_rules:
+    - cpu.socket == mainboard.socket
+    - ram.type == mainboard.mem_type
+    - gpu.length_mm <= case.max_gpu_len_mm
+    - cooler.height_mm <= case.max_cooler_height_mm
+    - cpu.socket in cooler.supported_socket
+    - cpu.family in mainboard.supported_cpu_family
+    - psu.form_factor fits case.psu_form_factor
+    - gpu.power_connector provided by psu.gpu_power_connector (종류와 개수)
+    - psu.length_mm <= case.max_psu_length_mm
+    - ceil(gpu.slot_thickness) <= case.expansion_slots
+    - cooler.radiator_mm in case.radiator_front/top/rear_mm
+    - ram.module_count <= mainboard.dimm_slots and ram.capacity_gb <= mainboard.max_memory_gb
+    - m2 ssd requires mainboard.m2_slots >= 1
+    - sum(power) <= psu.wattage * {psu_capacity_factor}
+  socket: {mainboard_spec: socket, cpu_spec: socket}
+  # BIOS 축: CPU 이름에서 읽은 세대·계열(compat_parse.cpu_family)이 메인보드의 지원 CPU 계열 표기에 있는가.
+  bios: {mainboard_spec: supported_cpu_family}
+  # 파워 폼팩터(ATX·SFX·SFX-L)가 케이스가 지원하는 파워 크기에 들어가는가. 더 큰 파워는 확정 비호환, 더 작은 파워는 어댑터가 필요하다.
+  psu_form: {psu_spec: form_factor, case_spec: psu_form_factor}
+  # GPU 보조 전원 커넥터(8핀·16핀)를 파워가 제공하는가. 16핀 GPU + 8핀 파워는 동봉 어댑터가 필요하다(확정 비호환 아님).
+  gpu_connector: {gpu_spec: power_connector, aux_spec: aux_power, psu_spec: gpu_power_connector,
+                  psu_pcie_count_spec: pcie_8pin_count, psu_16_count_spec: connector_12v2x6_count}
+  # 파워 길이 ≤ 케이스가 허용하는 파워 길이.
+  psu_length: {psu_spec: length_mm, case_spec: max_psu_length_mm}
+  # GPU 두께(슬롯 수, 올림) ≤ 케이스 확장 슬롯 수.
+  gpu_slots: {gpu_spec: slot_thickness, case_spec: expansion_slots}
+  # 수랭(AIO) 라디에이터 크기가 케이스의 전면·상단·후면 중 한 곳에는 들어가는가.
+  radiator: {cooler_spec: radiator_mm, case_specs: [radiator_front_mm, radiator_top_mm, radiator_rear_mm]}
+  # RAM 모듈 수 ≤ 메인보드 DIMM 슬롯 수, RAM 총용량 ≤ 메인보드 최대 메모리 용량.
+  ram_slots: {ram_module_spec: module_config, ram_capacity_spec: capacity_gb, board_slots_spec: dimm_slots, board_max_capacity_spec: max_memory_gb}
+  # RAM 속도가 메인보드가 명시한 최대 속도를 넘으면 낮은 속도로 동작한다(비호환은 아니라 확인 필요로만 표시).
+  ram_speed: {ram_spec: speed_mts, board_spec: max_memory_speed_mts}
+  # M.2 SSD 는 메인보드에 M.2 슬롯이 있어야 하고, SSD 의 PCIe 세대가 슬롯보다 높으면 낮은 속도로 동작한다.
+  m2: {ssd_form_spec: form_factor, ssd_interface_spec: interface, board_slots_spec: m2_slots, board_gen_spec: m2_pcie_gen}
+  memory: {mainboard_spec: mem_type, ram_spec: mem_type}
+  motherboard_case: {mainboard_spec: form_factor, case_spec: supports_form_factors}
+  gpu_length: {gpu_spec: length_mm, case_spec: max_gpu_len_mm}
+  cooler_height: {cooler_spec: height_mm, case_spec: max_cooler_height_mm}
+  cooler_socket: {cooler_spec: supported_socket, cpu_spec: socket}
+  # CPU 정품 박스의 기본 쿨러로 식힐 수 있다고 보는 CPU TDP 상한(W). 쿨러를 뺀 견적(용도 배분 쿨러 0%)의 CPU 사전 필터가 쓴다.
+  # 카탈로그의 기본 쿨러 포함 CPU 9개는 모두 TDP 58~65W 이고 사무 프로필의 CPU 전력 추정도 65W 다(2026-10-15 결정 D5).
+  box_cooler_max_tdp_w: 65
+  power:
+    cpu_spec: tdp_w
+    # 최대 패키지 전력(Intel MTP/PL2, AMD PPT). 있으면 TDP 대신 쓴다(K 모델 등은 TDP 의 두 배 가까이 쓴다).
+    cpu_peak_spec: max_power_w
+    gpu_spec: power_w
+    psu_spec: wattage_w
+    psu_capacity_factor: 0.9
+    # 업그레이드에서 GPU 와 파워 중 한쪽만 견적에 들어갈 때, GPU 스펙의 제조사 권장 파워를 유지 파워 용량과 비교한다.
+    use_gpu_recommended_psu: true
+  # 조합 단계의 필수 호환 정보(정책 §5.2, 구현계획 §3.1). 선택된 조합에서 이 검사에 필요한 값이 구매 부품·유지 부품(업그레이드) 어느 쪽이든
+  # 하나라도 없거나 읽을 수 없으면 그 조합은 보류(탐색에서 제외)한다. 카탈로그 보유율·다른 후보의 값 유무와 무관하다.
+  # keys: [{slot, key, any_of?, parse?, as?}] — any_of 가 같은 키들은 하나만 있으면 된다. parse 는 값을 읽을 수 있는지(없으면 비어 있지 않으면 됨).
+  # when: 이 조합에 이 검사가 적용되는 조건(없으면 항상). 적용되지 않으면 비적용(skipped)이지 미확인이 아니다.
+  # cpu_family 는 CPU 이름에서 읽은 계열(BIOS 축)이라 카탈로그 spec 키가 아니다.
+  required_checks:
+    socket:
+      keys: [{slot: CPU, key: socket}, {slot: 메인보드, key: socket}]
+    memory:
+      keys: [{slot: RAM, key: mem_type}, {slot: 메인보드, key: mem_type}]
+    motherboard_case:
+      keys: [{slot: 메인보드, key: form_factor, parse: form}, {slot: 케이스, key: supports_form_factors, parse: form_list}]
+    bios:
+      when: socket_not_failed
+      keys: [{slot: CPU, key: cpu_family}, {slot: 메인보드, key: supported_cpu_family, parse: cpu_families}]
+    cooler_socket:
+      keys: [{slot: CPU, key: socket}, {slot: 쿨러, key: supported_socket, parse: socket_list}]
+    cooler_height:          # 공랭만. 수랭은 라디에이터 검사가 대신한다
+      when: air_cooler
+      keys: [{slot: 쿨러, key: cooling_type, as: type}, {slot: 쿨러, key: height_mm, parse: number},
+             {slot: 케이스, key: max_cooler_height_mm, parse: number}]
+    radiator:               # 수랭만. 케이스는 전면·상단·후면 중 한 곳이라도 지원 크기가 있어야 한다
+      when: liquid_cooler
+      keys: [{slot: 쿨러, key: cooling_type, as: type}, {slot: 쿨러, key: radiator_mm, parse: number},
+             {slot: 케이스, key: radiator_front_mm, any_of: placement, parse: size_list},
+             {slot: 케이스, key: radiator_top_mm, any_of: placement, parse: size_list},
+             {slot: 케이스, key: radiator_rear_mm, any_of: placement, parse: size_list}]
+    gpu_len:
+      keys: [{slot: GPU, key: length_mm, parse: number}, {slot: 케이스, key: max_gpu_len_mm, parse: number}]
+    gpu_slots:
+      keys: [{slot: GPU, key: slot_thickness, parse: slot_thickness}, {slot: 케이스, key: expansion_slots, parse: number}]
+    psu_form:
+      keys: [{slot: 파워, key: form_factor, parse: psu_form}, {slot: 케이스, key: psu_form_factor, parse: psu_forms}]
+    psu_length:
+      keys: [{slot: 파워, key: length_mm, parse: number}, {slot: 케이스, key: max_psu_length_mm, parse: number}]
+    power:                  # CPU 전력은 최대 전력, 없으면 TDP(TDP 대체는 누락이 아니다)
+      keys: [{slot: CPU, key: max_power_w, any_of: cpu_power, parse: number}, {slot: CPU, key: tdp_w, any_of: cpu_power, parse: number},
+             {slot: GPU, key: power_w, parse: number}, {slot: 파워, key: wattage_w, parse: number}]
+    gpu_connector:          # 종류 — GPU 가 보조 전원을 쓸 때만. aux_power "X"·"슬롯 전력"이면 비적용
+      when: gpu_aux_power
+      keys: [{slot: GPU, key: power_connector, parse: gpu_connector}, {slot: 파워, key: gpu_power_connector, parse: psu_connector}]
+    gpu_connector_count:    # 개수 — 종류만으론 모자라 개수 판정이 안 될 때, 실제 연결 경로에 필요한 파워 개수만 요구한다
+      when: gpu_aux_power
+      row_axis: gpu_connector
+      keys: [{slot: GPU, key: power_connector, parse: gpu_connector}, {slot: GPU, key: aux_power},
+             {slot: 파워, key: pcie_8pin_count, as: pcie, parse: number}, {slot: 파워, key: connector_12v2x6_count, as: sixteen, parse: number}]
+    ram_slots:              # 두 하위 조건 모두 — 모듈 수 ≤ DIMM 슬롯, 총용량 ≤ 최대 용량
+      keys: [{slot: RAM, key: module_config, parse: module_count}, {slot: 메인보드, key: dimm_slots, parse: number},
+             {slot: RAM, key: capacity_gb, parse: number}, {slot: 메인보드, key: max_memory_gb, parse: number}]
+    m2:                     # M.2 SSD 만. SATA 는 비적용
+      when: m2_ssd
+      keys: [{slot: 저장장치, key: form_factor, as: type}, {slot: 메인보드, key: m2_slots, parse: number}]
+    ram_speed:              # 사용자 필수 속도(targets.RAM.speed_mts_min)가 있을 때만 필수. 없으면 기존 '확인 필요' 안내
+                            # 현재는 사용자에게서 속도 요구를 받지 않아(입력 경로 없음) 실제 요청에서는 늘 비필수다
+      when: user_ram_speed
+      keys: [{slot: RAM, key: speed_mts, as: ram, parse: number}, {slot: 메인보드, key: max_memory_speed_mts, as: board, parse: number},
+             {slot: CPU, key: max_memory_speed_mts, as: cpu, parse: number}]
+  balance_max_tier_gap: 3
+  # 조합 여유 평가(engine/build_margins.py) 설정 — 기록용이며 점수·적격성에 쓰지 않는다.
+  # other_load: 기타 구성품(메인보드·RAM·저장장치·팬 등)의 예상 부하 W 와 그 근거. 근거가 없으면 null(전체 전력 여유는 '확인 불가').
+  # 값을 넣을 때는 {watts: 양수, source: 근거 설명}. 요구 산정용 estimated_power_w.other 는 근거가 문서화되지 않아 여기에 옮기지 않는다.
+  margins:
+    power:
+      other_load: null
+
+ranking:
+  impact_slots: [GPU, CPU]
+  ideal_tiers:
+    game:
+      FHD_144: {GPU: 6.0, CPU: 6.0}
+      QHD_165: {GPU: 7.5, CPU: 5.5}
+      4K: {GPU: 9.0, CPU: 5.5}
+    # 해상도가 없는 용도는 default 를 쓴다(purpose_profiles 의 tier 와 같은 눈금).
+    office: {default: {GPU: 3.0, CPU: 4.0}}
+    study: {default: {GPU: 3.0, CPU: 6.0}}
+    creation: {default: {GPU: 6.0, CPU: 8.0}}
+    other: {default: {GPU: 3.0, CPU: 6.0}}
+  # 점수 산식 버전(저장 시 score_method_version). 축은 가격·성능·리뷰 세 개, 가중치는 0.01 단위·합 1.
+  # pc-fit-v3(2026-10-14): 가격 축을 1/(1+(P/B)^alpha)로 바꿨다. alpha 는 config/recommendation_engine.yaml.
+  # pc-fit-v4(2026-10-18): CPU·GPU 성능 축을 perf_tier/10 에서 벤치마크 목표식 1/(1+(T/Q)^beta)로 바꿨다. 목표 T 는 위
+  # ideal_tiers 의 등급을 벤치마크 눈금으로 옮긴 값이다. beta·지표는 config/recommendation_engine.yaml 의 scoring.performance_axis.
+  score_method: pc-fit-v4
+  weights: {가격: 0.45, 성능: 0.30, 리뷰: 0.25}
+  # 우선순위(priority)별 가중치 세트. 표에 없는 값/미지정은 위 weights 를 쓴다.
+  # noise_sensitive 는 바깥 가중치를 바꾸지 않는다(리뷰 프로필의 정숙성 중요도가 따로 반영한다).
+  priority_weights:
+    performance: {가격: 0.20, 성능: 0.60, 리뷰: 0.20}
+    value: {가격: 0.55, 성능: 0.25, 리뷰: 0.20}
+    quiet: {가격: 0.40, 성능: 0.25, 리뷰: 0.35}
+
+# 조건에 맞는 리뷰 축 문장을 먼저 보여주는 정렬 규칙(F-1, src/engine/review_focus.py 가 읽는다).
+# 정렬만 한다 — 점수·랭킹에는 안 쓴다(결정 0001). 축 이름은 data/review_summaries.json 의
+# top_summaries[].axis 에 실제로 나오는 값만 썼다(25개 축 중 일부, 2026-09-23 확인). 어떤 조건에
+# 어떤 축을 먼저 보여줄지의 매핑 자체는 팀 확인 전 잠정값이다 — 데모가 그럴듯해 보이는 것과
+# 사용자 검증을 거친 것은 다르다.
+explanation:
+  review_focus:            # 조건 → 먼저 보일 리뷰 축 (정렬만, 점수 아님 — 결정 0001). 값은 잠정.
+    priority:
+      quiet:       [소음, 팬소음, 코일소음, 발열, 쿨링, 냉각성능]
+      performance: [게임성능, 오버클럭, 순차속도, 냉각성능]
+    purpose:
+      game:        [게임성능, 발열]
+      creation:    [순차속도, 안정성, 발열]
+    noise_sensitive:
+      true:        [소음, 팬소음, 코일소음]
+    assembly:
+      self:        [설치난이도, 조립편의, 클리어런스, 방열판높이, 케이블]

@@ -1,0 +1,231 @@
+"""자유 입력 → 조건 필드 규칙 기반 추출 ([1] 의도 분해, LLM 미사용).
+
+`POST /session/{id}/message`가 호출한다. 칩 선택(`/answer`)은 `question_sets.maps_to`로
+직접 반영되므로 여기서 다루지 않는다 — 이 모듈은 자유 텍스트 파싱만 담당한다.
+반환값은 매칭된 필드만 담은 dict (매칭 안 되면 빈 dict) — 호출 쪽이 기존 값 위에 병합한다.
+"""
+from __future__ import annotations
+
+import re
+
+_WON = re.compile(r"(\d+(?:[.,]\d+)?)\s*억|(\d+(?:[.,]\d+)?)\s*(?:천만|천\s*만)|(\d+(?:[.,]\d+)?)\s*만|(\d{2,})\s*원?")
+
+_KOREAN_DIGITS = {"영": 0, "공": 0, "일": 1, "이": 2, "삼": 3, "사": 4, "오": 5,
+                   "육": 6, "륙": 6, "칠": 7, "팔": 8, "구": 9}
+_KOREAN_SMALL_UNITS = {"십": 10, "백": 100, "천": 1000}
+_KOREAN_BIG_UNITS = [("조", 1_000_000_000_000), ("억", 100_000_000), ("만", 10_000)]
+_KOREAN_NUMERAL_RE = re.compile(r"[영공일이삼사오육륙칠팔구십백천만억조]+")
+
+
+def _parse_korean_small(chunk: str) -> int | None:
+    """'삼백' → 300 · '십오' → 15."""
+    total = 0
+    current = 0
+    for ch in chunk:
+        if ch in _KOREAN_DIGITS:
+            current = _KOREAN_DIGITS[ch]
+        elif ch in _KOREAN_SMALL_UNITS:
+            total += (current or 1) * _KOREAN_SMALL_UNITS[ch]
+            current = 0
+        else:
+            return None
+    return total + current
+
+
+def _parse_korean_run(run: str) -> int | None:
+    """'삼백만' → 3000000 · '이천오백' → 2500 (억/만/조 단위가 있는 경우만 — 그 외엔
+    "이고"의 '이'처럼 조사·어미가 숫자 글자와 겹쳐 금액으로 오인할 수 있다)."""
+    if not any(ch in run for ch, _ in _KOREAN_BIG_UNITS):
+        return None
+    total = 0
+    remaining = run
+    for unit_char, unit_val in _KOREAN_BIG_UNITS:
+        idx = remaining.find(unit_char)
+        if idx == -1:
+            continue
+        chunk = remaining[:idx]
+        value = _parse_korean_small(chunk) if chunk else 1
+        if value is None:
+            return None
+        total += value * unit_val
+        remaining = remaining[idx + 1:]
+    if remaining:
+        value = _parse_korean_small(remaining)
+        if value is None:
+            return None
+        total += value
+    return total or None
+
+
+def _parse_korean_number(text: str) -> int | None:
+    """'삼백만원' → 3000000 (숫자 없이 한글 단어만).
+
+    어절(공백으로 나뉜 단어) 맨 앞의 숫자 글자 구간만 보고, 그 뒤가 비어 있거나 '원'으로
+    시작할 때만 금액으로 본다. 예전엔 문장 전체에서 숫자 글자 집합에 속하는 조각을 아무
+    데서나 찾았는데, '조용한'의 '조', '조금'의 '조', '만약'의 '만', '억지로'의 '억'처럼
+    숫자와 무관한 단어의 첫 음절도 조/만/억과 겹쳐서 "1조"·"1만"·"1억"으로 오인했다
+    (회귀: 2026-09-28, "영상편집 위주로 조용한 pc로" → 예산 1조원 오탐)."""
+    for word in text.split():
+        m = _KOREAN_NUMERAL_RE.match(word)
+        if not m:
+            continue
+        rest = word[m.end():]
+        if rest and not rest.startswith("원"):
+            continue                          # 숫자 글자 뒤에 다른 음절이 바로 붙으면 숫자 단어가 아니다
+        value = _parse_korean_run(m.group(0))
+        if value:
+            return value
+    return None
+
+
+# "2천만원 아니고 200만원"·"300만원 말고 250만원"처럼 앞서 말한 금액을 정정하는 표현 — 정정한 쪽(뒤)이 사용자가 원하는 금액이다.
+# 예전엔 문장에서 처음 나온 금액을 써서 정정 전의 금액(20,000,000원)이 예산이 됐다(2026-10-07).
+_CORRECTION = re.compile(r"아니고|아니라고|아니라|아니야|아냐|말고")
+
+
+BUDGET_MIN = 100_000
+BUDGET_MAX = 20_000_000
+BUDGET_RANGE_MESSAGE = "예산은 10만원에서 2천만원 사이로 입력해 주세요."
+
+
+def normalize_budget(value) -> int | None:
+    """예산 값을 정수 원으로 정규화한다. 범위(10만~2천만원)를 벗어나거나 숫자가 아니면 ValueError.
+    None 은 '비움'이므로 그대로 None."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        raise ValueError(BUDGET_RANGE_MESSAGE)
+    if isinstance(value, str):
+        text = value.strip().replace(",", "")
+        if not re.fullmatch(r"\d+(\.\d+)?", text):
+            raise ValueError(BUDGET_RANGE_MESSAGE)
+        value = float(text)
+    if not isinstance(value, (int, float)) or value != value or value in (float("inf"), float("-inf")):
+        raise ValueError(BUDGET_RANGE_MESSAGE)
+    won = int(value)
+    if won != value or not BUDGET_MIN <= won <= BUDGET_MAX:
+        raise ValueError(BUDGET_RANGE_MESSAGE)
+    return won
+
+
+# 예산을 묻는 차례에 단위 없이 "100"·"150" 만 치는 사용자가 많다 — 한국어로 PC 예산은 만 원 단위로 말한다.
+# 예전엔 에이전트가 넘긴 문자열에 따라 100만원(모델이 "100만원"으로 넘김)·100원(그대로 "100", 범위 밖 거절)으로
+# 갈렸다(10/15 QA #37). 네 자리까지만 만 원으로 본다 — "1500000" 처럼 긴 수는 원 단위 그대로다.
+_BARE_MANWON = re.compile(r"\s*(\d{1,4})\s*")
+
+
+def parse_bare_manwon(text: str) -> int | None:
+    """단위 없는 1~4자리 수 하나뿐인 말 → 만 원 단위 원. 그 밖은 None."""
+    m = _BARE_MANWON.fullmatch(text.replace(",", ""))
+    return int(m.group(1)) * 10_000 if m else None
+
+
+# 금액만 말한 답 — "200", "150만원", "예산은 200만 원 정도요". 조건 대화가 모델을 거치지 않고 바로 반영한다.
+# 모델 호출 두 번(도구 호출 → 답 문장)에 예산 턴이 중앙값 4.3초·최대 19.7초 걸렸다(시연 DB 10/13~15, 10/15 QA #26
+# "예산 설정 10초 넘게"). 다른 말이 섞이면("200만원인데 조용하게") 모델에 맡긴다.
+_AMOUNT_ONLY = re.compile(
+    r"(?:예산\s*(?:은|는|이)?\s*)?"
+    r"(?P<amount>\d[\d,]*(?:\.\d+)?\s*(?:억|천\s*만|만)\s*원?|\d[\d,]{3,}\s*원|\d{1,4})"
+    r"\s*(?:정도|까지|이하|이내|쯤|내외|선)?\s*(?:으로|로)?\s*"
+    r"(?:이요|요|입니다|이에요|예요|해\s*(?:주세요|줘|요)|할게요|맞춰\s*(?:주세요|줘))?\s*[.!~]*")
+
+
+def parse_budget_answer(text: str, *, budget_turn: bool) -> int | None:
+    """금액 하나만 말한 답 → 원. 단위 없는 수("200")는 예산을 묻는 차례일 때만 만 원으로 읽는다.
+    범위(BUDGET_MIN~MAX) 밖이거나 다른 말이 섞였으면 None — 모델이 사정을 설명한다."""
+    m = _AMOUNT_ONLY.fullmatch(text.strip())
+    if not m:
+        return None
+    amount = m.group("amount")
+    if re.fullmatch(r"\d{1,4}", amount):
+        won = parse_bare_manwon(amount) if budget_turn else None
+    else:
+        won = _parse_won(amount)
+    return won if won is not None and BUDGET_MIN <= won <= BUDGET_MAX else None
+
+
+def _parse_won(text: str) -> int | None:
+    """'150만원', '₩1,500,000', '1.5 million won', '삼백만원' 같은 표현 → 정수 원. 정정 표현이 있으면 그 뒤의 금액을 우선한다."""
+    parts = _CORRECTION.split(text)
+    if len(parts) > 1:
+        corrected = _parse_won_plain(parts[-1])
+        if corrected:
+            return corrected
+    return _parse_won_plain(text)
+
+
+def _parse_won_plain(text: str) -> int | None:
+    text = text.replace(",", "").lower()
+    m = re.search(r"(\d+(?:\.\d+)?)\s*억", text)
+    if m:
+        return int(float(m.group(1)) * 100_000_000)
+    m = re.search(r"(\d+(?:\.\d+)?)\s*천\s*만", text)
+    if m:
+        return int(float(m.group(1)) * 10_000_000)
+    m = re.search(r"(\d+(?:\.\d+)?)\s*만\s*원?", text)
+    if m:
+        return int(float(m.group(1)) * 10_000)
+    m = re.search(r"(\d{4,})\s*원", text)
+    if m:
+        return int(m.group(1))
+    m = re.search(r"(?:₩|krw\s*)(\d{4,})", text)
+    if m:
+        return int(m.group(1))
+    m = re.search(r"(\d+(?:\.\d+)?)\s*(million|thousand|m|k)\s*(?:won|krw)?\b", text)
+    if m:
+        multiplier = 1_000_000 if m.group(2) in {"million", "m"} else 1_000
+        return int(float(m.group(1)) * multiplier)
+    m = re.search(r"(\d{4,})\s*(?:won|krw)\b", text)
+    if m:
+        return int(m.group(1))
+    return _parse_korean_number(text)          # 숫자 없이 한글 단어로만 말한 금액 (예: 삼백만원)
+
+
+_PURPOSE = [
+    ("game", ["게임", "롤", "옵치", "배그", "발로란트", "game", "gaming", "esports"]),
+    ("creation", ["작업", "창작", "편집", "영상", "디자인", "3d", "렌더", "creator", "editing", "video", "render", "design"]),
+    ("office", ["사무", "문서", "엑셀", "인터넷", "office", "work", "spreadsheet", "browsing"]),
+    ("study", ["공부", "학습", "온라인 강의", "인강", "study", "school", "class", "lecture"]),
+]
+
+_PRIORITY = [
+    # "가격"·"budget"은 빼져 있다 — 자유 채팅으로 예산을 말할 때("가격은 150만원까지", "My budget is …")
+    # 거의 항상 섞여 나와서, 우선순위를 말한 적 없는 사용자도 priority가 "가성비"로 채워지는 오탐이 있었다.
+    ("performance", ["성능", "빠른", "고사양", "performance", "fast", "high-end", "fps"]),
+    ("value", ["가성비", "저렴", "싸게", "value", "affordable", "cheap"]),
+    ("quiet", ["조용", "저소음", "소음", "quiet", "silent", "low noise"]),
+]
+
+def _first_match(text: str, table: list[tuple[str, list[str]]]) -> str | None:
+    text = text.lower()
+    for value, keywords in table:
+        if any(k in text for k in keywords):
+            return value
+    return None
+
+
+def extract_computer(text: str) -> dict:
+    out: dict = {}
+    budget = _parse_won(text)
+    if budget and BUDGET_MIN <= budget <= BUDGET_MAX:
+        out["budget_max"] = budget
+    purpose = _first_match(text, _PURPOSE)
+    if purpose:
+        out["purpose"] = purpose
+    priority = _first_match(text, _PRIORITY)
+    if priority:
+        out["priority"] = priority
+    if re.search(r"144|165|4k|1440|2160|풀\s*hd|fhd|qhd", text, re.IGNORECASE):
+        if "4k" in text.lower() or "2160" in text:
+            out["resolution"] = "4K"
+        elif "165" in text or "1440" in text or "qhd" in text.lower():
+            out["resolution"] = "QHD_165"
+        else:
+            out["resolution"] = "FHD_144"
+    return out
+
+
+def extract(category: str, text: str) -> dict:
+    if category == "computer":
+        return extract_computer(text)
+    return {}

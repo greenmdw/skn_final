@@ -1,0 +1,473 @@
+"""리뷰 서비스 — A7 부품 리뷰 / 전체 PC 리뷰 작성 · 게시 · 개봉/구매 인증.
+
+부품 리뷰 = product/variant 대상, 자기신고. 전체 PC 리뷰 = pc_build_version/component 고정 +
+assembled_self_reported 확인 후 게시(C11). 외부 리뷰 원문 미저장.
+"""
+from __future__ import annotations
+
+import os
+from uuid import UUID
+
+from src.config import REVIEW_SUMMARIES_DEMO
+from src.errors import NotFound, ValidationFailed
+from src.db import get_conn
+from src.repo.review_repo import ReviewRepo, ReviewSubjectRepo
+from src.repo.review_repo import (SUSPECT_SOURCE, ReviewSummaryDemoFile,
+                                 default_risk_store, default_suspect_counts, resolve_risk_store)
+from src.schemas import ProductRiskOut, ReviewSummaryOut, ReviewTelemetry, SyntheticDemoOut
+from src.services import review_plain
+
+TELEMETRY_KEY = "telemetry"
+
+# summaries[].source — 이 문장이 리뷰 발췌가 아니라 상품 단위 집계 사실이라는 표시.
+# 계약의 예시가 "합성 리뷰 요약" 을 쓰는 것과 같은 자리다.
+OBSERVATION_SOURCE = "관계·행동 축 관측 (리뷰 본문 아님)"
+# 항목별 관측 문장 수 — 우리 카탈로그 부품의 수집 리뷰에서 항목별로 좋다·아쉽다를 센 것(추천 순위의 리뷰 점수가 읽는 그 집계)
+_ASPECT_LINES = 5
+
+_demo_file: ReviewSummaryDemoFile | None = None
+
+
+def _stores():
+    """파일 기반 산출물 — DB 연결 전까지의 자리. 산출 JSON 이 없으면 관측 없이 데모 블록만."""
+    global _demo_file
+    if _demo_file is None:
+        _demo_file = ReviewSummaryDemoFile([REVIEW_SUMMARIES_DEMO])
+    return default_risk_store(), _demo_file
+
+
+def candidate_keys(product_key: str) -> list[str]:
+    """받은 키를 그대로, 그리고 엔진이 쓰는 슬러그 모양으로도 찾아본다.
+
+    저장 경로에서 `product_key` 가 가리키는 값이 갈아탄다 — [3-B] 후보는 슬러그
+    (`asus-tuf-gaming-b650-plus-wifi`)를 쓰는데, `GET /session/{id}/result` 는
+    `catalog.product.model`(제품명 원문 `ASUS TUF GAMING B650-PLUS WIFI`)을 같은 이름으로
+    내보낸다. 화면은 그 값을 그대로 이 엔드포인트에 넘기므로 전부 404 가 됐다.
+
+    근본 원인은 후보 수집·결과 조립 쪽(슬러그를 DB 에 남기지 않는다)이고 이 모듈의 자리가
+    아니다. 그래서 여기서는 **받는 쪽에서 흡수만** 한다 — 저쪽이 고쳐지면 첫 후보가 바로 맞고
+    이 함수는 아무 일도 하지 않는다. 변환 규칙이 두 곳에 생기는 것이 대가다.
+    """
+    keys = [product_key]
+    slug = product_key.strip().lower().replace(" ", "-")
+    if slug and slug not in keys:
+        keys.append(slug)
+    return keys
+
+
+def _db_backed_analysis(product_key: str, conn=None) -> dict | None:
+    """P8: evidence.review_aggregate에 검수 승인된 파일 기반 분석이 있으면 그 값을 낸다.
+
+    `DATABASE_URL`이 명시적으로 설정된 배포/통합-테스트 환경에서만 시도한다 — 환경변수를
+    안 준 개발/PC 단위테스트(config.py의 하드코드 기본값으로 앰비언트 DB에 잡히는 상황)에서
+    조용히 진짜 DB에 연결해 기존 파일 전용 경로의 동작을 바꾸지 않기 위해서다. 연결·조회
+    실패는 모두 "분석 없음"으로 접는다 — 이 경로가 있다고 기존 PC 관측 경로가 죽으면 안 된다.
+    """
+    if not os.environ.get("DATABASE_URL"):
+        return None
+    def _read(c):
+        subject_id = ReviewSubjectRepo(c).resolve_by_key(product_key)
+        if subject_id is None:
+            return None
+        repo = ReviewRepo(c)
+        aggregate = repo.get_summary(subject_id)
+        if aggregate is None:
+            return None
+        return {"aggregate": aggregate, "summaries": repo.top_summaries(aggregate)}
+
+    try:
+        if conn is not None:
+            # 호출한 요청의 연결을 그대로 쓴다 — 결과 폴링이 부품마다 풀에서 연결을 하나씩 더 빌리던 것을 없앤다(U-03).
+            # 실패해도 호출자의 트랜잭션이 깨지지 않게 세이브포인트 안에서 읽는다.
+            with conn.transaction():
+                return _read(conn)
+        with get_conn() as own:
+            return _read(own)
+    except Exception:
+        return None
+
+
+
+
+def _catalog_review_facts(product_key: str, conn=None) -> dict | None:
+    """우리 카탈로그 부품(결과 화면의 `cpu:amd:ryzen-7-7700x3d` 키)의 수집 리뷰 수와 항목별 관측.
+
+    위의 두 경로(아마존 관계·행동 축 파일, review_aggregate)는 우리 카탈로그 부품과 겹치지 않아 결과 화면의 부품이
+    전부 404 → "리뷰 요약은 아직 없어요"였다(10/15 QA #27·#57). 추천 순위는 같은 부품의 evidence.review_document·
+    review_aspect_aggregate 를 이미 읽고 있다. 리뷰 본문은 내지 않고 건수만 낸다. 실패는 "없음"으로 접는다.
+
+    `_db_backed_analysis` 와 달리 `DATABASE_URL` 환경변수 유무로 막지 않는다 — 그 변수 없이 띄운 서버(.env 주석,
+    `src/config.py` 기본 주소로 접속)는 결과 화면의 리뷰 개수는 내면서 이 요약만 "분석 없음"으로 냈다. 접속은 앱의
+    다른 경로와 같은 `src/config.DATABASE_URL` 풀을 쓰고, 테스트의 개발 DB 차단·접속 실패는 아래 except 가 접는다."""
+    from src.services.result_advice import ASPECT_LABEL
+
+    def _read(c):
+        row = c.execute(
+            "SELECT p.id, (SELECT count(*) FROM evidence.review_document d WHERE d.product_id = p.id) AS n, "
+            # 평점은 합성 리뷰를 빼고 센다(D2: 건수 문턱 없음).
+            "(SELECT count(d.rating) FROM evidence.review_document d "
+            " WHERE d.product_id = p.id AND NOT d.is_synthetic) AS rn, "
+            "(SELECT avg(d.rating) FROM evidence.review_document d "
+            " WHERE d.product_id = p.id AND NOT d.is_synthetic) AS ra "
+            "FROM catalog.product p WHERE lower(replace(p.product_type || ':' || p.brand || ':' || p.model, ' ', '-')) = %s",
+            (product_key.strip().lower(),)).fetchone()
+        if row is None:
+            return None
+        if isinstance(row, dict):
+            product_id, count, rating_count, rating_avg = row["id"], row["n"], row["rn"], row["ra"]
+        else:
+            product_id, count, rating_count, rating_avg = row
+        aspects = c.execute(
+            "SELECT r.aspect_code, sum(a.p) AS p, sum(a.n) AS n, sum(a.mixed) AS mixed "
+            "FROM evidence.review_aspect_aggregate a JOIN evidence.review_aspect_rule r ON r.id = a.rule_id "
+            "WHERE a.product_id = %s GROUP BY r.aspect_code HAVING sum(a.p + a.n + a.mixed) > 0 "
+            "ORDER BY sum(a.p + a.n + a.mixed) DESC, r.aspect_code LIMIT %s", (product_id, _ASPECT_LINES)).fetchall()
+        lines = []
+        for a in aspects:
+            code, pos, neg, mixed = (a["aspect_code"], a["p"], a["n"], a["mixed"]) if isinstance(a, dict) else a
+            line = f"{ASPECT_LABEL.get(code, code)} — 좋다는 리뷰 {pos}건 · 아쉽다는 리뷰 {neg}건"
+            lines.append(line + (f" · 엇갈린 리뷰 {mixed}건" if mixed else ""))
+        rating_count = int(rating_count or 0)
+        return ({"count": int(count), "lines": lines, "rating_count": rating_count,
+                 "rating_avg": round(float(rating_avg), 2) if rating_count and rating_avg is not None else None}
+                if count or lines else None)
+
+    try:
+        if conn is not None:
+            with conn.transaction():
+                return _read(conn)
+        with get_conn() as own:
+            return _read(own)
+    except Exception:
+        return None
+
+
+def get_summary(product_key: str, conn=None) -> ReviewSummaryOut:
+    """S5 리뷰 상세. 실측(관계·행동 축 관측 + P8 파일 기반 분석)과 합성 데모 블록을 분리해 낸다.
+
+    - 관측(관계·행동 축)은 상품 단위이고 점수가 아니다. 개별 리뷰의 진위가 아니다
+    - cleaned_rating · cleanse_ratio 는 그 관측 경로에서 항상 null — 판정기가 없다(docs/decisions/0001)
+    - P8 파일 기반 분석(evidence.review_aggregate)이 있으면 excluded_count/rating_refined/
+      distribution_refined를 실제 값으로 낸다 — 검수 승인된 sample+label에서 계산된 값이다
+    - 항목별 평가·요약 3건은 지금 합성 데모뿐이라 `synthetic_demo` 에 표지와 함께 둔다
+    """
+    _, demo = _stores()
+    all_keys = candidate_keys(product_key)
+    store, facts_key, facts = resolve_risk_store(all_keys)
+    key, d, db = product_key, None, None
+    for cand in all_keys:
+        cand_d = demo.get(cand) if demo else None
+        cand_db = _db_backed_analysis(cand, conn)
+        if cand_d is not None or cand_db is not None:
+            key, d, db = cand, cand_d, cand_db
+            break
+    if facts is not None:
+        key = facts_key
+    # 실측 산출물이 없으면 우리 카탈로그의 수집 리뷰로 — 합성 데모 블록(d)만 있는 부품도 화면은 그 블록을 읽지 않는다.
+    catalog = _catalog_review_facts(product_key, conn) if facts is None and db is None else None
+    if catalog is None and facts is None and d is None and db is None:
+        raise NotFound(f"리뷰 요약 없음: {product_key}", field="product_key")
+    if catalog is not None:
+        # 리뷰 수는 앞 문장에 이미 있다 — 별점이 있는 리뷰 수가 그와 다를 때만 건수를 다시 쓴다.
+        if catalog["rating_count"] == catalog["count"]:
+            tail = "평점은 구매자 별점의 단순 평균이고, 리뷰 진위는 따로 판단하지 않았어요."
+        elif catalog["rating_count"]:
+            tail = (f"평점은 별점이 있는 리뷰 {catalog['rating_count']:,}건의 단순 평균이고, "
+                    "리뷰 진위는 따로 판단하지 않았어요.")
+        else:
+            tail = "이 제품은 구매자 별점을 수집하지 못했고, 리뷰 진위는 따로 판단하지 않았어요."
+        note = f"수집한 리뷰 {catalog['count']:,}건에서 항목별로 좋다·아쉽다고 말한 리뷰 수를 센 것이에요. {tail}"
+        return ReviewSummaryOut(
+            product_key=product_key, total_count=catalog["count"],
+            rating_raw=catalog["rating_avg"], rating_count=catalog["rating_count"] or None,
+            aspect_facts=catalog["lines"],
+            data_notice=note, status="ready", product_manipulation_risk=ProductRiskOut(evidence=[], reliable_range=None))
+
+    if facts is not None:
+        auth = store.get_review_authenticity(key)
+        risk = auth["product_manipulation_risk"]
+        # ASIN 매핑이 없는 산출물은 resolve()가 키를 그대로 돌려주는데, 이걸
+        # "아마존에서 확인 가능한 참조"로 내면 존재하지 않는 상품 링크가 나간다. 기본 산출물일 때만 낸다.
+        is_pc = store is default_risk_store()
+        ref = risk.get("product_ref") if is_pc else None
+        risk_out = ProductRiskOut(
+            evidence=risk["evidence"], reliable_range=risk["reliable_range"],
+            controls=risk.get("controls", {}), control_scope=store.meta.get("control_scope"),
+            product_ref=ref, verify_url=f"https://www.amazon.com/dp/{ref}" if ref else None)
+        orig, total, note = auth["orig_rating"], auth["total_reviews"], auth["confidence_note"]
+        # 관측 문장을 계약의 summaries 자리에 낸다. 화면에 문장을 실을 칸이 여기뿐이다.
+        # source 로 출처를 밝혀 리뷰 발췌로 읽히지 않게 한다 — 이건 본문이 아니라 집계 사실이다.
+        # (오버레이에 관측 사실 전용 칸이 생기면 그쪽으로 옮긴다)
+        summaries = [{"text": t, "source": OBSERVATION_SOURCE, "observed_at": None}
+                     for t in risk["evidence"]]
+        # 규칙 기반 의심 건수 — 판정이 아니라는 표시(SUSPECT_SOURCE)를 문장과 함께 붙인다
+        sus = default_suspect_counts()
+        line = sus.sentence(key) if sus else None
+        if line:
+            summaries.append({"text": line, "source": SUSPECT_SOURCE, "observed_at": None})
+    else:
+        risk_out = ProductRiskOut(evidence=[], reliable_range=None)
+        orig, total, summaries = None, 0, []
+        note = ("관측 없음 — 이 상품은 관계·행동 축 산출물에 없다(리뷰 수 문턱 미만이거나 데이터 기간 밖). "
+                "정제 평점·제외 비율은 산출하지 않는다.")
+
+    excluded_count = excluded_ratio = rating_refined = None
+    distribution_raw: dict = {}
+    distribution_refined: dict = {}
+    analysis_version = None
+    status = "unavailable"
+    if db is not None:
+        agg = db["aggregate"]
+        ratings = agg.get("ratings") or {}
+        analyzed = agg["analyzed_count"]
+        if not total:
+            total = analyzed
+        if orig is None:
+            orig = ratings.get("raw_avg")
+        excluded_count = agg["excluded_count"]
+        excluded_ratio = round(agg["excluded_count"] / analyzed, 6) if analyzed else None
+        rating_refined = ratings.get("refined_avg")
+        distribution_raw = ratings.get("raw_distribution") or {}
+        distribution_refined = ratings.get("refined_distribution") or {}
+        analysis_version = agg["processing_version"]
+        status = "ready"
+        summaries = summaries + db["summaries"]
+        if note.startswith("관측 없음"):
+            note = "검수 승인된 파일 기반 분석 있음 — 개별 리뷰 표본 기준 집계."
+
+    synthetic = None
+    if d is not None:
+        synthetic = SyntheticDemoOut(
+            note=d.get("cleaned_rating_note", "합성 데모값"),
+            cleaned_rating=d.get("cleaned_rating"), cleanse_ratio=d.get("cleanse_ratio"),
+            removed_count=d.get("removed_count"), rating_dist=d.get("rating_dist", {}),
+            axis_scores=d.get("axis_scores", {}), top_summaries=d.get("top_summaries", []),
+            sources=d.get("sources", []), collected_at=d.get("collected_at"))
+
+    return ReviewSummaryOut(
+        product_key=key, product_name=d.get("product_name") if d else None,
+        total_count=total, rating_raw=orig, summaries=summaries, data_notice=note,
+        excluded_count=excluded_count, excluded_ratio=excluded_ratio, rating_refined=rating_refined,
+        distribution_raw=distribution_raw, distribution_refined=distribution_refined,
+        analysis_version=analysis_version, status=status,
+        product_manipulation_risk=risk_out, synthetic_demo=synthetic)
+
+
+# 관측 산출물에 없는 상품의 리뷰 수는 모른다 — 전에는 해시 시드로 7~13 을 붙였는데(데모용 표시값) 응답에
+# 실측/표시용 구분이 없어 프론트가 못 걸렀다. 모르면 None (docs/decisions/0003).
+
+
+def _review_signals(product_key: str) -> dict | None:
+    """관계·행동 축 산출물의 숫자를 문장이 아니라 구조화된 dict로 낸다.
+
+    문서(docs/개발요청_리뷰클렌징_요약_구조화.md) 요청 A — 프론트가 문장을 정규식으로
+    다시 쪼개지 않게, 이미 산출된 값(review_repo.ProductRiskStore/SuspectCountFile)을
+    그대로 숫자로만 옮긴다. 새로 계산하는 값은 없다. 산출물에 상품이 없으면 None 전체,
+    개별 신호(예: 다작 계정 연결)만 없으면 그 키만 None — 있는 척 채우지 않는다.
+    """
+    store, key, f = resolve_risk_store(candidate_keys(product_key))
+    if f is None:
+        return None
+
+    # 대조군 중앙값을 값 옆에 같이 낸다 — 값만 있으면 "13.5%" 가 큰지 작은지 화면이 판단할 수 없다
+    m = store.controls
+
+    def _median(key: str):
+        return round(float(m[key]), 4) if m.get(key) is not None else None
+
+    signals: dict = {
+        "rating5_share": ({"ratio": round(float(f["p5"]), 4), "median": _median("p5")}
+                          if f.get("p5") is not None else None),
+        "burst7": (
+            {"count": int(f["burst7_count"]), "ratio": round(float(f["burst7"]), 4),
+             "launch_week": store.is_launch_burst(f), "median": _median("burst7")}
+            if f.get("burst7_count") is not None and f.get("burst7") is not None else None
+        ),
+        "shared_reviewers": (
+            {"count": int(f["shared_reviewers"]), "linked_products": int(f["deg"]),
+             "median_count": int(m["shared_reviewers"]) if m.get("shared_reviewers") is not None else None,
+             "median_linked_products": int(m["deg"]) if m.get("deg") is not None else None}
+            if f.get("shared_reviewers") is not None and f.get("deg") is not None else None
+        ),
+        "suspect_2plus": None,
+    }
+    sus = default_suspect_counts()
+    # SuspectCountFile은 별도 산출물이라 n이 관측 산출물의 n과 다를 수 있다 — 여기서는
+    # 그 파일 자신의 n/ge2로만 비율을 낸다(review_repo.SuspectCountFile.sentence()와 같은 계산).
+    v = sus.get(key) if sus else None
+    if v and v.get("n"):
+        n, k = int(v["n"]), int(v["ge2"])
+        base = sus.baseline.get("rate_pct")
+        signals["suspect_2plus"] = {"count": k, "ratio": round(k / n, 4),
+                                    "baseline": round(float(base) / 100, 4) if base is not None else None}
+    return signals
+
+
+# 고정 해석 안내문(요청 C) — 카드 하단 면책 한 줄. 지표마다 "상품 단위 신호이며 개별 리뷰의 진위가 아닙니다" 를
+# 붙이던 것을 여기 한 번으로 모은다(docs/리뷰관측_문장_초안.md "원칙 4"). 판정이 아니라는 뜻은 유지하되 말만 쉽게.
+_CLEANSING_SUMMARY_TEXT = "리뷰가 올라온 '모양'만 본 결과예요. 어떤 리뷰가 진짜인지는 판단하지 않아요."
+
+
+def _cleansing_summary() -> dict:
+    return {"status": "ready", "text": _CLEANSING_SUMMARY_TEXT}
+
+
+def review_brief(product_key: str, conn=None) -> dict | None:
+    """추천 결과/리포트 화면의 미니 리뷰 배지 — total_count + 구조화된 신호(signals) + 클렌징 요약 + 유저용 문장(plain).
+
+    excluded_ratio·rating_refined(정제 전/후 비교)는 판정기가 없어 못 낸다(docs/decisions/0001).
+    total_count 도 관측 산출물에 상품이 없으면 모르는 값이라 None — 프론트가 "리뷰 정보 없음" 으로 그린다.
+    plain 은 그 경우에도 사유 한 줄(reason)을 낸다.
+    """
+    plain = review_plain.render(product_key)
+    try:
+        summary = get_summary(product_key, conn)
+    except NotFound:
+        return {"total_count": None, "rating_raw": None, "rating_count": None,
+                "excluded_ratio": None, "rating_refined": None,
+                "signals": None, "cleansing_summary": _cleansing_summary(), "plain": plain}
+    # rating_raw 는 수집처 구매자 별점의 단순 평균이다 — 검수 후 평점(rating_refined)이 아니다.
+    return {"total_count": summary.total_count or None, "rating_raw": summary.rating_raw,
+            "rating_count": summary.rating_count, "excluded_ratio": None, "rating_refined": None,
+            "signals": _review_signals(product_key), "cleansing_summary": _cleansing_summary(), "plain": plain}
+
+
+def db_review_stats(conn, product_ids) -> dict[str, dict]:
+    """상품별 리뷰 통계 `{product_id: {"count", "rating_count", "rating_avg"}}` — 쿼리 한 번.
+
+    count 는 evidence.review_document 의 전체 문서 수(추천 순위의 리뷰 점수가 읽는 건수, 예전 db_review_counts 와 같다).
+    review_brief 의 total_count 는 아마존 파일 산출물이라 우리 카탈로그 상품과 겹치지 않아 항상 비었다(U-12).
+    rating_* 는 합성 리뷰를 뺀 수집처 별점의 건수·평균(소수 둘째 자리, 평점이 없으면 None)이다."""
+    ids = [str(p) for p in product_ids if p]
+    if not ids:
+        return {}
+    rows = conn.execute(
+        "SELECT product_id::text AS product_id, count(*) AS n, "
+        "count(rating) FILTER (WHERE NOT is_synthetic) AS rn, "
+        "avg(rating) FILTER (WHERE NOT is_synthetic) AS ra "
+        "FROM evidence.review_document WHERE product_id::text = ANY(%s) GROUP BY product_id", (ids,)).fetchall()
+    out: dict[str, dict] = {}
+    for r in rows:
+        # 연결의 행 형식이 호출 경로마다 다르다(튜플 / dict) — 둘 다 읽는다.
+        pid, n, rn, ra = (r["product_id"], r["n"], r["rn"], r["ra"]) if isinstance(r, dict) else r
+        rn = int(rn or 0)
+        out[str(pid)] = {"count": int(n), "rating_count": rn,
+                         "rating_avg": round(float(ra), 2) if rn and ra is not None else None}
+    return out
+
+
+def usage_context_with_telemetry(usage_context: dict | None, telemetry: ReviewTelemetry | None) -> dict:
+    """`review_revision.usage_context` 에 폼 계측값을 `telemetry` 키로 넣는다.
+
+    없으면 키를 만들지 않는다 — 빈 dict 나 0 으로 채우면 "붙여넣기 0회 = 직접 씀" 으로 읽히는데
+    그건 이 신호가 말하지 않는 것이다. 있을 때만, 정수만 들어간다(ReviewTelemetry 가 거른다).
+    """
+    ctx = dict(usage_context or {})
+    if telemetry is not None:
+        ctx[TELEMETRY_KEY] = telemetry.model_dump()
+    return ctx
+
+
+def write_part_review(user_id: UUID, variant_id: UUID, *, rating: int, title: str,
+                      body: str, axis_scores: dict, telemetry: ReviewTelemetry | None = None) -> dict:
+    """usage_context = usage_context_with_telemetry(…, telemetry) 로 add_revision 에 넘긴다."""
+    if not 1 <= rating <= 5:
+        raise ValidationFailed("평점은 1~5점입니다.", field="rating")
+    if not title.strip() or not body.strip():
+        raise ValidationFailed("제목과 본문은 비워둘 수 없습니다.")
+    if len(title) > 120 or len(body) > 5000:
+        raise ValidationFailed("리뷰 길이 제한을 초과했습니다.")
+    if not isinstance(axis_scores, dict) or any(not isinstance(v, (int, float)) for v in axis_scores.values()):
+        raise ValidationFailed("axis_scores 형식이 올바르지 않습니다.", field="axis_scores")
+    with get_conn() as conn:
+        variant = conn.execute("SELECT id FROM catalog.product_variant WHERE id=%s", (variant_id,)).fetchone()
+        if variant is None: raise NotFound("리뷰 대상 옵션이 없습니다.", field="variant_id")
+        repo = ReviewRepo(conn); domain = repo.domain_version("computer")
+        if domain is None: raise ValidationFailed("computer domain_version이 준비되지 않았습니다.")
+        subject = ReviewSubjectRepo(conn).get_or_create(variant_id=variant_id)
+        review_id = repo.create(user_id, subject)
+        revision_id = repo.add_revision(review_id, domain_version_id=domain, rating=rating, title=title.strip(), body=body.strip(), axis_scores=axis_scores, usage_context=usage_context_with_telemetry({}, telemetry))
+    return {"review_id": str(review_id), "revision_id": str(revision_id), "status": "draft"}
+
+
+def write_build_review(user_id: UUID, build_version_id: UUID, *, rating: int, title: str,
+                       body: str, axis_scores: dict, telemetry: ReviewTelemetry | None = None) -> dict:
+    """build.owner == author, build_version published, usage_status assembled_self_reported 확인.
+    usage_context 는 write_part_review 와 같은 규칙."""
+    raise NotImplementedError
+
+
+def publish(review_id: UUID, user_id: UUID) -> None:
+    with get_conn() as conn:
+        repo = ReviewRepo(conn); review = repo.owned(review_id,user_id)
+        if review is None: raise NotFound("리뷰를 찾을 수 없습니다.")
+        row = conn.execute("SELECT id FROM community.review_revision WHERE review_id=%s ORDER BY revision_no DESC LIMIT 1", (review_id,)).fetchone()
+        if row is None: raise ValidationFailed("게시할 리뷰 버전이 없습니다.")
+        repo.publish(review_id,row[0])
+
+
+def list_pending_for_user(user_id: UUID) -> dict:
+    """A7: 작성해야 할 리뷰 / 개봉 확인 / 내가 쓴 리뷰."""
+    with get_conn() as conn:
+        rows = conn.execute("""SELECT r.id, r.status, r.current_revision_id, v.id AS variant_id,p.model AS product_key,p.name
+          FROM community.review r JOIN evidence.review_subject s ON s.id=r.subject_id
+          JOIN catalog.product_variant v ON v.id=s.variant_id JOIN catalog.product p ON p.id=v.product_id
+          WHERE r.author_user_id=%s ORDER BY r.updated_at DESC""", (user_id,)).fetchall()
+    return {"items": [{"review_id":str(r[0]),"status":r[1],"revision_id":str(r[2]) if r[2] else None,"variant_id":str(r[3]),"product_key":r[4],"name":r[5]} for r in rows]}
+
+
+# ── [5] 리뷰 관측을 저장 경로로 나르기 ──────────────────────────────────────
+# [3-B]가 요청 프로필 기반 리뷰 적합도를 계산하고 [5]가 설명으로 만든 사실은
+# DB 경로(POST /session/{id}/recommend → engine.recommendation_run)의 reasoning_log에
+# 실린다. 중립 상태와 실제 관측 member도 함께 기록해 화면과 검토자가 근거를 추적한다.
+#
+# 자리를 둘 다 **쓰지 않는** 이유를 남겨 둔다:
+#   · `ItemOut.review`(ReviewBriefOut) — 필드가 excluded_ratio·rating_refined 다.
+#     정제 후 평점을 판정기 없이 내지 않는다는 결정(docs/decisions/0001)과 충돌한다.
+#     "제외 0건" 으로 채우면 화면이 "조작 제외 전후 평점" 으로 그리므로, 클렌징이
+#     돌아서 아무것도 못 찾은 것처럼 읽힌다. 우리는 탐지기를 돌리지 않았다
+#   · `ItemOut.checks`("구매 전 확인") — [3-C] 스펙 검증 문장의 자리다. 상품 단위
+#     리뷰 관측을 섞으면 나중에 [3-C] 가 채울 때 서로 덮는다
+# 이 함수는 설명용 요약을 reasoning_log와 explanation_text에 싣는다.
+# 전체 계산 상세는 recommendation_review_snapshot이 설명 생성 전에 따로 저장하고
+# ItemOut.review_detail로 제공한다. 문자열 로그는 구조화된 상세 계약을 대신하지 않는다.
+
+REVIEW_TRACE_STEP = "리뷰 관측"
+
+def review_trace_steps(review_line_by_slot: dict[str, str],
+                       evidence_by_slot: dict[str, list[dict]] | None = None) -> list[dict]:
+    """Carry the exact ranked review details (including neutral states) into run trace."""
+    lines = {slot: line for slot, line in (review_line_by_slot or {}).items() if line}
+    if not lines:
+        return []
+    steps = [{
+        "step": REVIEW_TRACE_STEP,
+        "title": f"{REVIEW_TRACE_STEP} {len(lines)}개 슬롯",
+        "detail": " · ".join(f"{slot} {line}" for slot, line in lines.items()),
+    }]
+    for slot in lines:
+        facts = [e for e in (evidence_by_slot or {}).get(slot, [])
+                 if e.get("observation_id") or e.get("text")]
+        if not facts:
+            continue
+        detail = " · ".join(
+            f"{e.get('direction', 'unknown')} {e.get('text', '')} "
+            f"(observation_id={e.get('observation_id')}, document_id={e.get('document_id')})"
+            for e in facts
+        )
+        steps.append({
+            "step": f"{REVIEW_TRACE_STEP} · {slot}",
+            "title": f"{slot} 적용 관측 근거 {len(facts)}건",
+            "detail": detail,
+        })
+    return steps
+
+
+def explanation_text_with_caveats(summary: str, caveats: list[str]) -> str:
+    """explanation_text = 추천 요약(summary) + 확인이 필요한 것. caveats 가 비면 요약만.
+
+    전엔 슬롯별 reason 8줄을 이어붙였는데 그건 요약이 아니었다 — summary 로 바뀌었다.
+    """
+    if not caveats:
+        return summary
+    return summary + "\n\n확인이 필요한 것:\n" + "\n".join(f"- {c}" for c in caveats)

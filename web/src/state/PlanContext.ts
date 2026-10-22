@@ -1,0 +1,56 @@
+import { createContext, useContext } from 'react'
+import type { AlternativeOption, ItemPatch } from '../api/types'
+import type { ChatChoice, ChatMessage, CheckDraft, EditingSheet, PartKey, PlanState, SavedSetup, SetupPeripheral } from './types'
+
+export interface PlanContextValue {
+  state: PlanState
+  checkDraft: CheckDraft
+  updateCheckDraft: (patch: Partial<CheckDraft>) => void
+  messages: ChatMessage[]
+  /** 서버가 조건 대화 한 턴을 처리하는 중 */
+  busy: boolean
+  starterHidden: boolean
+  analyzingIndex: number
+  customHeading: { title: string; desc: string } | null
+  handleInput: (text: string) => void
+  handleChoice: (choice: ChatChoice) => void
+  startAnalysis: () => void
+  /** 남은 예산으로 성능을 올리려고 우선순위를 '성능 우선'으로 바꿔 다시 추천받는다(서버 인터뷰 세션이 있는 새 구성 전용). */
+  retryWithPerformance: () => void
+  /** 브라우저에 남은 옛 구성을 서버의 최신 결과로 조용히 다시 읽는다(실패하면 그대로 둔다) */
+  refreshPlan: () => void
+  /** 저장돼 있던 작업의 서버 세션이 아직 유효한지 확인하고, 없으면(로그아웃·다른 계정) 작업을 비우고 새로 시작한다 */
+  checkSession: () => void
+  /** 이 부품 자리의 대안 목록을 서버에서 가져온다 */
+  loadAlternatives: (itemId: string) => Promise<AlternativeOption[]>
+  /** 대안으로 교체한다. 성공하면 true (실패하면 안내 메시지를 띄운다) */
+  swapItem: (itemId: string, candidateId: string) => Promise<boolean>
+  /** 수량·구매 시점을 바꾼다. 성공하면 true */
+  updateItem: (itemId: string, patch: ItemPatch) => Promise<boolean>
+  selectPart: (key: PartKey) => void
+  setBudget: (budget: number | null) => void
+  setDesk: (width: number, depth: number, height: number) => boolean
+  resetPlan: () => void
+  loadFromSavedSetup: (setup: SavedSetup) => void
+  /** 지난 대화를 서버에서 읽어 연다. hasResult 면 추천 결과까지. 열린 화면('plan'|'conditions'), 실패하면 null */
+  openConversation: (listId: string, hasResult: boolean, viewOnly?: boolean) => Promise<'plan' | 'conditions' | null>
+  /** 확정한 견적의 조건으로 새 견적서를 시작한다(조건 대화로). 성공하면 true */
+  reviseSetup: (listId: string, from: EditingSheet) => Promise<'plan' | 'conditions' | null>
+  /** 확정한 주변기기 견적을 기존 품목과 함께 다시 열어 수정한다. */
+  revisePeripheralSetup: (setup: SavedSetup) => Promise<boolean>
+  /** 주변기기 추천에서 고른 품목을 통합 장바구니에 담는다(빈 배열이면 비운다) */
+  setPeripherals: (peripherals: SetupPeripheral[], sessionId?: string | null) => void
+  /** 덮어쓰기·새로 저장을 마친 뒤 "수정 중인 원본" 표시를 지운다 */
+  clearEditingSheet: () => void
+  /** 결과 화면의 "조건 바꾸기" — 채팅을 다시 조건 대화로 돌린다(결과를 본 뒤에는 채팅이 부품 교체용 후속 질문으로 간다) */
+  reopenConditions: () => void
+  /** 결과 화면을 다시 열 때 — 조건 바꾸기로 돌려 둔 단계(2)를 결과(4)로 되돌려 채팅이 부품 교체 후속 질문으로 가게 한다 */
+  showResults: () => void
+}
+export const PlanContext = createContext<PlanContextValue | null>(null)
+
+export function usePlan() {
+  const ctx = useContext(PlanContext)
+  if (!ctx) throw new Error('usePlan must be used within PlanProvider')
+  return ctx
+}

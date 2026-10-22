@@ -1,0 +1,158 @@
+"""견적 한 줄 → 항목 규칙(src/engine/quote_items.py) — DB·LLM 없이 도는 순수 함수."""
+from __future__ import annotations
+
+import pytest
+
+from src.engine.quote_items import default_selection, merge_same_products, spec_text, split_line
+
+
+def test_name_has_no_code_or_price():
+    parts = split_line("인텔 코어 i5-14400F 19996987 238,000원")
+    assert parts["normalized_name"] == "인텔 코어 i5-14400F"
+    assert parts["product_code"] == "19996987"
+    assert parts["quote_line_total"] == 238000 and parts["quote_unit_price"] == 238000
+    assert parts["quantity"] == 1 and parts["quote_price_type"] == "unit"
+
+
+def test_quantity_is_a_field_and_price_is_the_line_total():
+    parts = split_line("삼성전자 DDR5-5600 16GB 2개 190,000원")
+    assert parts["quantity"] == 2 and "2개" not in parts["normalized_name"]
+    assert parts["quote_line_total"] == 190000 and parts["quote_unit_price"] == 95000
+    assert parts["quote_price_type"] == "line_total"
+
+
+def test_ram_kit_notation_stays_in_the_name_because_it_is_the_product_configuration():
+    parts = split_line("Kingston FURY Beast DDR4 16GB x2 90,000원")
+    assert "x2" in parts["normalized_name"] and parts["quantity"] == 2
+
+
+@pytest.mark.parametrize("count", ["× 2개당", "× 2개 당", "× 2개", "x 2ea", "* 2개"])
+def test_image_quantity_label_does_not_leave_multiplier_or_per_unit_suffix_in_name(count):
+    parts = split_line(f"삼성전자 DDR5-5600 (8GB) {count} 60,000원")
+    assert parts["normalized_name"] == "삼성전자 DDR5-5600 (8GB)"
+    assert parts["quantity"] == 2
+    assert spec_text(parts) == "삼성전자 DDR5-5600 (8GB) 2개 60,000원"
+
+
+def test_parenthesized_ram_configuration_is_preserved():
+    parts = split_line("삼성전자 DDR5-5600 (8GB) × 2")
+    assert parts["normalized_name"] == "삼성전자 DDR5-5600 (8GB) × 2"
+    assert parts["quantity"] == 2
+    assert spec_text(parts) == parts["normalized_name"]
+
+
+def test_no_price_is_unknown_and_not_invented():
+    parts = split_line("AMD Ryzen 5 7500F")
+    assert parts["quote_line_total"] is None and parts["quote_unit_price"] is None
+    assert parts["quote_price_type"] == "unknown"
+
+
+def test_a_price_looking_number_that_is_a_model_number_is_not_a_price():
+    parts = split_line("AMD Ryzen 5 5600")
+    assert parts["quote_line_total"] is None and parts["normalized_name"] == "AMD Ryzen 5 5600"
+
+
+def test_spec_text_rebuilds_name_quantity_and_total_for_the_review():
+    text = spec_text({"normalized_name": "삼성전자 DDR5-5600 16GB", "quantity": 2, "quote_line_total": 190000})
+    assert text == "삼성전자 DDR5-5600 16GB 2개 190,000원"
+    assert spec_text({"normalized_name": "AMD Ryzen 5 7500F", "quantity": 1, "quote_line_total": None}) == "AMD Ryzen 5 7500F"
+
+
+def _item(i, category, *, status="unmatched", product=None, sources=("source-1",)):
+    return {"id": i, "category": category, "match_status": status, "matched_product_id": product, "source_ids": list(sources)}
+
+
+def test_only_confirmed_same_products_are_merged_and_other_models_are_kept():
+    items = [
+        _item("a", "GPU", status="confirmed", product="p1", sources=("source-1",)),
+        _item("b", "GPU", status="confirmed", product="p1", sources=("source-2",)),      # 같은 제품 — 합친다
+        _item("c", "GPU", status="confirmed", product="p2"),                               # 같은 부품군의 다른 모델 — 남긴다
+        _item("d", "CPU", status="unmatched"), _item("e", "CPU", status="unmatched"),    # 확정 안 된 것은 합치지 않는다
+    ]
+    merged = merge_same_products(items)
+    assert [i["id"] for i in merged] == ["a", "c", "d", "e"]
+    assert merged[0]["source_ids"] == ["source-1", "source-2"]
+
+
+def test_unmatched_items_with_the_same_name_from_different_sources_are_merged():
+    """카탈로그에 없는 부품도 두 사진에 같은 글자로 찍혔으면 한 항목이다. 같은 사진 안의 같은 이름 두 줄은 합치지 않는다."""
+    def named(i, name, source):
+        return {**_item(i, "저장장치", sources=(source,)), "normalized_name": name}
+    items = [named("a", "에센코어 CRAS C910 (500GB)", "source-1"), named("b", "에센코어 CRAS C910(500GB)", "source-2"),
+             named("c", "에센코어 CRAS C910 (500GB)", "source-1"), named("d", "다른 SSD", "source-2")]
+    merged = merge_same_products(items)
+    assert [i["id"] for i in merged] == ["a", "c", "d"]            # b 는 a 와 합쳐지고, 같은 사진의 c 는 따로 남는다
+    assert merged[0]["source_ids"] == ["source-1", "source-2"]
+
+
+def test_default_selection_is_the_first_item_of_each_category():
+    items = [_item("a", "GPU"), _item("b", "GPU"), _item("c", "CPU")]
+    assert default_selection(items) == {"GPU": "a", "CPU": "c"}
+
+
+def test_english_ea_counts_as_quantity_too():
+    parts = split_line("Samsung DDR5-5600 16GB 2ea 190,000원")
+    assert parts["quantity"] == 2 and parts["normalized_name"] == "Samsung DDR5-5600 16GB"
+    assert parts["quote_price_type"] == "line_total" and parts["quote_unit_price"] == 95000
+
+
+def test_dollar_prices_are_not_read_as_won():
+    from src.engine.quote_price import parse_price
+
+    assert parse_price("AMD Ryzen 7 7800X3D $368.99") is None
+    assert parse_price("Asus PRIME OC Radeon RX 9070 XT $1,299.99") is None     # "$1,299.99"의 1,299 를 원 가격으로 읽으면 안 된다
+    assert parse_price("RTX 5050 449,000원") == 449000
+
+
+def test_spec_lines_keep_every_line_of_the_same_slot():
+    from src.engine.spec_text import parse_spec_lines
+
+    text = "CPU: 라이젠 5 7500F\nGPU: RTX 5060\nGPU: RX 9060 XT\n메인보드: B650M"
+    assert parse_spec_lines(text) == [("CPU", "라이젠 5 7500F"), ("GPU", "RTX 5060"), ("GPU", "RX 9060 XT"), ("메인보드", "B650M")]
+
+
+def test_dollar_price_is_removed_from_the_name_and_not_read_as_won():
+    parts = split_line("AMD Ryzen 7 7800X3D 4.2 GHz 8-Core Processor $368.99")
+    assert parts["normalized_name"] == "AMD Ryzen 7 7800X3D 4.2 GHz 8-Core Processor"
+    assert parts["quote_line_total"] is None and parts["quote_price_type"] == "unknown"
+    assert split_line("Asus PRIME OC Radeon RX 9070 XT $1,299.99")["normalized_name"] == "Asus PRIME OC Radeon RX 9070 XT"
+
+
+def test_shop_table_row_trailing_quantity_column_is_a_quantity_not_part_of_the_name():
+    """쇼핑몰 견적 표 캡처("제품명 -상품코드 | 판매가 | 수량 | 합계")에서 읽은 줄 — 이름 끝에 "- 1"이 남지 않는다."""
+    one = split_line("[AMD] 라이젠5 라파엘 7500X3D (6코어/12스레드/4.0GHz/쿨러미포함) 멀티팩 -1313313 1 316,000원")
+    assert one["normalized_name"] == "[AMD] 라이젠5 라파엘 7500X3D (6코어/12스레드/4.0GHz/쿨러미포함) 멀티팩"
+    assert one["product_code"] == "1313313" and one["quantity"] == 1 and one["quote_line_total"] == 316000
+    two = split_line("[삼성] DDR5 16GB -1292405 2 640,000원")
+    assert two["quantity"] == 2 and two["normalized_name"] == "[삼성] DDR5 16GB"
+    assert two["quote_price_type"] == "line_total" and two["quote_unit_price"] == 320000
+    assert split_line("[ABKO] SETTLER 800W -1140804 1개 59,900원")["normalized_name"] == "[ABKO] SETTLER 800W"
+
+
+def test_korean_brand_and_series_words_match_the_english_catalog_name():
+    """카탈로그는 영문이다 — 쇼핑몰이 한글로 적은 표기("어쌔신")가 같은 제품을 찾아야 한다(별칭)."""
+    from src.dto import Candidate
+    from src.engine.owned_parts import _match_catalog
+
+    pool = [Candidate(product_key="k1", slot="쿨러", name="Thermalright Assassin X 120 Refined SE", product_id="p1"),
+            Candidate(product_key="k2", slot="쿨러", name="Thermalright Peerless Assassin 120 SE", product_id="p2")]
+    hits = _match_catalog("써멀라이트 어쌔신 X 120 Refined SE", pool)
+    assert [c.product_id for c in hits] == ["p1"]
+    assert [c.product_id for c in _match_catalog("써멀라이트 피어리스 어쌔신 120 SE", pool)] == ["p2"]
+
+
+def test_shop_title_noise_words_do_not_block_a_match():
+    from src.dto import Candidate
+    from src.engine.owned_parts import _match_nearest
+
+    pool = [Candidate(product_key="k1", slot="저장장치", name="Samsung PM9A1 NVMe 512GB", product_id="p1")]
+    assert _match_nearest("삼성전자 병행수입 PM9A1 벌크 새상품", pool) is not None
+
+
+@pytest.mark.parametrize("line, expected", [
+    ("램 튜닝 킷 (방열판 포함)", True), ("슬리빙 케이블 연장 세트", True), ("서멀 구리스 MX-4", True), ("조립비 50,000원", True),
+    ("삼성전자 DDR5-5600 16GB", False), ("쿨러마스터 허리케인 팬 방열판 포함 SSD 990 PRO 1TB", False), ("Deepcool AG620 G2", False),
+])
+def test_non_part_lines_are_tuning_accessories_and_services_only(line, expected):
+    from src.engine.quote_items import is_non_part_line
+    assert is_non_part_line(line) is expected

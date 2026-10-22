@@ -1,0 +1,283 @@
+"""관리형 LLM API 호출 래퍼 (벤더 중립).
+
+실제 구현에서는 env 로 주입된 LLM_PROVIDER / LLM_MODEL 에 맞는 SDK 로
+- 함수 호출(structured output) 로 스키마를 강제한 JSON
+- 자유 텍스트 응답
+을 받는다. 현재는 MOCK_MODE 에서 용도(system 프롬프트 / 스키마 모양)를 보고 고정 가짜 응답을 준다.
+"""
+from __future__ import annotations
+
+import json
+import math
+import time
+from typing import Any
+
+from src.clients.llm_guard import llm_call_slot
+from src.config import (
+    LLM_MODEL, LLM_PROVIDER, LLM_REQUEST_TIMEOUT_S, LLM_SEARCH_TIMEOUT_SECONDS, LLM_TIMEOUT_SECONDS, LLM_VISION_TIMEOUT_SECONDS,
+    MOCK_MODE, OPENAI_API_KEY,
+)
+
+_client: Any = None
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        if LLM_PROVIDER != "openai":
+            raise NotImplementedError(f"call_llm: 지원하지 않는 LLM_PROVIDER={LLM_PROVIDER!r}")
+        if not OPENAI_API_KEY:
+            raise RuntimeError("call_llm: OPENAI_API_KEY 미설정 (MOCK_MODE=0)")
+        from openai import OpenAI
+
+        # timeout 을 두지 않으면 SDK 기본값이 600초라 멈춘 호출 하나가 스레드와 DB 연결을 10분 쥔다. 호출마다 with_options 로 더 정한다.
+        _client = OpenAI(api_key=OPENAI_API_KEY, timeout=LLM_TIMEOUT_SECONDS)
+    return _client
+
+
+def _remaining(deadline: float | None) -> float | None:
+    """deadline(time.monotonic 기준)까지 남은 초. 없으면 None, 지났으면 TimeoutError."""
+    if deadline is None:
+        return None
+    left = deadline - time.monotonic()
+    if left <= 0:
+        raise TimeoutError("call_llm: 시간 예산을 다 썼습니다")
+    return left
+
+
+# 시간 예산이 있는 호출의 HTTP 재시도. SDK 재시도는 예산을 모르므로 끄고, 여기서 남은 시간을 보며 다시 보낸다 — 횟수(2회)와
+# 대상(연결 오류·시간 초과·408/409/429/5xx, x-should-retry·Retry-After 헤더)은 SDK 기본과 같다.
+_HTTP_RETRIES = 2
+_RETRY_BACKOFF_S = (0.5, 1.0)
+# 기다린 뒤 이만큼도 남지 않으면 다시 보내지 않는다 — 응답을 받기 전에 예산이 끝나는 요청이다.
+_MIN_RETRY_WINDOW_S = 2.0
+
+
+def _retry_wait(exc: Exception, attempt: int) -> float | None:
+    """다시 보낼 만한 오류면 기다릴 초, 아니면 None."""
+    import openai
+
+    if isinstance(exc, openai.APIConnectionError):          # 시간 초과(APITimeoutError)도 여기에 든다
+        return _RETRY_BACKOFF_S[attempt]
+    if not isinstance(exc, openai.APIStatusError):
+        return None
+    headers = exc.response.headers
+    should_retry = headers.get("x-should-retry")
+    if should_retry == "false":
+        return None
+    if should_retry != "true" and exc.status_code not in (408, 409, 429) and exc.status_code < 500:
+        return None
+    try:
+        retry_after = float(headers.get("retry-after", ""))
+    except ValueError:
+        retry_after = 0.0
+    if not math.isfinite(retry_after):
+        return None
+    return max(_RETRY_BACKOFF_S[attempt], retry_after)
+
+
+def _create_within(client, kwargs: dict, deadline: float):
+    """마감 시각 안에서 요청한다 — 요청마다 남은 시간(최대 LLM_REQUEST_TIMEOUT_S)만 주고, 일시적 오류는 남은 시간이 있으면 다시 보낸다."""
+    for attempt in range(_HTTP_RETRIES + 1):
+        try:
+            # 동시 호출 자리(llm_call_slot)는 요청마다 쥐고 놓는다 — 재시도 전에 기다리는 동안 다른 호출의 자리를 막지 않게.
+            # 자리는 남은 시간만큼만 기다리고, 요청 제한 시간은 자리를 얻은 뒤의 남은 시간으로 정한다(줄 선 시간도 예산에 든다).
+            with llm_call_slot(max_wait=_remaining(deadline)):
+                left = _remaining(deadline)
+                return client.with_options(timeout=min(left, LLM_REQUEST_TIMEOUT_S), max_retries=0).chat.completions.create(**kwargs)
+        except Exception as exc:
+            wait = _retry_wait(exc, attempt) if attempt < _HTTP_RETRIES else None
+            if wait is None or deadline - time.monotonic() - wait < _MIN_RETRY_WINDOW_S:
+                raise
+            time.sleep(wait)
+    raise AssertionError("unreachable")
+
+
+def _call_openai(prompt: str, *, system: str | None, output_schema: dict | None, model: str,
+                 deadline: float | None = None, timeout: float | None = None) -> dict:
+    client = _get_client()
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    messages.append({"role": "user", "content": prompt})
+
+    kwargs: dict[str, Any] = {"model": model or LLM_MODEL, "messages": messages}
+    if output_schema:
+        # strict=False: 일부 스키마가 dict[str, Any] 같은 자유 형태 필드를 포함해
+        # OpenAI strict 모드의 additionalProperties 제약과 맞지 않을 수 있다.
+        kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "output", "schema": output_schema, "strict": False},
+        }
+
+    last_error: Exception | None = None
+    for _attempt in range(2):  # 파싱 실패 시 1회 재시도
+        # 시간 예산이 있으면 HTTP 재시도까지 그 안에서 센다(_create_within). 없으면 클라이언트 설정(제한 시간·SDK 재시도) 그대로.
+        if deadline is None:
+            with llm_call_slot():
+                # timeout: 출력이 긴 호출(사용기 분석 등)만 기본 제한(LLM_TIMEOUT_SECONDS)보다 길게 준다. 호출마다만 바뀐다.
+                active = client.with_options(timeout=timeout) if timeout else client
+                response = active.chat.completions.create(**kwargs)
+        else:
+            response = _create_within(client, kwargs, deadline)
+        content = response.choices[0].message.content or ""
+        if not output_schema:
+            return {"text": content}
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+    raise ValueError(f"call_llm: 구조화 출력 JSON 파싱 실패: {last_error}")
+
+
+def call_llm(
+    prompt: str,
+    *,
+    system: str | None = None,
+    output_schema: dict | None = None,
+    model: str = LLM_MODEL,
+    deadline: float | None = None,
+    timeout: float | None = None,
+) -> dict:
+    """LLM 호출.
+
+    Args:
+        prompt: 사용자 메시지 텍스트.
+        system: 시스템 프롬프트.
+        output_schema: 주어지면 스키마에 맞는 dict, 없으면 {"text": str} 반환.
+        model: 모델 식별자 (env 주입).
+        deadline: time.monotonic() 기준 마감 시각. 주면 파싱 재시도·HTTP 재시도까지 이 안에서 끝내고, 넘기면 TimeoutError.
+        timeout: 요청 한 번의 제한 시간(초). 없으면 클라이언트 기본(LLM_TIMEOUT_SECONDS). deadline 이 있으면 쓰지 않는다.
+
+    Returns:
+        output_schema 가 있으면 dict, 없으면 {"text": str}.
+    """
+    if not MOCK_MODE:
+        return _call_openai(prompt, system=system, output_schema=output_schema, model=model, deadline=deadline, timeout=timeout)
+
+    preview = prompt.replace("\n", " ")[:36]
+    print(f"[MOCK] LLM 호출: {preview}...")
+
+    sys_text = system or ""
+    if "검증 쟁점" in sys_text:
+        return {"text": "[MOCK] 관측값과 근거를 그대로 옮긴 쟁점 문장입니다."}
+
+    # 그 외 구조화 출력 요청 → 호출자가 시나리오 정답값을 직접 주입하므로 빈 골격 반환
+    return {"text": "[MOCK] 일반 응답"}
+
+
+def _call_openai_vision(image_data_url: str, *, system: str | None, output_schema: dict | None, model: str,
+                        temperature: float | None) -> dict:
+    client = _get_client()
+    messages = []
+    if system:
+        messages.append({"role": "system", "content": system})
+    # detail="high" — 기본값(auto/low)은 캡처 속 작은 글자(모델번호·코드)를 다른 토큰으로
+    # 잘못 읽는 사례가 실측됐다. 타일 단위 고해상도 처리라 토큰 비용은 늘지만, 이미지 1장짜리
+    # 저빈도 호출이라 감당할 만하다.
+    messages.append({"role": "user", "content": [
+        {"type": "image_url", "image_url": {"url": image_data_url, "detail": "high"}}]})
+
+    kwargs: dict[str, Any] = {"model": model or LLM_MODEL, "messages": messages}
+    if temperature is not None:
+        kwargs["temperature"] = temperature
+    if output_schema:
+        kwargs["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "output", "schema": output_schema, "strict": False},
+        }
+
+    # 일부 모델(예: gpt-6-luna)은 temperature 커스텀 값을 아예 거부한다("Only the default (1)
+    # value is supported") — 모델별로 알고 있다가 분기하는 대신, 그 오류가 나면 그 자리에서
+    # temperature를 빼고 같은 요청을 다시 보낸다. 미래에 같은 제약을 가진 다른 모델이 와도
+    # 코드를 안 고쳐도 된다. 이미지가 실려 있어 비용이 드니, 확인용 별도 호출은 만들지 않는다.
+    from openai import BadRequestError
+
+    vision_client = client.with_options(timeout=LLM_VISION_TIMEOUT_SECONDS)
+
+    def _create(call_kwargs: dict[str, Any]):
+        with llm_call_slot():
+            try:
+                return vision_client.chat.completions.create(**call_kwargs)
+            except BadRequestError as exc:
+                if "temperature" in call_kwargs and "temperature" in str(exc).lower():
+                    return vision_client.chat.completions.create(**{k: v for k, v in call_kwargs.items() if k != "temperature"})
+                raise
+
+    last_error: Exception | None = None
+    for _attempt in range(2):
+        response = _create(kwargs)
+        content = response.choices[0].message.content or ""
+        if not output_schema:
+            return {"text": content}
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+    raise ValueError(f"call_llm_vision: 구조화 출력 JSON 파싱 실패: {last_error}")
+
+
+def call_llm_vision(
+    image_data_url: str,
+    *,
+    system: str | None = None,
+    output_schema: dict | None = None,
+    model: str = LLM_MODEL,
+    temperature: float | None = None,
+) -> dict:
+    """이미지 1장을 보는 LLM 호출. call_llm과 같은 계약(스키마 있으면 dict, 없으면 {"text": str})이고
+    입력만 텍스트 대신 이미지다 — call_llm 자체의 시그니처·동작은 바꾸지 않는다(다른 호출부가 많다).
+
+    Args:
+        image_data_url: "data:image/png;base64,..." 형식의 데이터 URL. 원본 이미지는 이 호출이
+            끝나면 버려진다 — 저장하지 않는다(견적 점검 사양 추출의 개인정보·저작권 원칙).
+        system, output_schema, model: call_llm과 같다.
+        temperature: 안 주면(기본 None) API 기본값. 견적 점검 이미지 추출처럼 "같은 입력엔 같은
+            답"이 중요한 호출은 0으로 준다 — 실측(2026-10-01)으로 기본값보다 환각이 줄고
+            재현 가능해지는 걸 확인했다.
+    """
+    if not MOCK_MODE:
+        return _call_openai_vision(image_data_url, system=system, output_schema=output_schema, model=model,
+                                   temperature=temperature)
+
+    print("[MOCK] LLM 비전 호출: (이미지 1장)")
+    return {"text": "[MOCK] 일반 응답"}
+
+
+def _call_openai_web_search(query: str, *, model: str) -> dict:
+    client = _get_client()
+    with llm_call_slot():
+        response = client.with_options(timeout=LLM_SEARCH_TIMEOUT_SECONDS).responses.create(
+            model=model or LLM_MODEL, tools=[{"type": "web_search"}], input=query)
+    source_url = None
+    for item in response.output:
+        if item.type != "message":
+            continue
+        for content in item.content:
+            for annotation in getattr(content, "annotations", None) or []:
+                if annotation.type == "url_citation":
+                    source_url = annotation.url
+                    break
+            if source_url:
+                break
+        if source_url:
+            break
+    return {"text": response.output_text or "", "source_url": source_url}
+
+
+def call_web_search(query: str, *, model: str = LLM_MODEL) -> dict:
+    """웹 검색 1회 — DB 미보유 부품 실시간 스펙 검색(docs/미보유부품_실시간스펙검색_설계.md §3)
+    전용. OpenAI Responses API의 내장 web_search 도구를 쓴다 — call_llm/call_llm_vision이 쓰는
+    chat.completions과는 다른 엔드포인트라 별도 함수로 둔다.
+
+    Returns:
+        {"text": 검색 결과 요약 텍스트, "source_url": 첫 인용 출처 URL(없으면 None)}.
+        "text"는 검증(critique) 단계의 입력일 뿐, 그대로 사용자에게 보여주지 않는다 — 모델이
+        검색 결과를 요약하면서 지어낸 문장이 섞여 있을 수 있어, 그 지어낸 부분까지 추출되지
+        않게 걸러내는 게 critique 단계의 역할이다(live_spec_lookup_system).
+    """
+    if not MOCK_MODE:
+        return _call_openai_web_search(query, model=model)
+
+    print(f"[MOCK] 웹 검색 호출: {query[:36]}...")
+    return {"text": "[MOCK] 검색 결과 없음", "source_url": None}

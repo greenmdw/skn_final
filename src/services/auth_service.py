@@ -1,0 +1,264 @@
+"""인증 서비스 — 이메일+비밀번호 가입/로그인/프로필/탈퇴 (docs/frontend_외부수정요청.md §A-3, §A-4).
+
+`request-code`/`verify`(이메일 코드)는 이번 흐름에서 쓰지 않지만 삭제하지 않고 보류한다
+(비밀번호 재설정·이메일 인증 재사용 예정, §G).
+"""
+from __future__ import annotations
+
+import hashlib
+import re
+from datetime import datetime, timezone
+from uuid import UUID
+
+from src.auth import codes, jwt, passwords, session_check
+from src.auth.deps import Principal
+from src.db import get_pool
+from src.config import (
+    JWT_TTL_DAYS,
+    LOGIN_LOCK_MINUTES,
+    LOGIN_MAX_FAILURES,
+    SESSION_TTL_HOURS,
+    TERMS_VERSION,
+)
+from src.errors import AccountLocked, Conflict, Unauthorized, ValidationFailed
+from src.repo.user_repo import ConversationRepo, UserRepo
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+# 실제 검증과 비슷한 비용을 들이기 위한 가짜 해시 — 가입 여부를 응답 시간으로 드러내지 않는다.
+_DUMMY_PASSWORD_HASH = passwords.hash_password("dummy-password-for-constant-time-check")
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _normalize_email(email: str) -> str:
+    normalized = email.strip().lower()
+    if not _EMAIL_RE.match(normalized):
+        raise ValidationFailed("이메일 형식이 올바르지 않습니다.", field="email")
+    return normalized
+
+
+def _check_password_strength(password: str) -> None:
+    if not passwords.is_strong(password):
+        raise ValidationFailed(
+            "비밀번호는 영문·숫자를 포함해 8~128자여야 합니다.", field="password", code="weak_password"
+        )
+
+
+def _to_user_out(row: dict) -> dict:
+    return {
+        "id": str(row["id"]),
+        "email": row["email"],
+        "display_name": row["display_name"],
+        "marketing_agreed": row["marketing_agreed"],
+        "created_at": row["created_at"],
+    }
+
+
+def _issue_token(user_id: UUID, email: str, password_updated_at, *, ttl_seconds: int) -> str:
+    """방금 DB 에서 읽은 password_updated_at 보다 뒤의 iat 로 발급한다(jwt.issue 의 after 참고)."""
+    after = password_updated_at.timestamp() if password_updated_at is not None else None
+    return jwt.issue(user_id, email, ttl_seconds=ttl_seconds, after=after)
+
+
+def _merge_guest_data(conn, user_id: UUID, browser_token: str | None) -> None:
+    if not browser_token:
+        return
+    ConversationRepo(conn).attach_user(_token_hash(browser_token), user_id)
+
+
+def _require_active_session(user: dict, principal: Principal) -> None:
+    """비밀번호 변경·탈퇴 이전에 발급된 토큰을 거부한다(§A-3 로그인 상태 확인)."""
+    if user is None or user["status"] != "active":
+        raise Unauthorized("로그인이 필요합니다.")
+    # 비밀번호 변경 시각과 "모든 기기 로그아웃" 시각 이전에 발급된 토큰은 무효다.
+    # 마이크로초까지 그대로 비교한다(초 단위로 버리면 가입/변경 직후 발급된
+    # 정상 토큰도 같은 초의 시각과 우연히 겹쳐 스스로를 무효화할 수 있다). 그래도 정확히 같은 시각이면(경계) 무효화 쪽(<=).
+    for floor in (user["password_updated_at"], user.get("sessions_revoked_at")):
+        if floor is not None and (principal.session_iat is None or principal.session_iat <= floor.timestamp()):
+            raise Unauthorized("세션이 만료되었습니다. 다시 로그인해주세요.")
+
+
+def require_active_user(conn, principal: Principal) -> dict:
+    """로그인이 필요한 다른 서비스(list_service 등)가 공용으로 쓰는 검사.
+
+    JWT가 유효해도 계정이 그 사이 탈퇴·정지됐거나 비밀번호가 바뀌었으면 거부한다
+    (session_iat만 보는 얕은 검사로는 못 잡는 부분 — §A-3).
+    """
+    if principal.user_id is None:
+        raise Unauthorized("로그인이 필요합니다.")
+    user = UserRepo(conn).get(principal.user_id)
+    _require_active_session(user, principal)
+    return user
+
+
+def request_login_code(email: str) -> None:
+    """보류 중인 코드 로그인 — request-code 라우터가 호출(§G 재사용 예정)."""
+    codes.request_code(email)
+
+
+def signup(conn, principal: Principal, *, email: str, password: str, display_name: str,
+           terms_agreed: bool, privacy_agreed: bool, marketing_agreed: bool) -> tuple[dict, str]:
+    normalized_email = _normalize_email(email)
+    _check_password_strength(password)
+    display_name = display_name.strip()
+    if not (1 <= len(display_name) <= 20):
+        raise ValidationFailed("표시 이름은 1~20자여야 합니다.", field="display_name")
+    if not (terms_agreed and privacy_agreed):
+        raise ValidationFailed(
+            "이용약관과 개인정보 처리방침에 동의해야 합니다.", field="terms_agreed", code="terms_required"
+        )
+
+    repo = UserRepo(conn)
+    if repo.is_email_taken(normalized_email):
+        raise Conflict("이미 사용 중인 이메일입니다.", field="email", code="email_taken")
+
+    now = datetime.now(timezone.utc)
+    row = repo.create_local_user(
+        email_normalized=normalized_email,
+        password_hash=passwords.hash_password(password),
+        display_name=display_name,
+        terms_version=TERMS_VERSION,
+        terms_agreed_at=now,
+        privacy_agreed_at=now,
+        marketing_agreed_at=now if marketing_agreed else None,
+    )
+    _merge_guest_data(conn, row["id"], principal.browser_token)
+    token = _issue_token(row["id"], row["email"], row["password_updated_at"], ttl_seconds=JWT_TTL_DAYS * 86_400)
+    return _to_user_out(row), token
+
+
+def login(conn, principal: Principal, *, email: str, password: str, remember: bool) -> tuple[dict, str]:
+    normalized_email = _normalize_email(email)
+
+    # 판정(SELECT ... FOR UPDATE)과 그 결과로 나오는 쓰기(실패 기록 또는 로그인 성공
+    # 기록)를 전부 이 함수 전용 커넥션·트랜잭션 하나로 묶어서 항상 커밋한다. 이유 둘:
+    # 1) conn 은 요청 전체를 감싸는 트랜잭션이다 — 아래서 Unauthorized 를 던지면
+    #    get_conn()이 그걸 보고 전부 롤백해서, 방금 기록한 실패 횟수·잠금이 함께
+    #    사라진다(로그인 잠금이 영원히 안 걸리던 버그의 원인).
+    # 2) FOR UPDATE 로 행을 잠가서 "비밀번호 변경 진행 중인 계정"의 로그인이 그
+    #    변경을 기다렸다가 새 비밀번호로 판정하게 한다(P6 review R1) — 이 잠금을
+    #    conn(요청 전체 트랜잭션)에서 걸면 이 함수가 끝날 때까지 안 풀려서 같은 요청의
+    #    다른 쓰기와 얽힐 수 있어, 전용 커넥션에서만 잡고 여기서 바로 커밋해 푼다.
+    # 예외는 이 블록 밖에서 던진다 — 블록 안에서 던지면 이 전용 트랜잭션마저 롤백된다.
+    pending_error: Exception | None = None
+    user: dict | None = None
+    with get_pool().connection() as work_conn:
+        with work_conn.transaction():
+            repo = UserRepo(work_conn)
+            row = repo.get_for_login_locked(normalized_email)
+            if row is None or row["status"] != "active":
+                passwords.verify_password(_DUMMY_PASSWORD_HASH, password)
+                pending_error = Unauthorized("이메일 또는 비밀번호가 올바르지 않습니다.", code="invalid_credentials")
+            elif row["locked_until"] is not None and row["locked_until"] > datetime.now(timezone.utc):
+                pending_error = AccountLocked("로그인 시도 초과로 잠시 잠겼습니다. 잠시 후 다시 시도해주세요.")
+            elif row["password_hash"] is None or not passwords.verify_password(row["password_hash"], password):
+                repo.record_login_failure(row["id"], max_failures=LOGIN_MAX_FAILURES, lock_minutes=LOGIN_LOCK_MINUTES)
+                pending_error = Unauthorized("이메일 또는 비밀번호가 올바르지 않습니다.", code="invalid_credentials")
+            else:
+                if passwords.needs_rehash(row["password_hash"]):
+                    repo.update_password(row["id"], passwords.hash_password(password))
+                repo.record_login_success(row["id"])
+                user = repo.get(row["id"])
+
+    if pending_error is not None:
+        raise pending_error
+
+    assert user is not None
+    _merge_guest_data(conn, user["id"], principal.browser_token)
+    ttl_seconds = JWT_TTL_DAYS * 86_400 if remember else SESSION_TTL_HOURS * 3_600
+    token = _issue_token(user["id"], user["email"], user["password_updated_at"], ttl_seconds=ttl_seconds)
+    return _to_user_out(user), token
+
+
+def logout(conn, principal: Principal) -> None:
+    """이 기기의 로그인 토큰을 서버에서도 폐기한다 — 쿠키만 지우면 토큰이 만료까지 계속 쓸 수 있었다. 로그인 상태가 아니어도 성공한다."""
+    if principal.user_id is None or principal.session_jti is None or principal.session_exp is None:
+        return
+    UserRepo(conn).revoke_session(principal.user_id, principal.session_jti, principal.session_exp)
+    session_check.invalidate_user(principal.user_id)
+
+
+def logout_all(conn, principal: Principal, *, include_current: bool) -> str | None:
+    """모든 기기의 로그인을 끝낸다. include_current=False 면 이 기기는 남기고 새 토큰을 돌려준다(다른 기기만 로그아웃)."""
+    user = require_active_user(conn, principal)
+    repo = UserRepo(conn)
+    revoked_at = repo.revoke_all_sessions(user["id"])
+    session_check.invalidate_user(user["id"])
+    if include_current:
+        return None
+    return _issue_token(user["id"], user["email"], revoked_at, ttl_seconds=JWT_TTL_DAYS * 86_400)
+
+
+def get_me(conn, principal: Principal) -> dict:
+    return _to_user_out(require_active_user(conn, principal))
+
+
+def update_profile(conn, principal: Principal, *, display_name: str | None, email: str | None,
+                    marketing_agreed: bool | None, current_password: str | None = None) -> dict:
+    user = require_active_user(conn, principal)
+    repo = UserRepo(conn)
+
+    if display_name is not None:
+        display_name = display_name.strip()
+        if not (1 <= len(display_name) <= 20):
+            raise ValidationFailed("표시 이름은 1~20자여야 합니다.", field="display_name")
+
+    normalized_email = None
+    if email is not None:
+        normalized_email = _normalize_email(email)
+        if normalized_email != user["email"]:
+            # 이메일은 로그인 ID 다 — 세션만 탈취해도 계정을 가져가지 못하게, 바꿀 때 비밀번호를 다시 확인한다.
+            if not current_password:
+                raise ValidationFailed("이메일을 바꾸려면 현재 비밀번호를 입력해야 합니다.",
+                                       field="current_password", code="password_required")
+            login_row = repo.get_for_login(user["email"])
+            if login_row is None or login_row["password_hash"] is None or not passwords.verify_password(
+                login_row["password_hash"], current_password
+            ):
+                raise Unauthorized("현재 비밀번호가 올바르지 않습니다.", code="invalid_password")
+            if repo.is_email_taken(normalized_email):
+                raise Conflict("이미 사용 중인 이메일입니다.", field="email", code="email_taken")
+
+    row = repo.update_profile(
+        principal.user_id,
+        display_name=display_name,
+        email_normalized=normalized_email,
+        marketing_agreed=marketing_agreed,
+    )
+    return _to_user_out(row)
+
+
+def change_password(conn, principal: Principal, *, current_password: str, new_password: str) -> str:
+    user = require_active_user(conn, principal)
+    repo = UserRepo(conn)
+
+    login_row = repo.get_for_login(user["email"])
+    if login_row is None or login_row["password_hash"] is None or not passwords.verify_password(
+        login_row["password_hash"], current_password
+    ):
+        raise Unauthorized("현재 비밀번호가 올바르지 않습니다.", code="invalid_password")
+    _check_password_strength(new_password)
+
+    password_updated_at = repo.update_password(principal.user_id, passwords.hash_password(new_password))
+    session_check.invalidate_user(principal.user_id)
+    return _issue_token(principal.user_id, user["email"], password_updated_at, ttl_seconds=JWT_TTL_DAYS * 86_400)
+
+
+def withdraw(conn, principal: Principal, *, password: str) -> None:
+    user = require_active_user(conn, principal)
+    repo = UserRepo(conn)
+
+    login_row = repo.get_for_login(user["email"])
+    if login_row is None or login_row["password_hash"] is None or not passwords.verify_password(
+        login_row["password_hash"], password
+    ):
+        raise Unauthorized("비밀번호가 올바르지 않습니다.", code="invalid_password")
+    repo.withdraw(principal.user_id)
+    session_check.invalidate_user(principal.user_id)
+
+
+def check_email_availability(conn, email: str) -> bool:
+    normalized_email = _normalize_email(email)
+    return not UserRepo(conn).is_email_taken(normalized_email)

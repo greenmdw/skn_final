@@ -1,0 +1,123 @@
+"""받은 견적 점검 초안의 항목(item) 규칙 — 견적 한 줄을 이름·상품코드·수량·가격으로 가르고, 같은 제품만 합친다.
+
+DB·LLM 없이 도는 순수 함수다. 줄을 읽는 규칙은 기존 `quote_price`(가격·수량)를 그대로 쓰고 표기 규칙을 새로 만들지 않는다.
+이름에는 상품코드와 가격을 넣지 않는다(요청서 BE-03). 가격이 적혀 있는데 수량이 2개 이상이면 그 금액을 품목 합계로
+본다 — 가격 비교(`quote_review_service._price_row`)가 이미 같은 가정으로 카탈로그 가격에 수량을 곱해 견주기 때문이다."""
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from src.engine.quote_price import line_quantity, parse_price, strip_price
+
+# 쇼핑몰 상품코드(다나와 pcode 등) — 6~10자리 숫자. 가격은 먼저 걷어 낸 뒤라 가격 숫자와 겹치지 않는다.
+_PRODUCT_CODE = re.compile(r"(?<![\d,.])(\d{6,10})(?![\d,.])")
+_DOLLAR_PRICE = re.compile(r"\$\s*\d[\d,]*(?:\.\d+)?")      # "$368.99" — 원 가격이 아니라 읽지 않고, 이름에도 남기지 않는다
+_COUNT_TOKEN = re.compile(r"(?:[x×*]\s*)?(?<![\d.])\d{1,2}\s*(?:개(?:\s*당)?|ea\b)|수량\s*:?\s*\d{1,2}", re.IGNORECASE)
+
+
+# 견적 표의 "고르지 않음" 칸 — 부품이 아니라 선택 안내 문구다. 이걸 부품으로 읽으면 대응 실패로 표시되고 실시간 검색까지 돈다.
+_PLACEHOLDER_ALWAYS = re.compile(r"별도\s*구매|선택\s*안\s*함|선택\s*없음|미\s*선택|기본\s*쿨러\s*장착|쿨러\s*미\s*포함")
+_PLACEHOLDER_IF_NO_MODEL = re.compile(r"추가\s*선택\s*가능")
+
+
+# 부품이 아니라 튜닝·장식·소모품·연결 용품인 줄 — 부품군 하나로 억지로 분류되면(예: "램 튜닝 킷" → RAM) 대응 실패·잘못된 호환 판정이 생긴다.
+_NON_PART = re.compile(r"튜닝\s*(?:킷|세트|키트)|슬리빙|케이블\s*(?:연장|확장|정리)|연장\s*케이블|서멀\s*(?:구리스|패드)|써멀\s*(?:구리스|패드)|"
+                       r"거치대|지지대|LED\s*스트립|RGB\s*(?:스트립|컨트롤러|킷)|먼지\s*필터|스티커|나사\s*세트|조립\s*(?:비|대행)", re.I)
+
+
+def is_non_part_line(raw_text: str) -> bool:
+    """메인 부품(CPU·GPU·RAM·메인보드·저장장치·파워·케이스·쿨러)이 아닌 튜닝·액세서리·서비스 줄인가("램 튜닝 킷", "슬리빙 케이블")."""
+    return bool(_NON_PART.search(str(raw_text or "")))
+
+
+def is_placeholder_line(raw_text: str) -> bool:
+    """부품이 아닌 선택 안내 줄인가("별도구매 (추가선택가능)", "CPU 기본 쿨러 장착 (추가선택가능)").
+    "추가선택가능"만 있는 줄은 숫자(모델 번호)가 있으면 제품으로 본다 — 제품 이름 뒤에 붙은 옵션 안내일 수 있다."""
+    text = str(raw_text or "")
+    if _PLACEHOLDER_ALWAYS.search(text):
+        return True
+    return bool(_PLACEHOLDER_IF_NO_MODEL.search(text)) and not re.search(r"\d", text)
+
+
+def split_line(raw_text: str) -> dict[str, Any]:
+    """견적 한 줄 → {normalized_name, product_code, quantity, quote_unit_price, quote_line_total, quote_price_type}."""
+    raw = str(raw_text or "").strip()
+    line_total = parse_price(raw)
+    body = _DOLLAR_PRICE.sub(" ", strip_price(raw))
+    code_match = _PRODUCT_CODE.search(body)
+    code = code_match.group(1) if code_match else None
+    quantity = line_quantity(raw)
+    if code_match:
+        tail = re.fullmatch(r"\s*(\d{1,2})\s*", body[code_match.end():])
+        if tail and quantity == 1:
+            # 쇼핑몰 표는 "제품명 -상품코드 | 판매가 | 수량 | 합계" 순이라 코드 뒤에 수량 열의 숫자가 이름 끝에 남는다 — 수량이다
+            quantity = max(1, min(int(tail.group(1)), 20))
+            body = body[:code_match.start()]
+        else:
+            body = body[:code_match.start()] + " " + body[code_match.end():]
+    body = _COUNT_TOKEN.sub(" ", body)              # "× 2개당"도 기호·단위까지 뺀다. "16GB x2"는 구성이라 둔다.
+    name = re.sub(r"\s{2,}", " ", body).strip(" \t-–—:/|,·")
+    return {
+        "normalized_name": name, "product_code": code, "quantity": quantity,
+        "quote_unit_price": round(line_total / quantity) if line_total else None,
+        "quote_line_total": line_total,
+        "quote_price_type": "unknown" if line_total is None else "unit" if quantity == 1 else "line_total",
+    }
+
+
+def spec_text(item: dict[str, Any]) -> str:
+    """분석(점검)에 넘길 한 줄 — 수정된 이름·수량·품목 합계로 다시 만든다. 점검은 이 글에서 수량·가격을 읽는다."""
+    name = str(item.get("normalized_name") or "").strip()
+    quantity = int(item.get("quantity") or 1)
+    parts = [name]
+    if quantity > 1 and line_quantity(name) != quantity:
+        parts.append(f"{quantity}개")
+    total = item.get("quote_line_total")
+    if total:
+        parts.append(f"{int(total):,}원")
+    return " ".join(p for p in parts if p)
+
+
+def _name_key(item: dict[str, Any]) -> str:
+    """글자만 같으면 같은 이름 — 대소문자·공백·기호 차이는 무시한다. 이름이 없으면 빈 문자열(병합하지 않는다)."""
+    return re.sub(r"[^0-9a-z가-힣]", "", str(item.get("normalized_name") or "").lower())
+
+
+def merge_same_products(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """같은 부품을 한 항목으로 합친다 — 출처만 모으고 수량·가격은 먼저 온 것을 쓴다(같은 견적이 두 장에 겹쳐 찍힌 경우 수량이
+    두 배가 되면 안 된다).
+    1) 같은 카탈로그 제품으로 **확정된**(confirmed) 항목은 합친다.
+    2) 카탈로그에 연결되지 않은 항목도 부품군과 이름 글자가 같고 **서로 다른 출처**(다른 사진)에서 읽혔으면 합친다 — 같은 견적이
+       두 장에 찍힌 경우다. 같은 사진 안의 같은 이름 두 줄(SSD 두 개를 따로 적음)은 합치지 않는다.
+    같은 부품군의 다른 모델은 모두 그대로 둔다."""
+    out: list[dict[str, Any]] = []
+    seen: dict[tuple[str, str], dict[str, Any]] = {}
+    by_name: dict[tuple[str, str], dict[str, Any]] = {}
+    for item in items:
+        product_id = item.get("matched_product_id")
+        if item.get("match_status") == "confirmed" and product_id:
+            key = (item["category"], product_id)
+            if key in seen:
+                kept = seen[key]
+                kept["source_ids"] = sorted(set(kept["source_ids"]) | set(item["source_ids"]))
+                continue
+            seen[key] = item
+        else:
+            name = _name_key(item)
+            if name:
+                kept = by_name.get((item["category"], name))
+                if kept is not None and not (set(kept["source_ids"]) & set(item["source_ids"])):
+                    kept["source_ids"] = sorted(set(kept["source_ids"]) | set(item["source_ids"]))
+                    continue
+                by_name.setdefault((item["category"], name), item)
+        out.append(item)
+    return out
+
+
+def default_selection(items: list[dict[str, Any]]) -> dict[str, str]:
+    """부품군마다 분석 기준 제품 1개 — 사용자가 고르기 전 기본값은 그 부품군의 첫 항목(읽힌 순서)."""
+    chosen: dict[str, str] = {}
+    for item in items:
+        chosen.setdefault(item["category"], item["id"])
+    return chosen
