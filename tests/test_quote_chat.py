@@ -457,7 +457,7 @@ def test_a_swap_in_a_game_question_is_passed_as_the_hypothetical_part():
 def test_the_game_fact_compares_the_requirement_table_with_the_current_build():
     review = _game_review()
     out = chat.run_fact(review, "game", {"text": "사이버펑크 돌아가?", "swap_slot": "", "swap_product": ""}, loader())
-    assert "GPU 성능 등급 요구" in out and "지금" in out and "fps" in out
+    assert "그래픽카드 성능 지금 " in out and "등급" not in out and "지금" in out and "fps" in out
     assert "가정:" not in out
 
 
@@ -472,7 +472,7 @@ def test_the_game_fact_uses_the_swapped_part_and_says_the_quote_is_unchanged():
 def test_an_unconfirmed_cpu_or_gpu_is_reported_instead_of_guessed():
     review = qrs.analyze({"CPU": "라이젠 5 7600", "GPU": "만리 폴라 폭스"}, {"purpose": "game"})
     out = chat.run_fact(review, "game", {"text": "사이버펑크 돌아가?"}, loader())
-    assert "확정되지 않아 성능 등급을 알 수 없습니다" in out
+    assert "확정되지 않아 성능을 비교할 수 없습니다" in out
 
 
 def test_every_fact_the_router_can_choose_has_a_label_in_both_label_tables():
@@ -495,7 +495,7 @@ def test_a_shortened_swap_product_from_the_agent_is_resolved_to_the_catalog_name
 @pytest.mark.parametrize("text", ["롤 돌리기 좋아?", "R02에서 GPU를 바꿔도 배그 돌아가?", "롤이랑 배그 돼?"])
 def test_a_short_game_nickname_inside_a_sentence_is_found_in_the_requirement_table(text):
     out = chat.run_fact(_game_review(), "game", {"text": text, "swap_slot": "", "swap_product": ""}, loader())
-    assert "게임 요구 사양 표에 없어" not in out and "요구" in out
+    assert "게임 요구 사양 표에 없어" not in out and "권장" in out
 
 
 def test_compare_parts_facts_carry_the_gap_between_the_two_candidates():

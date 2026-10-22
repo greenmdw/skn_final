@@ -234,7 +234,7 @@ def route(text: str, by_slot_loader=None, review: dict | None = None) -> list[tu
 
 def game_fact(review: dict, text: str, by_slot_loader, swap_slot: str = "", swap_product: str = "") -> str:
     """게임 요구 사양 표와 견적 구성을 견준 문장. 바꿔 본 부품이 있으면 그 부품으로 바꾼 구성 기준(견적은 그대로).
-    견적의 CPU·GPU 가 카탈로그 제품으로 확정되지 않았으면 등급을 모르므로 그 사실을 먼저 적는다."""
+    견적의 CPU·GPU 가 카탈로그 제품으로 확정되지 않았으면 성능을 모르므로 그 사실을 먼저 적는다."""
     from src.categories import load_category
     from src.engine.game_requirements_check import check_games, have_from_specs
     from src.engine.owned_parts import resolve_owned_parts
@@ -260,7 +260,7 @@ def game_fact(review: dict, text: str, by_slot_loader, swap_slot: str = "", swap
     for slot in ("CPU", "GPU"):
         info = owned.get(slot)
         if info and info.get("source") != "catalog" and not (swapped is not None and swap_slot == slot):
-            notes.append(f"견적의 {slot}({info.get('name')})는 카탈로그 제품으로 확정되지 않아 성능 등급을 알 수 없습니다.")
+            notes.append(f"견적의 {slot}({info.get('name')})는 카탈로그 제품으로 확정되지 않아 성능을 비교할 수 없습니다.")
     game = text if match_games(text)[0] else ", ".join(
         str(g) for g in ((review.get("input") or {}).get("conditions") or {}).get("games") or [])
     have = have_from_specs(chosen["GPU"], chosen["CPU"], chosen["RAM"] or None, 1)

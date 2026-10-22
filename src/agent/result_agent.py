@@ -715,7 +715,7 @@ def make_tools(s: ResultSession) -> list:
 
     @tool
     def game_check(game: str, slot: str = "", candidate_id: str = "") -> str:
-        """게임 요구 사양 표와 구성의 성능 등급·RAM·VRAM 을 비교한다. "이 구성으로 배그 돌아가?" 에 쓴다.
+        """게임 요구 사양 표와 구성의 CPU·GPU 성능·RAM·VRAM 을 비교한다. "이 구성으로 배그 돌아가?" 에 쓴다.
         "그 GPU 로 바꿔도 사이버펑크 돌아가?"처럼 **바꿨다고 가정한** 구성이면 slot 과 후보의 candidate_id 를 함께 준다
         (앞 턴 preview_swap·list_alternatives 가 준 값) — 구성표는 바뀌지 않는다.
 

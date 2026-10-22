@@ -138,7 +138,7 @@ def test_savings_options_target_beyond_reach_says_so(conn):
 def test_game_check_compares_table_tiers(conn):
     revision_id = _build(conn)
     out = result_advice.game_check(conn, revision_id, "사이버펑크")
-    assert out.startswith("사이버펑크") and "GPU 성능 등급 요구" in out and "fps" in out
+    assert out.startswith("사이버펑크") and "그래픽카드 성능 지금 " in out and "등급" not in out and "fps" in out
     assert "표에 없어" in result_advice.game_check(conn, revision_id, "없는게임123")
 
 

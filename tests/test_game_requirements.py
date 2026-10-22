@@ -364,3 +364,17 @@ def test_explanation_extras_has_no_provisional_caveat_when_all_recognized_titles
     monkeypatch.setattr(s2, "load_computer_rules", lambda path=None: rules)
     extras = svc._explanation_extras(_spec(purpose="game", games=["롤"]))
     assert extras == {}
+
+
+def test_game_check_sentence_never_shows_perf_tier_numbers():
+    """"발로란트 잘 돌아가?"에 "GPU 성능 등급 요구 3 / 지금 6"이 그대로 답에 옮겨졌다(10/22) — 사용자는 등급 눈금을 모른다.
+    CPU·GPU 는 권장 이상/미달만, RAM·VRAM 은 GB 로 적는다."""
+    from src.engine.game_requirements_check import check_games
+
+    met = check_games("발로란트", {"gpu": 6, "cpu": 5, "ram_gb": 32, "vram_gb": 8})
+    assert "등급" not in met and "권장 사양을 모두 채움" in met
+    assert "그래픽카드 성능 지금 권장 이상" in met and "RAM 용량 지금 32GB(권장" in met
+    short = check_games("사이버펑크", {"gpu": 1, "cpu": 1, "ram_gb": 16, "vram_gb": 8}, subject="바꾼 뒤")
+    assert "등급" not in short and "권장 사양 미달: 그래픽카드 성능, CPU 성능" in short
+    assert "그래픽카드 성능 바꾼 뒤 권장보다 낮음 ⚠ 미달" in short
+    assert not re.search(r"성능[^·(]*\d", met + short)          # CPU·GPU 항목에는 숫자가 없다

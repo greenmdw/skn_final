@@ -946,7 +946,7 @@ def savings_options(conn, revision_id: UUID, target: int | None = None, keep: li
 
 # ── 5. 이 게임 돌아가나 ──────────────────────────────────────────────────────
 def game_check(conn, revision_id: UUID, game: str, swap_slot: str | None = None, candidate_id: str | None = None) -> str:
-    """게임 요구 사양 표(추천 엔진이 쓰는 game_titles)와 구성의 성능 등급·용량을 비교한다.
+    """게임 요구 사양 표(추천 엔진이 쓰는 game_titles)와 구성의 CPU·GPU 성능·용량을 비교한다.
 
     `swap_slot`·`candidate_id` 를 주면 그 자리의 부품을 후보로 **바꿨다고 가정한** 구성으로 비교한다(구성표는 바꾸지 않는다) —
     "RTX 4070 SUPER 로 바꿔도 사이버펑크 돌아가?"처럼 앞 답에서 본 후보 기준으로 확인하는 질문용이다."""
