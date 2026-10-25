@@ -86,7 +86,8 @@ def test_guide_page_is_served_when_the_build_contains_it(dist):
     for path in ("/guide", "/guide/", "/guide/index.html"):
         r = client.get(path)
         assert r.status_code == 200 and "<title>guide</title>" in r.text, path
-    assert client.get("/guide/images/quote-1.webp").status_code == 200
+    img = client.get("/guide/images/quote-1.webp")
+    assert img.status_code == 200 and img.headers["content-type"] == "image/webp"
     assert "<title>spa</title>" in client.get("/plan").text    # 화면 경로 폴백은 그대로
 
 

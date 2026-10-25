@@ -6,11 +6,15 @@ BrowserRouter 경로를 새로고침해도 열리도록 index.html 로 폴백하
 """
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+
+# 슬림 이미지의 mime 표에는 .webp가 없어 octet-stream으로 나간다 — 사진을 새 탭에서 열면 보이지 않고 내려받아진다.
+mimetypes.add_type("image/webp", ".webp")
 
 # API 가 쓰는 최상위 경로. SPA 폴백이 가로채지 않는다(라우터가 먼저 등록되므로 실제 API 는 영향 없고,
 # 없는 하위 경로만 404 로 남는다).
