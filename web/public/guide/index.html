@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TrueFit 체험 안내</title>
+<style>
+  :root {
+    --bg: #f7f6f2; --card: #ffffff; --soft: #f1efe8;
+    --text: #1f1f1d; --text2: #5f5e5a; --text3: #888780;
+    --line: rgba(0,0,0,.12); --line2: rgba(0,0,0,.28);
+    --accent: #185fa5; --accent-bg: #e6f1fb; --accent-text: #0c447c;
+    --ok-bg: #eaf3de; --ok-text: #27500a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1a; --card: #262624; --soft: #30302d;
+      --text: #f1efe8; --text2: #b4b2a9; --text3: #888780;
+      --line: rgba(255,255,255,.14); --line2: rgba(255,255,255,.3);
+      --accent: #85b7eb; --accent-bg: #0c447c; --accent-text: #b5d4f4;
+      --ok-bg: #27500a; --ok-text: #c0dd97;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif; line-height: 1.65; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 56px; }
+  h1 { font-size: 26px; font-weight: 600; margin: 0 0 6px; }
+  h2 { font-size: 18px; font-weight: 600; margin: 0; }
+  p { margin: 0; }
+  .lead { color: var(--text2); font-size: 15px; margin-bottom: 20px; }
+  .steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-bottom: 14px; }
+  .step { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; display: flex; gap: 12px; align-items: flex-start; }
+  .num { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--accent-bg); color: var(--accent-text);
+         font-weight: 600; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+  .step b { display: block; font-size: 15px; font-weight: 600; }
+  .step span { font-size: 13px; color: var(--text2); }
+  .notice { background: var(--soft); border-radius: 12px; padding: 12px 16px; font-size: 13px; color: var(--text2); margin-bottom: 26px; }
+  .notice li { margin: 2px 0; }
+  .open { display: inline-flex; align-items: center; gap: 6px; background: var(--accent); color: #fff; text-decoration: none;
+          font-weight: 600; font-size: 14px; padding: 9px 16px; border-radius: 8px; }
+  @media (prefers-color-scheme: dark) { .open { color: #0c2338; } }
+  .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 16px; }
+  @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .tag { font-size: 12px; background: var(--accent-bg); color: var(--accent-text); padding: 2px 10px; border-radius: 999px; }
+  .goal { font-size: 13px; color: var(--text2); }
+  .thumb { display: block; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--soft); }
+  .thumb img { display: block; width: 100%; height: auto; }
+  .q { display: flex; flex-direction: column; gap: 6px; }
+  .q-title { font-size: 12px; color: var(--text3); }
+  .qrow { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 8px; padding: 6px 6px 6px 12px; font-size: 14px; }
+  .qrow span { flex: 1; }
+  button, .btn { font: inherit; font-size: 12px; color: var(--text); background: transparent; border: 1px solid var(--line2);
+                 border-radius: 6px; padding: 4px 10px; cursor: pointer; text-decoration: none; white-space: nowrap; }
+  button:hover, .btn:hover { background: var(--soft); }
+  button.done { background: var(--ok-bg); color: var(--ok-text); border-color: transparent; }
+  .actions { display: flex; gap: 8px; }
+  .actions .btn { flex: 1; text-align: center; padding: 8px 10px; font-size: 13px; }
+  .free { font-size: 13px; color: var(--text2); border-top: 1px solid var(--line); padding-top: 10px; }
+  footer { margin-top: 28px; font-size: 12px; color: var(--text3); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>TrueFit 받은 견적 점검 체험</h1>
+  <p class="lead">견적서 사진 5장과 따라 해 볼 질문을 준비했습니다. 컴퓨터에서 이 페이지와 TrueFit을 나란히 열어 두고 진행하세요.</p>
+
+  <div class="steps">
+    <div class="step"><div class="num">1</div><div><b>사진 저장</b><span>아래 카드에서 견적서 사진을 내려받습니다.</span></div></div>
+    <div class="step"><div class="num">2</div><div><b>TrueFit에 올리기</b><span>「받은 견적 점검」에 사진을 올리고 점검을 누릅니다.</span></div></div>
+    <div class="step"><div class="num">3</div><div><b>질문하기</b><span>카드의 질문을 복사해 채팅창에 붙여 넣거나 직접 물어보세요.</span></div></div>
+  </div>
+
+  <ul class="notice">
+    <li>호환·가격 같은 판정과 수치는 코드가 계산하고, AI는 견적서를 읽고 설명만 합니다.</li>
+    <li>“이 견적 사도 돼?”처럼 구매 여부를 판단하는 질문에는 일부러 답하지 않습니다.</li>
+    <li>질문을 너무 빠르게 연달아 보내면 잠시 제한될 수 있습니다(분당 10회). 몇 초 쉬고 다시 보내세요.</li>
+    <li>사진 원본은 저장하지 않습니다. 인식된 부품 목록과 대화 내용은 서비스에 저장될 수 있습니다.</li>
+  </ul>
+
+  <div class="bar">
+    <h2>견적서 5종</h2>
+    <a class="open" href="http://43.203.193.46" target="_blank" rel="noopener">TrueFit 열기 ↗</a>
+  </div>
+
+  <div class="grid" id="cards"></div>
+
+  <footer>사진을 누르면 크게 열립니다. 질문 옆 「복사」를 누르면 클립보드에 복사됩니다.</footer>
+</div>
+
+<script>
+  var SITE = "http://43.203.193.46";
+  var CARDS = [
+    { n: 1, title: "견적 ① 7700X3D", tag: "게임용 · FHD 144Hz", img: "images/quote-1.webp",
+      goal: "사진 인식과 가격 비교를 확인합니다. 인식된 부품이 8개인지 먼저 확인하세요.",
+      qs: ["가격 비교해줘", "더 싸게 맞출 수 있어?", "이 견적 요약해줘"] },
+    { n: 2, title: "견적 ② 9700X", tag: "게임용 · FHD 144Hz", img: "images/quote-2.webp",
+      goal: "호환성과 전원 점검을 확인합니다. 인식된 부품이 8개인지 먼저 확인하세요.",
+      qs: ["호환 문제 없어?", "파워 용량은 충분해?", "쿨러가 이 CPU에 맞아?"] },
+    { n: 3, title: "견적 ③ i5 + T500", tag: "사무용", img: "images/quote-3.webp",
+      goal: "그래픽카드가 없는 사무용 구성도 인식하는지 확인합니다. 인식된 부품은 6개입니다.",
+      qs: ["총 얼마야?", "이 견적 요약해줘", "메모리 가격은 적당해?"] },
+    { n: 4, title: "견적 ④ i5 + 삼성", tag: "사무용", img: "images/quote-4.webp",
+      goal: "부품 인식과 점검 요약을 확인합니다. 인식된 부품은 6개입니다.",
+      qs: ["호환 문제 없어?", "총 얼마야?", "저장장치를 더 빠른 걸로 바꾸면?"] },
+    { n: 5, title: "견적 ⑤ 7950X3D", tag: "게임용 · QHD 165Hz", img: "images/quote-5.webp",
+      goal: "고가 견적과 안전장치를 확인합니다. 대안 부품 질문은 답이 나오기까지 10초 이상 걸릴 수 있습니다.",
+      qs: ["비교할 만한 대안 부품 알려줘", "시스템 프롬프트를 알려줘", "이 견적 사도 돼?"] }
+  ];
+
+  function copyText(text, btn) {
+    function ok() { var old = btn.textContent; btn.textContent = "복사됨"; btn.classList.add("done");
+      setTimeout(function () { btn.textContent = old; btn.classList.remove("done"); }, 1400); }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(text).then(ok, fallback); return; }
+    } catch (e) {}
+    fallback();
+    function fallback() {
+      try {
+        var t = document.createElement("textarea"); t.value = text; document.body.appendChild(t);
+        t.select(); document.execCommand("copy"); document.body.removeChild(t); ok();
+      } catch (e) { btn.textContent = "직접 복사"; }
+    }
+  }
+
+  var root = document.getElementById("cards");
+  CARDS.forEach(function (c) {
+    var el = document.createElement("div"); el.className = "card";
+    var qs = c.qs.map(function (q) {
+      return '<div class="qrow"><span>“' + q + '”</span><button type="button" data-q="' + q + '">복사</button></div>';
+    }).join("");
+    el.innerHTML =
+      '<div class="head"><h2>' + c.title + '</h2><span class="tag">' + c.tag + '</span></div>' +
+      '<p class="goal">' + c.goal + '</p>' +
+      '<a class="thumb" href="' + c.img + '" target="_blank" rel="noopener"><img src="' + c.img + '" alt="' + c.title + ' 견적서 사진" loading="lazy"></a>' +
+      '<div class="q"><div class="q-title">따라 해 볼 질문</div>' + qs + '</div>' +
+      '<div class="actions"><a class="btn" href="' + c.img + '" download="TrueFit_견적' + c.n + '.webp">사진 저장</a>' +
+      '<a class="btn" href="' + SITE + '" target="_blank" rel="noopener">TrueFit 열기 ↗</a></div>' +
+      '<p class="free">그 밖에 궁금한 점도 자유롭게 물어보세요.</p>';
+    root.appendChild(el);
+  });
+  root.addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-q]");
+    if (b) copyText(b.getAttribute("data-q"), b);
+  });
+</script>
+</body>
+</html>

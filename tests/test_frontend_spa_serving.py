@@ -75,3 +75,21 @@ def test_without_a_build_only_the_api_is_served(tmp_path):
     c = TestClient(app)
     assert c.get("/auth/me").json() == {"api": True}
     assert c.get("/").status_code == 404
+
+
+def test_guide_page_is_served_when_the_build_contains_it(dist):
+    (dist / "guide" / "images").mkdir(parents=True)
+    (dist / "guide" / "index.html").write_text("<!doctype html><title>guide</title>", encoding="utf-8")
+    (dist / "guide" / "images" / "quote-1.webp").write_bytes(b"RIFFxxxxWEBP")
+    app, _ = _app(dist)
+    client = TestClient(app)
+    for path in ("/guide", "/guide/", "/guide/index.html"):
+        r = client.get(path)
+        assert r.status_code == 200 and "<title>guide</title>" in r.text, path
+    assert client.get("/guide/images/quote-1.webp").status_code == 200
+    assert "<title>spa</title>" in client.get("/plan").text    # 화면 경로 폴백은 그대로
+
+
+def test_guide_route_is_absent_when_the_build_has_no_guide(dist):
+    app, _ = _app(dist)
+    assert "<title>spa</title>" in TestClient(app).get("/guide").text    # 폴백이 받는다(안내 페이지 없음)

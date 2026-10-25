@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 # API 가 쓰는 최상위 경로. SPA 폴백이 가로채지 않는다(라우터가 먼저 등록되므로 실제 API 는 영향 없고,
@@ -20,6 +20,13 @@ API_PREFIXES = frozenset({"auth", "session", "lists", "reviews", "pc", "dev", "d
 def _mount_spa(app: FastAPI, web_dist: Path) -> None:
     index = web_dist / "index.html"
     app.mount("/assets", StaticFiles(directory=web_dist / "assets"), name="web-assets")
+    # 심사 체험 안내 페이지(web/public/guide) — 정적 HTML이라 SPA 폴백에 가로채이지 않게 폴백보다 먼저 붙인다.
+    if (web_dist / "guide").is_dir():
+        app.mount("/guide", StaticFiles(directory=web_dist / "guide", html=True), name="guide")
+
+        @app.get("/guide", include_in_schema=False)
+        def guide_redirect() -> RedirectResponse:    # 마운트는 "/guide/"만 받는다 — 슬래시 없는 주소를 보낸다
+            return RedirectResponse("/guide/")
 
     # index.html 은 매 빌드마다 해시가 다른 자산을 가리키므로 캐시하지 않는다.
     no_cache = {"Cache-Control": "no-cache"}
