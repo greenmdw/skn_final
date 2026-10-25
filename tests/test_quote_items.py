@@ -173,3 +173,13 @@ def test_split_line_strips_price_table_residue_from_name(raw, name, quantity):
 
 def test_split_line_keeps_model_number_ending_in_one_without_price_column():
     assert split_line("Stealth Pro 1")["normalized_name"] == "Stealth Pro 1"
+
+
+@pytest.mark.parametrize("raw, name", [
+    ("AMD Ryzen 7 9700X 1개 417,290원", "AMD Ryzen 7 9700X"),
+    ("AMD Ryzen 9 7950X 1개 500,000원", "AMD Ryzen 9 7950X"),
+])
+def test_split_line_keeps_trailing_x_of_a_model_before_the_count_column(raw, name):
+    parts = split_line(raw)
+    assert parts["normalized_name"] == name
+    assert parts["quantity"] == 1
