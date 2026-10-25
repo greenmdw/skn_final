@@ -156,3 +156,20 @@ def test_shop_title_noise_words_do_not_block_a_match():
 def test_non_part_lines_are_tuning_accessories_and_services_only(line, expected):
     from src.engine.quote_items import is_non_part_line
     assert is_non_part_line(line) is expected
+
+
+@pytest.mark.parametrize("raw, name, quantity", [
+    ("ESSENCORE KLEVV DDR4-3200 CL22 (8GB) × 2 2개 185,000원 개당 92,500원 × 2", "ESSENCORE KLEVV DDR4-3200 CL22 (8GB) × 2", 2),
+    ("삼성전자 DDR5-5600 (8GB) × 2 2 365,160원 개당 182,580원 × 2", "삼성전자 DDR5-5600 (8GB) × 2", 2),
+    ("마이크론 Crucial DDR5-5600 CL46 (16GB) ×2 × 2 700,000원", "마이크론 Crucial DDR5-5600 CL46 (16GB) × 2", 2),
+    ("AMD Ryzen 7 9700X 1 417,290원", "AMD Ryzen 7 9700X", 1),
+    ("Deepcool AG620 G2 (블랙) 1 38,060원", "Deepcool AG620 G2 (블랙)", 1),
+])
+def test_split_line_strips_price_table_residue_from_name(raw, name, quantity):
+    parts = split_line(raw)
+    assert parts["normalized_name"] == name
+    assert parts["quantity"] == quantity
+
+
+def test_split_line_keeps_model_number_ending_in_one_without_price_column():
+    assert split_line("Stealth Pro 1")["normalized_name"] == "Stealth Pro 1"

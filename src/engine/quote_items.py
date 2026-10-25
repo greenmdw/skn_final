@@ -58,7 +58,11 @@ def split_line(raw_text: str) -> dict[str, Any]:
             body = body[:code_match.start()] + " " + body[code_match.end():]
     body = _COUNT_TOKEN.sub(" ", body)              # "× 2개당"도 기호·단위까지 뺀다. "16GB x2"는 구성이라 둔다.
     name = re.sub(r"\s{2,}", " ", body).strip(" \t-–—:/|,·")
-    name = re.sub(r"([x×*]\s*\d)\s+\1(?!\d)", r"\1", name, flags=re.IGNORECASE)    # "(8GB) × 2 × 2" — 가격 걷은 "개당 … × 2"가 남아 같은 수량이 두 번
+    name = re.sub(r"\s*(?:개당|단가)(?:\s*[x×*]\s*\d{1,2})?(?=\s|$)", "", name)          # 가격을 걷고 남은 "개당"·"개당 × 2"
+    name = re.sub(r"([x×*])\s*(\d{1,2})(?:\s+\1\s*\2)+(?!\d)", r"\1 \2", name, flags=re.IGNORECASE)    # "(8GB) × 2 × 2"·"×2 × 2" — 같은 수량이 두 번
+    name = re.sub(r"([x×*]\s*(\d{1,2}))\s+\2$", r"\1", name, flags=re.IGNORECASE)      # "(8GB) × 2 2" — 수량 열의 숫자가 뒤에 한 번 더
+    if quantity == 1 and re.search(r"\s1\s+\d[\d,]*\s*원", raw):
+        name = re.sub(r"(?<=\S)\s+1$", "", name)       # 표의 수량 열 "1"이 이름 끝에 붙은 채 읽힌 경우("AMD Ryzen 7 9700X 1")
     return {
         "normalized_name": name, "product_code": code, "quantity": quantity,
         "quote_unit_price": round(line_total / quantity) if line_total else None,
