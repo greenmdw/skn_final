@@ -58,6 +58,7 @@ def split_line(raw_text: str) -> dict[str, Any]:
             body = body[:code_match.start()] + " " + body[code_match.end():]
     body = _COUNT_TOKEN.sub(" ", body)              # "× 2개당"도 기호·단위까지 뺀다. "16GB x2"는 구성이라 둔다.
     name = re.sub(r"\s{2,}", " ", body).strip(" \t-–—:/|,·")
+    name = re.sub(r"([x×*]\s*\d)\s+\1(?!\d)", r"\1", name, flags=re.IGNORECASE)    # "(8GB) × 2 × 2" — 가격 걷은 "개당 … × 2"가 남아 같은 수량이 두 번
     return {
         "normalized_name": name, "product_code": code, "quantity": quantity,
         "quote_unit_price": round(line_total / quantity) if line_total else None,

@@ -200,3 +200,55 @@ def test_only_the_quote_total_is_reported_when_no_part_has_a_price():
 def test_without_a_quote_total_the_old_no_price_message_is_unchanged():
     prices = qrs.analyze({"CPU": "라이젠 7 7800X3D"}, by_slot=POOL)["prices"]
     assert "가격이 적혀 있지 않아" in prices["reason"] and "quote_total" not in prices
+
+
+# ── "개당 N원"은 줄 합계가 아니다 (2026-10-25 시나리오 견적서) ──────────────────────────
+
+@pytest.mark.parametrize("text, total", [
+    ("삼성전자 DDR5-5600 (8GB) × 2 2 365,160원 개당 182,580원 × 2", 365_160),          # 합계 뒤에 개당 가격
+    ("마이크론 Crucial DDR5-5600 CL46 (16GB) × 2 2 700,000원 개당 350,000원 × 2", 700_000),
+    ("ESSENCORE KLEVV DDR4-3200 CL22 (8GB) × 2 2 185,000원 개당 92,500원 × 2", 185_000),
+    ("삼성전자 DDR4-3200 (8GB) × 2 2 159,800원 개당 79,900원 × 2", 159_800),
+    ("RAM 16GB 단가 79,900원 2개 159,800원", 159_800),                                   # 단가가 앞, 합계가 뒤
+])
+def test_a_per_unit_price_is_not_taken_as_the_line_total(text, total):
+    assert parse_price(text) == total
+
+
+def test_a_lone_per_unit_price_is_still_read_and_discount_order_is_unchanged():
+    assert parse_price("개당 79,900원") == 79_900                 # 합계가 없으면 그 값(읽을 수 있는 유일한 금액)
+    assert parse_price("정가 300,000원 → 250,000원") == 250_000      # 할인가가 뒤에 오는 관례는 그대로
+
+
+def test_the_unit_price_is_derived_from_the_line_total_and_the_name_has_no_doubled_quantity():
+    from src.engine.quote_items import split_line
+
+    parts = split_line("삼성전자 DDR5-5600 (8GB) × 2 2 365,160원 개당 182,580원 × 2")
+    assert parts["quote_line_total"] == 365_160 and parts["quantity"] == 2 and parts["quote_unit_price"] == 182_580
+    assert parts["normalized_name"].count("× 2") == 1
+
+
+def test_two_single_sticks_are_compared_against_two_times_the_catalog_price():
+    """"(8GB) × 2 | 365,160원"은 낱개 8GB 두 장이다 — 카탈로그 낱개 가격(182,580원)의 2배와 견줘야 한다.
+    견적 장수에 맞춰 키운 module_config("8GB × 2")로 나누면 이미 2장짜리 상품으로 보여 카탈로그 가격이 곱해지지 않았다(2026-10-25)."""
+    from src.engine.owned_parts import resolve_owned_parts
+
+    ram = Candidate(slot="RAM", product_key="ram:samsung:ddr5-5600-8", name="삼성전자 DDR5-5600 (8GB)", price=182_580,
+                    specs={"mem_type": "DDR5", "capacity_gb": 8, "module_config": "8GB × 1", "speed_mts": 5600})
+    text = "삼성전자 DDR5-5600 (8GB) × 2 365,160원"
+    owned = resolve_owned_parts({"RAM": text}, {"RAM": [ram]}, ["RAM"])
+    info = owned["RAM"]
+    assert info["source"] == "catalog" and info["catalog_modules"] == 1
+    row = qrs._price_row("RAM", text, info)
+    assert row["quoted"] == 365_160 and row["catalog"] == 365_160 and row["state"] == "similar" and row["quantity"] == 2
+
+
+def test_a_kit_product_in_the_catalog_is_not_multiplied_again():
+    from src.engine.owned_parts import resolve_owned_parts
+
+    kit = Candidate(slot="RAM", product_key="ram:kit", name="TEAMGROUP DDR5-6000 (16GB×2)", price=300_000,
+                    specs={"mem_type": "DDR5", "capacity_gb": 32, "module_config": "16GB × 2", "speed_mts": 6000})
+    text = "TEAMGROUP DDR5-6000 (16GB×2) 300,000원"
+    info = resolve_owned_parts({"RAM": text}, {"RAM": [kit]}, ["RAM"])["RAM"]
+    row = qrs._price_row("RAM", text, info)
+    assert row["catalog"] == 300_000 and row["state"] == "similar"

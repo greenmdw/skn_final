@@ -107,7 +107,7 @@ def _price_row(slot: str, text: str, info: dict) -> dict:
     # 카탈로그 가격은 상품 1개 기준이다 — 견적이 "16GB x2"·"2개"로 여러 개를 한 줄에 적었으면 같은 개수로 맞춰 견준다.
     # RAM 은 카탈로그 상품이 패키지("16GB × 2")일 수 있어 그 구성 수로 나눈 만큼만 곱한다.
     quantity = line_quantity(text)
-    per_product = (parse_module_count((info.get("specs") or {}).get("module_config")) or 1) if slot == "RAM" else 1
+    per_product = (info.get("catalog_modules") or parse_module_count((info.get("specs") or {}).get("module_config")) or 1) if slot == "RAM" else 1
     multiplier = quantity / per_product
     if catalog is not None and multiplier != 1:
         catalog = round(catalog * multiplier)

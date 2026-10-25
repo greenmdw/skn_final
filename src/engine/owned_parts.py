@@ -501,7 +501,11 @@ def resolve_owned_parts(current_specs: Any, by_slot: dict[str, list[Candidate]],
             prices = {c.price for c in matches if c.price}
             specs = _common_specs(matches)
             variant_mismatch = False
+            catalog_modules = None
             if slot == "RAM":
+                # 카탈로그 상품 하나가 몇 장짜리인가 — 견적의 장수에 맞춰 specs 를 키우기 전 값. 가격 비교가 이 수로 카탈로그 가격을 곱한다
+                # (키운 뒤의 module_config 로 나누면 "(8GB) × 2"가 이미 2장짜리 상품처럼 보여 카탈로그 가격이 곱해지지 않았다, 2026-10-25)
+                catalog_modules = parse_module_count(specs.get("module_config")) or 1
                 specs = _scale_ram_to_quote(specs, text)
             elif slot == "GPU":
                 # 같은 GPU 모델의 VRAM 변형(RTX 4060 Ti 8GB/16GB) — 글에 적힌 용량이 카탈로그와 다르면 글을 따르고,
@@ -522,6 +526,8 @@ def resolve_owned_parts(current_specs: Any, by_slot: dict[str, list[Candidate]],
                            # common_specs·호환 검사엔 그대로 쓰되(공통값이라 안전), 화면 표시(match_status)는
                            # "확정"과 구분한다. 1개면 그냥 확정 매칭.
                            "candidate_count": len(matches)}
+            if catalog_modules is not None:
+                owned[slot]["catalog_modules"] = catalog_modules
             if via:
                 owned[slot]["match_via"] = via          # 제조사·시리즈를 줄여 쓴 글을 모델 번호로 찾았다(화면에 근거를 보인다)
             continue

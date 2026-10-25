@@ -39,10 +39,23 @@ def _spans(text: str) -> list[tuple[int, int, int]]:
     return kept
 
 
+# 금액 바로 앞의 "개당"·"단가" — 한 개 값이지 줄 합계가 아니다. 견적 캡처의 수량이 2 이상인 줄은 "… 2 | 365,160원 | 개당 182,580원 × 2"처럼
+# 합계 뒤에 개당 가격이 와서, 마지막 금액을 쓰면 줄 합계가 개당 가격(절반)으로 읽혔다(2026-10-25 시나리오 견적서 시험).
+_PER_UNIT_BEFORE = re.compile(r"(?:개당|단가|각각?|per\s*unit|each)\s*\(?\s*$", re.IGNORECASE)
+
+
+def _is_per_unit(text: str, start: int) -> bool:
+    return bool(_PER_UNIT_BEFORE.search(text[max(0, start - 10):start]))
+
+
 def parse_price(text: object) -> int | None:
-    """글에 적힌 가격(원). 여러 금액이 있으면 마지막 것 — "정가 30만원 → 25만원"처럼 할인가가 뒤에 오는 게 관례다."""
-    spans = _spans(str(text or ""))
-    return spans[-1][2] if spans else None
+    """글에 적힌 가격(원). 여러 금액이 있으면 마지막 것 — "정가 30만원 → 25만원"처럼 할인가가 뒤에 오는 게 관례다.
+    다만 "개당 N원"은 한 개 값이라 줄 합계로 보지 않는다 — 합계가 따로 적혀 있으면 그 합계를 쓴다(개당 값만 있으면 그 값)."""
+    raw = str(text or "")
+    spans = _spans(raw)
+    totals = [sp for sp in spans if not _is_per_unit(raw, sp[0])]
+    pick = totals or spans
+    return pick[-1][2] if pick else None
 
 
 def strip_price(text: object) -> str:
