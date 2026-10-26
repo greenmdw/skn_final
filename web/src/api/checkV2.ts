@@ -142,8 +142,10 @@ export type ChatUndo =
 export interface ChatAction { kind: string; label: string; undo: ChatUndo | null }
 export interface ChatReply { reply: string; action: ChatAction | null }
 
-export const sendChat = (draftId: string, text: string, clientMessageId: string) =>
-  request<ChatReply>('POST', `/pc/reviews/${encodeURIComponent(draftId)}/messages`, { text, client_message_id: clientMessageId })
+/** 채팅이 열린 화면 — ③ 종합 평가에서 교체를 말하면 ④ 교체 구성으로 안내하는 데 쓴다. */
+export type ChatScreen = 'review' | 'replace'
+export const sendChat = (draftId: string, text: string, clientMessageId: string, screen?: ChatScreen) =>
+  request<ChatReply>('POST', `/pc/reviews/${encodeURIComponent(draftId)}/messages`, { text, client_message_id: clientMessageId, screen })
 
 /** 채팅 동작 되돌리기 — 최신 버전을 읽어 와서 같은 REST 함수로 되돌린다(서버 규칙·소유권 검사가 그대로 적용된다). */
 export async function undoChatAction(draftId: string, undo: ChatUndo): Promise<void> {

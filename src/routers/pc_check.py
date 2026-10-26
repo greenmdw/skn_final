@@ -334,7 +334,7 @@ def ask_about_quote_review(
     context = body.context.model_dump() if body.context else None
     with get_conn() as conn:
         result = quote_chat_service.chat(conn, list_id, principal, body.text,
-                                         client_message_id=body.client_message_id, context=context)
+                                         client_message_id=body.client_message_id, context=context, screen=body.screen)
     return schemas.QuoteChatOut(**result)
 
 

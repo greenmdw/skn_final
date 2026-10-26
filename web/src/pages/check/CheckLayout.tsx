@@ -4,7 +4,7 @@ import PlannerShell from '../../components/PlannerShell'
 import CheckChat from '../../components/check/CheckChat'
 import '../../styles/check.css'          // 재사용하는 업로더·채팅·저장 견적 비교 컴포넌트의 스타일
 import '../../styles/check2.css'
-import type { ChatAction } from '../../api/checkV2'
+import type { ChatAction, ChatScreen } from '../../api/checkV2'
 import CheckBoundary from './CheckBoundary'
 import { CHAT_HINT, useCheckChat } from './useCheckChat'
 
@@ -38,7 +38,8 @@ export default function CheckLayout({ current, draftId, analyzed = false, reacha
   /** 채팅이 동작을 했거나(action) 되돌렸을 때(null) — 화면이 서버 상태를 다시 읽는다 */
   onChatAction?: (action: ChatAction | null) => void; children: ReactNode
 }) {
-  const chatState = useCheckChat(chat ? draftId : undefined, onChatAction)
+  const screen: ChatScreen | undefined = current === 'review' || current === 'replace' ? current : undefined
+  const chatState = useCheckChat(chat ? draftId : undefined, onChatAction, screen)
   const sidebar = chat ? (
     <CheckChat entries={chatState.entries} busy={chatState.busy} analyzed={analyzed} comparing={false} hasAnswer={() => false}
       onSend={text => void chatState.send(text)} onShowAnswer={() => undefined} hintText={CHAT_HINT} />

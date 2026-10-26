@@ -187,3 +187,35 @@ def test_chat_asks_before_a_paid_lookup_and_searches_only_after_consent(client, 
     assert calls == ["정체불명 프로세서 ZX-1"] and "socket=AM5" not in again["reply"]
 
 
+
+
+def _no_candidate_add(monkeypatch, screen):
+    """GPU 교체 후보가 하나도 없는 점검에서 "GPU 교체 담아줘"를 보냈을 때의 답(DB 없이 후보 계산만 가짜로 바꾼다)."""
+    from src.services import quote_chat_actions as actions
+    monkeypatch.setattr(actions, "load_pc_catalog", lambda _log: {"GPU": []})
+    monkeypatch.setattr(actions.quote_replacement_plan, "build_targets",
+                        lambda *_a, **_k: {"targets": [{"slot": "GPU", "candidates": [], "note": None}]})
+    draft = {"selected_item_by_category": {}, "items": [], "replacements": {}}
+    return actions._do_add(None, None, None, draft, {}, {"slot": "GPU", "text": "GPU 교체 담아줘"}, screen)
+
+
+def test_review_screen_points_to_the_replace_step_instead_of_saying_there_is_no_candidate(monkeypatch):
+    from src.services.quote_chat_actions import REVIEW_SCREEN_ADD_NOTICE
+    reply, action = _no_candidate_add(monkeypatch, "review")
+    assert reply == REVIEW_SCREEN_ADD_NOTICE and "④ 교체 구성" in reply and action is None
+    assert "추천 후보가 없어요" not in reply
+
+
+@pytest.mark.parametrize("screen", ["replace", None])
+def test_replace_screen_keeps_the_candidate_message_and_never_sends_users_to_itself(monkeypatch, screen):
+    reply, action = _no_candidate_add(monkeypatch, screen)
+    assert "추천 후보가 없어요" in reply and "교체 구성에서 진행" not in reply and action is None
+
+
+def test_chat_request_accepts_only_known_screens():
+    from pydantic import ValidationError
+    from src import schemas
+    assert schemas.QuoteChatIn(text="안녕", screen="review").screen == "review"
+    assert schemas.QuoteChatIn(text="안녕").screen is None
+    with pytest.raises(ValidationError):
+        schemas.QuoteChatIn(text="안녕", screen="admin")

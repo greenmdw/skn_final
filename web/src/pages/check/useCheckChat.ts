@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, errorMessage } from '../../api'
-import { sendChat, undoChatAction, type ChatAction } from '../../api/checkV2'
+import { sendChat, undoChatAction, type ChatAction, type ChatScreen } from '../../api/checkV2'
 import type { ChatEntry } from '../../components/check/CheckChat'
 import { newClientId } from '../../utils/checkReview'
 
@@ -8,11 +8,17 @@ const INTRO: ChatEntry = {
   id: 'intro', kind: 'bot',
   text: '질문에 답하고, 말로도 바꿀 수 있어요. 예: "GPU 교체 목록에 담아줘", "해상도 QHD로 바꿔줘", "다시 분석해줘".',
 }
+// ③ 종합 평가는 진단만 보여 주므로 교체 예시는 ④ 교체 구성에서만 건넨다.
+const INTRO_REVIEW: ChatEntry = {
+  id: 'intro', kind: 'bot',
+  text: '질문에 답하고, 말로도 바꿀 수 있어요. 예: "해상도 QHD로 바꿔줘", "다시 분석해줘". 부품 교체는 다음 단계인 ④ 교체 구성에서 진행해요.',
+}
 export const CHAT_HINT = '"~해줘"처럼 요청하면 바로 바꿔요. 물어보기만 하면 바꾸지 않아요.'
 
 /** ② 이후 화면의 대화. 같은 서버 세션(초안 id = 대화 id)의 기록을 읽고 보낸다. 동작을 하면 onAction 으로 화면이 서버 상태를 다시 읽는다. */
-export function useCheckChat(draftId: string | undefined, onAction?: (action: ChatAction | null) => void) {
-  const [entries, setEntries] = useState<ChatEntry[]>([INTRO])
+export function useCheckChat(draftId: string | undefined, onAction?: (action: ChatAction | null) => void, screen?: ChatScreen) {
+  const intro = screen === 'review' ? INTRO_REVIEW : INTRO
+  const [entries, setEntries] = useState<ChatEntry[]>([intro])
   const [busy, setBusy] = useState(false)
   const loaded = useRef<string | null>(null)
   const onActionRef = useRef(onAction)
@@ -24,7 +30,7 @@ export function useCheckChat(draftId: string | undefined, onAction?: (action: Ch
     api.quoteDrafts.chatHistory(draftId).then(messages => {
       const restored: ChatEntry[] = messages.filter(m => m.role === 'user' || m.role === 'assistant')
         .map(m => ({ id: m.id, kind: m.role === 'user' ? 'user' : 'bot', text: m.text }) as ChatEntry)
-      if (restored.length) setEntries([INTRO, ...restored])
+      if (restored.length) setEntries([intro, ...restored])
     }).catch(() => { /* 기록을 못 읽어도 새 대화로 시작한다 */ })
   }, [draftId])
 
@@ -48,7 +54,7 @@ export function useCheckChat(draftId: string | undefined, onAction?: (action: Ch
     }
     setBusy(true)
     try {
-      const reply = await sendChat(draftId, text, clientId)
+      const reply = await sendChat(draftId, text, clientId, screen)
       if (reply.action) {
         const action = reply.action
         const id = `a-${clientId}`

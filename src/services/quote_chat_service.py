@@ -409,7 +409,7 @@ def _answer_search_consent(conn, stored_messages: list[dict], text: str) -> tupl
 
 
 def chat(conn, list_id: UUID, principal: Principal, text: str, *, client_message_id: str | None = None,
-         context: dict | None = None) -> dict:
+         context: dict | None = None, screen: str | None = None) -> dict:
     """견적 점검 질문 하나. `context`(저장 견적 비교)가 있으면 그 비교의 사실·시각 자료·가이드로 답하고, 같은 질문은 저장된 답을
     다시 쓴다(LLM을 부르지 않는다). `client_message_id`가 이미 처리된 것이면(재전송) 저장된 답을 그대로 돌려준다."""
     text = (text or "").strip()
@@ -439,7 +439,7 @@ def chat(conn, list_id: UUID, principal: Principal, text: str, *, client_message
             return _payload(message_id, _now_iso(), reply, meta)
         # 말로 하는 동작(교체 담기·빼기, 조건 바꾸기, 제품 확정, 정보 찾기 제안, 다시 분석) — 요청 말투일 때만. 분석 전에도 된다.
         from src.services import quote_chat_actions
-        acted = quote_chat_actions.try_action(conn, list_id, principal, text)
+        acted = quote_chat_actions.try_action(conn, list_id, principal, text, screen=screen)
         if acted is not None:
             reply, action, extra = acted
             meta = {"answer_id": str(uuid.uuid4()), "evidence": ["채팅 동작"] if action else [], "guide_refs": [], "visuals": [],

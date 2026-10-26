@@ -282,6 +282,7 @@ class QuoteChatIn(BaseModel):
     text: str = Field(min_length=1, max_length=1000)
     client_message_id: str | None = Field(default=None, max_length=100)   # 같은 요청의 재전송이면 저장된 답을 돌려준다
     context: QuoteChatContextIn | None = None                             # 저장 견적 비교에 대한 질문
+    screen: Literal["review", "replace"] | None = None                    # 채팅이 열린 화면(③ 종합 평가 / ④ 교체 구성) — 같은 말에도 안내가 달라진다
 
 
 class QuoteGuideRefOut(BaseModel):

@@ -35,6 +35,7 @@ _PURPOSE_LABEL = {"game": "게임", "creation": "창작", "office": "사무", "s
 _PRIORITY_LABEL = {"performance": "성능 우선", "value": "가성비", "quiet": "저소음"}
 _RESOLUTION_LABEL = {"FHD_144": "FHD 144Hz", "QHD_165": "QHD 165Hz", "4K": "4K"}
 _MONEY = re.compile(r"(\d+(?:\.\d+)?)\s*(만\s*원|만|원)")
+REVIEW_SCREEN_ADD_NOTICE = "교체할 부품과 후보는 다음 단계인 ④ 교체 구성에서 진행해 주세요. 그 화면에서 바꿀 부품과 후보를 볼 수 있어요."
 
 
 def _won(value: int | float) -> str:
@@ -134,7 +135,8 @@ def _replacement_sentence(state: dict, slot: str) -> str:
     return ", ".join(parts)
 
 
-def _do_add(conn, list_id: UUID, principal: Principal, draft: dict, review: dict, plan: dict) -> tuple[str, dict | None]:
+def _do_add(conn, list_id: UUID, principal: Principal, draft: dict, review: dict, plan: dict,
+            screen: str | None = None) -> tuple[str, dict | None]:
     slot, text = plan["slot"], plan["text"]
     by_slot = load_pc_catalog(lambda _msg: None)
     pool = by_slot.get(slot, [])
@@ -149,6 +151,9 @@ def _do_add(conn, list_id: UUID, principal: Principal, draft: dict, review: dict
         targets = quote_replacement_plan.build_targets(review, by_slot, conn=conn, limit=1)
         target = next((t for t in targets["targets"] if t["slot"] == slot), None)
         if not target or not target["candidates"]:
+            if screen == "review":
+                # ③ 종합 평가는 진단만 보인다 — "후보가 없다"로 읽히지 않게 후보를 보는 화면을 안내한다.
+                return REVIEW_SCREEN_ADD_NOTICE, None
             note = (target or {}).get("note")
             return f"{slot}에 담을 추천 후보가 없어요.{(' ' + note) if note else ''} 제품 이름을 말해 주시면 확인해 볼게요.", None
         top = target["candidates"][0]
@@ -255,15 +260,15 @@ def _do_lookup(conn, list_id, principal, draft, plan) -> tuple[str, dict | None,
     return reply, None, {"pending_search": {"slot": plan["slot"], "product": item["normalized_name"]}}
 
 
-def try_action(conn, list_id: UUID, principal: Principal, text: str) -> tuple[str, dict | None, dict] | None:
+def try_action(conn, list_id: UUID, principal: Principal, text: str, *, screen: str | None = None) -> tuple[str, dict | None, dict] | None:
     """말이 동작 요청이면 실행하고 (답변 문장, action 메타, 메시지에 더 저장할 값)을 돌려준다. 동작이 아니면 None(읽기 답변으로)."""
-    result = _try_action(conn, list_id, principal, text)
+    result = _try_action(conn, list_id, principal, text, screen)
     if result is None:
         return None
     return result if len(result) == 3 else (*result, {})
 
 
-def _try_action(conn, list_id: UUID, principal: Principal, text: str):
+def _try_action(conn, list_id: UUID, principal: Principal, text: str, screen: str | None = None):
     try:
         draft = qds.get_draft(conn, list_id, principal)
     except NotFound:
@@ -281,7 +286,7 @@ def _try_action(conn, list_id: UUID, principal: Principal, text: str):
         return "먼저 분석을 마친 뒤에 교체 목록을 바꿀 수 있어요.", None
     try:
         if kind == "add":
-            return _do_add(conn, list_id, principal, draft, review, plan)
+            return _do_add(conn, list_id, principal, draft, review, plan, screen)
         if kind in ("remove", "remove_all"):
             return _do_remove(conn, list_id, principal, draft, plan)
         if kind == "condition":
